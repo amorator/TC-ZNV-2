@@ -1,0 +1,105 @@
+.requests-page {
+  width: 100%;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-top: 20px;
+}
+
+.request-page__table {
+  width: 100%;
+  border: none;
+  margin-bottom: 20px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* search moved to app.css */
+
+.search-cross {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.add-button {
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+}
+
+.add-file-button {
+  display: flex;
+}
+
+.add-file-button__label {
+  padding: 10px 15px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text);
+  border-radius: 10px;
+}
+
+.add-file-button__label:hover {
+  background-color: var(--secondary-900);
+  color: var(--text-acent);
+}
+
+.add-file-button__input {
+  display: none;
+  visibility: hidden;
+}
+
+.approval__object {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.approval__object_title {
+  display: block;
+  font-size: 16px;
+  text-transform: uppercase;
+  font-weight: bold;
+  color: var(--text);
+}
+
+.approval__object_actions {
+  display: flex;
+  gap: 2px;
+}
+
+.approval__object_action {
+  border: 1px solid var(--secondary-500);
+  padding: 5px;
+  border-radius: 50%;
+  width: 25px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.approval__object_action--aprove {
+  background-color: var(--success-800);
+}
+
+.approval__object_action--aprove:hover {
+  background-color: var(--success-500);
+}
+
+.approval__object_action--reject {
+  background-color: var(--error-900);
+}
+
+.approval__object_action--reject:hover {
+  background-color: var(--error-500);
+}
+
+/* actions moved to app.css */
+
+.mask__icon {
+  display: none;
+}
+
+/* requests-page__link moved to app.css */

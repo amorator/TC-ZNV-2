@@ -1,0 +1,47 @@
+{% extends 'base.j2.html' %} {% block headextra %}
+<link rel="stylesheet" href="{{url_for('static',filename='css/login.css')}}" />
+<script
+  type="text/javascript"
+  src="{{ url_for('static', filename='js/login.js') }}"
+></script>
+{% endblock %} {% block main %}
+<div class="login">
+  <div class="login__container">
+
+    <div class="login__sub-image"></div>
+
+    <form
+    class="login__form"
+    id="loginform"
+    action="{{ url_for('login') }}"
+    method="post"
+    >
+    <span class="login__title">Авторизация</span>
+    <div class="wrap-input100">
+
+      <input
+      type="text"
+      id="login"
+      name="login"
+      placeholder="логин..."
+      autofocus
+      required
+      class="input"
+      />
+    </div>
+    <div class="wrap-input100">
+
+      <input
+      type="password"
+      id="password"
+      name="password"
+      placeholder="пароль..."
+      required
+      class="input"
+      />
+    </div>
+    <button type="submit" class="login__button" id="submit">Войти</button>
+  </div>
+  </form>
+</div>
+{% endblock %}

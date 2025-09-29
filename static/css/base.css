@@ -1,0 +1,340 @@
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+body {
+  background-color: var(--fon-900);
+  font-family: Roboto, Arial, Helvetica, sans-serif;
+  font-size: 20px;
+  color: var(--text);
+  display: block;
+  width: 99%;
+}
+
+span {
+  white-space: pre-line
+}
+
+
+textarea {
+  height: 100px;
+}
+
+select {
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg2);
+  color: var(--fg);
+  font-size: 18px;
+  border: 1px solid var(--fg);
+  cursor: pointer;
+  background: none;
+}
+
+select option {
+  background-color: var(--bg2);
+}
+
+
+
+::-webkit-scrollbar {
+  -webkit-appearance: none;
+  width: 5px;
+  background-color: var(--bg2);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--fg);
+}
+
+#active {
+  color: var(--bg);
+  background-color: var(--bg3);
+}
+
+#addbut td {
+  text-align: center;
+}
+
+#addbut td img {
+  height: 22px;
+  width: 22px;
+}
+
+#search td img {
+  vertical-align: middle;
+  width: 20px;
+  height: 20px;
+}
+
+#searchinp {
+  vertical-align: middle;
+  font-size: 20px;
+  padding: 0 25px;
+  background: none;
+  width: 90%;
+  border: none;
+}
+
+#searchinp:focus {
+  outline: none;
+}
+
+#btntheme {
+  float: right;
+  padding-right: 2px;
+}
+
+#btnnotmenu {
+  float: right;
+  padding-right: 2px;
+}
+
+
+.permissions th {
+  text-align: center;
+}
+
+.permissions td {
+  width: 25%;
+  text-align: left;
+  vertical-align: center;
+  font-size: 16px;
+}
+
+.topnav {
+  background-color: var(--bg2);
+  overflow: hidden;
+}
+
+.topnav a {
+  float: left;
+  padding: 5px 20px 5px 20px;
+}
+
+.topnav a:hover,
+a.active {
+  background-color: var(--bg3);
+  color: black;
+}
+
+.right {
+  float: right !important;
+}
+
+.center {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.centered {
+  text-align: center;
+}
+
+.action {
+  border: 2px solid var(--fg);
+  border-radius: 15px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.submitEl {
+  margin-top: 40px;
+}
+
+.cancel {
+  margin-top: 30px;
+  margin-bottom: 0px;
+  color: var(--fg2);
+  border-color: var(--fg2);
+}
+
+.cancel:hover {
+  color: var(--fg2);
+}
+
+.overlay-container {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.popup-box {
+  background: var(--bg2);
+  border: 2px solid var(--fg);
+  border-radius: 10px;
+  text-align: center;
+  opacity: 0;
+  transform: scale(0.8);
+  animation: fadeInUp 0.5s ease-out forwards;
+  font-size: 100%;
+  overflow-y: scroll;
+  height: auto;
+  width: 90%;
+  padding: 10px 10px 10px 10px;
+}
+
+.popup-box h1 {
+  font-size: 30px;
+}
+
+.form-container {
+  border: none;
+  display: flex;
+  flex-direction: column;
+  width: 90%;
+}
+
+.big-form-container {
+  border: none;
+  display: flex;
+  flex-direction: column;
+  width: 90%;
+  height: 500px;
+}
+
+.form-container label {
+  margin-bottom: 5px;
+}
+
+.form-container input,
+select,
+checkbox {
+  margin-bottom: 15px;
+}
+
+.overlay-container.show {
+  display: flex;
+  opacity: 1;
+}
+
+.type {
+  width: 100%;
+  background-color: var(--bg);
+}
+
+/* removed global .container * override to not break Bootstrap layout */
+
+
+/*   egor  */
+
+html {
+  height: 100%;
+}
+
+body {
+  height: 100%;
+}
+
+.mask {
+  background: none !important;
+  width: auto;
+  height: auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+  background-color: var(--primary-900);
+  align-items: center;
+}
+
+.menu {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.link {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 18px;
+  /*text-transform: lowercase;*/
+  padding: 10px;
+  border-radius: 3px;
+}
+
+.link:hover {
+  color: var(--text-acent);
+  background-color: var(--secondary-900);
+}
+
+.link#active {
+  color: var(--text-acent);
+  background-color: var(--secondary-900);
+}
+
+.button {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 18px;
+  /*text-transform: lowercase;*/
+  padding: 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--secondary-900);
+  background-color: var(--primary-900);
+  width: 100%;
+}
+
+.button:hover {
+  color: var(--text-acent);
+  background-color: var(--secondary-900);
+}
+
+.button_success {
+  color: var(--text-acent);
+  background-color: var(--success-900);
+  border: 1px solid var(--text-acent);
+}
+
+.button_success:hover {
+  background-color: var(--success-500);
+}
+
+.button_cancel {
+  color: var(--text-acent);
+  background-color: var(--error-900);
+  border: 1px solid var(--text-acent);
+}
+
+.button_cancel:hover {
+  background-color: var(--error-500);
+}
+
+.header__settings {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.header__setting {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.inverted {
+  -webkit-filter: invert(100%);
+  filter: invert(100%);
+}

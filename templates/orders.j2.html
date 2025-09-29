@@ -1,0 +1,492 @@
+{% extends 'base.j2.html' %}
+{% block headextra %}
+  <link rel="stylesheet"
+        href="{{ url_for('static',filename='css/orders.css') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static',filename='css/table.css') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static',filename='css/popup.css') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static',filename='css/components/select.css') }}" />
+  <link rel="stylesheet"
+        href="{{ url_for('static',filename='css/components/input.css') }}" />
+  <script type="text/javascript"
+          src="{{ url_for('static', filename='js/orders.js') }}"></script>
+{% endblock %}
+{% block main %}
+  <section class="orders-page container-fluid py-3">
+    <table class="orders-page__table table table-striped table-hover table-sm align-middle" id="maintable">
+      <thead class="table__head">
+        <tr class="table__head_row">
+          <th class="table__head_item">Служба</th>
+          <th class="table__head_item">Состояние</th>
+          <th class="table__head_item">Прикрепленные файлы</th>
+          <th class="table__head_item">№</th>
+          <th class="table__head_item">Выдан</th>
+          <th class="table__head_item">Начало</th>
+          <th class="table__head_item">Окончание</th>
+          <th class="table__head_item">Ответственный</th>
+          <th class="table__head_item">Наименование работ</th>
+          <th class="table__head_item hidden">Согласование</th>
+          <th class="table__head_item">Просмотрен</th>
+          {% if current_user.permission[id - 1] != 'a' %}<th class="table__head_item">Редактирование наряда</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody class="table__body">
+        <tr class="table__body_actions" id="search">
+          <td class="table__body_action"
+              colspan="{{ 10 if current_user.permission[id - 1] != 'a' else 9 }}"
+              onclick="">
+                <div class="search">
+              {% if current_user.is_allowed(id, 'i') %}
+                <div class="orders_table__button" onclick="popupToggle('popup-table');">
+                  <a href="#" class="orders-page__link">наряды <br>на завтра</a>
+                </div>
+              {% endif %}
+                <input id="searchinp" class="search-box" type="text" placeholder="Поиск..." />
+                    <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
+            </div>
+          </td>
+          <td class="table__body_action">
+            {% if current_user.is_allowed(id, 'b') %}
+              <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+            {% endif %}
+          </td>
+        </tr>
+        {% if orders %}
+          {% for ord in orders %}
+            {% if current_user.gid == ord.department or current_user.is_allowed(id, 'j') %}
+              <tr class="table__body_row" id="{{ ord.id }}">
+                <td class="table__body_item">{{ groups[ord.department] }}</td>
+                <td class="table__body_item">
+                  <div class="job {{ 'job' + ord.state|string }}">
+                    {% if (current_user.is_allowed(id, 'f') or current_user.name == ord.creator) and ord.state != 1 %}
+                      <a class="orders-page__link"
+                        href="#"
+                        onclick="popupToggle('popup-status', {{ ord.id }});">{{ ord.state_name }}<br>
+                        {{ ord.comp_date if ord.comp_date else ''}}</a>
+                    {% else %}
+                      <a class="orders-page__link">{{ ord.state_name }}<br>
+                      {{ ord.comp_date if ord.comp_date else '' }}</a>
+                    {% endif %}
+                  </div>
+                </td>
+                <td class="table__body_item">
+                {% if ord.attachments|length > 0 and current_user.is_allowed(id, 'g') or current_user.name == ord.creator %}
+                {% for file in ord.attachments %}
+                  <div class="actions">
+                    <a class="orders-page__link" href="{{ url_for('order_file_show', name=file) }}" target="_blank">{{ file }}</a>
+                    <a class="orders-page__link btn btn-link p-0 d-inline-flex align-items-center" href="{{ url_for('order_file_show', name=file) }}" download><i class="bi bi-download"></i></a>
+                    {% if (current_user.is_allowed(id, 'c') or current_user.name == ord.creator) and ord.state != 1 %}
+                    <a class="orders-page__link btn btn-link p-0 d-inline-flex align-items-center" href="#" onclick="popupFileDeleteToggle({{ ord.id }}, '{{ file }}');" id="{{ file }}"><i class="bi bi-trash3"></i></a>
+                  {% endif %}
+                  </div>
+                  <br>
+                {% endfor %}
+                <hr>
+              {% endif %}
+                  {% if (current_user.is_allowed(id, 'c') and current_user.is_allowed(id, 'g') or current_user.name == ord.creator) and ord.state != 1 %}
+                    <div class="add-file-button">
+                      <label for="{{ ord.id }}_file" class="add-file-button__label">
+                        <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center table__body_action-add"><i class="bi bi-plus-lg"></i></button>
+                      </label>
+                      <input id="{{ ord.id }}_file"
+                            name="file"
+                            class="add-file-button__input"
+                            type="file"
+                            onchange="sendFiles({{ ord.id }});"
+                            multiple="true";
+                            accept="video/mp4,video/x-m4v,video/*,audio/*" />
+                      <label for="{{ ord.id }}_file_get" class="add-file-button__label" onclick="popupToggle('popup-add-file', {{ ord.id }})">
+                        <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center table__body_action-add"><i class="bi bi-camera-video"></i></button>
+                      </label>
+                    </div>
+                  {% endif %}
+                </td>
+                <td class="table__body_item">{{ ord.number }}</td>
+                <td class="table__body_item">{{ ord.iss_date }}</td>
+                <td class="table__body_item">{{ ord.start_date }}</td>
+                <td class="table__body_item">{{ ord.end_date }}</td>
+                <td class="table__body_item">{{ ord.responsible }}</td>
+                <td class="table__body_item">{{ ord.jobs }}</td>
+                <td class="table__body_item hidden">
+                  {% if current_user.is_allowed(id, 'e') %}
+                    <div class="approval__object_actions">
+                      <a class="approval__object_action approval__object_action--aprove"
+                        href="{{ url_for('orders_approve', id=ord.id) }}">
+                        <i class="bi bi-check2-circle"></i>
+                      </a>
+                      <a class="approval__object_action approval__object_action--reject"
+                        href="{{ url_for('orders_disapprove', id=ord.id) }}">
+                        <i class="bi bi-x-lg"></i>
+                      </a>
+                    </div>
+                    <hr />
+                  {% endif %}
+                  <div class="approve {{ 'approved' + ord.approved|string }}">{{ "Согласовано" if ord.approved else "Не согласовано" if ord.approved == 0 else "Не рассмотрено" }}</div>
+                </td>
+                <td class="table__body_item">
+                  {% if current_user.is_allowed(id, 'h') %}
+                    {% if ord.viewed %}
+                      <button class="button inverted"
+                              onclick="location.href='{{ url_for("orders_view", id=ord.id, did=did, sdid=sdid) }}'">
+                        {{ ord.viewed | safe }}
+                      </button>
+                    {% else %}
+                      <button class="button"
+                              onclick="location.href='{{ url_for("orders_view", id=ord.id, did=did, sdid=sdid) }}'">
+                        просмотреть
+                      </button>
+                    {% endif %}
+                    <span onclick="popupToggle('popup-note', {{ ord.id }});">{{ 'Примечание: ' + ord.note if ord.note else '<оставить примечание>' }}</span>
+                  {% elif ord.viewed %}
+                    <button class="button inverted">{{ ord.viewed }}</button>
+                    {% if ord.note %}
+                      <span class="input form-control__control">{{ 'Примечание: ' + ord.note | string }}</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+                {% if current_user.permission[id - 1] != 'a' %}
+                  <td class="table__body_item">
+                    <div class="actions">
+                      {% if (current_user.is_allowed(id, 'c') or current_user.name == ord.creator) and ord.state != 1 %}
+                        <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-edit', {{ ord.id }});"><i class="bi bi-pencil-square"></i></button>
+                      {% endif %}
+                      {% if (current_user.is_allowed(id, 'd') or current_user.name == ord.creator) and ord.state != 1 %}
+                        <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ ord.id }});"><i class="bi bi-trash3"></i></button>
+                      {% endif %}
+                    </div>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+    <div id="popup-note" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Примечание</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="note" action="{{ url_for(pages[id].name + '_note', id=0) }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Примечание к записи:</label>
+            <textarea class="form-control__control input" name="note" placeholder="Введите примечание..."></textarea>
+          </div>
+
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-note');" >Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-add-file" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Загрузка файла с регистратора</h1>
+      <div class="popup__body">
+        <form class="popup__form"
+              id="add-file"
+              action="{{ url_for(pages[id].name + '_file_add_remote', id='0') }}"
+              method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Регистратор:</label>
+            <select class="form-control__control select" name="s0" id="s0" onchange="httpGet(0);">
+              <option class="select__option" disabled selected value></option>
+              <option class="select__option" value="10.209.80.101/">Восточная</option>
+              <option class="select__option" value="10.209.76.101/">Северная</option>
+              <option class="select__option" value="10.178.4.215/">ДС</option>
+              <option class="select__option" value="10.178.4.157/">ВРТС</option>
+            </select>
+          </div>
+          <div class="popup__actions">
+            <button type="button" class="btn btn-primary" onclick="addFileSubmit();">Загрузить</button>
+            <button type="button" class="btn btn-secondary" onclick="addFileReset(); popupToggle('popup-add-file');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+<div id="popup-delete-file" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Удалить файл</h1>
+      <div class="popup__body">
+        <p>
+          Вы действительно хотите удалить файл
+          <b>ordname</b>
+          из наряда
+          <b>filename</b>?
+        </p>
+        <form class="popup__form"
+              id="delete-file"
+              action="{{ url_for('order_file_delete', id=0, name='xxx') }}"
+              method="post">
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete-file');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-add" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Создание наряда</h1>
+      <div class="popup__body">
+        <form class="popup__form"
+              id="add"
+              action="{{ url_for(pages[id].name + '_add') }}"
+              method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Служба:</label>
+            <select class="form-control__control select" name="department">
+              {% for g in groups %}
+                {% if current_user.gid == g or current_user.is_allowed(id, 'j') %}
+                  <option class="select__option" value="{{ g }}" {{ "selected" if g == current_user.gid else "" }}>{{ groups[g] }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Ответственный:</label>
+            <input class="input form-control__control"
+                   type="text"
+                   name="responsible"
+                   placeholder="Введите имя ответственного..." />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">№:</label>
+            <input class="input form-control__control"
+                   type="text"
+                   name="number"
+                   placeholder="Введите номер..." />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Выдан:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="iss_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Начало:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="start_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Окончание:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="end_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Работы завершены:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="comp_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Наименование работ:</label>
+            <textarea class="input form-control__control"
+                      name="description"
+                      placeholder="Введите наименование работ..."></textarea>
+          </div>
+          <div class="popup__actions d-flex gap-2">
+            <button type="button" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Создать</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div id="popup-delete" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Удалить наряд</h1>
+      <div class="popup__body">
+        <p>
+          Вы действительно хотите удалить наряд
+          <b>ordname</b>?
+        </p>
+        <form class="popup__form"
+              id="delete"
+              action="{{ url_for(pages[id].name + '_delete', id='0') }}"
+              method="post">
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div id="popup-edit" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование наряда</h1>
+      <div class="popup__body">
+        <form class="popup__form"
+              id="edit"
+              action="{{ url_for(pages[id].name + '_edit', id='0') }}"
+              method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Служба:</label>
+            <select class="select form-control__control" name="department">
+              {% for g in groups %}
+                {% if current_user.gid == g or current_user.is_allowed(id, 'j') %}
+                  <option class="select__option" value="{{ g }}">{{ groups[g] }}</option>
+                {% endif %}  
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Ответственный:</label>
+            <input class="form-control__control input"
+                   type="text"
+                   name="responsible"
+                   placeholder="Введите имя ответственного..." />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">№:</label>
+            <input class="form-control__control input"
+                   type="text"
+                   name="number"
+                   placeholder="Введите номер..." />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Выдан:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="iss_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Начало:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="start_date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Окончание:</label>
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="end_date" />
+            <div class="popup__form-control form-control">
+              <label class="form-control__label">Работы завершены:</label>
+              <input class="form-control__control input"
+                     type="datetime-local"
+                     name="comp_date" />
+            </div>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Наименование работ:</label>
+            <textarea class="form-control__control input"
+                      name="description"
+                      placeholder="Введите наименование работ..."></textarea>
+          </div>
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div id="popup-status" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование наряда</h1>
+      <div class="popup__body">
+        <form class="popup__form"
+              id="status"
+              action="{{ url_for(pages[id].name + '_status', id='0') }}"
+              method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Статус:</label>
+          </div>
+          <div class="popup__form-control form-control">
+            <ul class="chk-btn">
+              <li>
+                <input id="с1"
+                       name="status"
+                       type="radio"
+                       value="-1"
+                       onclick="document.getElementById('comp_date_hidden').style.display='none';" />
+                <label for="с1">Работы не ведутся</label>
+              </li>
+              <li>
+                <input id="с2"
+                       name="status"
+                       type="radio"
+                       value="0"
+                       onclick="document.getElementById('comp_date_hidden').style.display='none';" />
+                <label for="с2">Работы ведутся</label>
+              </li>
+              <li>
+                <input id="с3"
+                       name="status"
+                       type="radio"
+                       value="1"
+                       onclick="document.getElementById('comp_date_hidden').style.display='block';" />
+                <label for="с3">Работы завершены</label>
+              </li>
+            </ul>
+          </div>
+          <div class="popup__form-control form-control">
+            <input class="form-control__control input"
+                   type="datetime-local"
+                   name="comp_date"
+                   id="comp_date_hidden" />
+          </div>
+          <div class="popup__actions d-flex gap-2">
+            <button type="button" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-status');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div id="popup-table" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Формирование списка нарядов</h1>
+      <div class="popup__body">
+        <form class="popup__form"
+              id="table"
+              action="{{ url_for(pages[id].name + '_table_new') }}"
+              method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Дата:</label>
+            <input class="form-control__control input"
+                   type="date"
+                   name="date" />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">ФИО согласовывающего:</label>
+            <input class="input form-control__control"
+                   type="text"
+                   name="responsible"
+                   placeholder="Введите ФИО согласовывающего..." />
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Должность согласовывающего:</label>
+            <input class="input form-control__control"
+                   type="text"
+                   name="job1"
+                   placeholder="Должность согласовывающего..." />
+            <input class="input form-control__control"
+                   type="text"
+                   name="job2"
+                   placeholder="Должность согласовывающего..." />
+          </div>
+          <div class="popup__actions d-flex gap-2">
+            <button type="button" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Создать</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-table');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

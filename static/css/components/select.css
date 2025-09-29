@@ -1,0 +1,19 @@
+.select {
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--primary-900);
+  padding: 10px 15px;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 18px;
+  border: 1px solid var(--secondary-900);
+  cursor: pointer;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.select__option {
+  background-color: var(--primary-900);
+  color: var(--text);
+}

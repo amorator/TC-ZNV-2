@@ -1,0 +1,62 @@
+/* Using Bootstrap table defaults; keep minimal tweaks */
+.table {
+  width: 100%;
+  border: none;
+}
+
+.table__head_item {
+  font-weight: 600;
+  text-align: left;
+  border: none;
+}
+
+.table__head_item:first-child {
+  border-left: none;
+}
+
+.table__head_item:last-child {
+  border-right: none;
+}
+
+.table__body_action {
+  text-align: center;
+  border: none;
+}
+
+.table__body_action:first-child {
+  border-left: none;
+}
+
+.table__body_action:last-child {
+  border-right: none;
+}
+
+.table__body_item {
+  text-align: left;
+  border: none;
+  vertical-align: top;
+}
+
+.table__body_item:last-child {
+  border-right: none;
+}
+
+.table__body_item:first-child {
+  border-left: none;
+}
+
+.table__body_row:nth-child(even) {
+  background: inherit;
+}
+
+.table__body_row:last-child .table__body_item {
+  border-bottom: none;
+}
+
+.table__body_row:last-child .table__body_item:last-child {
+  border-radius: 0;
+}
+
+.table__body_row:last-child .table__body_item:first-child {
+  border-radius: 0;
+}

@@ -1,0 +1,353 @@
+.theme-light {
+    --sidebar-bg: #cfd8e3;
+    /* darker sidebar for better contrast */
+    /* was white */
+    --sidebar-text: #374151;
+    /* dark gray */
+    --table-td-bg: #f8fafc;
+    /* very light gray */
+    --table-td-text: #111827;
+    /* almost black */
+    --topbar-bg: #dbe7f3;
+    /* slightly darker topbar for contrast */
+    /* was light gray */
+    --topbar-text: #111827;
+    --btn-focus: #1e40af;
+    /* blue accent */
+    --body-bg: #ffffff;
+    --body-text: #0f1724;
+    --overlay-text: #ffffff;
+    --overlay-bg: rgba(0, 0, 0, 0.45);
+    --video-border-color: rgba(0, 0, 0, 0.2);
+    /* dark gray */
+    --tr-focus: #e6eef8;
+    /* subtle row hover */
+    --scrollbar-bg: #f1f5f9;
+    --scrollbar-thumb: #cbd5e1;
+    --scrollbar-thumb-hover: #1e40af;
+    --cam-size-bg: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+    --cam-size-text: #ffffff;
+    --player-ctrl-bg: #e2e8f0;
+    /* slightly darker for better contrast */
+    --player-ctrl-text: #0f172a;
+    --warning-color: #f59e0b;
+    --info-color: #3b82f6;
+}
+
+.theme-dark {
+    --sidebar-bg: #2b2b2b;
+    /* dark gray */
+    --sidebar-text: #ffd43b;
+    /* yellow accent */
+    --table-td-bg: #000000;
+    /* black */
+    --table-td-text: #ffd43b;
+    /* yellow text for high contrast */
+    --topbar-bg: #000000;
+    /* black */
+    --topbar-text: #ffd43b;
+    --btn-focus: #ffd43b;
+    /* yellow focus */
+    --body-bg: #121212;
+    /* very dark gray */
+    --body-text: #ffffff;
+    --overlay-text: #ffd43b;
+    --overlay-bg: rgba(0, 0, 0, 0.45);
+    --video-border-color: rgba(255, 255, 255, 0.18);
+    --tr-focus: #1f1f1f;
+    --scrollbar-bg: #1f1f1f;
+    --scrollbar-thumb: #000000;
+    --scrollbar-thumb-hover: #ffd43b;
+    --cam-size-bg: linear-gradient(135deg, #ffd43b 0%, #ffed4e 100%);
+    --cam-size-text: #000000;
+    --player-ctrl-bg: #0f0f0f;
+    --player-ctrl-text: #ffd43b;
+    --warning-color: #fbbf24;
+    --info-color: #60a5fa;
+}
+
+.theme-dark-hc {
+    --sidebar-bg: #202020;
+    --sidebar-text: #00ff88;
+    --table-td-bg: #000000;
+    --table-td-text: #00ff88;
+    --topbar-bg: #000000;
+    --topbar-text: #00ff88;
+    --btn-focus: #00ff88;
+    --body-bg: #000000;
+    --body-text: #00ff88;
+    --overlay-text: #00ff88;
+    --overlay-bg: rgba(0, 0, 0, 0.6);
+    --video-border-color: #00ff88;
+    --tr-focus: #202020;
+    --scrollbar-bg: #202020;
+    --scrollbar-thumb: #000000;
+    --scrollbar-thumb-hover: #00ff88;
+    --cam-size-bg: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+    --cam-size-text: #000000;
+    --player-ctrl-bg: #000000;
+    --player-ctrl-text: #00ff88;
+    --warning-color: #00ff88;
+    --info-color: #00ccff;
+}
+
+body {
+    background-color: var(--body-bg);
+    color: var(--body-text);
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+body::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+body::-webkit-scrollbar-track {
+    background: var(--scrollbar-bg);
+}
+
+body::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 6px;
+    border: 2px solid var(--scrollbar-bg);
+}
+
+body::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+}
+
+.btn,
+.btn-outline-secondary {
+    color: var(--sidebar-text);
+    background: none;
+    border: 1px solid var(--sidebar-bg);
+    outline: none;
+    transition: box-shadow 0.2s, border-color 0.2s;
+    cursor: pointer;
+}
+
+.btn:focus,
+.btn-outline-secondary:focus {
+    outline: 2px solid var(--btn-focus);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--btn-focus);
+    border-color: var(--btn-focus);
+}
+
+select,
+select.form-select {
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+    border: 1px solid var(--topbar-text);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 1rem;
+    outline: none;
+    cursor: pointer;
+}
+
+select:focus {
+    outline: 2px solid var(--btn-focus);
+    box-shadow: 0 0 0 2px var(--btn-focus);
+    border-color: var(--btn-focus);
+}
+
+select:hover {
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+}
+
+input[type="text"],
+.form-control,
+.input-group-text {
+    background-color: var(--body-bg);
+    color: var(--body-text);
+    border: 1px solid var(--sidebar-bg);
+}
+
+/* Ensure datetime-local input text is visible in dark themes */
+input[type="datetime-local"].form-control,
+input[type="datetime-local"] {
+    color: var(--body-text);
+    background-color: var(--body-bg);
+    opacity: 1;
+    /* override browser dimming */
+    font-weight: 600;
+    /* improve readability */
+    border-color: var(--sidebar-bg);
+}
+
+/* Strengthen color in dark and hc themes explicitly */
+.theme-dark input[type="datetime-local"],
+.theme-dark-hc input[type="datetime-local"] {
+    color: var(--body-text);
+    font-weight: 700;
+    background-color: var(--body-bg);
+    border-color: var(--sidebar-bg);
+}
+
+/* Attempt to theme picker icon where supported */
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.2);
+}
+
+.theme-dark input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+.theme-dark-hc input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) hue-rotate(180deg) saturate(1.2);
+}
+
+/* Ensure password input is readable across themes */
+input[type="password"].form-control,
+input[type="password"].form-control:focus {
+    color: var(--body-text);
+    background-color: var(--body-bg);
+    caret-color: var(--btn-focus);
+}
+
+/* Improve placeholder contrast */
+input::placeholder,
+.form-control::placeholder {
+    color: var(--table-td-text);
+    opacity: 0.75;
+}
+
+input[type="text"]:focus,
+.form-control:focus {
+    outline: 2px solid var(--btn-focus);
+    box-shadow: 0 0 0 2px var(--btn-focus);
+    background-color: var(--sidebar-bg);
+}
+
+input[type="checkbox"] {
+    accent-color: var(--btn-focus);
+}
+
+table th,
+thead th {
+    background-color: var(--table-td-bg);
+    color: var(--table-td-text);
+}
+
+table td,
+tbody td {
+    background-color: var(--table-td-bg);
+    color: var(--table-td-text);
+}
+
+.table-hover {
+    --bs-table-hover-bg: var(--tr-focus);
+    --bs-table-hover-color: var(--table-td-text);
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+}
+
+.bi {
+    color: var(--body-text);
+}
+
+.sticky-footer {
+    background-color: var(--body-bg);
+    border-top: 1px solid var(--sidebar-bg);
+    color: var(--body-text);
+}
+
+/* Global connection lost banner overlay */
+.conn-lost-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.conn-lost-overlay.show {
+    display: flex;
+}
+
+.conn-lost-box {
+    background: var(--body-bg);
+    color: var(--body-text);
+    border: 1px solid var(--sidebar-bg);
+    border-radius: 10px;
+    padding: 18px 22px;
+    min-width: 280px;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.conn-lost-box h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.25rem;
+}
+
+.conn-lost-box p {
+    margin: 0 0 12px 0;
+    opacity: 0.85;
+}
+
+.conn-spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 4px solid var(--body-text);
+    border-top-color: transparent;
+    margin: 0 auto;
+    animation: connspin 0.8s linear infinite;
+}
+
+@keyframes connspin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.modal-content {
+    background-color: var(--body-bg);
+    color: var(--body-text);
+    border: 1px solid var(--sidebar-bg);
+}
+
+.modal-header,
+.modal-footer {
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+    border-bottom: 1px solid var(--sidebar-bg);
+}
+
+[data-bs-toggle="tooltip"] {
+    color: var(--body-text);
+}
+
+#bottombar {
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+label,
+span {
+    color: var(--body-text);
+}
+
+.tooltip-inner {
+    font-size: 0.6rem;
+}
+
+.error-text {
+    color: red;
+}

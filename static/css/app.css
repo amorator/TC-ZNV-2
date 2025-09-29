@@ -1,0 +1,325 @@
+.search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+}
+
+.search input {
+    color: var(--text);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-link i.bi {
+    font-size: 1rem;
+}
+
+/* Topbar custom (no lists) */
+.app-topbar {
+    background: #ffc107;
+    width: 100%;
+    display: block;
+    padding: 10px 16px;
+    /* увеличенные отступы */
+    margin-bottom: 0;
+    /* чуть больше вниз */
+}
+
+.app-topbar__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0;
+    flex-wrap: wrap;
+}
+
+.app-topbar__group {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.theme-dark .app-topbar {
+    background: #343a40;
+}
+
+.theme-dark-hc .app-topbar {
+    background: #000;
+}
+
+.app-topbar .topbtn {
+    background: rgba(255, 255, 255, .15);
+    border: 1px solid rgba(255, 255, 255, .35);
+    color: #212529;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+    margin: 0 6px;
+    /* небольшой промежуток между кнопками */
+}
+
+.app-topbar .topbtn.active {
+    background: rgba(255, 255, 255, .3);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+}
+
+.app-topbar .topbtn:first-child {
+    margin-left: 0;
+}
+
+.app-topbar .topbtn:last-child {
+    margin-right: 0;
+}
+
+.app-topbar #btntheme {
+    margin: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 6px;
+}
+
+.app-topbar #btntheme i {
+    display: inline-block;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.app-topbar .topbtn:hover {
+    background: rgba(255, 255, 255, .25);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .1);
+}
+
+.theme-dark .app-topbar .topbtn {
+    color: #f8f9fa;
+    background: rgba(255, 255, 255, .1);
+    border-color: rgba(255, 255, 255, .25);
+}
+
+.theme-dark .app-topbar .topbtn:hover {
+    background: rgba(255, 255, 255, .2);
+}
+
+.theme-dark-hc .app-topbar .topbtn {
+    color: #fff;
+    background: #111;
+    border-color: #333;
+}
+
+.theme-dark-hc .app-topbar .topbtn:hover {
+    background: #222;
+}
+
+/* Generic small helpers */
+.search-cross {
+    display: none;
+}
+
+.add-button {
+    cursor: pointer;
+}
+
+/* Approval blocks shared by requests/orders */
+.approval__object {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.approval__object_title {
+    display: block;
+    font-size: 16px;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.approval__object_actions {
+    display: flex;
+    gap: 2px;
+}
+
+.approval__object_action {
+    border: 1px solid var(--secondary-500);
+    padding: 5px;
+    border-radius: 50%;
+    width: 25px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.approval__object_action--aprove {
+    background-color: var(--success-800);
+}
+
+.approval__object_action--aprove:hover {
+    background-color: var(--success-500);
+}
+
+.approval__object_action--reject {
+    background-color: var(--error-900);
+}
+
+.approval__object_action--reject:hover {
+    background-color: var(--error-500);
+}
+
+/* Links in data tables */
+.orders-page__link,
+.requests-page__link,
+.files-page__link {
+    text-decoration: none;
+    color: var(--text);
+    cursor: pointer;
+}
+
+/* Add file button wrapper */
+.add-file-button {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.add-file-button__label {
+    padding: 10px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    border-radius: 10px;
+}
+
+.add-file-button__label:hover {
+    background-color: var(--secondary-900);
+    color: var(--text-acent);
+}
+
+.add-file-button__input {
+    display: none;
+    visibility: hidden;
+}
+
+/* Subbars (category bars on files page) */
+.subbar {
+    padding: 6px 8px;
+    border-radius: 6px;
+    margin: 0;
+}
+
+.subbar.cat {
+    background: #ffe08a;
+}
+
+.subbar.subcat {
+    background: #fff3bf;
+}
+
+/* add spacing only below the second submenu (between submenus and table) */
+.subbar.subcat {
+    margin-bottom: 12px;
+}
+
+.theme-dark .subbar.cat {
+    background: rgba(255, 255, 255, .10);
+}
+
+.theme-dark .subbar.subcat {
+    background: rgba(255, 255, 255, .06);
+}
+
+.subbar__group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* Make submenu items look like top buttons and remove link styles */
+.subbar .topbtn,
+.subbar a.topbtn {
+    background: rgba(255, 255, 255, .15);
+    border: 1px solid rgba(255, 255, 255, .35);
+    color: #212529;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+}
+
+.subbar .topbtn:hover,
+.subbar a.topbtn:hover {
+    background: rgba(255, 255, 255, .25);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .1);
+}
+
+.subbar .topbtn.active,
+.subbar a.topbtn.active {
+    background: rgba(255, 255, 255, .3);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+}
+
+.theme-dark .subbar .topbtn,
+.theme-dark .subbar a.topbtn {
+    color: #f8f9fa;
+    background: rgba(255, 255, 255, .1);
+    border-color: rgba(255, 255, 255, .25);
+}
+
+.theme-dark .subbar .topbtn:hover,
+.theme-dark .subbar a.topbtn:hover {
+    background: rgba(255, 255, 255, .2);
+}
+
+.theme-dark-hc .subbar .topbtn,
+.theme-dark-hc .subbar a.topbtn {
+    color: #fff;
+    background: #111;
+    border-color: #333;
+}
+
+.theme-dark-hc .subbar .topbtn:hover,
+.theme-dark-hc .subbar a.topbtn:hover {
+    background: #222;
+}
+
+/* Colored table head and search bar */
+.table-colored thead {
+    background: #ffe08a;
+}
+
+.theme-dark .table-colored thead {
+    background: rgba(255, 255, 255, .08);
+}
+
+.searchbar {
+    background: #fff3bf;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+.theme-dark .searchbar {
+    background: rgba(255, 255, 255, .08);
+}
+
+/* color entire first row of the table body */
+.table-colored tbody tr:first-child>th,
+.table-colored tbody tr:first-child>td {
+    background: #fff3bf;
+}
+
+.theme-dark .table-colored tbody tr:first-child>th,
+.theme-dark .table-colored tbody tr:first-child>td {
+    background: rgba(255, 255, 255, .08);
+}

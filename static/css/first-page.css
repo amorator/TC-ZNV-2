@@ -1,0 +1,21 @@
+  .main-page{
+    width: 100%;
+  }
+  
+  .main-page__title{
+    padding:20px;
+    text-align: center;
+  }
+  
+  .main-page__content{
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+  }
+  
+  .link{
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+  }

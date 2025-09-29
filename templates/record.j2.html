@@ -1,0 +1,60 @@
+{% extends 'base.j2.html' %} {% block headextra %}
+<link rel="stylesheet" href="{{url_for('static',filename='css/record.css')}}" />
+<link
+  rel="stylesheet"
+  href="{{url_for('static',filename='css/components/progress.css')}}"
+/>
+{% endblock %}
+<script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+{% block main %}
+
+<section class="record-page">
+  <h1 class="record-page__title">Запись видео</h1>
+  <div class="record-page__body">
+    <div class="record-page__video">
+      <video class="video" autoplay playsinline id="video"></video>
+    </div>
+    <div class="record-page__menu">
+      <div class="record-page__pult">
+        <button class="button" id="camera">Включить камеру</button>
+        <button class="button" id="start">Начать запись</button>
+        <button class="button" id="pause">Пауза</button>
+        <button class="button" id="stop">Стоп</button>
+      </div>
+      <div class="record-page__settings">
+        <div class="record-page__settings-time record-page__setting">
+          <label class="record-page__setting-title">Длина записи:</label>
+          <label class="record-page__setting-element" id="time">00:00:00</label>
+        </div>
+        <div class="record-page__settings-file-name record-page__setting">
+          <label class="record-page__setting-title">Название файла:</label>
+          <input
+            class="record-page__setting-element"
+            type="text"
+            id="name"
+            placeholder="Video"
+            required
+          />
+        </div>
+        <div class="record-page__settings-description record-page__setting">
+          <label class="record-page__setting-title">Описание:</label>
+          <textarea
+            class="record-page__setting-element"
+            id="desc"
+            placeholder="Не обязательно..."
+          ></textarea>
+        </div>
+        <button class="button" id="save">Сохранить</button>
+        <input style="display: none" value="{{ did }}" id="did" />
+        <input style="display: none" value="{{ sdid }}" id="sdid" />
+        <progress id="progressBar" value="0" max="100"></progress>
+        <div class="upload__container">
+          <span class="upload__status" id="uploadForm_Status"></span>
+          <span id="uploadForm_Size"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<script src="{{ url_for('static', filename='js/record.js') }}"></script>
+{% endblock %}

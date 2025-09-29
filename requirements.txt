@@ -1,0 +1,7 @@
+beautifulsoup4
+Flask
+Flask_Cors
+Flask_Login
+mysql_connector_python
+gunicorn
+ffmpeg

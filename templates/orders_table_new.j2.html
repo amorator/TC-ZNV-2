@@ -1,0 +1,54 @@
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Для согласования</title>
+    <style type="text/css">
+      * {
+        font-size: large;
+        font-family: 'Times New Roman', Times, serif;
+      }
+      td {
+        padding: 0 15px;
+      }
+      th, td {
+        padding-bottom: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <p><b>Информация о плановых работах на {{ date }}</b></p>
+    <table>
+      <th>
+        <tr>
+          <td>Служба</td>
+          <td>№</td>
+          <td>Начало</td>
+          <td>Окончание</td>
+          <td>Руководитель/производитель работ</td>
+          <td>Наименование работ</td>
+          <td>Примечания</td>
+        </tr>
+      </th>
+      <tbody>
+        {% if data[0] %}
+          {% for ord in data[0] %}
+            <tr>
+              <td>{{data[1][ord.department]}}</td>
+              <td>{{ord.number}}</td>
+              <td>{{ord.start_date}}</td>
+              <td>{{ord.end_date}}</td>
+              <td>{{ord.responsible}}</td>
+              <td>{{ord.jobs}}</td>
+              <td></td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+    <br>
+      <p>Согласовано {{ data[0]|length if data[0] else 0 }} работ</p>
+    <br>
+    <pre>  {{ job[0] }}                                                                         {{ resp }}
+  {{ job[1] }}</pre>
+  </body>
+</html>

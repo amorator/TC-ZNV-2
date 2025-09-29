@@ -1,0 +1,256 @@
+{% extends 'base.j2.html' %}
+
+{% block headextra %}
+<link rel="stylesheet" href="{{url_for('static',filename='css/table.css')}}">
+  <link rel="stylesheet" href="{{url_for('static',filename='css/requests.css')}}">
+  <link rel="stylesheet" href="{{url_for('static',filename='css/popup.css')}}" />
+  <link
+  rel="stylesheet"
+  href="{{url_for('static',filename='css/components/input.css')}}"
+/>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/requests.js') }}"></script>
+  {% endblock %}
+
+{% block main %}
+<section class="requests-page container-fluid py-3">
+  <table class="request-page__table table table-striped table-hover table-sm align-middle" id="maintable">
+    <thead class="table__head">
+      <tr class="table__head_row">
+        <th class="table__head_item" >Номер зявки</th>
+        <th class="table__head_item" >Дата записи</th>
+        <th class="table__head_item" >Создатель заявки</th>
+        <th class="table__head_item" >Описание ремонта</th>
+        <th class="table__head_item" >Согласование с диспетчерской службой</th>
+        <th class="table__head_item" >Разрешение на производство работ</th>
+        <th class="table__head_item" >Время вывода в ремонт</th>
+        <th class="table__head_item" >Время окончания ремонта</th>
+        <th class="table__head_item" >Время ввода оборудования в работу (в резерв)</th>
+        {% if current_user.permission[id - 1] != 'a' %}
+        <th  class="table__head_item" >Редактирование заявки</th>
+        {% endif %}
+      </tr>
+    </thead>
+    <tbody class="table__body">
+    <tr class="table__body_actions" id="search">
+      <td class="table__body_action" colspan=9 onclick="">
+        <div class="search">
+          <input id="searchinp" type="text" placeholder="Поиск...">
+          <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
+        </div>
+      </td>
+      <td class="table__body_action">
+        {% if current_user.is_allowed(id, 'b') %}
+        <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+        {% endif %}
+      </td>
+    </tr>
+    {% if requests %}
+      {% for req in requests %}
+        <tr class="table__body_row" id="{{ req.id }}">
+          <td class="table__body_item">{{ req.id }}</td>
+          <td class="table__body_item">{{ req.date }}</td>
+          <td class="table__body_item">
+            {% if req.creator %}
+              {{ req.creator }}<br>
+            {% endif %}
+            {{ req.account }}
+          </td >
+          <td class="table__body_item">
+            {{ req.description }}
+            <hr>
+            {% if req.files|length > 1 %}
+              {% for file in req.files[1:] %}
+                  <div class="actions">
+                  <a class="requests-page__link" href="{{ url_for('request_file_show', name=file) }}" target="_blank">{{ file }}</a>
+                  <a class="requests-page__link btn btn-link p-0 d-inline-flex align-items-center" href="{{ url_for('request_file_show', name=file) }}" download><i class="bi bi-download"></i></a>
+                  {% if (current_user.name + ' (' in req.account or current_user.is_allowed(id, 'c')) and req.status_edit() == 1 or current_user.is_allowed(id, 'z') %}
+                    <a class="requests-page__link btn btn-link p-0 d-inline-flex align-items-center" href="{{ url_for('requests_file_delete', id=req.id, name=file) }}"" id="{{ file }}"><i class="bi bi-trash3"></i></a>
+                  {% endif %}
+                </div>
+                <br>
+              {% endfor %}
+              <hr>
+            {% endif %}
+            <div class="add-file-button">
+
+              <label for="{{ req.id }}_file" class="add-file-button__label">Добавить файл</label>
+              <input id="{{ req.id }}_file" name="file" class="add-file-button__input" type="file" onChange="sendFiles({{ req.id }});" multiple=false accept="application/pdf,application/msword">
+            </div>
+          </td>
+          <td class="table__body_item">
+            {% if current_user.is_allowed(id, 'e') %}
+            <div class="approval__object">
+              <span class="approval__object_title">Согласование</span>
+              <div class="approval__object_actions">
+                  <a class="approval__object_action approval__object_action--aprove" href="{{ url_for('requests_approve', id=req.id) }}"><i class="bi bi-check2-circle"></i></a>
+                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="popupToggle('popup-reason', {{ req.id }});"><i class="bi bi-x-lg"></i></a>
+              </div>
+            </div>
+            {% endif %}
+            {% for status in req.status1.split('\n') %}
+              <hr>
+              {{ status }}
+            {% endfor %}
+          </td>
+          <td class="table__body_item">
+            {% if current_user.is_allowed(id, 'f') %}
+              <div class="approval__object">
+                <span class="approval__object_title">Разрешение</span>
+                <div class="approval__object_actions">
+                  <a class="approval__object_action approval__object_action--aprove" href="{{ url_for('requests_allow', id=req.id) }}">
+                   <div class="mask allow-mask"></div>
+                  </a>
+                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="document.getElementById('popup-reason').getElementsByTagName('form')[0].action = '{{ url_for(pages[id].name + '_deny', id='0') }}'; popupToggle('popup-reason', {{ req.id }});"">
+
+                    <div class="mask cross-mask"></div>
+                  </a>
+                </div>
+              </div>
+            {% endif %}
+            {% for status in req.status2.split('\n') %}
+              <hr>
+              {{ status }}
+            {% endfor %}
+          </td>
+          <td class="table__body_item">{{ req.start_date }}</td>
+          <td class="table__body_item">{{ req.end_date }}</td>
+          <td class="table__body_item">{{ req.final_date }}</td>
+          {% if current_user.permission[id - 1] != 'a' %}
+            <td class="table__body_item">
+
+              <div class="actions">
+
+                {% if (current_user.name + ' (' in req.account or current_user.is_allowed(id, 'c')) and req.status_edit() == 1 or current_user.is_allowed(id, 'z') %}
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit1', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
+                {% endif %}
+                {% if current_user.is_allowed(id, 'c') and req.status_edit() == -1 or current_user.is_allowed(id, 'z') %}
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit2', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
+                {% endif %}
+                {% if (current_user.is_allowed(id, 'd') or req.account == current_user.name + ' (' in req.account) and req.status_edit() == 1 or current_user.is_allowed(id, 'z') %}
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ req.id }});"><i class="bi bi-trash3"></i></button>
+                {% endif %}
+              </div>
+            </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    {% endif %}
+  </tbody>
+  </table>
+</section>
+
+  <div id="popup-reason" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Укажите причину отказа</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="reason" action="{{ url_for(pages[id].name + '_disapprove', id='0') }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Причина: </label>
+            <textarea class="input form-control__control" name="reason" placeholder="..."></textarea>
+          </div>
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-success" onclick="validateForm(this.parentElement);">Ок</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="popupToggle('popup-reason');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-add" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Создание заявки</h1>
+      <div class="popup__body">
+        <form class="popup__form" id="add" action="{{ url_for(pages[id].name + '_add') }}" method="post">
+          <div class="popup__form-control form-control">
+            <label  class="form-control__label">Создатель (данные аккаунта будут автоматически добавлены):</label>
+            <input class="input form-control__control" type="text" name="creator" placeholder="Введите имя создателя..." autocomplete="one-time-code">
+
+          </div>
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Описание ремонта:</label>
+            <textarea class="input form-control__control" name="description" placeholder="Введите описание ремонта..."></textarea>
+          </div>
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Создать</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-edit1" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование заявки</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="edit1" action="{{ url_for(pages[id].name + '_edit1', id='0') }}" method="post">
+          <div class="popup__form-control form-control">
+
+
+            <label class="form-control__label">Создатель заявки:</label>
+            <input class="form-control__control input" type="text" name="creator" placeholder="Введите имя создателя..." autocomplete="one-time-code">
+          </div>
+          <div class="popup__form-control form-control">
+
+            <label  class="form-control__label">Описание ремонта:</label>
+            <textarea class="form-control__control input" name="description" placeholder="Введите описание ремонта..."></textarea>
+          </div>
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit1');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-edit2" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование заявки</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="edit2" action="{{ url_for(pages[id].name + '_edit2', id='0') }}" method="post">
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Время вывода в ремонт:</label>
+            <input class="form-control__control input" type="datetime-local" name="start_date" value="" min="1970-01-01" max="6666-01-01" />
+          </div>
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Время окончания ремонта:</label>
+            <input class="form-control__control input" type="datetime-local" name="end_date" value="" min="1970-01-01" max="6666-01-01" />
+          </div>
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Фактическое время ввода оборудования в работу (после заполнения редактирование заявки станет невозможным):</label>
+            <input class="form-control__control input" type="datetime-local" name="final_date" value="" min="1970-01-01" max="6666-01-01" />
+          </div>
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit2');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-delete" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Удалить заявку</h1>
+      <div class="popup__body">
+        <p>Вы действительно хотите удалить заявку от <b>rname</b>?</p>
+        <form class="popup__form" id="delete" action="{{ url_for(pages[id].name + '_delete', id='0') }}" method="post">
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+{% endblock %}

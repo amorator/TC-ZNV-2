@@ -1,0 +1,219 @@
+{% extends 'base.j2.html' %}
+
+{% block headextra %}
+<link rel="stylesheet" href="{{url_for('static',filename='css/table.css')}}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/files.css')}}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}">
+
+<link rel="stylesheet" href="{{url_for('static',filename='css/popup.css')}}" />
+
+<link
+  rel="stylesheet"
+  href="{{url_for('static',filename='css/components/input.css')}}"
+/>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}"></script>
+
+
+  {% endblock %}
+
+{% block main %}
+  <section class="files-page container-fluid py-3">
+    <!-- Категории (директории верхнего уровня) -->
+    <div class="subbar cat">
+      <div class="subbar__group">
+        {% for i in range(dirs | length) %}
+          <a class="topbtn {{ 'active' if i == did else '' }}" href="{{ url_for('files', did=i, sdid=1) }}">{{ dirs[i].values() | first }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="files-page__body">
+      <!-- Подкатегории (поддиректории выбранной категории) -->
+      <div class="subbar subcat">
+        <div class="subbar__group">
+          {% for i in range(1, dirs[did].keys() | length) %}
+            <a class="topbtn {{ 'active' if i == sdid else '' }}" href="{{ url_for('files', did=did, sdid=i) }}">{{ (dirs[did].values() | list)[i] }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable">
+        <thead class="table__head">
+          <tr class="table__head_row">
+            <th class="table__head_item">Название</th>
+            <th class="table__head_item">Описание</th>
+            <th class="table__head_item">Создатель</th>
+            <th class="table__head_item">Дата создания</th>
+            {% if current_user.is_allowed(id, 'l') %}
+            <th class="table__head_item">Примечания</th>
+            {% endif %}
+            {% if current_user.permission[id] != 'a' %}
+              <th class="table__head_item">Управление</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody class="table__body">
+          <tr class="table__body_actions">
+            <td class="table__body_action" colspan="{{ 4 if current_user.is_allowed(id, 'l') else 2 }}">
+              <div class="search searchbar">
+                <input id="searchinp" type="text" placeholder="Поиск...">
+                <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
+              </div>
+            </td>
+            <td>
+            {% if current_user.is_allowed(id, 'b') %}
+            <td class="table__body_action files-page__table--actions">
+              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-add" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="window.open('{{ url_for("record", did=did, sdid=sdid) }}', 'newwindow')"><i class="bi bi-camera-video"></i></button>
+            </td>
+            {% endif %}
+          </tr>
+          {% if files %}
+            {% for file in files %}
+              {% if file.ready %}
+                <tr class="table__body_row"  id="{{ file.id }}">
+                  <td class="table__body_item"><a class="files-page__link" href="#" onclick="window.open('{{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }}', 'newwindow', 'width=640, height=480'); return false;">{{ file.display_name }}</td>
+                  <td class="table__body_item">{{ file.description }}</td>
+                  <td class="table__body_item">{{ file.owner }}</td>
+                  <td class="table__body_item">{{ file.date }}</td>
+                  {% if current_user.is_allowed(id, 'l') %}
+                    <td class="table__body_item">
+                      {% if current_user.is_allowed(id, 'm') %}
+                        {% if file.viewed %}
+                          <button class="button inverted">{{ file.viewed }}</button>
+                        {% else %}
+                          <button class="button" onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">просмотреть</button>
+                        {% endif %}
+                        <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                      {% else %}
+                        {% if file.viewed %}
+                          <button class="button inverted">{{ file.viewed }}</button>
+                        {% else %}
+                          <button class="button">просмотреть</button>
+                        {% endif %}
+                        <span>{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                      {% endif %}
+                    </td>
+                  {% endif %}
+                  {% if current_user.permission[id] != 'a' %}
+                  <td class="table__body_item">
+                    <div class="files-page__item-actions">
+                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i></a>
+                        {% if current_user.name + ' (' in file.owner or current_user.is_allowed(id, 'c') %}
+                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit', {{ file.id }});"><i class="bi bi-pencil-square"></i></button>
+                        {% endif %}
+                        {% if current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner %}
+                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i></button>
+                        {% endif %}
+                      </div>
+                  </td>
+                  {% endif %}
+                </tr>
+              {% else %}
+                <tr>
+                  <td class="table__body_item">{{ file.display_name }}</td>
+                  <td class="table__body_item">{{ file.description }}</td>
+                  <td class="table__body_item">{{ file.owner }}</td>
+                  <td class="table__body_item">{{ file.date }}</td>
+                  <td  class="table__body_item">Обрабатывается...</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+
+
+    </div>
+  </section>
+
+  <div id="popup-add" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Добавление видео</h1>
+      <form class="popup__form" id="add" action="{{ url_for(pages[id].name + '_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data">
+
+        <div class="popup__form-control form-control">
+          <label class="form-control__label">Название:</label>
+          <input class="form-control__control input" type="text" name="name" id="name" placeholder="Имя файла..." autocomplete="one-time-code">
+        </div>
+        <div class="popup__form-control form-control">
+
+          <label class="form-control__label">Описание файла:</label>
+          <textarea class="form-control__control input" name="description" placeholder="Введите описание Файла..."></textarea>
+        </div>
+        <div class="popup__form-control form-control">
+
+          <label class="form-control__label">Выбрать файл:</label>
+          <input class="form-control__control" type="file" name="file" id="file" multiple=false accept="video/mp4,video/x-m4v,video/*" >
+        </div>
+        <div class="popup__actions">
+          <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Добавить</button>
+          <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');" >Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="popup-edit" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование видео</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="edit" action="{{ url_for(pages[id].name + '_edit', did=did, sdid=sdid, id=0) }}" method="post">
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Название:</label>
+            <input class="form-control__control input" type="text" name="name" id="name" placeholder="Имя файла..." autocomplete="one-time-code">
+          </div>
+          <div class="popup__form-control form-control">
+
+            <label class="form-control__label">Описание файла:</label>
+            <textarea class="form-control__control input" name="description" placeholder="Введите описание Файла..."></textarea>
+          </div>
+
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit');" >Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-delete" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Удалить видео</h1>
+      <div class="popup__body">
+
+        <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
+        <form class="popup__form" id="delete" action="{{ url_for(pages[id].name + '_delete', did=did, sdid=sdid, id=0) }}" method="post">
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-note" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Примечание</h1>
+      <div class="popup__body">
+
+        <form class="popup__form" id="note" action="{{ url_for(pages[id].name + '_note', did=did, sdid=sdid, id=0) }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Примечание к записи:</label>
+            <textarea class="form-control__control input" name="note" placeholder="Введите примечание..."></textarea>
+          </div>
+
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-note');" >Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+{% endblock %}

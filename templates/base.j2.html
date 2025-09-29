@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="shortcut icon" href="{{ icon }}">
+  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/themes.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/base.css') }}" rel="stylesheet">
+  {% block css %}{% endblock %}
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/jquery.min.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/themes.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/icons-migrate.js') }}" defer="defer"></script>
+  {% block js %}{% endblock %}
+</head>
+
+  <body>
+    {% for message in get_flashed_messages() %}
+      <div class="alert alert-warning alert-dismissible fade show m-2" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+    {% if current_user.is_authenticated %}
+      <header class="app-topbar px-3">
+        <div class="app-topbar__row">
+          <div class="app-topbar__group">
+            <a class="topbtn" href="{{ pages.get_page_by_name('index').url}}">{{ pages.get_page_by_name('index').dname }}</a>
+            <a class="topbtn" href="{{ pages.get_page_by_name('requests').url}}">{{ pages.get_page_by_name('requests').dname }}</a>
+            <a class="topbtn" href="{{ pages.get_page_by_name('orders').url}}">{{ pages.get_page_by_name('orders').dname }}</a>
+            <a class="topbtn" href="{{ pages.get_page_by_name('files').url}}">{{ pages.get_page_by_name('files').dname }}</a>
+            {% if current_user.is_allowed(pages.get_page_by_name('orders').id, 'i') %}
+              <a class="topbtn" href="/rdrs/table" target="_blank">Таблица для согласования</a>
+            {% endif %}
+          </div>
+          <div class="app-topbar__group">
+            {% if current_user.is_allowed(6) %}
+              <a class="topbtn" href="{{ pages.get_page_by_name('users').url}}">{{ pages.get_page_by_name('users').dname }}</a>
+            {% endif %}
+            <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
+            <a class="topbtn text-nowrap" href="{{ pages.get_page_by_name('logout').url}}">{{ pages.get_page_by_name('logout').dname }} ({{ current_user.name }})</a>
+          </div>
+        </div>
+      </header>
+    {% endif %}
+    {% block main %}{% endblock %}
+  </body>
+
+</html>

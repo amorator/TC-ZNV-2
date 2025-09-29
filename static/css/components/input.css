@@ -1,0 +1,15 @@
+.input {
+  display: block;
+  border: 1px solid var(--secondary-900);
+  color: var(--text);
+  padding: 10px 15px;
+  font-family: Roboto, Arial, Helvetica, sans-serif;
+  font-size: 18px;
+  background-color: var(--primary-500);
+  width: 100%;
+}
+
+.input::placeholder {
+  color: var(--secondary-500);
+  opacity: 0.5;
+}

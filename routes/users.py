@@ -1,0 +1,69 @@
+from flask import render_template, url_for, request, redirect
+from flask_login import login_user, logout_user, current_user
+
+
+def register(app):
+	@app.route('/srs', methods=['GET'])
+	@app.permission_required(4)
+	def users():
+		return render_template('users.j2.html', id=4, users=app._sql.user_all(), groups=app._sql.group_all())
+
+	@app.route('/srs/add', methods=['POST'])
+	@app.permission_required(4, 'z')
+	def users_add():
+		try:
+			name = request.form.get('name')
+			login = request.form.get('login')
+			if app._sql.user_exists(login, name):
+				raise Exception('Пользователь уже существует!')
+			app._sql.user_add([login, name, app.hash(request.form.get('password')), request.form.get('group'), int(request.form.get('enabled') != None), request.form.get('permission')])
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('users'))
+
+	@app.route('/srs/edit/<id>', methods=['POST'])
+	@app.permission_required(4, 'z')
+	def users_edit(id):
+		try:
+			name = request.form.get('name')
+			login = request.form.get('login')
+			if app._sql.user_exists(login, name, id):
+				raise Exception('Имя или логин занято другим пользователем!')
+			app._sql.user_edit([login, name, request.form.get('group'), int(request.form.get('enabled') != None), request.form.get('permission'), id])
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('users'))
+
+	@app.route('/srs/reset/<id>', methods=['POST'])
+	@app.permission_required(4, 'z')
+	def users_reset(id):
+		try:
+			app._sql.user_reset([app.hash(request.form.get('password')), id])
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('users'))
+
+	@app.route('/srs/toggle/<id>', methods=['GET'])
+	@app.permission_required(4, 'z')
+	def users_toggle(id):
+		try:
+			app._sql.user_toggle([1 - app._sql.user_by_id([id]).is_enabled(), id])
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('users'))
+
+	@app.route('/srs/delete/<id>', methods=['POST'])
+	@app.permission_required(4, 'z')
+	def users_delete(id):
+		try:
+			app._sql.user_delete([id])
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('users'))
+
+

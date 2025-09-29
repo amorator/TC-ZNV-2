@@ -1,0 +1,207 @@
+{% extends 'base.j2.html' %}
+{% block headextra %}
+  <link rel="stylesheet" href="{{url_for('static',filename='css/table.css')}}"/>
+  <link rel="stylesheet" href="{{url_for('static',filename='css/users.css')}}"/>
+  <link rel="stylesheet" href="{{url_for('static',filename='css/popup.css')}}"/>
+  <link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}"/>
+  <link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
+  <link rel="stylesheet" href="{{url_for('static',filename='css/components/checkbox.css')}}"/>
+  <script type="text/javascript" src="{{ url_for('static', filename='js/users.js') }}"></script>
+{% endblock %}
+{% block main %}
+
+  <section class="users-page container-fluid py-3">
+    <table class="users-page__table table table-striped table-hover table-sm align-middle" id="maintable">
+      <thead class="table__head">
+        <tr class="table__head_row">
+          <th class="table__head_item">ИД</th>
+          <th class="table__head_item">Логин</th>
+          <th class="table__head_item">Имя</th>
+          <th class="table__head_item">Группа</th>
+          <th class="table__head_item">Права</th>
+          <th class="table__head_item">Активен</th>
+          <th class="table__head_item">Управление</th>
+        </tr>
+      </thead>
+      <tbody class="table__body">
+        <tr id="search" class="table__body_actions">
+          <td class="table__body_action" colspan="6">
+              <div class="search">
+              <input id="searchinp" type="text" placeholder="Поиск..."/>
+              <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
+            </div>
+          </td>
+          <td class="table__body_action">
+            {% if current_user.is_allowed(id, 'b') %}
+              <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+            {% endif %}
+          </td>
+        </tr>
+        {% if users %}
+          {% for user in users %}
+
+            <tr id="{{ user.id }}" class="table__body_row">
+              <td class="table__body_item">{{ user.id }}</td>
+              <td class="table__body_item">{{ user.login }}</td>
+              <td class="table__body_item">{{ user.name }}</td>
+              <td class="table__body_item">{{ groups[user.gid] }}</td>
+              <td class="table__body_item">{{ user.permission_string() }}</td>
+              <td class="table__body_item" data-enabled="{{ user.is_enabled() }}">
+                <a href="{{ url_for(pages[id].name + '_toggle', id=user.id) if user.login != 'admin' and current_user.is_allowed(id, 'z') else '#'}}" class="btn btn-link p-0 d-inline-flex align-items-center">
+                  <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
+                </a>
+              </td>
+
+              <td class="table__body_item">
+                <div class="actions">
+                  {% if current_user.is_allowed(id, 'z') %}
+                    <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-reset', {{ user.id }});"><i class="bi bi-arrow-clockwise"></i></button>
+                    {% if user.login != 'admin' %}
+                      <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-edit', {{ user.id }});"><i class="bi bi-pencil-square"></i></button>
+                      <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ user.id }});"><i class="bi bi-trash3"></i></button>
+
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+  <div id="popup-add" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Добавление пользователя</h1>
+      <div class="popup__body">
+        <form class="popup__form" id="add" name="add" action="{{ url_for(pages[id].name + '_add') }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Логин:</label>
+            <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Имя:</label>
+            <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Пароль:</label>
+            <input type="password" name="password" class="input form-control__control" placeholder="Введите пароль..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Подтвердите пароль:</label>
+            <input type="password" name="password2" class="input form-control__control" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Группа:</label>
+            <select name="group" class="select form-control__control">
+              {% for g in groups %}
+                <option class="select__option" value="{{ g }}">
+                  {{ groups[g] }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="checkbox">Активен:
+
+              <input class="visually-hidden" type="checkbox" name="enabled" checked="checked"/>
+
+              <span class="checkbox__flag"></span>
+            </label>
+          </div>
+          {% include 'user_permission.html' %}
+
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Добавить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-edit" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Редактирование пользователя</h1>
+      <div class="popup__body">
+        <form class="popup__form" id="edit" name="edit" action="{{ url_for(pages[id].name + '_edit', id='0') }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label" for="name">Логин:</label>
+            <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Имя:</label>
+            <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Группа:</label>
+            <select name="group" class="select form-control__control">
+              {% for g in groups %}
+                <option class="select__option" value="{{ g }}">
+                  {{ groups[g] }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="checkbox">Активен:
+
+              <input class="visually-hidden checkbox-active" type="checkbox" name="enabled"/>
+
+              <span class="checkbox__flag"></span>
+            </label>
+          </div>
+          {% include 'user_permission.html' %}
+          <div class="popup__actions d-flex gap-2">
+            <button class="btn btn-primary" type="button" onclick="validateForm(this.parentElement.parentElement);">Сохранить</button>
+            <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-edit');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-reset" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Изменение пароля пользователя</h1>
+      <div class="popup__body">
+        <p>Установить новый пароль для
+          <b>uname</b>
+        </p>
+        <form class="popup__form" id="reset" name="reset" action="{{ url_for(pages[id].name + '_reset', id='0') }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Новый пароль:</label>
+            <input class="input form-control__control" type="password" name="password" placeholder="Введите пароль..." autocomplete="one-time-code"/>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Подтвердите пароль:</label>
+            <input class="input form-control__control" type="password" name="password2" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
+          </div>
+
+          <div class="popup__actions d-flex gap-2">
+            <button class="btn btn-primary" type="submit" onclick="validateForm(this.parentElement.parentElement);">изменить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-reset');">отменить</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup-delete" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Удалить пользователя</h1>
+      <div class="popup__body">
+        <p>Вы действительно хотите удалить пользователя
+          <b>uname</b>?</p>
+        <form class="popup__form" id="delete" name="delete" action="{{ url_for(pages[id].name + '_delete', id='0') }}" method="post">
+          <div class="popup__actions d-flex gap-2">
+            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement.parentElement);">Удалить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+{% endblock %}
