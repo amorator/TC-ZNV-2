@@ -1,66 +1,95 @@
-.login{
-    height: 100%;
+.login {
+    min-height: 100vh;
     width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 24px;
+    background-color: #fff9db;
 }
 
-.login__container{
+.login__container {
+    position: relative;
     display: flex;
-    flex-wrap: wrap;
     align-items: stretch;
-
+    justify-content: center;
+    width: 100%;
+    max-width: 920px;
+    min-height: 520px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
-.login__sub-image{
-    width: 50%;
+.login__sub-image {
+    position: absolute;
+    inset: 0;
     background-image: url(../images/login-img.png);
     background-size: cover;
     background-position: center;
+    background-repeat: no-repeat;
+    z-index: 0;
+}
+
+.login__form {
     position: relative;
-}
-
-.login__form{
-    width: 50%;
+    z-index: 1;
+    width: 100%;
     display: flex;
-    flex-wrap: wrap;
-    padding: 303px 65px 60px;
+    flex-direction: column;
+    gap: 16px;
+    padding: 48px 56px;
     border: 0;
-    background-color: var(--primary-900);
+    background-color: transparent;
     border-radius: 0;
+
 }
 
-.login__title{
-    font-size: 20px;
+.login__title {
+    font-size: 24px;
     line-height: 1.2;
     text-transform: uppercase;
     text-align: center;
     width: 100%;
     display: block;
-    padding-bottom: 34px;
+    padding-bottom: 16px;
 }
 
-.wrap-input100{
-    width: 50%;
+.wrap-input100 {
+    width: 100%;
     position: relative;
-    border: 1px solid var(--secondary-300);
-    margin-bottom: 20px;
+    border: 0;
+    margin-bottom: 14px;
+    background-color: transparent;
 }
 
-.input{
+.input {
     height: 55px;
     display: block;
     width: 100%;
     background: 0 0;
-    font-size: 18px;
+    font-size: 16px;
     color: var(--text);
     line-height: 1.2;
-    padding: 0 25px;
-    border: 0;
+    padding: 0 18px;
+    border: 1px solid #000000;
+    border-radius: 8px;
+    background-color: #ffffff;
 }
 
-.login__button{
+/* Ensure border is visible despite theme input[type="text"] rules */
+.login .input {
+    border: 1px solid #000000 !important;
+}
+
+/* Password field: no background, black border */
+#password.input,
+input[type="password"].input {
+    background-color: transparent;
+    border-color: #000000;
+}
+
+.login__button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -73,5 +102,5 @@
     line-height: 1.2;
     text-transform: uppercase;
     letter-spacing: 1px;
+    margin-top: 6px;
 }
-
