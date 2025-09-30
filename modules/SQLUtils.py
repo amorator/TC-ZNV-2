@@ -196,6 +196,10 @@ class SQLUtils(SQL):
 
     def file_note(self, args):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET note = %s WHERE id = %s;", args)
+    
+    def file_move(self, args):
+        # args: [new_path, id]
+        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET path = %s WHERE id = %s;", args)
         
 #############################################
 

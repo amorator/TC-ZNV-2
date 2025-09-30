@@ -69,6 +69,8 @@
                   data-can-note="{{ 1 if current_user.is_allowed(id, 'm') else 0 }}"
                   data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.is_allowed(id, 'm') else '' }}"
                   data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
+                  data-root="{{ (dirs[did].values() | list)[0] }}"
+                  data-sub="{{ (dirs[did].values() | list)[sdid] }}"
                   data-note="{{ file.note if file.note else '' }}"
                 >
                   <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
@@ -103,12 +105,31 @@
                   {% endif %}
                 </tr>
               {% else %}
-                <tr>
+                <tr class="table__body_row" id="{{ file.id }}"
+                  data-id="{{ file.id }}"
+                  data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
+                  data-can-edit="0"
+                  data-can-delete="{{ 1 if (current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner) else 0 }}"
+                  data-can-note="0"
+                  data-root="{{ (dirs[did].values() | list)[0] }}"
+                  data-sub="{{ (dirs[did].values() | list)[sdid] }}"
+                  data-is-ready="0"
+                >
                   <td class="table__body_item">{{ file.display_name }}</td>
                   <td class="table__body_item">{{ file.description }}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
-                  <td  class="table__body_item">Обрабатывается...</td>
+                  {% if current_user.is_allowed(id, 'l') %}
+                    <td class="table__body_item">
+                      Обрабатывается...
+                      <div class="d-inline-flex gap-2 ms-2 align-items-center">
+                        <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный</a>
+                        {% if current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner %}
+                          <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+                        {% endif %}
+                      </div>
+                    </td>
+                  {% endif %}
                 </tr>
               {% endif %}
             {% endfor %}
@@ -124,6 +145,7 @@
           <li class="context-menu__item" data-action="download">Скачать</li>
           <li class="context-menu__item" data-action="edit">Изменить</li>
           <li class="context-menu__item" data-action="delete">Удалить</li>
+          <li class="context-menu__item" data-action="move">Переместить</li>
           <li class="context-menu__item" data-action="mark-viewed">Пометить просмотренным</li>
           <li class="context-menu__item" data-action="note">Оставить примечание</li>
           <li class="context-menu__separator"></li>
@@ -263,6 +285,37 @@
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-view');">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Move file modal -->
+  <div id="popup-move" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Переместить видео</h1>
+      <div class="popup__body">
+        <form class="popup__form" id="move" action="{{ url_for(pages[id].name + '_move', did=did, sdid=sdid, id=0) }}" method="post">
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Выберите категорию:</label>
+            <select class="form-control__control input" name="target_root" id="move-target-root">
+              {% for i in range(dirs | length) %}
+                <option value="{{ (dirs[i].values() | list)[0] }}">{{ (dirs[i].values() | list)[0] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__form-control form-control">
+            <label class="form-control__label">Выберите подкатегорию:</label>
+            <select class="form-control__control input" name="target_sub" id="move-target-sub">
+              {% for i in range(1, dirs[did].keys() | length) %}
+                <option value="{{ (dirs[did].values() | list)[i] }}">{{ (dirs[did].values() | list)[i] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="popup__actions">
+            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Переместить</button>
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-move');" >Отмена</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

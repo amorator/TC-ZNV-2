@@ -165,6 +165,9 @@ function startUploadWithProgress(form) {
   // Store xhr globally for cancellation
   window.currentUploadXHR = xhr;
   
+  // Ensure cookies/session are sent (same-origin safety)
+  try { xhr.withCredentials = true; } catch(e) {}
+  
   // Track upload progress
   xhr.upload.addEventListener('progress', function(e) {
     if (e.lengthComputable) {
@@ -183,11 +186,7 @@ function startUploadWithProgress(form) {
     try {
       statusText.textContent = 'Файл загружен, выполняется обработка...';
     } catch (e) {}
-    // As safety: reload shortly after upload completes, even если ответ сервера задерживается
-    setTimeout(function() {
-      try { popupToggle('popup-add'); } catch(e) {}
-      window.location.reload();
-    }, 1500);
+    // Do NOT navigate here; wait for server response (xhr.load)
   });
   // Treat 2xx/3xx as success (redirects included)
   const handleSuccess = function() {
@@ -221,11 +220,9 @@ function startUploadWithProgress(form) {
   });
 
   // Also guard by timeout
-  xhr.timeout = 600000; // 10 minutes
-  xhr.ontimeout = function() {
-    // If server took too long, assume accepted and refresh
-    handleSuccess();
-  };
+  // Disable artificial timeout-based success; allow long server processing
+  xhr.timeout = 0; // no timeout
+  xhr.ontimeout = function() {};
   
   // Handle upload errors
   xhr.addEventListener('error', function() {
@@ -236,13 +233,51 @@ function startUploadWithProgress(form) {
     handleUploadError('Загрузка отменена');
   });
   
-  // Start upload
-  xhr.open('POST', form.action);
-  xhr.send(formData);
+  // For large files: initialize record first, then upload to phase-2 endpoint
+  const isLarge = (function(){
+    try {
+      const fi = form.querySelector('input[type="file"]');
+      if (fi && fi.files && fi.files[0]) {
+        // Trigger two-phase for files >= 1.5GB to ensure DB record appears early
+        const size = fi.files[0].size;
+        const threshold = (1024*1024*1024*1.5);
+        return size >= threshold;
+      }
+    } catch(e) {}
+    return false;
+  })();
+
+  if (isLarge) {
+    const initXhr = new XMLHttpRequest();
+    try { initXhr.withCredentials = true; } catch(e) {}
+    initXhr.open('POST', form.action.replace('/add/', '/add/init/'));
+    initXhr.onload = function(){
+      try {
+        const resp = JSON.parse(initXhr.responseText || '{}');
+        if (resp && resp.upload_url) {
+          xhr.open('POST', resp.upload_url);
+          xhr.send(formData);
+        } else {
+          handleUploadError('Не удалось инициализировать загрузку');
+        }
+      } catch(e) {
+        handleUploadError('Ошибка инициализации загрузки');
+      }
+    };
+    initXhr.onerror = function(){ handleUploadError('Ошибка соединения при инициализации'); };
+    const initData = new FormData();
+    initData.append('name', form.querySelector('input[name="name"]').value);
+    initData.append('description', (form.querySelector('textarea[name="description"]').value||''));
+    initXhr.send(initData);
+  } else {
+    // Start upload
+    xhr.open('POST', form.action);
+    xhr.send(formData);
+  }
 }
 
 function cancelUpload() {
-  console.log('Cancelling upload...');
+  
   
   // Abort the current upload
   if (window.currentUploadXHR) {
@@ -360,7 +395,8 @@ function initFilesPagination() {
   const table = document.getElementById('maintable');
   if (!table || !table.tBodies || !table.tBodies[0]) return;
   const tbody = table.tBodies[0];
-  const rows = Array.from(tbody.querySelectorAll('tr.table__body_row'));
+  // Include both ready rows and processing rows; exclude only the actions/search row
+  const rows = Array.from(tbody.querySelectorAll('tr:not(.table__body_actions)'));
   const pager = document.getElementById('files-pagination');
   if (!pager) return;
   const pageSize = 15;
@@ -467,7 +503,8 @@ function filesDoFilter(query) {
   if (!table || !table.tBodies || !table.tBodies[0]) return;
   const tbody = table.tBodies[0];
   const pager = document.getElementById('files-pagination');
-  const rows = Array.from(tbody.querySelectorAll('tr.table__body_row'));
+  // Include both ready rows and processing rows; exclude only the actions/search row
+  const rows = Array.from(tbody.querySelectorAll('tr:not(.table__body_actions)'));
 
   const q = (query || '').trim().toUpperCase();
   const active = q.length > 0;
@@ -735,16 +772,19 @@ document.addEventListener('DOMContentLoaded', function () {
         const canEdit = row.getAttribute('data-can-edit') === '1';
         const canDelete = row.getAttribute('data-can-delete') === '1';
         const canNote = row.getAttribute('data-can-note') === '1';
+        const isReady = row.getAttribute('data-is-ready') !== '0';
+        const hasDownload = !!row.getAttribute('data-download');
 
         // Toggle visibility of items based on permissions
-        toggleItem('open', true);
-        toggleItem('download', true);
+        toggleItem('open', isReady);
+        toggleItem('download', hasDownload || isReady);
         toggleItem('edit', canEdit);
+        toggleItem('move', canEdit);
         toggleItem('delete', canDelete);
         // If already viewed by current user, hide mark-viewed
         const alreadyViewed = row.getAttribute('data-already-viewed') === '1';
-        toggleItem('mark-viewed', canMarkView && !alreadyViewed);
-        toggleItem('note', canNote);
+        toggleItem('mark-viewed', isReady && canMarkView && !alreadyViewed);
+        toggleItem('note', isReady && canNote);
         toggleItem('add', tableCanAdd);
         toggleItem('record', tableCanAdd);
         toggleSeparator(true);
@@ -756,6 +796,7 @@ document.addEventListener('DOMContentLoaded', function () {
         toggleItem('open', false);
         toggleItem('download', false);
         toggleItem('edit', false);
+        toggleItem('move', false);
         toggleItem('delete', false);
         toggleItem('mark-viewed', false);
         toggleItem('note', false);
@@ -783,6 +824,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const downloadEl = menu.querySelector('[data-action="download"]');
       const editEl = menu.querySelector('[data-action="edit"]');
       const deleteEl = menu.querySelector('[data-action="delete"]');
+      const moveEl = menu.querySelector('[data-action="move"]');
       const markViewedEl = menu.querySelector('[data-action="mark-viewed"]');
       const noteEl = menu.querySelector('[data-action="note"]');
       const addEl = menu.querySelector('[data-action="add"]');
@@ -823,6 +865,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (deleteEl) deleteEl.onclick = function() {
           popupToggle('popup-delete', parseInt(id, 10));
+          menu.classList.add('d-none');
+        };
+
+        if (moveEl) moveEl.onclick = function() {
+        // Preselect current root/sub in move modal
+        const rootSel = document.getElementById('move-target-root');
+        const subSel = document.getElementById('move-target-sub');
+        if (rootSel && subSel) {
+          const currentRoot = row.getAttribute('data-root');
+          const currentSub = row.getAttribute('data-sub');
+          try { rootSel.value = currentRoot; } catch(e) {}
+          try { subSel.value = currentSub; } catch(e) {}
+        }
+        popupToggle('popup-move', parseInt(id, 10));
           menu.classList.add('d-none');
         };
 

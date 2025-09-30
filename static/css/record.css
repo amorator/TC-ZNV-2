@@ -3,8 +3,8 @@
   padding-right: 20px;
   padding-top: 20px;
   height: calc(100% - 82px);
-  background-color: var(--modal-bg, var(--body-bg, #121212));
-  color: var(--body-text, var(--brand-green, #00ff00));
+  background-color: var(--modal-bg, var(--body-bg, #ffffff));
+  color: var(--body-text, #212529);
 }
 
 .record-page__title {
@@ -13,7 +13,7 @@
   line-height: 1.2;
   text-align: center;
   margin-bottom: 20px;
-  color: var(--body-text, var(--brand-green, #00ff00));
+  color: var(--body-text, #212529);
 }
 
 .record-page__body {
@@ -69,9 +69,9 @@
 /* Make all controls look like the modal close button (btn-secondary) */
 .record-page .button {
   display: inline-block;
-  color: var(--button-text, var(--brand-green, #00ff00));
-  background-color: var(--button-bg, #1a1a1a);
-  border: 1px solid var(--button-border, var(--brand-green, #00ff00));
+  color: var(--button-text, #000000);
+  background-color: var(--button-bg, #ffffff);
+  border: 1px solid var(--button-border, #000000);
   padding: 10px 12px;
   border-radius: var(--control-radius, 10px);
   cursor: pointer;
@@ -80,30 +80,30 @@
 
 .record-page .button:hover,
 .record-page .button:focus {
-  background-color: var(--topbar-bg, #000000);
-  color: var(--topbar-text, var(--brand-green, #00ff00));
+  background-color: var(--button-hover-bg, var(--topbar-bg, #f1f3f5));
+  color: var(--button-hover-text, var(--topbar-text, #000000));
 }
 
 .record-page .record-page__setting-element,
 .record-page input#name,
 .record-page textarea#desc {
-  color: var(--control-text, var(--brand-green, #00ff00));
-  background-color: var(--control-bg, #1a1a1a);
-  border: 1px solid var(--control-border, var(--brand-green, #00ff00));
+  color: var(--control-text, #212529);
+  background-color: var(--control-bg, #ffffff);
+  border: 1px solid var(--control-border, #000000);
   border-radius: var(--control-radius, 10px);
   padding: 8px 10px;
 }
 
 .record-page input#name::placeholder,
 .record-page textarea#desc::placeholder {
-  color: var(--table-td-text, var(--body-text, #ffffff));
+  color: var(--control-placeholder, var(--muted-text, #6c757d));
   opacity: 0.8;
 }
 
 .record-page .record-page__setting-element:focus,
 .record-page input#name:focus,
 .record-page textarea#desc:focus {
-  outline: 2px solid var(--btn-focus, #ffd43b);
+  outline: 2px solid var(--btn-focus, var(--focus-ring, #0d6efd));
   outline-offset: 0;
 }
 
@@ -112,82 +112,53 @@
 .record-page .record-page__setting-title,
 .record-page .record-page__setting-element,
 .record-page #time {
-  color: var(--body-text, var(--brand-green, #00ff00));
+  color: var(--body-text, #212529);
 }
 
 /* Progress bar visibility */
 .record-page .progress {
-  background-color: var(--sidebar-bg, #2b2b2b);
-  border: 1px solid var(--sidebar-text, var(--button-border, #000000));
+  background-color: var(--progress-bg, var(--sidebar-bg, #e9ecef));
+  border: 1px solid var(--progress-border, var(--sidebar-text, #000000));
   border-radius: 6px;
 }
 
 .record-page .progress .progress-bar {
-  background: linear-gradient(90deg, var(--btn-focus, #ffd43b), var(--topbar-bg, #0f0f0f));
+  background: var(--progress-bar, linear-gradient(90deg, var(--btn-focus, #0d6efd), #6ea8fe));
 }
 
-/* Dark theme explicit mapping for iframe context */
-.theme-dark .record-page {
-  background-color: var(--modal-bg, #1a1a1a);
-  color: var(--body-text, #f8f9fa);
-}
-
-.theme-dark .record-page .button {
-  color: var(--button-text, #f8f9fa);
-  background-color: var(--button-bg, #2a2a2a);
-  border-color: var(--button-border, #000000);
-}
-
-.theme-dark .record-page .button:hover,
-.theme-dark .record-page .button:focus {
-  background-color: var(--topbar-bg, #333333);
-  color: var(--topbar-text, #ffd43b);
-}
-
-.theme-dark .record-page .record-page__setting-element,
-.theme-dark .record-page input#name,
-.theme-dark .record-page textarea#desc {
-  color: var(--control-text, #f8f9fa);
-  background-color: var(--control-bg, #1f1f1f);
-  border-color: var(--control-border, #3a3a3a);
-}
-
-.theme-dark .record-page .progress {
-  background-color: var(--sidebar-bg, #1f1f1f);
-  border-color: var(--sidebar-text, #3a3a3a);
-}
+/* rely on variables per theme; no hardcoded per-theme blocks needed */
 
 /* High-contrast theme: black background, bright green accents */
 .theme-dark-hc .record-page {
-  background-color: #000000;
-  color: var(--brand-green, #00ff00);
+  background-color: var(--modal-bg, #000000);
+  color: var(--body-text, var(--brand-green, #00ff00));
 }
 
 .theme-dark-hc .record-page .button {
-  color: var(--brand-green, #00ff00);
-  background-color: #000000;
-  border-color: var(--brand-green, #00ff00);
+  color: var(--button-text, var(--brand-green, #00ff00));
+  background-color: var(--button-bg, #000000);
+  border-color: var(--button-border, var(--brand-green, #00ff00));
 }
 
 .theme-dark-hc .record-page .button:hover,
 .theme-dark-hc .record-page .button:focus {
-  background-color: #111111;
-  color: var(--brand-green, #00ff00);
+  background-color: var(--button-hover-bg, #111111);
+  color: var(--button-hover-text, var(--brand-green, #00ff00));
 }
 
 .theme-dark-hc .record-page .record-page__setting-element,
 .theme-dark-hc .record-page input#name,
 .theme-dark-hc .record-page textarea#desc {
-  color: var(--brand-green, #00ff00);
-  background-color: #000000;
-  border-color: var(--brand-green, #00ff00);
+  color: var(--control-text, var(--brand-green, #00ff00));
+  background-color: var(--control-bg, #000000);
+  border-color: var(--control-border, var(--brand-green, #00ff00));
 }
 
 .theme-dark-hc .record-page .progress {
-  background-color: #000000;
-  border-color: var(--brand-green, #00ff00);
+  background-color: var(--progress-bg, #000000);
+  border-color: var(--progress-border, var(--brand-green, #00ff00));
 }
 
 .theme-dark-hc .record-page .progress .progress-bar {
-  background: linear-gradient(90deg, var(--brand-green, #00ff00), #003300);
+  background: var(--progress-bar, linear-gradient(90deg, var(--brand-green, #00ff00), #003300));
 }

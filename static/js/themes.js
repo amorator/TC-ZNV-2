@@ -35,6 +35,17 @@ function applyTheme(theme) {
   var root = document.documentElement;
   root.classList.remove(...Object.values(themeMap));
   root.classList.add(cls);
+  try {
+    // Notify same-origin iframes about theme change
+    var frames = document.getElementsByTagName('iframe');
+    for (var i = 0; i < frames.length; i++) {
+      try {
+        if (frames[i].contentWindow) {
+          frames[i].contentWindow.postMessage({ type: 'theme:changed', className: cls }, '*');
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
   var iconEl = document.getElementById("btntheme");
   if (iconEl) {
     var i = iconEl.querySelector("i");

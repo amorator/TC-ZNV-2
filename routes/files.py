@@ -27,19 +27,30 @@ def register(app, media_service, socketio=None):
 		if file_ext not in allowed_extensions:
 			raise ValueError(f'Неподдерживаемый формат файла. Разрешены: {", ".join(allowed_extensions)}')
 		
-		# Check file size from config
-		file.seek(0, os.SEEK_END)
-		file_size = file.tell()
-		file.seek(0)  # Reset file pointer
-		
-		max_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
-		max_size = max_size_mb * 1024 * 1024
-		if file_size > max_size:
-			raise ValueError(f'Файл слишком большой. Максимальный размер: {max_size_mb}MB')
-		
-		# Check if file is empty
-		if file_size == 0:
-			raise ValueError('Файл пустой')
+		# Optional size check from config (0 or missing => unlimited)
+		try:
+			max_size_mb = int(app._sql.config['files'].get('max_size_mb', 0))
+		except Exception:
+			max_size_mb = 0
+		if max_size_mb and max_size_mb > 0:
+			file.seek(0, os.SEEK_END)
+			file_size = file.tell()
+			file.seek(0)  # Reset file pointer
+			max_size = max_size_mb * 1024 * 1024
+			if file_size > max_size:
+				raise ValueError(f'Файл слишком большой. Максимальный размер: {max_size_mb}MB')
+			if file_size == 0:
+				raise ValueError('Файл пустой')
+		else:
+			# Still check for empty file
+			try:
+				pos = file.tell()
+				chunk = file.read(1)
+				file.seek(pos)
+				if not chunk:
+					raise ValueError('Файл пустой')
+			except Exception:
+				pass
 		
 		return True
 
@@ -80,6 +91,7 @@ def register(app, media_service, socketio=None):
 			fpath = path.join(dir, real_name)
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
 			
+			uploaded_file.save(fpath + '.webm')
 			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
 			# notify all clients about new pending file
 			if socketio:
@@ -87,12 +99,63 @@ def register(app, media_service, socketio=None):
 					socketio.emit('files:changed', {'reason': 'added', 'id': id}, broadcast=True)
 				except Exception:
 					pass
-			uploaded_file.save(fpath + '.webm')
+			
 			media_service.convert_async(fpath + '.webm', fpath + '.mp4', ('file', id))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
 			return redirect(url_for('files', did=did, sdid=sdid))
+
+	# Phase 1: init record (for large uploads to appear immediately)
+	@app.route('/fls' + '/add/init' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
+	@app.permission_required(3, 'b')
+	def files_add_init(did=0, sdid=1):
+		try:
+			_dirs = dirs_by_permission(app, 3, 'f')
+			did, sdid = validate_directory_params(did, sdid, _dirs)
+			dirs = list(_dirs[did].keys())
+			dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
+			name = (request.form.get('name') or '').strip()
+			desc = (request.form.get('description') or '').strip()
+			if not name:
+				raise ValueError('Название файла не может быть пустым')
+			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
+			fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'init', 'id': fid}, broadcast=True)
+				except Exception:
+					pass
+			return {'id': fid, 'real_name': real_name, 'upload_url': url_for('files_upload', did=did, sdid=sdid, id=fid)}
+		except Exception as e:
+			app.flash_error(e)
+			return {'error': str(e)}, 400
+
+	# Phase 2: upload binary and start conversion
+	@app.route('/fls' + '/upload' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.permission_required(3, 'b')
+	def files_upload(id, did=0, sdid=1):
+		try:
+			file_rec = app._sql.file_by_id([id])
+			if not file_rec:
+				return abort(404)
+			# Validate uploaded file
+			uploaded_file = request.files.get('file')
+			validate_uploaded_file(uploaded_file, app)
+			# Save to original and begin conversion
+			base = path.join(file_rec.path, path.splitext(file_rec.real_name)[0])
+			uploaded_file.save(base + '.webm')
+			media_service.convert_async(base + '.webm', base + '.mp4', ('file', id))
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'uploaded', 'id': id}, broadcast=True)
+				except Exception:
+					pass
+			return {200: 'OK'}
+		except Exception as e:
+			app.flash_error(e)
+			return {'error': str(e)}, 400
 
 	@app.route('/fls' + '/edit' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@app.permission_required(3, 'b')
@@ -130,7 +193,19 @@ def register(app, media_service, socketio=None):
 			return abort(403)
 		try:
 			app._sql.file_delete([id])
-			remove(path.join(file.path, file.real_name))
+			# Remove converted file if exists
+			try:
+				remove(path.join(file.path, file.real_name))
+			except Exception:
+				pass
+			# Also remove original uploaded file if exists (e.g., pending .webm)
+			try:
+				base, _ = os.path.splitext(file.real_name)
+				orig = path.join(file.path, base + '.webm')
+				if os.path.exists(orig):
+					os.remove(orig)
+			except Exception:
+				pass
 			if socketio:
 				try:
 					socketio.emit('files:changed', {'reason': 'deleted', 'id': id}, broadcast=True)
@@ -149,6 +224,21 @@ def register(app, media_service, socketio=None):
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
 			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), name)
+		except Exception as e:
+			app.flash_error(e)
+			return redirect(url_for('files', did=did, sdid=sdid))
+
+	# Serve original uploaded file (.webm) when processing
+	@app.route('/fls' + '/orig' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
+	@app.permission_required(3, 'a')
+	def files_orig(did, sdid, name):
+		try:
+			# name here is real_name.mp4 => map to .webm
+			base, _ = os.path.splitext(name)
+			_dirs = dirs_by_permission(app, 3, 'f')
+			did, sdid = validate_directory_params(did, sdid, _dirs)
+			dirs = list(_dirs[did].keys())
+			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), base + '.webm', as_attachment=True)
 		except Exception as e:
 			app.flash_error(e)
 			return redirect(url_for('files', did=did, sdid=sdid))
@@ -172,6 +262,55 @@ def register(app, media_service, socketio=None):
 		except Exception as e:
 			app.flash_error(e)
 		return redirect(url_for('files', did=did, sdid=sdid))
+
+	@app.route('/fls' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.permission_required(3, 'b')
+	def files_move(id, did=0, sdid=1):
+		# Only owner or users with edit rights can move
+		file = app._sql.file_by_id([id])
+		if not file:
+			app.flash_error('File not found')
+			return redirect(url_for('files', did=did, sdid=sdid))
+		if not (current_user.is_allowed(3, 'c') or current_user.name + ' (' in file.owner):
+			return abort(403)
+		try:
+			# Determine target directory within the same root/category
+			_dirs = dirs_by_permission(app, 3, 'f')
+			did, sdid = validate_directory_params(did, sdid, _dirs)
+			dirs = list(_dirs[did].keys())
+			selected_root = request.form.get('target_root')
+			selected_sub = request.form.get('target_sub')
+			# Validate selected root exists in dirs
+			valid_roots = [ (dirs.values() | list)[0] for dirs in _dirs ]
+			if selected_root not in valid_roots:
+				raise ValueError('Неверная категория назначения')
+			# Find its sub list to validate subcategory
+			root_index = valid_roots.index(selected_root)
+			valid_subs = (list(_dirs[root_index].values())[1:])
+			if selected_sub not in valid_subs:
+				raise ValueError('Неверная подкатегория назначения')
+			new_dir = os.path.join(app._sql.config['files']['root'], 'video', selected_root, selected_sub)
+			make_dir(os.path.join(app._sql.config['files']['root'], 'video'), root, selected)
+			# Move files on disk: real_name without extension combines with mp4/webm if exist
+			old_base = os.path.join(file.path, os.path.splitext(file.real_name)[0])
+			new_base = os.path.join(new_dir, os.path.splitext(file.real_name)[0])
+			for ext in ('.mp4', '.webm'):
+				old_path = old_base + ext
+				new_path = new_base + ext
+				if os.path.exists(old_path):
+					os.replace(old_path, new_path)
+			# Update DB path
+			app._sql.file_move([new_dir, id])
+			# Notify clients
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'moved', 'id': id}, broadcast=True)
+				except Exception:
+					pass
+		except Exception as e:
+			app.flash_error(e)
+		finally:
+			return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
 	@app.permission_required(3, 'm')
