@@ -33,17 +33,17 @@
       <header class="app-topbar px-3">
         <div class="app-topbar__row">
           <div class="app-topbar__group">
-            <a class="topbtn" href="{{ pages.get_page_by_name('index').url}}">{{ pages.get_page_by_name('index').dname }}</a>
-            <a class="topbtn" href="{{ pages.get_page_by_name('requests').url}}">{{ pages.get_page_by_name('requests').dname }}</a>
-            <a class="topbtn" href="{{ pages.get_page_by_name('orders').url}}">{{ pages.get_page_by_name('orders').dname }}</a>
-            <a class="topbtn" href="{{ pages.get_page_by_name('files').url}}">{{ pages.get_page_by_name('files').dname }}</a>
+            <a class="topbtn{{ ' active' if request.path == pages.get_page_by_name('index').url else '' }}" href="{{ pages.get_page_by_name('index').url}}">{{ pages.get_page_by_name('index').dname }}</a>
+            <a class="topbtn{{ ' active' if request.path.startswith(pages.get_page_by_name('requests').url) else '' }}" href="{{ pages.get_page_by_name('requests').url}}">{{ pages.get_page_by_name('requests').dname }}</a>
+            <a class="topbtn{{ ' active' if request.path.startswith(pages.get_page_by_name('orders').url) else '' }}" href="{{ pages.get_page_by_name('orders').url}}">{{ pages.get_page_by_name('orders').dname }}</a>
+            <a class="topbtn{{ ' active' if request.path.startswith(pages.get_page_by_name('files').url) else '' }}" href="{{ pages.get_page_by_name('files').url}}">{{ pages.get_page_by_name('files').dname }}</a>
             {% if current_user.is_allowed(pages.get_page_by_name('orders').id, 'i') %}
               <a class="topbtn" href="/rdrs/table" target="_blank" style="background-color: grey">Таблица для согласования</a>
             {% endif %}
           </div>
           <div class="app-topbar__group">
             {% if current_user.is_allowed(6) %}
-              <a class="topbtn" href="{{ pages.get_page_by_name('users').url}}">{{ pages.get_page_by_name('users').dname }}</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(pages.get_page_by_name('users').url) else '' }}" href="{{ pages.get_page_by_name('users').url}}">{{ pages.get_page_by_name('users').dname }}</a>
             {% endif %}
             <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ pages.get_page_by_name('logout').url}}">{{ pages.get_page_by_name('logout').dname }} ({{ current_user.name }})</a>
