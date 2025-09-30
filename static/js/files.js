@@ -1,3 +1,10 @@
+/**
+ * Hydrate popup forms with values derived from the selected row.
+ * - For add: wires filename -> name autofill.
+ * - For edit/delete/note: fills inputs from row with given id.
+ * @param {HTMLElement} form The form or any element within the form
+ * @param {number|string} id The numeric id of the target row (for non-add forms)
+ */
 function popupValues(form, id) {
   if (form.id != "add" && !id) {
     return;
@@ -47,6 +54,13 @@ function popupValues(form, id) {
   form.action = form.action.replace(new RegExp("0$"), id);
 }
 
+/**
+ * Validate and submit forms on the files page.
+ * For add: performs client-side validation and starts XHR upload with progress.
+ * For others: submits normally.
+ * @param {HTMLElement} x The element that triggered validation (inside a form)
+ * @returns {boolean} Whether the native submit should proceed
+ */
 function validateForm(x) {
   
   // Find the form element
@@ -130,6 +144,11 @@ function validateForm(x) {
   return true;
 }
 
+/**
+ * Start file upload with progress bar and cancellation support.
+ * Handles both single-phase and two-phase (init+upload) flows.
+ * @param {HTMLFormElement} form The add form element
+ */
 function startUploadWithProgress(form) {
   // Show progress bar and hide buttons
   const progressDiv = document.getElementById('upload-progress');
@@ -276,6 +295,9 @@ function startUploadWithProgress(form) {
   }
 }
 
+/**
+ * Abort the current upload request and restore UI state.
+ */
 function cancelUpload() {
   
   
@@ -316,6 +338,10 @@ function cancelUpload() {
   }, 2000);
 }
 
+/**
+ * Show an error message in the upload UI and restore controls.
+ * @param {string} message Error message for the user
+ */
 function handleUploadError(message) {
   const progressDiv = document.getElementById('upload-progress');
   const submitBtn = document.getElementById('add-submit-btn');
@@ -347,6 +373,9 @@ function handleUploadError(message) {
 }
 
 // Default sort by "Дата создания" (descending) for files table
+/**
+ * Sort the files table by the "Дата создания" column in descending order.
+ */
 function sortFilesTableByDateDesc() {
   try {
     const table = document.getElementById('maintable');
@@ -391,6 +420,10 @@ function sortFilesTableByDateDesc() {
 }
 
 // Pagination (15 rows per page), persists current page in localStorage
+/**
+ * Initialize client-side pagination for files table.
+ * Exposes window.filesPager with readPage/renderPage helpers.
+ */
 function initFilesPagination() {
   const table = document.getElementById('maintable');
   if (!table || !table.tBodies || !table.tBodies[0]) return;
@@ -498,6 +531,11 @@ function initFilesPagination() {
 }
 
 // Search integration: filter across all pages, restore page on clear
+/**
+ * Filter the files table rows by a query across all visible text.
+ * Preserves pagination state and limits results while searching.
+ * @param {string} query The search string
+ */
 function filesDoFilter(query) {
   const table = document.getElementById('maintable');
   if (!table || !table.tBodies || !table.tBodies[0]) return;

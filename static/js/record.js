@@ -1,19 +1,99 @@
+/**
+ * Hide and disable a control if present.
+ * @param {HTMLElement|HTMLButtonElement|null} x
+ */
 function disable(x) { if (!x) return; x.disabled = true; x.style.display = 'none'; }
+/**
+ * Show and enable a control if present.
+ * @param {HTMLElement|HTMLButtonElement|null} x
+ */
 function enable(x) { if (!x) return; x.disabled = false; x.style.display = 'inline-block'; }
 
 window.onbeforeunload = null;
 
 const BYTES_IN_MB = 1048576;
 
-let buttonCamera, buttonStart, buttonPause, buttonStop, buttonSave, video, fileName, dirName, fileText;
-let sizeText, statusText, progressBar;
-let uploadProgress, uploadProgressBar;
-let h = 0, m = 0, s = 0;
-let recorded = [];
-let timerInterval;
-let recorder;
-let recState = { recording: false, paused: false, hasData: false };
+// UI elements populated on DOMContentLoaded
+/** @type {HTMLButtonElement|null} */ let buttonCamera;
+/** @type {HTMLButtonElement|null} */ let buttonStart;
+/** @type {HTMLButtonElement|null} */ let buttonPause;
+/** @type {HTMLButtonElement|null} */ let buttonStop;
+/** @type {HTMLButtonElement|null} */ let buttonSave;
+/** @type {HTMLVideoElement|null} */ let video;
+/** @type {HTMLInputElement|null} */ let fileName;
+/** @type {HTMLElement|null} */ let dirName;
+/** @type {HTMLTextAreaElement|null} */ let fileText;
+/** @type {HTMLElement|null} */ let sizeText;
+/** @type {HTMLElement|null} */ let statusText;
+/** @type {HTMLElement|null} */ let progressBar;
+/** @type {HTMLElement|null} */ let uploadProgress;
+/** @type {HTMLElement|null} */ let uploadProgressBar;
+/** @type {number} */ let h = 0;
+/** @type {number} */ let m = 0;
+/** @type {number} */ let s = 0;
+/** @type {BlobPart[]} */ let recorded = [];
+/** @type {number|null} */ let timerInterval = null;
+/** @type {MediaRecorder|null} */ let recorder;
+/** @typedef {{recording: boolean, paused: boolean, hasData: boolean}} RecState */
+/** @type {RecState} */ let recState = { recording: false, paused: false, hasData: false };
 
+/**
+ * Sync theme classes from parent window into iframe (same-origin).
+ * Copies `theme-*` classes from parent documentElement to iframe's documentElement.
+ */
+(function() {
+  /**
+   * Apply theme classes from a source element to the iframe root.
+   * @param {Element|null|undefined} el
+   */
+  function applyThemeFrom(el) {
+    try {
+      var dstRoot = document.documentElement;
+      if (!dstRoot || !el) return;
+      dstRoot.className = (dstRoot.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
+      var src = (el.className || '').split(/\s+/).filter(function(c){ return /^theme-/.test(c); });
+      if (src.length) {
+        dstRoot.className = (dstRoot.className ? dstRoot.className + ' ' : '') + src.join(' ');
+      }
+    } catch(_) {}
+  }
+  /**
+   * Perform a single sync attempt from parent document.
+   */
+  function syncOnce() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) {
+        applyThemeFrom(window.parent.document.documentElement);
+      }
+    } catch(_) {}
+  }
+  try { document.addEventListener('DOMContentLoaded', syncOnce); } catch(_) {}
+  try { setInterval(syncOnce, 1000); } catch(_) {}
+  try {
+    /**
+     * Listen for theme change messages from parent.
+     * @param {MessageEvent<{type:string,className?:string}>} ev
+     */
+    window.addEventListener('message', function(ev){
+      if (!ev || !ev.data) return;
+      if (ev.data && ev.data.type === 'theme:changed') {
+        try {
+          if (ev.data.className) {
+            var dstRoot = document.documentElement;
+            dstRoot.className = (dstRoot.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
+            dstRoot.className = (dstRoot.className ? dstRoot.className + ' ' : '') + ev.data.className;
+          } else {
+            syncOnce();
+          }
+        } catch(_) { syncOnce(); }
+      }
+    });
+  } catch(_) {}
+})();
+
+/**
+ * Send current recorder state to parent window (for guarded close logic).
+ */
 function postState() {
   try {
     if (window.parent) {
@@ -52,6 +132,13 @@ document.addEventListener('DOMContentLoaded', function() {
   if (buttonSave) buttonSave.onclick = onSaveClick;
   postState();
   // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
+  /**
+   * Hotkeys inside iframe: Enter to save (except textarea), Esc to stop.
+   * @param {KeyboardEvent} event
+   */
+  /**
+   * @param {KeyboardEvent} event
+   */
   const handleKey = function (event) {
     const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
     if (event.key === 'Enter' && !isTextarea) {
@@ -72,6 +159,12 @@ document.addEventListener('DOMContentLoaded', function() {
   try { document.addEventListener('keydown', handleKey, true); } catch(e) {}
 });
 
+/**
+ * Update UI to the stopped state after pausing/stopping recording.
+ */
+/**
+ * Update UI to stopped state: borders, buttons, timer and save toggle.
+ */
 function setStoppedUI() {
   try { video.style.borderColor = 'green'; } catch(e) {}
   try { buttonStart.textContent = 'Начать запись'; } catch(e) {}
@@ -81,6 +174,12 @@ function setStoppedUI() {
   resetTimer(true);
 }
 
+/**
+ * Restore UI and internal state after a successful save.
+ */
+/**
+ * Fully reset UI, state and camera after a successful save or discard.
+ */
 function resetAfterSave() {
   try { if (uploadProgress) uploadProgress.style.display = 'none'; } catch(e) {}
   try { if (uploadProgressBar) uploadProgressBar.style.width = '0%'; } catch(e) {}
@@ -100,6 +199,12 @@ function resetAfterSave() {
   postState();
 }
 
+/**
+ * Stop all media tracks and reset camera-related UI.
+ */
+/**
+ * Stop all media tracks and clear video srcObject.
+ */
 function stopCameraStream() {
   try {
     if (video && video.srcObject) {
@@ -110,6 +215,13 @@ function stopCameraStream() {
   try { buttonCamera.textContent = 'Включить камеру'; } catch(e) {}
 }
 
+/**
+ * Toggle camera on/off, acquire media stream and configure MediaRecorder.
+ */
+/**
+ * Toggle camera on/off and setup MediaRecorder.
+ * @returns {Promise<void>}
+ */
 async function onCameraClick() {
   try {
     if (buttonCamera.textContent == 'Выключить камеру') {
@@ -167,17 +279,12 @@ async function onCameraClick() {
     });
     timerInterval = setInterval(timer, 1000);
 
+    /** @param {BlobEvent} e */
     recorder.addEventListener('dataavailable', function (e) {
       recorded.push(e.data);
       if (recorded.length > 0) { recState.hasData = true; postState(); }
     });
 
-    //recorder.addEventListener('stop', () => {
-    //  saveFile();
-    //  if (buttonSave.disabled) {
-    //    recorded = []
-    //  }
-    //});
     recorded = [];
     enable(buttonStart);
     disable(buttonPause);
@@ -190,6 +297,12 @@ async function onCameraClick() {
   }
 }
 
+/**
+ * Start or resume recording and update UI accordingly.
+ */
+/**
+ * Start or resume recording and update UI accordingly.
+ */
 function onStartClick() {
   if (buttonStart.textContent == 'Начать запись') {
     recorder.start();
@@ -211,6 +324,12 @@ function onStartClick() {
   postState();
 }
 
+/**
+ * Pause recording and update UI.
+ */
+/**
+ * Pause recording and update UI.
+ */
 function onPauseClick() {
   recorder.pause();
   video.style.borderColor = 'green';
@@ -221,6 +340,12 @@ function onPauseClick() {
   postState();
 }
 
+/**
+ * Stop recording, set stopped UI, and publish state.
+ */
+/**
+ * Stop recording, set stopped UI, and publish state.
+ */
 function onStopClick() {
   recorder.pause();
   recorder.stop();
@@ -231,6 +356,12 @@ function onStopClick() {
   postState();
 }
 
+/**
+ * Save recording. If still recording, ensures recorder is stopped first.
+ */
+/**
+ * Save recording. If still recording, ensures recorder is stopped first.
+ */
 function onSaveClick() {
   // If recording, stop first to flush data
   if (recorder && recorder.state === 'recording') {
@@ -244,6 +375,12 @@ function onSaveClick() {
   }
 }
 
+/**
+ * Update recording timer once per second while recorder is active.
+ */
+/**
+ * Update recording timer once per second while recorder is active.
+ */
 function timer() {
   if (recorder.state == 'recording') {
     s += 1;
@@ -263,6 +400,14 @@ function timer() {
   }
 }
 
+/**
+ * Generate default file name: Rec_DD.MM.YYYY_HH.MM.SS
+ * @returns {string}
+ */
+/**
+ * Generate default file name: Rec_DD.MM.YYYY_HH.MM.SS
+ * @returns {string}
+ */
 function name() {
   const currentdate = new Date();
   const date = String(currentdate.getDate()).padStart(2, '0');
@@ -275,6 +420,13 @@ function name() {
   return answer;
 }
 
+/**
+ * Upload recorded data to the backend and expose a download link for the blob.
+ */
+/**
+ * Upload recorded data to the backend and provide a download link.
+ * @returns {Promise<void>}
+ */
 async function saveFile() {
   var buttonSave = document.getElementById('save');
   try {
@@ -332,6 +484,22 @@ async function saveFile() {
   }
 }
 
+/**
+ * Build save URL from form values.
+ * @param {string} fileName
+ * @param {string} fileText
+ * @param {HTMLInputElement} did
+ * @param {HTMLInputElement} sdid
+ * @returns {string}
+ */
+/**
+ * Build save URL from form values.
+ * @param {string} fileName
+ * @param {string} fileText
+ * @param {HTMLInputElement} did
+ * @param {HTMLInputElement} sdid
+ * @returns {string}
+ */
 function generateUrlString(fileName, fileText, did, sdid) {
   const name = encodeURIComponent(fileName);
   const desc = encodeURIComponent(fileText);
@@ -339,6 +507,14 @@ function generateUrlString(fileName, fileText, did, sdid) {
   return `${base}/fls/rec/save/${name}/q${desc}/${did.value}/${sdid.value}`;
 }
 
+/**
+ * XHR progress handler for upload.
+ * @param {ProgressEvent} event
+ */
+/**
+ * XHR progress handler for upload.
+ * @param {ProgressEvent} event
+ */
 function progressHandler(event) {
   const loadedMB = (event.loaded / BYTES_IN_MB).toFixed(1);
   const totalSizeMb = event.total ? (event.total / BYTES_IN_MB).toFixed(1) : '0';
@@ -346,6 +522,14 @@ function progressHandler(event) {
   if (uploadProgressBar) uploadProgressBar.style.width = `${percentLoaded}%`;
 }
 
+/**
+ * XHR load handler: closes modal and informs parent on success.
+ * @param {ProgressEvent} event
+ */
+/**
+ * XHR load handler: close modal and inform parent on success.
+ * @param {ProgressEvent} event
+ */
 function loadHandler(event) {
   const ok = event.target.status >= 200 && event.target.status < 400;
   if (uploadProgressBar) uploadProgressBar.style.width = ok ? '100%' : '0%';
@@ -361,6 +545,11 @@ function loadHandler(event) {
 }
 
 // Handle parent messages (query state, save, discard)
+// Handle parent messages (query state, save, discard)
+/**
+ * Handle parent messages: state query, save, discard.
+ * @param {MessageEvent} ev
+ */
 window.addEventListener('message', function(ev) {
   const msg = ev.data || {};
   if (msg.type === 'rec:state?') {
@@ -391,6 +580,14 @@ window.addEventListener('message', function(ev) {
   }
 });
 
+/**
+ * Reset timer and optionally the visible display.
+ * @param {boolean} resetDisplayOnly (kept for compatibility)
+ */
+/**
+ * Reset timer and optionally the visible display.
+ * @param {boolean} resetDisplayOnly
+ */
 function resetTimer(resetDisplayOnly) {
   try { clearInterval(timerInterval); } catch(e) {}
   timerInterval = null;
@@ -398,6 +595,14 @@ function resetTimer(resetDisplayOnly) {
   try { document.getElementById('time').innerHTML = '00:00:00'; } catch(e) {}
 }
 
+/**
+ * Ensure MediaRecorder is stopped and resolve when stop completes.
+ * @returns {Promise<void>}
+ */
+/**
+ * Ensure MediaRecorder is stopped and resolve when stop completes.
+ * @returns {Promise<void>}
+ */
 function stopRecorder() {
   return new Promise((resolve) => {
     try {

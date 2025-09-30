@@ -1,5 +1,9 @@
 'use strict';
 
+/**
+ * Global popup keyboard helpers: Esc closes, Enter submits active modal.
+ * Guarded to avoid unintended submits from textareas.
+ */
 function popupKeys() {
   let x = document.getElementsByTagName('form');
   let target;
@@ -43,6 +47,10 @@ function popupKeys() {
   }
 }*/
 
+/**
+ * Append current username to logout link in top navigation.
+ * @param {string} name
+ */
 function displayName(name) {
   let target = document.getElementById('nav').getElementsByTagName('a');
   for (let i = target.length - 1; i >= 0; i--) {
@@ -52,6 +60,12 @@ function displayName(name) {
   }
 }
 
+/**
+ * Toggle a modal overlay by id. Supports guarded closing of recorder popup.
+ * Resets and prepares form state and upload progress on open/close.
+ * @param {string} x overlay id
+ * @param {number} [id=0] optional entity id for form hydration
+ */
 function popupToggle(x, id = 0) {
   const overlay = document.getElementById(x);
   // Intercept recorder popup close attempts
@@ -158,6 +172,9 @@ window.addEventListener('message', function(ev) {
   }
 });
 
+/**
+ * Show a confirmation dialog to save/discard recorder data on close.
+ */
 function showRecConfirmDialog() {
   let box = document.getElementById('rec-confirm');
   if (!box) {
@@ -200,6 +217,11 @@ function showRecConfirmDialog() {
   }
 }
 
+/**
+ * Ensure input has non-empty trimmed value if element exists.
+ * @param {HTMLInputElement} x
+ * @returns {boolean}
+ */
 function trimIfExists(x) {
   if (x != null) {
     if (x.value == null || x.value.trim() == '') {
@@ -260,12 +282,14 @@ function filterTable(table, filter) {
     });
 }*/
 
+/** @type {string|null} id of the currently open popup overlay */
 var popup = null;
 /*$(document).ready(function () {
   popupKeys();
   tableListener();
 });*/
 
+/** Demo notification to verify browser permissions */
 function notifyTest() {
   if (!('Notification' in window)) {
     alert('Уведомления не поддерживаются!');

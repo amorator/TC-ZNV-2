@@ -1,10 +1,14 @@
+/** Persisted key in localStorage for selected theme */
 const THEME_KEY = "selectedTheme";
+/** Order of available themes for the toggle button */
 const themeOrder = ["light", "dark", "dark-hc"];
+/** Mapping from theme id to applied CSS class on <html> */
 const themeMap = {
   light: "theme-light",
   dark: "theme-dark",
   "dark-hc": "theme-dark-hc",
 };
+/** Icon mapping for the navbar theme button */
 const themeIcons = {
   light: "bi-sun",
   dark: "bi-moon-fill",
@@ -27,9 +31,15 @@ const themeIcons = {
         e.currentTarget.blur();
     });
   });
+  // Expose for programmatic theme changes
   window.applyTheme = applyTheme;
 })();
 
+/**
+ * Apply theme by id: toggles class on <html> and updates the theme icon.
+ * Also notifies same-origin iframes via postMessage for embedded UIs.
+ * @param {"light"|"dark"|"dark-hc"} theme Theme identifier
+ */
 function applyTheme(theme) {
   var cls = themeMap[theme] || themeMap.light;
   var root = document.documentElement;
@@ -59,6 +69,11 @@ function applyTheme(theme) {
   }
 }
 
+/**
+ * Safe localStorage getter (guards against privacy/storage errors).
+ * @param {string} key
+ * @returns {string|null}
+ */
 function safeGet(key) {
   try {
     return localStorage.getItem(key);
@@ -67,6 +82,11 @@ function safeGet(key) {
   }
 }
 
+/**
+ * Safe localStorage setter (guards against privacy/storage errors).
+ * @param {string} key
+ * @param {string} val
+ */
 function safeSet(key, val) {
   try {
     localStorage.setItem(key, val);

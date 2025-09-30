@@ -5,50 +5,6 @@
 {% endblock %}
 {% block js %}
 <script src="{{ url_for('static', filename='js/record.js') }}"></script>
-<script>
-  // Sync theme classes from parent window into iframe (same-origin)
-  (function() {
-    function applyThemeFrom(el) {
-      try {
-        var dstRoot = document.documentElement;
-        if (!dstRoot || !el) return;
-        // Remove existing theme-* classes from iframe root (<html>)
-        dstRoot.className = (dstRoot.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
-        // Copy theme-* classes from source element
-        var src = (el.className || '').split(/\s+/).filter(function(c){ return /^theme-/.test(c); });
-        if (src.length) {
-          dstRoot.className = (dstRoot.className ? dstRoot.className + ' ' : '') + src.join(' ');
-        }
-      } catch(_) {}
-    }
-    function syncOnce() {
-      try {
-        if (window.parent && window.parent !== window && window.parent.document) {
-          applyThemeFrom(window.parent.document.documentElement);
-        }
-      } catch(_) {}
-    }
-    // Initial sync
-    document.addEventListener('DOMContentLoaded', syncOnce);
-    // Periodic sync in case theme toggles after load
-    setInterval(syncOnce, 1000);
-    // Listen to postMessage from parent if implemented in the future
-    window.addEventListener('message', function(ev){
-      if (!ev || !ev.data) return;
-      if (ev.data && ev.data.type === 'theme:changed') {
-        try {
-          if (ev.data.className) {
-            var dstRoot = document.documentElement;
-            dstRoot.className = (dstRoot.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
-            dstRoot.className = (dstRoot.className ? dstRoot.className + ' ' : '') + ev.data.className;
-          } else {
-            syncOnce();
-          }
-        } catch(_) { syncOnce(); }
-      }
-    });
-  })();
-</script>
 {% endblock %}
 {% block main %}
 

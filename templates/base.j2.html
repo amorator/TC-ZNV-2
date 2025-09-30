@@ -6,17 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
   <link rel="shortcut icon" href="{{ icon }}">
-  <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/lib/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/lib/bootstrap-icons.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/themes.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/base.css') }}" rel="stylesheet">
   {% block css %}{% endblock %}
   {% if current_user.is_authenticated %}
-  <script src="{{ url_for('static', filename='js/socket.io.min.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/lib/socket.io.min.js') }}" defer="defer"></script>
   {% endif %}
-  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}" defer="defer"></script>
-  <script src="{{ url_for('static', filename='js/jquery.min.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/lib/bootstrap.bundle.min.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/lib/jquery.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/themes.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/icons-migrate.js') }}" defer="defer"></script>
   {% block js %}{% endblock %}
