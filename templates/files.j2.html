@@ -41,17 +41,12 @@
             <th class="table__head_item">Описание</th>
             <th class="table__head_item">Создатель</th>
             <th class="table__head_item">Дата создания</th>
-            {% if current_user.is_allowed(id, 'l') %}
             <th class="table__head_item">Примечания</th>
-            {% endif %}
-            {% if current_user.permission[id] != 'a' %}
-              <th class="table__head_item">Управление</th>
-            {% endif %}
           </tr>
         </thead>
         <tbody class="table__body">
           <tr class="table__body_actions">
-            <td class="table__body_action" colspan="{{ 4 if current_user.is_allowed(id, 'l') else 2 }}">
+            <td class="table__body_action" colspan="3">
               <div class="search searchbar">
                 <input id="searchinp" type="text" placeholder="Поиск...">
                 <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
@@ -73,6 +68,8 @@
                   data-can-delete="{{ 1 if (current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.is_allowed(id, 'm') else 0 }}"
                   data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.is_allowed(id, 'm') else '' }}"
+                  data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
+                  data-note="{{ file.note if file.note else '' }}"
                 >
                   <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
                   <td class="table__body_item">{{ file.description }}</td>
@@ -80,35 +77,29 @@
                   <td class="table__body_item">{{ file.date }}</td>
                   {% if current_user.is_allowed(id, 'l') %}
                     <td class="table__body_item">
+                      {# Visible to all: list of viewers in notes column #}
+                      <div class="file-viewers">
+                        <strong>Просмотревшие:</strong>
+                        <span>{{ file.viewed if file.viewed else '—' }}</span>
+                      </div>
+
+                      {# Action: mark as viewed (permission 'm'), non-reversible; prevent repeat #}
                       {% if current_user.is_allowed(id, 'm') %}
-                        {% if file.viewed %}
-                          <button class="button inverted">{{ file.viewed }}</button>
-                        {% else %}
-                          <button class="button" onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">просмотреть</button>
-                        {% endif %}
-                        <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        {% set already_viewed = (file.viewed and (current_user.name in file.viewed)) %}
+                        <div class="mt-1">
+                          {% if not already_viewed %}
+                            <span onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">Отметить просмотренным</span>
+                          {% endif %}
+                        </div>
+                        <div class="mt-1">
+                          <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        </div>
                       {% else %}
-                        {% if file.viewed %}
-                          <button class="button inverted">{{ file.viewed }}</button>
-                        {% else %}
-                          <button class="button">просмотреть</button>
-                        {% endif %}
-                        <span>{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        <div class="mt-1">
+                          <span>{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        </div>
                       {% endif %}
                     </td>
-                  {% endif %}
-                  {% if current_user.permission[id] != 'a' %}
-                  <td class="table__body_item">
-                    <div class="files-page__item-actions">
-                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i></a>
-                        {% if current_user.name + ' (' in file.owner or current_user.is_allowed(id, 'c') %}
-                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit', {{ file.id }});"><i class="bi bi-pencil-square"></i></button>
-                        {% endif %}
-                        {% if current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner %}
-                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i></button>
-                        {% endif %}
-                      </div>
-                  </td>
                   {% endif %}
                 </tr>
               {% else %}

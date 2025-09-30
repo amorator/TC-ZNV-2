@@ -39,13 +39,9 @@ function popupValues(form, id) {
     let target = form.parentElement.getElementsByTagName("b");
     target[0].innerText = values[0].innerText;
   } else if (form.id == "note") {
-    let data = values[4].innerText;
-    let note;
-    if (data.indexOf(':') > -1) {
-      note = data.split(':')[1].substring(1);
-    } else {
-      note = '';
-    }
+    // Read note directly from row attribute to avoid mixing with viewers text
+    const row = document.getElementById(id);
+    const note = (row && row.getAttribute('data-note')) ? row.getAttribute('data-note') : '';
     form.getElementsByTagName("textarea")[0].value = note;
   }
   form.action = form.action.replace(new RegExp("0$"), id);
@@ -745,7 +741,9 @@ document.addEventListener('DOMContentLoaded', function () {
         toggleItem('download', true);
         toggleItem('edit', canEdit);
         toggleItem('delete', canDelete);
-        toggleItem('mark-viewed', canMarkView);
+        // If already viewed by current user, hide mark-viewed
+        const alreadyViewed = row.getAttribute('data-already-viewed') === '1';
+        toggleItem('mark-viewed', canMarkView && !alreadyViewed);
         toggleItem('note', canNote);
         toggleItem('add', tableCanAdd);
         toggleItem('record', tableCanAdd);
