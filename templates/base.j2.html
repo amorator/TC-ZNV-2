@@ -29,7 +29,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
       </div>
     {% endfor %}
-    {% if current_user.is_authenticated %}
+    {% if current_user.is_authenticated and request.args.get('embed') != '1' %}
       <header class="app-topbar px-3">
         <div class="app-topbar__row">
           <div class="app-topbar__group">
@@ -45,7 +45,7 @@
             {% if current_user.is_allowed(6) %}
               <a class="topbtn" href="{{ pages.get_page_by_name('users').url}}">{{ pages.get_page_by_name('users').dname }}</a>
             {% endif %}
-            <button id="btntheme" class="topbtn d-inline-flex align-items-center" disabled><i class="bi bi-sun"></i></button>
+            <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ pages.get_page_by_name('logout').url}}">{{ pages.get_page_by_name('logout').dname }} ({{ current_user.name }})</a>
           </div>
         </div>

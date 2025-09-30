@@ -11,7 +11,7 @@
 }
 
 body {
-  background-color: var(--fon-900);
+  background-color: var(--body-bg);
   font-family: Roboto, Arial, Helvetica, sans-serif;
   font-size: 20px;
   color: var(--text);
@@ -199,23 +199,34 @@ a.active {
 .overlay-container .popup {
   position: relative;
   z-index: 1;
+  background-color: var(--modal-bg);
+  border: 1px solid #000000;
 }
 
 .overlay-container .popup::before {
   content: '';
   position: absolute;
   inset: -24px;
-  background: var(--overlay-bg);
+  /* Use themed modal background with configurable opacity, fallback to body bg */
+  background: color-mix(in srgb,
+      var(--modal-bg, var(--body-bg)),
+      transparent calc((1 - var(--overlay-opacity, 0.9)) * 100%));
   border-radius: 14px;
   z-index: -1;
+}
+
+/* Wide modal variant */
+.overlay-container .popup.popup--wide {
+  width: 95vw;
+  max-width: 1400px;
 }
 
 /* Ensure modal buttons are opaque and readable over themed overlay */
 .overlay-container .btn {
   opacity: 1;
-  background-color: var(--player-ctrl-bg);
-  color: var(--player-ctrl-text);
-  border-color: var(--sidebar-bg);
+  background-color: var(--button-bg);
+  color: var(--button-text);
+  border-color: var(--button-border);
 }
 
 .overlay-container .btn:hover,
@@ -226,13 +237,13 @@ a.active {
 .overlay-container .btn-primary {
   background-color: var(--btn-focus);
   border-color: var(--btn-focus);
-  color: var(--body-bg);
+  color: #000000;
 }
 
 .overlay-container .btn-secondary {
-  background-color: var(--topbar-bg);
-  border-color: var(--sidebar-bg);
-  color: var(--topbar-text);
+  background-color: var(--button-bg);
+  border-color: var(--button-border);
+  color: var(--button-text);
 }
 
 .overlay-container .btn-danger {

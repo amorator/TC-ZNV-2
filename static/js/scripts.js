@@ -54,10 +54,25 @@ function displayName(name) {
 
 function popupToggle(x, id = 0) {
   const overlay = document.getElementById(x);
-  let form = overlay.getElementsByTagName('form')[0];
-  form.reset();
-  if (!popup) {
-    popupValues(form, id);
+  // Intercept recorder popup close attempts
+  if (x === 'popup-rec' && overlay && overlay.classList.contains('show')) {
+    // about to close; ask iframe for state
+    try {
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        window.__recCloseRequested = true;
+        iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+        // actual close will be decided in message handler below
+        return;
+      }
+    } catch(e) {}
+  }
+  const form = overlay ? overlay.querySelector('form') : null;
+  if (form) {
+    try { form.reset(); } catch(e) {}
+    if (!popup) {
+      try { popupValues(form, id); } catch(e) {}
+    }
   }
   overlay.classList.toggle('show');
   popup = overlay.classList.contains('show') ? x : null;
@@ -104,6 +119,83 @@ function popupToggle(x, id = 0) {
       window.currentUploadXHR.abort();
       window.currentUploadXHR = null;
     }
+  }
+}
+
+// Recorder close control via postMessage
+window.addEventListener('message', function(ev) {
+  const data = ev.data || {};
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'rec:state' && window.__recCloseRequested) {
+    window.__recCloseRequested = false;
+    const st = data.state || {};
+    const isRecording = !!st.recording;
+    const isPaused = !!st.paused;
+    const hasData = !!st.hasData;
+    if (isRecording) {
+      // do not allow close while recording
+      alert('Остановите запись перед закрытием окна.');
+      return;
+    }
+    if (!window.__recSaving && (hasData || isPaused)) {
+      // show confirm modal with Yes/No/Cancel
+      showRecConfirmDialog();
+      return;
+    }
+    // Safe to close
+    const overlay = document.getElementById('popup-rec');
+    if (overlay) overlay.classList.remove('show');
+    popup = null;
+  } else if (data.type === 'rec:discarded') {
+    // after discard in iframe, close popup
+    const overlay = document.getElementById('popup-rec');
+    if (overlay) overlay.classList.remove('show');
+    popup = null;
+    window.__recSaving = false;
+  } else if (data.type === 'rec:saved') {
+    window.__recSaving = false;
+  }
+});
+
+function showRecConfirmDialog() {
+  let box = document.getElementById('rec-confirm');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'rec-confirm';
+    box.className = 'overlay-container show';
+    box.innerHTML = '\
+      <div class="popup">\
+        <h1 class="popup__title">Сохранить запись?</h1>\
+        <div class="popup__actions">\
+          <button type="button" class="btn btn-primary" id="rec-confirm-yes">Да</button>\
+          <button type="button" class="btn btn-danger" id="rec-confirm-no">Нет</button>\
+          <button type="button" class="btn btn-secondary" id="rec-confirm-cancel">Отмена</button>\
+        </div>\
+      </div>';
+    document.body.appendChild(box);
+    document.getElementById('rec-confirm-yes').onclick = function() {
+      window.__recSaving = true;
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'rec:save' }, '*');
+      }
+      box.classList.remove('show');
+      setTimeout(() => box.remove(), 150);
+    };
+    document.getElementById('rec-confirm-no').onclick = function() {
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'rec:discard' }, '*');
+      }
+      box.classList.remove('show');
+      setTimeout(() => box.remove(), 150);
+    };
+    document.getElementById('rec-confirm-cancel').onclick = function() {
+      box.classList.remove('show');
+      setTimeout(() => box.remove(), 150);
+    };
+  } else {
+    box.classList.add('show');
   }
 }
 

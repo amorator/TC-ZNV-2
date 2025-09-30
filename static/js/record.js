@@ -1,50 +1,97 @@
-function disable(x) {
-  x.disabled = true;
-  x.style.display = 'none';
-}
+function disable(x) { if (!x) return; x.disabled = true; x.style.display = 'none'; }
+function enable(x) { if (!x) return; x.disabled = false; x.style.display = 'inline-block'; }
 
-function enable(x) {
-  x.disabled = false;
-  x.style.display = 'inline-block';
-}
-
-window.onbeforeunload = function () {
-  return true;
-};
-
-const server = 'znv.vts.vitebsk.energo.net';
+window.onbeforeunload = null;
 
 const BYTES_IN_MB = 1048576;
 
-var buttonCamera = document.getElementById('camera');
-var buttonStart = document.getElementById('start');
-var buttonPause = document.getElementById('pause');
-var buttonStop = document.getElementById('stop');
-var buttonSave = document.getElementById('save');
-var video = document.getElementById('video');
-var fileName = document.getElementById('name');
-var dirName = document.getElementById('type');
-var fileText = document.getElementById('desc');
-
-const sizeText = document.getElementById('uploadForm_Size');
-const statusText = document.getElementById('uploadForm_Status');
-const progressBar = document.getElementById('progressBar');
-
-var h = 0;
-var m = 0;
-var s = 0;
-var recorded = [];
-
-disable(buttonStart);
-disable(buttonPause);
-disable(buttonStop);
-buttonSave.disabled = true;
-
-fileName.value = name();
-
+let buttonCamera, buttonStart, buttonPause, buttonStop, buttonSave, video, fileName, dirName, fileText;
+let sizeText, statusText, progressBar;
+let uploadProgress, uploadProgressBar;
+let h = 0, m = 0, s = 0;
+let recorded = [];
 let timerInterval;
+let recorder;
+let recState = { recording: false, paused: false, hasData: false };
 
-buttonCamera.onclick = async function () {
+function postState() {
+  try {
+    if (window.parent) {
+      window.parent.postMessage({ type: 'rec:state', state: recState }, '*');
+    }
+  } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  buttonCamera = document.getElementById('camera');
+  buttonStart = document.getElementById('start');
+  buttonPause = document.getElementById('pause');
+  buttonStop = document.getElementById('stop');
+  buttonSave = document.getElementById('save');
+  video = document.getElementById('video');
+  fileName = document.getElementById('name');
+  dirName = document.getElementById('type');
+  fileText = document.getElementById('desc');
+
+  sizeText = document.getElementById('uploadForm_Size');
+  statusText = document.getElementById('uploadForm_Status');
+  progressBar = document.getElementById('progressBar');
+  uploadProgress = document.getElementById('uploadProgress');
+  uploadProgressBar = document.getElementById('uploadProgressBar');
+
+  disable(buttonStart);
+  disable(buttonPause);
+  disable(buttonStop);
+  if (buttonSave) buttonSave.disabled = true;
+  if (fileName) fileName.value = name();
+
+  if (buttonCamera) buttonCamera.onclick = onCameraClick;
+  if (buttonStart) buttonStart.onclick = onStartClick;
+  if (buttonPause) buttonPause.onclick = onPauseClick;
+  if (buttonStop) buttonStop.onclick = onStopClick;
+  if (buttonSave) buttonSave.onclick = onSaveClick;
+  postState();
+});
+
+function setStoppedUI() {
+  try { video.style.borderColor = 'green'; } catch(e) {}
+  try { buttonStart.textContent = 'Начать запись'; } catch(e) {}
+  try { disable(buttonPause); } catch(e) {}
+  try { disable(buttonStop); } catch(e) {}
+  try { if (buttonSave) buttonSave.disabled = false; } catch(e) {}
+  resetTimer(true);
+}
+
+function resetAfterSave() {
+  try { if (uploadProgress) uploadProgress.style.display = 'none'; } catch(e) {}
+  try { if (uploadProgressBar) uploadProgressBar.style.width = '0%'; } catch(e) {}
+  try { video.style.borderColor = 'gray'; } catch(e) {}
+  try { buttonStart.textContent = 'Начать запись'; } catch(e) {}
+  try { enable(buttonCamera); } catch(e) {}
+  try { enable(buttonStart); } catch(e) {}
+  try { disable(buttonPause); } catch(e) {}
+  try { disable(buttonStop); } catch(e) {}
+  try { if (buttonSave) buttonSave.disabled = true; } catch(e) {}
+  resetTimer(true);
+  recorded = [];
+  // Fully stop camera and reset state
+  try { stopCameraStream(); } catch(e) {}
+  recorder = null;
+  recState = { recording: false, paused: false, hasData: false };
+  postState();
+}
+
+function stopCameraStream() {
+  try {
+    if (video && video.srcObject) {
+      try { video.srcObject.getTracks().forEach(t => t.stop()); } catch(e) {}
+      video.srcObject = null;
+    }
+  } catch(e) {}
+  try { buttonCamera.textContent = 'Включить камеру'; } catch(e) {}
+}
+
+async function onCameraClick() {
   try {
     if (buttonCamera.textContent == 'Выключить камеру') {
       disable(buttonStart);
@@ -72,11 +119,24 @@ buttonCamera.onclick = async function () {
     video.play();
     video.style.borderColor = 'green';
 
-    recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    // Detect best available mimeType
+    let mime = 'video/webm;codecs=vp9';
+    if (!('MediaRecorder' in window)) {
+      alert('MediaRecorder не поддерживается в этом браузере');
+      return;
+    }
+    if (!MediaRecorder.isTypeSupported(mime)) {
+      mime = 'video/webm;codecs=vp8';
+    }
+    if (!MediaRecorder.isTypeSupported(mime)) {
+      mime = 'video/webm';
+    }
+    recorder = new MediaRecorder(stream, { mimeType: mime });
     timerInterval = setInterval(timer, 1000);
 
     recorder.addEventListener('dataavailable', function (e) {
       recorded.push(e.data);
+      if (recorded.length > 0) { recState.hasData = true; postState(); }
     });
 
     //recorder.addEventListener('stop', () => {
@@ -85,16 +145,19 @@ buttonCamera.onclick = async function () {
     //    recorded = []
     //  }
     //});
+    recorded = [];
     enable(buttonStart);
     disable(buttonPause);
     disable(buttonStop);
+    recState = { recording: false, paused: false, hasData: false };
+    postState();
   } catch (error) {
     console.log(error);
     alert('Невозможно получить доступ к камере!');
   }
-};
+}
 
-buttonStart.onclick = function () {
+function onStartClick() {
   if (buttonStart.textContent == 'Начать запись') {
     recorder.start();
     buttonStart.textContent = 'Продолжить';
@@ -103,43 +166,45 @@ buttonStart.onclick = function () {
   }
   video.style.borderColor = 'red';
 
-  progressBar.value = 0;
-  sizeText.textContent = '';
-  statusText.textContent = '';
+  if (uploadProgress) uploadProgress.style.display = 'block';
+  if (uploadProgressBar) uploadProgressBar.style.width = '0%';
   disable(buttonCamera);
   disable(buttonStart);
   enable(buttonPause);
   enable(buttonStop);
-};
+  recState.recording = true;
+  recState.paused = false;
+  postState();
+}
 
-buttonPause.onclick = function () {
+function onPauseClick() {
   recorder.pause();
   video.style.borderColor = 'green';
   enable(buttonStart);
   disable(buttonPause);
-};
+  recState.recording = false;
+  recState.paused = true;
+  postState();
+}
 
-buttonStop.onclick = function () {
+function onStopClick() {
   recorder.pause();
   recorder.stop();
-  video.style.borderColor = 'green';
-  buttonStart.textContent = 'Начать запись';
-  disable(buttonPause);
-  disable(buttonStop);
-  buttonSave.disabled = false;
-  h = 0;
-  m = 0;
-  s = 0;
-};
+  setStoppedUI();
+  recState.recording = false;
+  recState.paused = false;
+  recState.hasData = recorded.length > 0;
+  postState();
+}
 
-buttonSave.onclick = function () {
+function onSaveClick() {
   saveFile()
     .then((response) => {})
     .catch((e) => alert(e));
   if (buttonSave.disabled) {
     recorded = [];
   }
-};
+}
 
 function timer() {
   if (recorder.state == 'recording') {
@@ -178,6 +243,9 @@ async function saveFile() {
     if (fileName.value.search(/[/\\:*?"<>|]/g) != -1) {
       throw 'Указано недопустимое имя файла!';
     }
+    if (!recorded || recorded.length === 0) {
+      throw 'Нет записанных данных';
+    }
     let recordedData = new FormData();
     const xhr = new XMLHttpRequest();
 
@@ -185,7 +253,6 @@ async function saveFile() {
     xhr.addEventListener('load', loadHandler, false);
 
     const url = generateUrlString(
-      server,
       fileName.value,
       fileText.value,
       document.getElementById('did'),
@@ -194,13 +261,20 @@ async function saveFile() {
 
     let blob = new Blob(recorded, { type: 'video/webm' });
 
-    const downloadLink = document.createElement('a');
-    downloadLink.href = URL.createObjectURL(blob);
-    downloadLink.download = fileName.value + '.webm';
-    downloadLink.innerHTML = 'Скачать на компьютер';
-    document
-      .getElementsByClassName('record-page__settings')[0]
-      .appendChild(downloadLink);
+    // Create or update a single styled download button
+    const settings = document.getElementsByClassName('record-page__settings')[0];
+    if (settings) {
+      let downloadLink = document.getElementById('download-record-link');
+      if (!downloadLink) {
+        downloadLink = document.createElement('a');
+        downloadLink.id = 'download-record-link';
+        downloadLink.className = 'button';
+        settings.appendChild(downloadLink);
+      }
+      downloadLink.href = URL.createObjectURL(blob);
+      downloadLink.download = fileName.value + '.webm';
+      downloadLink.textContent = 'Скачать последнюю запись';
+    }
 
     recordedData.append(fileName.value + '.webm', blob);
 
@@ -211,29 +285,99 @@ async function saveFile() {
     buttonSave.disabled = true;
     enable(buttonCamera);
     enable(buttonStart);
+    // Clear buffer after send
+    recorded = [];
+    recState.hasData = false;
+    postState();
   } catch (e) {
     alert('Сохранить видео не удалось (' + e + ')!');
   }
 }
 
-function generateUrlString(server, fileName, fileText, did, sdid) {
-  return `https://${server}/fls/rec/save/${fileName}/q${fileText}/${did.value}/${sdid.value}`;
+function generateUrlString(fileName, fileText, did, sdid) {
+  const name = encodeURIComponent(fileName);
+  const desc = encodeURIComponent(fileText);
+  const base = window.location.origin;
+  return `${base}/fls/rec/save/${name}/q${desc}/${did.value}/${sdid.value}`;
 }
 
 function progressHandler(event) {
   const loadedMB = (event.loaded / BYTES_IN_MB).toFixed(1);
-  const totalSizeMb = (event.total / BYTES_IN_MB).toFixed(1);
-  const percentLoaded = Math.round((event.loaded / event.total) * 100);
-
-  progressBar.value = percentLoaded;
-  sizeText.textContent = `${loadedMB} из ${totalSizeMb} МБ`;
-  statusText.textContent = `Загружено ${percentLoaded}% | `;
+  const totalSizeMb = event.total ? (event.total / BYTES_IN_MB).toFixed(1) : '0';
+  const percentLoaded = event.total ? Math.round((event.loaded / event.total) * 100) : 0;
+  if (uploadProgressBar) uploadProgressBar.style.width = `${percentLoaded}%`;
 }
 
 function loadHandler(event) {
-  statusText.textContent =
-    event.target.status == 200
-      ? 'Загружено'
-      : 'Ошибка' + event.target.responseText;
-  progressBar.value = 0;
+  const ok = event.target.status >= 200 && event.target.status < 400;
+  if (uploadProgressBar) uploadProgressBar.style.width = ok ? '100%' : '0%';
+  // Notify parent and auto-close on success
+  if (ok && window.parent) {
+    // Reset UI after successful upload
+    resetAfterSave();
+    try { window.parent.softRefreshFilesTable && window.parent.softRefreshFilesTable(); } catch(e) {}
+    try { window.parent.popupToggle && window.parent.popupToggle('popup-rec'); } catch(e) {}
+    try { window.parent.postMessage({ type: 'rec:saved' }, '*'); } catch(e) {}
+    try { window.parent.alert && window.parent.alert('Видео успешно сохранено'); } catch(e) {}
+  }
+}
+
+// Handle parent messages (query state, save, discard)
+window.addEventListener('message', function(ev) {
+  const msg = ev.data || {};
+  if (msg.type === 'rec:state?') {
+    postState();
+  } else if (msg.type === 'rec:save') {
+    // Ensure recorder fully stops so dataavailable fires before saving
+    stopRecorder().then(() => {
+      try { onSaveClick(); } catch(e) {}
+    });
+  } else if (msg.type === 'rec:discard') {
+    try {
+      // stop tracks
+      stopCameraStream();
+      recorded = [];
+      if (buttonSave) buttonSave.disabled = true;
+      disable(buttonPause);
+      disable(buttonStop);
+      enable(buttonCamera);
+      enable(buttonStart);
+      video.style.borderColor = 'gray';
+      resetTimer(true);
+      recState = { recording: false, paused: false, hasData: false };
+      postState();
+      if (window.parent) {
+        window.parent.postMessage({ type: 'rec:discarded' }, '*');
+      }
+    } catch(e) {}
+  }
+});
+
+function resetTimer(resetDisplayOnly) {
+  try { clearInterval(timerInterval); } catch(e) {}
+  timerInterval = null;
+  h = 0; m = 0; s = 0;
+  try { document.getElementById('time').innerHTML = '00:00:00'; } catch(e) {}
+}
+
+function stopRecorder() {
+  return new Promise((resolve) => {
+    try {
+      if (!recorder || recorder.state === 'inactive') { resolve(); return; }
+      const handleStop = () => {
+        try { recorder.removeEventListener('stop', handleStop); } catch(e) {}
+        // Harmonize UI with manual stop
+        try { setStoppedUI(); } catch(e) {}
+        // recorder has fired dataavailable already in most browsers
+        setTimeout(resolve, 0);
+      };
+      try { recorder.addEventListener('stop', handleStop); } catch(e) { resolve(); }
+      try {
+        recorder.pause();
+      } catch(e) {}
+      try {
+        recorder.stop();
+      } catch(e) { resolve(); }
+    } catch(e) { resolve(); }
+  });
 }

@@ -197,13 +197,32 @@
     cursor: pointer;
     font-size: 14px;
     font-weight: 600;
-    color: var(--text);
-    border-radius: 10px;
+    color: var(--button-text);
+    background-color: var(--button-bg);
+    border: 1px solid var(--button-border);
+    border-radius: var(--control-radius);
 }
 
 .add-file-button__label:hover {
-    background-color: var(--secondary-900);
-    color: var(--text-acent);
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+}
+
+/* Themed action buttons inside table (add, record) */
+.files-page__table--actions .topbtn,
+.table__body_action-add.topbtn,
+.table__body_action-record.topbtn {
+    background-color: var(--button-bg, #1a1a1a);
+    color: var(--button-text, #ffffff);
+    border: 1px solid var(--button-border, #000000);
+    border-radius: var(--control-radius, 10px);
+}
+
+.files-page__table--actions .topbtn:hover,
+.table__body_action-add.topbtn:hover,
+.table__body_action-record.topbtn:hover {
+    background-color: var(--topbar-bg, #0f0f0f);
+    color: var(--topbar-text, #ffd43b);
 }
 
 .add-file-button__input {
@@ -338,11 +357,13 @@
 
 .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
     background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
 }
 
 /* Zebra: stripe every even row starting right after the search row */
 .files-page__table.table-striped>tbody>tr:nth-child(2n)>* {
     background-color: #fff3bf !important;
+    color: var(--table-td-text) !important;
 }
 
 /* Remove special casing for first data row; only the search row is fixed yellow */
@@ -352,12 +373,43 @@
 .files-page__table tbody>tr.table__body_actions>* {
     background-color: #ffe08a !important;
     --bs-table-accent-bg: #ffe08a !important;
+    color: var(--table-td-text) !important;
+}
+
+/* Dark themes: make search/action row dark, not yellow */
+.theme-dark .files-page__table tbody>tr.table__body_actions,
+.theme-dark .files-page__table tbody>tr.table__body_actions>* {
+    background-color: #1f1f1f !important;
+    --bs-table-accent-bg: #1f1f1f !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-dark-hc .files-page__table tbody>tr.table__body_actions,
+.theme-dark-hc .files-page__table tbody>tr.table__body_actions>* {
+    background-color: #000000 !important;
+    --bs-table-accent-bg: #000000 !important;
+    color: var(--table-td-text) !important;
 }
 
 .files-page__table.table-hover tbody>tr.table__body_actions:hover,
 .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
     background-color: #ffe08a !important;
     --bs-table-accent-bg: #ffe08a !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-dark .files-page__table.table-hover tbody>tr.table__body_actions:hover,
+.theme-dark .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
+    background-color: #1f1f1f !important;
+    --bs-table-accent-bg: #1f1f1f !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-dark-hc .files-page__table.table-hover tbody>tr.table__body_actions:hover,
+.theme-dark-hc .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
+    background-color: #000000 !important;
+    --bs-table-accent-bg: #000000 !important;
+    color: var(--table-td-text) !important;
 }
 
 /* Light theme zebra specifically for data rows, skip the first data row */
@@ -371,6 +423,12 @@
 
 .theme-dark .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
     background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-dark .files-page__table.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #151515 !important;
+    color: var(--table-td-text) !important;
 }
 
 .theme-dark-hc .files-page__table.table-striped {
@@ -379,11 +437,18 @@
 
 .theme-dark-hc .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
     background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-dark-hc .files-page__table.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #121212 !important;
+    color: var(--table-td-text) !important;
 }
 
 /* Files: the very first tbody row must always be yellow and ignore hover */
 .files-page__table tbody tr:first-of-type>* {
     background-color: #ffe08a !important;
+    color: var(--table-td-text) !important;
 }
 
 .files-page__table.table-hover tbody tr:first-of-type:hover>* {
@@ -392,6 +457,7 @@
 
 .theme-dark .files-page__table tbody tr:first-of-type>* {
     background-color: rgba(255, 255, 255, .08) !important;
+    color: var(--table-td-text) !important;
 }
 
 .theme-dark .files-page__table.table-hover tbody tr:first-of-type:hover>* {

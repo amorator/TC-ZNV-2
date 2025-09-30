@@ -61,7 +61,7 @@
             {% if current_user.is_allowed(id, 'b') %}
             <td class="table__body_action files-page__table--actions">
               <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-add" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
-              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="window.open('{{ url_for("record", did=did, sdid=sdid) }}', 'newwindow')"><i class="bi bi-camera-video"></i></button>
+              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="popupToggle('popup-rec');"><i class="bi bi-camera-video"></i></button>
             </td>
             {% endif %}
           </tr>
@@ -222,6 +222,23 @@
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-note');" >Отмена</button>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recording modal -->
+  <div id="popup-rec" class="overlay-container">
+    <div class="popup popup--wide">
+      <h1 class="popup__title">Запись видео</h1>
+      <div class="popup__body" style="padding: 0;">
+        <iframe
+          id="rec-iframe"
+          src="{{ url_for('record', did=did, sdid=sdid) }}?embed=1"
+          style="width: 100%; height: 70vh; border: 0; display: block;"
+        ></iframe>
+      </div>
+      <div class="popup__actions">
+        <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-rec');">Закрыть</button>
       </div>
     </div>
   </div>

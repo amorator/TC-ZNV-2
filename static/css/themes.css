@@ -14,10 +14,26 @@
     --topbar-text: #111827;
     --btn-focus: #f59e0b;
     /* blue accent */
-    --body-bg: #ffffff;
+    --body-bg: #fff597;
     --body-text: #0f1724;
+    /* modal background color (box) */
+    --modal-bg: #fff9c0;
+    --modal-border: #000000;
+    /* global form/control styling */
+    --control-bg: #ffffff;
+    --control-text: #0f1724;
+    --control-border: #000000;
+    --control-radius: 10px;
+    /* buttons */
+    --button-bg: #ffffff;
+    --button-text: #0f1724;
+    --button-border: #000000;
+    /* modal header/footer */
+    --modal-header-bg: #dbe7f3;
+    --modal-header-text: #111827;
     --overlay-text: #ffffff;
-    --overlay-bg: rgba(0, 0, 0, 0.45);
+    /* modal halo uses body background tinted by this opacity */
+    --overlay-opacity: 0.8;
     --video-border-color: rgba(0, 0, 0, 0.2);
     /* dark gray */
     --tr-focus: #e6eef8;
@@ -51,8 +67,20 @@
     --body-bg: #121212;
     /* very dark gray */
     --body-text: #ffffff;
+    --modal-bg: #121212;
+    --modal-border: #000000;
+    --control-bg: #1a1a1a;
+    --control-text: #ffffff;
+    --control-border: #000000;
+    --control-radius: 10px;
+    --button-bg: #1a1a1a;
+    --button-text: #ffffff;
+    --button-border: #000000;
+    --modal-header-bg: #000000;
+    --modal-header-text: #ffd43b;
     --overlay-text: #ffd43b;
-    --overlay-bg: rgba(0, 0, 0, 0.45);
+    /* slightly stronger opacity for dark for legibility */
+    --overlay-opacity: 0.85;
     --video-border-color: rgba(255, 255, 255, 0.18);
     --tr-focus: #1f1f1f;
     --scrollbar-bg: #1f1f1f;
@@ -76,8 +104,19 @@
     --btn-focus: #00ff88;
     --body-bg: #000000;
     --body-text: #00ff88;
+    --modal-bg: #000000;
+    --modal-border: #00ff88;
+    --control-bg: #000000;
+    --control-text: #00ff88;
+    --control-border: #00ff88;
+    --control-radius: 10px;
+    --button-bg: #000000;
+    --button-text: #00ff88;
+    --button-border: #00ff88;
+    --modal-header-bg: #000000;
+    --modal-header-text: #00ff88;
     --overlay-text: #00ff88;
-    --overlay-bg: rgba(0, 0, 0, 0.6);
+    --overlay-opacity: 0.82;
     --video-border-color: #00ff88;
     --tr-focus: #202020;
     --scrollbar-bg: #202020;
@@ -319,16 +358,16 @@ tbody td {
 }
 
 .modal-content {
-    background-color: var(--body-bg);
+    background-color: var(--modal-bg);
     color: var(--body-text);
-    border: 1px solid var(--sidebar-bg);
+    border: 1px solid var(--modal-border);
 }
 
 .modal-header,
 .modal-footer {
-    background-color: var(--topbar-bg);
-    color: var(--topbar-text);
-    border-bottom: 1px solid var(--sidebar-bg);
+    background-color: var(--modal-header-bg);
+    color: var(--modal-header-text);
+    border-bottom: 1px solid var(--modal-border);
 }
 
 [data-bs-toggle="tooltip"] {

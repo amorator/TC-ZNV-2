@@ -557,17 +557,17 @@ document.addEventListener('DOMContentLoaded', function () {
   try {
     if (window.io) {
       const socket = window.io(window.location.origin, {
-        transports: ['polling', 'websocket'],
-        path: '/socket.io',
+        // Prefer WebSocket to avoid Engine.IO polling 400 behind some proxies
+        transports: ['websocket'],
+        upgrade: false,
+        path: '/socket.io/',
         withCredentials: true,
+        forceNew: true
       });
       socket.on('connect', function() {});
       socket.on('connect_error', function(err) {
-        try {
-          if (socket && socket.io) {
-            socket.io.opts.transports = ['polling'];
-          }
-        } catch (e) {}
+        // Fallback to polling if WS blocked
+        try { if (socket && socket.io) { socket.io.opts.transports = ['polling']; } } catch (e) {}
       });
       socket.on('files:changed', function(evt) {
         // Soft refresh: fetch current page HTML, replace tbody, keep search & current page
