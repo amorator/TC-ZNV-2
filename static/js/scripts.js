@@ -28,7 +28,7 @@ function popupKeys() {
   });
 }
 
-function tableListener() {
+/*function tableListener() {
   let table = document.getElementById('maintable');
   if (table != null) {
     let search = document.getElementById('searchinp');
@@ -41,7 +41,7 @@ function tableListener() {
       });
     });
   }
-}
+}*/
 
 function displayName(name) {
   let target = document.getElementById('nav').getElementsByTagName('a');
@@ -61,6 +61,50 @@ function popupToggle(x, id = 0) {
   }
   overlay.classList.toggle('show');
   popup = overlay.classList.contains('show') ? x : null;
+  
+  // Reset user typing flag when opening add popup
+  if (x === 'popup-add') {
+    const nameInput = document.getElementById("add-name");
+    if (nameInput) {
+      nameInput.userHasTyped = false;
+    }
+    
+    // Reset upload progress
+    const progressDiv = document.getElementById('upload-progress');
+    const submitBtn = document.getElementById('add-submit-btn');
+    const cancelBtn = document.getElementById('add-cancel-btn');
+    
+    if (progressDiv) {
+      progressDiv.classList.add('d-none');
+      const progressBar = progressDiv.querySelector('.progress-bar');
+      const statusText = progressDiv.querySelector('.upload-status small');
+      
+      if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
+      }
+      
+      if (statusText) {
+        statusText.textContent = 'Загрузка файла...';
+        statusText.style.color = '';
+      }
+    }
+    
+    if (submitBtn) submitBtn.disabled = false;
+    if (cancelBtn) {
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Отмена';
+      cancelBtn.onclick = function() {
+        popupToggle('popup-add');
+      };
+    }
+    
+    // Clear any ongoing upload
+    if (window.currentUploadXHR) {
+      window.currentUploadXHR.abort();
+      window.currentUploadXHR = null;
+    }
+  }
 }
 
 function trimIfExists(x) {
@@ -72,12 +116,12 @@ function trimIfExists(x) {
   return true;
 }
 
-function searchClean() {
+/*function searchClean() {
   document.getElementById('searchinp').value = '';
   filterTable(document.getElementById('maintable'), '');
-}
+}*/
 
-function sortTable(table, th) {
+/*function sortTable(table, th) {
   const getCellValue = (tr, idx) =>
     tr.children[idx] != null
       ? tr.children[idx].innerText || tr.children[idx].textContent
@@ -121,13 +165,13 @@ function filterTable(table, filter) {
         row.style.display = 'none';
       }
     });
-}
+}*/
 
 var popup = null;
-$(document).ready(function () {
+/*$(document).ready(function () {
   popupKeys();
   tableListener();
-});
+});*/
 
 function notifyTest() {
   if (!('Notification' in window)) {

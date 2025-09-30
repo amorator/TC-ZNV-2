@@ -12,6 +12,9 @@
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/base.css') }}" rel="stylesheet">
   {% block css %}{% endblock %}
+  {% if current_user.is_authenticated %}
+  <script src="{{ url_for('static', filename='js/socket.io.min.js') }}" defer="defer"></script>
+  {% endif %}
   <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/jquery.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/themes.js') }}" defer="defer"></script>
@@ -35,14 +38,14 @@
             <a class="topbtn" href="{{ pages.get_page_by_name('orders').url}}">{{ pages.get_page_by_name('orders').dname }}</a>
             <a class="topbtn" href="{{ pages.get_page_by_name('files').url}}">{{ pages.get_page_by_name('files').dname }}</a>
             {% if current_user.is_allowed(pages.get_page_by_name('orders').id, 'i') %}
-              <a class="topbtn" href="/rdrs/table" target="_blank">Таблица для согласования</a>
+              <a class="topbtn" href="/rdrs/table" target="_blank" style="background-color: grey">Таблица для согласования</a>
             {% endif %}
           </div>
           <div class="app-topbar__group">
             {% if current_user.is_allowed(6) %}
               <a class="topbtn" href="{{ pages.get_page_by_name('users').url}}">{{ pages.get_page_by_name('users').dname }}</a>
             {% endif %}
-            <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
+            <button id="btntheme" class="topbtn d-inline-flex align-items-center" disabled><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ pages.get_page_by_name('logout').url}}">{{ pages.get_page_by_name('logout').dname }} ({{ current_user.name }})</a>
           </div>
         </div>

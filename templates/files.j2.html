@@ -1,20 +1,17 @@
 {% extends 'base.j2.html' %}
 
-{% block headextra %}
+{% block css %}
 <link rel="stylesheet" href="{{url_for('static',filename='css/table.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/files.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}">
-
 <link rel="stylesheet" href="{{url_for('static',filename='css/popup.css')}}" />
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
+{% endblock %}
 
-<link
-  rel="stylesheet"
-  href="{{url_for('static',filename='css/components/input.css')}}"
-/>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}"></script>
-
-
-  {% endblock %}
+{% block js %}
+<script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+{% endblock %}
 
 {% block main %}
   <section class="files-page container-fluid py-3">
@@ -72,7 +69,7 @@
             {% for file in files %}
               {% if file.ready %}
                 <tr class="table__body_row"  id="{{ file.id }}">
-                  <td class="table__body_item"><a class="files-page__link" href="#" onclick="window.open('{{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }}', 'newwindow', 'width=640, height=480'); return false;">{{ file.display_name }}</td>
+                  <td class="table__body_item"><a class="files-page__link" href="#" onclick="window.open('{{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }}', 'newwindow', 'width=640, height=480'); return false;">{{ file.display_name }}</a></td>
                   <td class="table__body_item">{{ file.description }}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
@@ -122,6 +119,7 @@
           {% endif %}
         </tbody>
       </table>
+      <div id="files-pagination" class="files-pagination d-flex justify-content-center py-2"></div>
 
 
     </div>
@@ -134,7 +132,7 @@
 
         <div class="popup__form-control form-control">
           <label class="form-control__label">Название:</label>
-          <input class="form-control__control input" type="text" name="name" id="name" placeholder="Имя файла..." autocomplete="one-time-code">
+          <input class="form-control__control input" type="text" name="name" id="add-name" placeholder="Имя файла..." autocomplete="one-time-code">
         </div>
         <div class="popup__form-control form-control">
 
@@ -144,11 +142,23 @@
         <div class="popup__form-control form-control">
 
           <label class="form-control__label">Выбрать файл:</label>
-          <input class="form-control__control" type="file" name="file" id="file" multiple=false accept="video/mp4,video/x-m4v,video/*" >
+          <input class="form-control__control" type="file" name="file" id="file" multiple=false accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" >
+          <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}">
+          <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V</small>
         </div>
         <div class="popup__actions">
-          <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Добавить</button>
-          <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');" >Отмена</button>
+          <button type="submit" class="btn btn-primary" id="add-submit-btn" onclick="return validateForm(this.parentElement);">Добавить</button>
+          <button type="button" class="btn btn-secondary" id="add-cancel-btn" onclick="popupToggle('popup-add');" >Отмена</button>
+        </div>
+        
+        <!-- Progress bar for file upload -->
+        <div id="upload-progress" class="upload-progress d-none">
+          <div class="progress mb-2">
+            <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <div class="upload-status text-center">
+            <small class="text-muted">Загрузка файла...</small>
+          </div>
         </div>
       </form>
     </div>
@@ -163,7 +173,7 @@
           <div class="popup__form-control form-control">
 
             <label class="form-control__label">Название:</label>
-            <input class="form-control__control input" type="text" name="name" id="name" placeholder="Имя файла..." autocomplete="one-time-code">
+            <input class="form-control__control input" type="text" name="name" id="edit-name" placeholder="Имя файла..." autocomplete="one-time-code">
           </div>
           <div class="popup__form-control form-control">
 
@@ -172,7 +182,7 @@
           </div>
 
           <div class="popup__actions">
-            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Сохранить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit');" >Отмена</button>
           </div>
         </form>
@@ -188,7 +198,7 @@
         <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
         <form class="popup__form" id="delete" action="{{ url_for(pages[id].name + '_delete', did=did, sdid=sdid, id=0) }}" method="post">
           <div class="popup__actions">
-            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
+            <button type="submit" class="btn btn-danger" onclick="return validateForm(this.parentElement);">Удалить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
           </div>
         </form>
@@ -208,7 +218,7 @@
           </div>
 
           <div class="popup__actions">
-            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
+            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Сохранить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-note');" >Отмена</button>
           </div>
         </form>

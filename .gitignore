@@ -1,3 +1,5 @@
 __pycache__/
-server.sock
 static/stuff/
+server.sock
+Pipfile.lock
+*.log

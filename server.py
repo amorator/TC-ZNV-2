@@ -1,5 +1,12 @@
 #! /usr/share/env/bin/python
 
+# Gevent monkey patching must happen before any other imports
+try:
+    from gevent import monkey as _gevent_monkey
+    _gevent_monkey.patch_all()
+except Exception:
+    pass
+
 from flask import render_template, url_for, request, send_from_directory, redirect, session, abort, Response
 from flask_login import login_required, login_user, logout_user, current_user
 from datetime import datetime as dt
@@ -16,21 +23,27 @@ from classes.request import Request
 from classes.order import Order
 from classes.page import Page, Pages
 from modules.server import Server
+from flask_socketio import SocketIO
 from modules.threadpool import ThreadPool
 from utils.common import make_dir, hash_str
 from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Server(path.dirname(path.realpath(__file__)))
+socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', logger=False, engineio_logger=False, ping_interval=25, ping_timeout=60)
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
-media_service = MediaService(tp, app._sql.config['files']['root'], app._sql)
-register_all(app, tp, media_service)
+media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)
+register_all(app, tp, media_service, socketio)
 
 # moved to utils.common: make_dir, hash_str
 
 make_dir(app._sql.config['files']['root'], 'video')
 make_dir(app._sql.config['files']['root'], 'req')
+
+# Trust proxy headers from Nginx for correct scheme/host and login redirects
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 @app.context_processor
 def inject_pages():
@@ -138,5 +151,6 @@ def proxy(url):
 ############################################################
 
 if __name__ == '__main__':
-    register_all(app, tp, media_service)
+    # Development only
+    register_all(app, tp, media_service, socketio)
     app.run_debug()

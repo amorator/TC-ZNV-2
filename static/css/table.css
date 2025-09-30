@@ -60,3 +60,25 @@
 .table__body_row:last-child .table__body_item:first-child {
   border-radius: 0;
 }
+
+/* Files (video) page specific adjustments */
+.files-page__table tbody tr:not(:first-child)>th,
+.files-page__table tbody tr:not(:first-child)>td {
+  font-size: 0.8em;
+}
+
+/* Zebra striping from the second row (keep first row as-is) */
+.files-page__table tbody tr:nth-child(even):not(:first-child)>th,
+.files-page__table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #f8fafc;
+}
+
+.theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
+.theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #1f1f1f;
+}
+
+.theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
+.theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #202020;
+}

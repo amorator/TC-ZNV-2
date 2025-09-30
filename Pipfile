@@ -10,6 +10,8 @@ flask-cors = "*"
 flask-login = "*"
 mysql-connector-python = "*"
 gunicorn = "*"
+eventlet = "*"
+gevent-websocket = "*"
 
 [dev-packages]
 

@@ -12,7 +12,7 @@
     /* slightly darker topbar for contrast */
     /* was light gray */
     --topbar-text: #111827;
-    --btn-focus: #1e40af;
+    --btn-focus: #f59e0b;
     /* blue accent */
     --body-bg: #ffffff;
     --body-text: #0f1724;
@@ -242,6 +242,14 @@ tbody td {
 .table-hover tbody tr:hover {
     background-color: var(--topbar-bg);
     color: var(--topbar-text);
+}
+
+/* Do not apply hover highlight to the very first body row */
+.table-hover>tbody>tr:first-child:hover,
+.table-hover>tbody>tr:first-child:hover>* {
+    --bs-table-accent-bg: inherit;
+    background-color: inherit;
+    color: inherit;
 }
 
 .bi {

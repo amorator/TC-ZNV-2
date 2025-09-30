@@ -6,10 +6,11 @@ from modules.threadpool import ThreadPool
 
 
 class MediaService:
-	def __init__(self, thread_pool: ThreadPool, files_root: str, sql_utils):
+	def __init__(self, thread_pool: ThreadPool, files_root: str, sql_utils, socketio=None):
 		self.thread_pool = thread_pool
 		self.files_root = files_root
 		self._sql = sql_utils
+		self.socketio = socketio
 
 	def convert_async(self, src_path: str, dst_path: str, entity: Tuple[str, int]) -> None:
 		self.thread_pool.add(self._convert, (src_path, dst_path, entity))
@@ -21,9 +22,17 @@ class MediaService:
 			rename(old, old + '.mp4')
 			old += '.mp4'
 		process = Popen(["ffmpeg", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], universal_newlines=True)
-		process.wait()
+		out, err = process.communicate()
 		if etype == 'file':
 			self._sql.file_ready([entity_id])
+			# Notify clients about conversion completion
+			if self.socketio:
+				try:
+					self.socketio.emit('files:changed', {'reason': 'converted', 'id': entity_id}, namespace='/', broadcast=True)
+					# allow the socket server to flush the message in async loop
+					self.socketio.sleep(0)
+				except Exception:
+					pass
 		elif etype == 'order':
 			ord = self._sql.order_by_id([entity_id])
 			ord.attachments.remove(path.basename(old))

@@ -169,7 +169,7 @@ a.active {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.6);
+  background: transparent;
   justify-content: center;
   align-items: center;
   opacity: 0;
@@ -193,6 +193,50 @@ a.active {
 
 .popup-box h1 {
   font-size: 30px;
+}
+
+/* Localized backdrop around modal only */
+.overlay-container .popup {
+  position: relative;
+  z-index: 1;
+}
+
+.overlay-container .popup::before {
+  content: '';
+  position: absolute;
+  inset: -24px;
+  background: var(--overlay-bg);
+  border-radius: 14px;
+  z-index: -1;
+}
+
+/* Ensure modal buttons are opaque and readable over themed overlay */
+.overlay-container .btn {
+  opacity: 1;
+  background-color: var(--player-ctrl-bg);
+  color: var(--player-ctrl-text);
+  border-color: var(--sidebar-bg);
+}
+
+.overlay-container .btn:hover,
+.overlay-container .btn:focus {
+  opacity: 1;
+}
+
+.overlay-container .btn-primary {
+  background-color: var(--btn-focus);
+  border-color: var(--btn-focus);
+  color: var(--body-bg);
+}
+
+.overlay-container .btn-secondary {
+  background-color: var(--topbar-bg);
+  border-color: var(--sidebar-bg);
+  color: var(--topbar-text);
+}
+
+.overlay-container .btn-danger {
+  opacity: 1;
 }
 
 .form-container {

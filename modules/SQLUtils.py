@@ -189,7 +189,6 @@ class SQLUtils(SQL):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET ready = 1 WHERE id = %s;", args)
 
     def file_delete(self, args):
-        print(args)
         self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_file WHERE id = %s;", args)
 
     def file_view(self, args):

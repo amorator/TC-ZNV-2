@@ -13,13 +13,17 @@ class Server(Flask):
     def __init__(self, root, name=__name__):
         super().__init__(name, root_path=root)
         CORS(self, resources={r'*': {'origins': '*'}}, supports_credentials=True)
-        self.secret_key = 'achudwshoiqxjqi@eowe1J2'
+        self.config['SECRET_KEY'] = 'achudwshoiqxjqi@eowe1J2'
         self.config['TEMPLATES_AUTO_RELOAD'] = True
         self.config['SESSION_TYPE'] = 'filesystem'
         self.config['SESSION_PERMANENT'] = True
         self.config['PERMANENT_SESSION_LIFETIME'] = 86400
         self.config['SESSION_COOKIE_HTTPONLY'] = False
+        self.config['SESSION_COOKIE_SECURE'] = True
         self.config['SESSION_REFRESH_EACH_REQUEST'] = True
+        self.config['SESSION_COOKIE_SAMESITE'] = 'Lax' 
+        self.config['REMEMBER_COOKIE_SECURE'] = True
+        self.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
         self.init()
         self.load_data()
 

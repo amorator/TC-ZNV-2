@@ -323,3 +323,212 @@
 .theme-dark .table-colored tbody tr:first-child>td {
     background: rgba(255, 255, 255, .08);
 }
+
+/* Files (video) page table tweaks */
+.files-page__table tbody tr:not(:first-child)>th,
+.files-page__table tbody tr:not(:first-child)>td {
+    font-size: 0.8em;
+}
+
+/* Zebra striping via Bootstrap variables, skipping the very first body row */
+.files-page__table.table-striped {
+    /* more visible zebra on light theme: soft yellow */
+    --bs-table-striped-bg: #fff9db;
+}
+
+.files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+}
+
+/* Zebra: stripe every even row starting right after the search row */
+.files-page__table.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #fff3bf !important;
+}
+
+/* Remove special casing for first data row; only the search row is fixed yellow */
+
+/* Files: search/action row must be always yellow and ignore hover */
+.files-page__table tbody>tr.table__body_actions,
+.files-page__table tbody>tr.table__body_actions>* {
+    background-color: #ffe08a !important;
+    --bs-table-accent-bg: #ffe08a !important;
+}
+
+.files-page__table.table-hover tbody>tr.table__body_actions:hover,
+.files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
+    background-color: #ffe08a !important;
+    --bs-table-accent-bg: #ffe08a !important;
+}
+
+/* Light theme zebra specifically for data rows, skip the first data row */
+.files-page__table.table-striped>tbody>tr.table__body_row:nth-of-type(odd):not(:first-of-type)>* {
+    background-color: #fff3bf !important;
+}
+
+.theme-dark .files-page__table.table-striped {
+    --bs-table-striped-bg: #1f1f1f;
+}
+
+.theme-dark .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+}
+
+.theme-dark-hc .files-page__table.table-striped {
+    --bs-table-striped-bg: #202020;
+}
+
+.theme-dark-hc .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+}
+
+/* Files: the very first tbody row must always be yellow and ignore hover */
+.files-page__table tbody tr:first-of-type>* {
+    background-color: #ffe08a !important;
+}
+
+.files-page__table.table-hover tbody tr:first-of-type:hover>* {
+    background-color: #ffe08a !important;
+}
+
+.theme-dark .files-page__table tbody tr:first-of-type>* {
+    background-color: rgba(255, 255, 255, .08) !important;
+}
+
+.theme-dark .files-page__table.table-hover tbody tr:first-of-type:hover>* {
+    background-color: rgba(255, 255, 255, .08) !important;
+}
+
+/* Files page action buttons: view and note */
+.files-page__table .table__body_item .button {
+    padding: 6px 10px;
+    font-size: 0.9em;
+    border-radius: 6px;
+}
+
+.files-page__table .table__body_item span {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 3px 8px;
+    border: 1px solid var(--sidebar-bg);
+    border-radius: 6px;
+    cursor: pointer;
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+    font-size: 0.75em;
+}
+
+.files-page__table {
+    border-collapse: collapse;
+    border: 1px solid var(--sidebar-bg);
+}
+
+.files-page__table th,
+.files-page__table td {
+    border: 1px solid var(--sidebar-bg);
+}
+
+.files-page__table .table__body_item span:hover {
+    background-color: var(--sidebar-bg);
+}
+
+/* Improve visibility of viewed marker on light/dark themes */
+.files-page__table .table__body_item .button.inverted {
+    background-color: #ffe08a;
+    color: #111827;
+    border: 1px solid #e0b100;
+}
+
+.theme-dark .files-page__table .table__body_item .button.inverted {
+    background-color: #5b4a00;
+    color: #ffd43b;
+    border: 1px solid #ffd43b;
+}
+
+/* keep first body row background on hover */
+.table-colored.table-hover tbody tr:first-child:hover>th,
+.table-colored.table-hover tbody tr:first-child:hover>td,
+.table-colored tbody tr:first-child:hover>th,
+.table-colored tbody tr:first-child:hover>td {
+    background: #fff3bf;
+}
+
+.theme-dark .table-colored.table-hover tbody tr:first-child:hover>th,
+.theme-dark .table-colored.table-hover tbody tr:first-child:hover>td,
+.theme-dark .table-colored tbody tr:first-child:hover>th,
+.theme-dark .table-colored tbody tr:first-child:hover>td {
+    background: rgba(255, 255, 255, .08);
+}
+
+/* remove hover animation for the first row */
+.table-colored.table-hover tbody tr:first-child,
+.table-colored.table-hover tbody tr:first-child>th,
+.table-colored.table-hover tbody tr:first-child>td,
+.table-colored tbody tr:first-child,
+.table-colored tbody tr:first-child>th,
+.table-colored tbody tr:first-child>td {
+    transition: none;
+}
+
+/* Themed pagination to match current theme */
+.files-pagination .page-link {
+    color: var(--topbar-text);
+    background-color: var(--topbar-bg);
+    border-color: var(--sidebar-bg);
+}
+
+.files-pagination .page-item.active .page-link {
+    color: var(--body-bg);
+    background-color: var(--btn-focus);
+    border-color: var(--btn-focus);
+}
+
+.files-pagination .page-item.disabled .page-link {
+    color: var(--table-td-text);
+    opacity: .6;
+    pointer-events: none;
+    background-color: var(--topbar-bg);
+    border-color: var(--sidebar-bg);
+}
+
+.files-pagination .page-link:hover {
+    background-color: var(--sidebar-bg);
+    color: var(--topbar-text);
+}
+
+.theme-dark .table-colored.table-hover tbody tr:first-child,
+.theme-dark .table-colored.table-hover tbody tr:first-child>th,
+.theme-dark .table-colored.table-hover tbody tr:first-child>td,
+.theme-dark .table-colored tbody tr:first-child,
+.theme-dark .table-colored tbody tr:first-child>th,
+.theme-dark .table-colored tbody tr:first-child>td {
+    transition: none;
+}
+
+/* Upload progress styles */
+.upload-progress {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: var(--sidebar-bg);
+    border-radius: 8px;
+    border: 1px solid var(--sidebar-text);
+}
+
+.upload-progress .progress {
+    height: 8px;
+    background-color: var(--body-bg);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.upload-progress .progress-bar {
+    background: linear-gradient(90deg, var(--btn-focus), var(--topbar-bg));
+    transition: width 0.3s ease;
+}
+
+.upload-progress .upload-status {
+    margin-top: 0.5rem;
+}
+
+.upload-progress .upload-status small {
+    color: var(--sidebar-text);
+}
