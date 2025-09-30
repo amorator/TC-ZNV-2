@@ -608,14 +608,14 @@ document.addEventListener('DOMContentLoaded', function () {
         // Reapply sort (desc by date)
         try { sortFilesTableByDateDesc(); } catch(e) {}
 
-        // Reapply search filter if any
+        // Reinit pagination to bind to new rows
+        try { initFilesPagination(); } catch(e) {}
+
+        // Reapply search filter if any, otherwise show the same page
         if (savedSearch && savedSearch.trim().length > 0) {
           filesDoFilter(savedSearch);
-        } else {
-          // Reapply pagination to the same page
-          if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
-            window.filesPager.renderPage(currentPage);
-          }
+        } else if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
+          window.filesPager.renderPage(currentPage);
         }
       })
       .catch(() => {});
