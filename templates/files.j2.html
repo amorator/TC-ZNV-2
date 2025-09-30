@@ -34,7 +34,7 @@
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable">
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.is_allowed(id, 'b') else 0 }}" data-can-mark-view="{{ 1 if current_user.is_allowed(id, 'm') else 0 }}">
         <thead class="table__head">
           <tr class="table__head_row">
             <th class="table__head_item">Название</th>
@@ -68,8 +68,13 @@
           {% if files %}
             {% for file in files %}
               {% if file.ready %}
-                <tr class="table__body_row"  id="{{ file.id }}">
-                  <td class="table__body_item"><a class="files-page__link" href="#" onclick="window.open('{{ url_for("files_show", did=did, sdid=sdid, name=file.real_name) }}', 'newwindow', 'width=640, height=480'); return false;">{{ file.display_name }}</a></td>
+                <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
+                  data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.is_allowed(id, 'c')) else 0 }}"
+                  data-can-delete="{{ 1 if (current_user.is_allowed(id, 'd') or current_user.name + ' (' in file.owner) else 0 }}"
+                  data-can-note="{{ 1 if current_user.is_allowed(id, 'm') else 0 }}"
+                  data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.is_allowed(id, 'm') else '' }}"
+                >
+                  <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
                   <td class="table__body_item">{{ file.description }}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
@@ -120,6 +125,21 @@
         </tbody>
       </table>
       <div id="files-pagination" class="files-pagination d-flex justify-content-center py-2"></div>
+
+      <!-- Context menu for table rows -->
+      <div id="context-menu" class="context-menu d-none">
+        <ul class="context-menu__list">
+          <li class="context-menu__item" data-action="open">Открыть</li>
+          <li class="context-menu__item" data-action="download">Скачать</li>
+          <li class="context-menu__item" data-action="edit">Изменить</li>
+          <li class="context-menu__item" data-action="delete">Удалить</li>
+          <li class="context-menu__item" data-action="mark-viewed">Пометить просмотренным</li>
+          <li class="context-menu__item" data-action="note">Оставить примечание</li>
+          <li class="context-menu__separator"></li>
+          <li class="context-menu__item" data-action="add">Загрузить</li>
+          <li class="context-menu__item" data-action="record">Записать</li>
+        </ul>
+      </div>
 
 
     </div>
@@ -239,6 +259,19 @@
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-rec');">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video player modal -->
+  <div id="popup-view" class="overlay-container">
+    <div class="popup popup--wide">
+      <h1 class="popup__title">Просмотр видео</h1>
+      <div class="popup__body">
+        <video id="player-video" style="width: 100%; height: auto; outline: none;" controls playsinline></video>
+      </div>
+      <div class="popup__actions">
+        <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-view');">Закрыть</button>
       </div>
     </div>
   </div>

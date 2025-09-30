@@ -1,0 +1,22 @@
+Keyboard Shortcuts
+
+Global (all pages):
+- Enter: Submit the currently open modal (primary action). Skips inside multiline textarea.
+- Esc: Close the currently open modal. For the recording modal, closing is blocked while recording; if paused/unsaved data exists, a confirm dialog (Да/Нет/Отмена) appears.
+- Click outside modal: Close the modal (with the same recording safeguards).
+
+Files page (table):
+- DblClick on a data row: Open video in the player modal.
+
+Player modal (popup-view):
+- F (uses physical key, works in any keyboard layout): Toggle fullscreen for the video player.
+- M (uses physical key, works in any keyboard layout): Toggle mute for the video player.
+
+Recording modal (iframe):
+- Enter: If recording, stop then save; otherwise save (if data present).
+- Esc: Stop recording.
+- Save button is hidden until recording starts; after successful save it hides again.
+
+Notes:
+- Pagination and search states persist across soft refreshes.
+- Table updates live via Socket.IO without page reloads.

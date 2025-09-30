@@ -606,6 +606,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!newTbody) return;
         tbody.innerHTML = newTbody.innerHTML;
 
+        // Rebind dblclick handlers for opening player
+        try { bindRowOpenHandlers(); } catch(e) {}
+
         // Reapply sort (desc by date)
         try { sortFilesTableByDateDesc(); } catch(e) {}
 
@@ -650,5 +653,216 @@ document.addEventListener('DOMContentLoaded', function () {
       origSoft();
       setTimeout(checkAndSchedule, 1000);
     };
+  })();
+
+  // Initial bind for dblclick row open
+  function bindRowOpenHandlers() {
+    try {
+      const table = document.getElementById('maintable');
+      if (!table) return;
+      const rows = table.querySelectorAll('tbody tr.table__body_row');
+      rows.forEach(tr => {
+        tr.addEventListener('dblclick', function() {
+          const url = tr.getAttribute('data-url');
+          if (!url) return;
+          const player = document.getElementById('player-video');
+          if (player) {
+            try { player.pause(); } catch(e) {}
+            player.src = url;
+            try { player.currentTime = 0; } catch(e) {}
+          }
+          popupToggle('popup-view');
+        });
+      });
+    } catch (e) {}
+  }
+  bindRowOpenHandlers();
+
+  // Player hotkeys while popup-view is open
+  document.addEventListener('keydown', function(e) {
+    const overlay = document.getElementById('popup-view');
+    if (!overlay || !overlay.classList.contains('show')) return;
+    const video = document.getElementById('player-video');
+    if (!video) return;
+    if (e.code === 'KeyF') {
+      e.preventDefault();
+      try {
+        if (!document.fullscreenElement) {
+          video.requestFullscreen && video.requestFullscreen();
+        } else {
+          document.exitFullscreen && document.exitFullscreen();
+        }
+      } catch(_) {}
+    } else if (e.code === 'KeyM') {
+      e.preventDefault();
+      try { video.muted = !video.muted; } catch(_) {}
+    }
+  });
+
+  // Custom context menu for table rows
+  (function initContextMenu() {
+    const table = document.getElementById('maintable');
+    const menu = document.getElementById('context-menu');
+    if (!table || !menu) return;
+
+    // Disable native context menu and show custom across the whole files page
+    document.addEventListener('contextmenu', function(e) {
+      // Only override on files page (when table exists)
+      if (!document.getElementById('maintable')) return;
+      e.preventDefault();
+      const row = e.target.closest && e.target.closest('tr.table__body_row');
+      if (row) {
+        buildAndShowMenu(row, e.pageX, e.pageY);
+      } else {
+        buildAndShowMenu(null, e.pageX, e.pageY);
+      }
+    });
+
+    // Hide on click elsewhere or Esc
+    document.addEventListener('click', function(e) {
+      if (menu.classList.contains('d-none')) return;
+      if (!e.target.closest('#context-menu')) {
+        menu.classList.add('d-none');
+      }
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && !menu.classList.contains('d-none')) {
+        menu.classList.add('d-none');
+      }
+    });
+
+    function buildAndShowMenu(row, x, y) {
+      const tableCanAdd = table.getAttribute('data-can-add') === '1';
+      const canMarkView = table.getAttribute('data-can-mark-view') === '1';
+
+      if (row) {
+        const canEdit = row.getAttribute('data-can-edit') === '1';
+        const canDelete = row.getAttribute('data-can-delete') === '1';
+        const canNote = row.getAttribute('data-can-note') === '1';
+
+        // Toggle visibility of items based on permissions
+        toggleItem('open', true);
+        toggleItem('download', true);
+        toggleItem('edit', canEdit);
+        toggleItem('delete', canDelete);
+        toggleItem('mark-viewed', canMarkView);
+        toggleItem('note', canNote);
+        toggleItem('add', tableCanAdd);
+        toggleItem('record', tableCanAdd);
+        toggleSeparator(true);
+
+        // Bind actions for row
+        bindActions(row);
+      } else {
+        // Outside data rows: only add/record depending on permissions
+        toggleItem('open', false);
+        toggleItem('download', false);
+        toggleItem('edit', false);
+        toggleItem('delete', false);
+        toggleItem('mark-viewed', false);
+        toggleItem('note', false);
+        toggleItem('add', tableCanAdd);
+        toggleItem('record', tableCanAdd);
+        toggleSeparator(false);
+
+        // Bind actions without row context
+        bindActions(null);
+      }
+
+      // Position menu
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      menu.classList.remove('d-none');
+    }
+
+    function toggleItem(action, show) {
+      const el = menu.querySelector(`.context-menu__item[data-action="${action}"]`);
+      if (el) el.style.display = show ? 'block' : 'none';
+    }
+
+    function bindActions(row) {
+      const openEl = menu.querySelector('[data-action="open"]');
+      const downloadEl = menu.querySelector('[data-action="download"]');
+      const editEl = menu.querySelector('[data-action="edit"]');
+      const deleteEl = menu.querySelector('[data-action="delete"]');
+      const markViewedEl = menu.querySelector('[data-action="mark-viewed"]');
+      const noteEl = menu.querySelector('[data-action="note"]');
+      const addEl = menu.querySelector('[data-action="add"]');
+      const recordEl = menu.querySelector('[data-action="record"]');
+
+      if (row) {
+        const id = row.getAttribute('data-id');
+        const url = row.getAttribute('data-url');
+        const download = row.getAttribute('data-download');
+
+        if (openEl) openEl.onclick = function() {
+          const player = document.getElementById('player-video');
+          if (player && url) {
+            try { player.pause(); } catch(e) {}
+            player.src = url;
+            try { player.currentTime = 0; } catch(e) {}
+            popupToggle('popup-view');
+          }
+          menu.classList.add('d-none');
+        };
+
+        if (downloadEl) downloadEl.onclick = function() {
+          if (download) {
+            const a = document.createElement('a');
+            a.href = download;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+          menu.classList.add('d-none');
+        };
+
+        if (editEl) editEl.onclick = function() {
+          popupToggle('popup-edit', parseInt(id, 10));
+          menu.classList.add('d-none');
+        };
+
+        if (deleteEl) deleteEl.onclick = function() {
+          popupToggle('popup-delete', parseInt(id, 10));
+          menu.classList.add('d-none');
+        };
+
+        if (markViewedEl) markViewedEl.onclick = function() {
+          const viewUrl = row.getAttribute('data-view-url');
+          if (viewUrl) {
+            window.location.href = viewUrl;
+          }
+          menu.classList.add('d-none');
+        };
+
+        if (noteEl) noteEl.onclick = function() {
+          popupToggle('popup-note', parseInt(id, 10));
+          menu.classList.add('d-none');
+        };
+      } else {
+        // Clear row-specific handlers
+        if (openEl) openEl.onclick = null;
+        if (downloadEl) downloadEl.onclick = null;
+        if (editEl) editEl.onclick = null;
+        if (deleteEl) deleteEl.onclick = null;
+        if (markViewedEl) markViewedEl.onclick = null;
+        if (noteEl) noteEl.onclick = null;
+      }
+
+      if (addEl) addEl.onclick = function() {
+        popupToggle('popup-add');
+        menu.classList.add('d-none');
+      };
+      if (recordEl) recordEl.onclick = function() {
+        popupToggle('popup-rec');
+        menu.classList.add('d-none');
+      };
+    }
+
+    function toggleSeparator(show) {
+      const sep = menu.querySelector('.context-menu__separator');
+      if (sep) sep.style.display = show ? 'block' : 'none';
+    }
   })();
 });

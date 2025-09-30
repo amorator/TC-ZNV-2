@@ -95,39 +95,47 @@
 }
 
 .theme-dark-hc {
-    --sidebar-bg: #202020;
-    --sidebar-text: #00ff88;
+    /* Black-only backgrounds */
+    --sidebar-bg: #101010;
     --table-td-bg: #000000;
-    --table-td-text: #00ff88;
     --topbar-bg: #000000;
-    --topbar-text: #00ff88;
-    --btn-focus: #00ff88;
     --body-bg: #000000;
-    --body-text: #00ff88;
     --modal-bg: #000000;
-    --modal-border: #00ff88;
-    --control-bg: #000000;
-    --control-text: #00ff88;
-    --control-border: #00ff88;
-    --control-radius: 10px;
-    --button-bg: #000000;
-    --button-text: #00ff88;
-    --button-border: #00ff88;
     --modal-header-bg: #000000;
-    --modal-header-text: #00ff88;
-    --overlay-text: #00ff88;
-    --overlay-opacity: 0.82;
-    --video-border-color: #00ff88;
-    --tr-focus: #202020;
-    --scrollbar-bg: #202020;
-    --scrollbar-thumb: #000000;
-    --scrollbar-thumb-hover: #00ff88;
-    --cam-size-bg: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
-    --cam-size-text: #000000;
     --player-ctrl-bg: #000000;
-    --player-ctrl-text: #00ff88;
-    --warning-color: #00ff88;
-    --info-color: #00ccff;
+    --scrollbar-bg: #101010;
+    --tr-focus: #111111;
+
+    /* Bright green accents/text */
+    --brand-green: #00ff00;
+    --sidebar-text: var(--brand-green);
+    --table-td-text: var(--brand-green);
+    --topbar-text: var(--brand-green);
+    --btn-focus: var(--brand-green);
+    --body-text: var(--brand-green);
+    --modal-border: var(--brand-green);
+    --control-text: var(--brand-green);
+    --control-border: var(--brand-green);
+    --button-text: var(--brand-green);
+    --button-border: var(--brand-green);
+    --modal-header-text: var(--brand-green);
+    --overlay-text: var(--brand-green);
+    --video-border-color: var(--brand-green);
+    --scrollbar-thumb: #000000;
+    --scrollbar-thumb-hover: var(--brand-green);
+    --player-ctrl-text: var(--brand-green);
+    --warning-color: var(--brand-green);
+    --info-color: var(--brand-green);
+
+    /* Controls/buttons use black background */
+    --control-bg: #000000;
+    --button-bg: #000000;
+
+    --control-radius: 10px;
+    --overlay-opacity: 0.82;
+    /* Camera size badge strictly green gradient on black */
+    --cam-size-bg: linear-gradient(135deg, var(--brand-green) 0%, #00c800 100%);
+    --cam-size-text: #000000;
 }
 
 body {

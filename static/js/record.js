@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', function() {
   disable(buttonStart);
   disable(buttonPause);
   disable(buttonStop);
-  if (buttonSave) buttonSave.disabled = true;
+  if (buttonSave) { buttonSave.disabled = true; try { buttonSave.style.display = 'none'; } catch(e) {} }
   if (fileName) fileName.value = name();
 
   if (buttonCamera) buttonCamera.onclick = onCameraClick;
@@ -51,6 +51,25 @@ document.addEventListener('DOMContentLoaded', function() {
   if (buttonStop) buttonStop.onclick = onStopClick;
   if (buttonSave) buttonSave.onclick = onSaveClick;
   postState();
+  // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
+  const handleKey = function (event) {
+    const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+    if (event.key === 'Enter' && !isTextarea) {
+      event.preventDefault();
+      try {
+        if (recorder && recorder.state === 'recording') {
+          stopRecorder().then(() => { onSaveClick(); });
+        } else {
+          onSaveClick();
+        }
+      } catch(e) {}
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      try { onStopClick(); } catch(e) {}
+    }
+  };
+  try { window.addEventListener('keydown', handleKey, true); } catch(e) {}
+  try { document.addEventListener('keydown', handleKey, true); } catch(e) {}
 });
 
 function setStoppedUI() {
@@ -71,7 +90,7 @@ function resetAfterSave() {
   try { enable(buttonStart); } catch(e) {}
   try { disable(buttonPause); } catch(e) {}
   try { disable(buttonStop); } catch(e) {}
-  try { if (buttonSave) buttonSave.disabled = true; } catch(e) {}
+  try { if (buttonSave) { buttonSave.disabled = true; buttonSave.style.display = 'none'; } } catch(e) {}
   resetTimer(true);
   recorded = [];
   // Fully stop camera and reset state
@@ -104,34 +123,48 @@ async function onCameraClick() {
       clearInterval(timerInterval);
       return;
     } else {
-      var stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+      // Conservative defaults to avoid encoder artifacts
+      const baseConstraints = {
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 30 }
+        },
         audio: {
           channels: 2,
           autoGainControl: false,
           echoCancellation: false,
           noiseSuppression: false,
-        },
-      });
+          sampleRate: 48000,
+          sampleSize: 16
+        }
+      };
+      var stream = await navigator.mediaDevices.getUserMedia(baseConstraints);
       buttonCamera.textContent = 'Выключить камеру';
     }
     video.srcObject = stream;
+    try { video.muted = true; video.defaultMuted = true; video.volume = 0; } catch(e) {}
     video.play();
     video.style.borderColor = 'green';
 
-    // Detect best available mimeType
-    let mime = 'video/webm;codecs=vp9';
+    // Prefer VP8 for broader stability, fallback up/down as needed
+    let mime = 'video/webm;codecs=vp8';
     if (!('MediaRecorder' in window)) {
       alert('MediaRecorder не поддерживается в этом браузере');
       return;
     }
     if (!MediaRecorder.isTypeSupported(mime)) {
-      mime = 'video/webm;codecs=vp8';
+      mime = 'video/webm;codecs=vp9';
     }
     if (!MediaRecorder.isTypeSupported(mime)) {
       mime = 'video/webm';
     }
-    recorder = new MediaRecorder(stream, { mimeType: mime });
+    try { stream.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch(e) {} }); } catch(e) {}
+    recorder = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: 5000000,
+      audioBitsPerSecond: 192000
+    });
     timerInterval = setInterval(timer, 1000);
 
     recorder.addEventListener('dataavailable', function (e) {
@@ -172,6 +205,7 @@ function onStartClick() {
   disable(buttonStart);
   enable(buttonPause);
   enable(buttonStop);
+  try { if (buttonSave) { buttonSave.style.display = 'inline-block'; } } catch(e) {}
   recState.recording = true;
   recState.paused = false;
   postState();
@@ -198,6 +232,10 @@ function onStopClick() {
 }
 
 function onSaveClick() {
+  // If recording, stop first to flush data
+  if (recorder && recorder.state === 'recording') {
+    return stopRecorder().then(() => onSaveClick());
+  }
   saveFile()
     .then((response) => {})
     .catch((e) => alert(e));

@@ -154,6 +154,7 @@ window.addEventListener('message', function(ev) {
     window.__recSaving = false;
   } else if (data.type === 'rec:saved') {
     window.__recSaving = false;
+    try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
   }
 });
 
@@ -282,3 +283,46 @@ function notifyTest() {
     });
   }
 }
+
+// Global keyboard shortcuts for modals
+document.addEventListener('keydown', function (event) {
+  if (!popup) return;
+  const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+  // Enter to submit current modal (skip inside textarea)
+  if (event.key === 'Enter' && !isTextarea) {
+    event.preventDefault();
+    if (popup === 'popup-rec') {
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        try { iframe.contentWindow.postMessage({ type: 'rec:save' }, '*'); } catch(e) {}
+      }
+      return;
+    }
+    const overlay = document.getElementById(popup);
+    if (!overlay) return;
+    // Prefer form submit button
+    const form = overlay.querySelector('form');
+    const submitBtn = overlay.querySelector('.popup__actions .btn.btn-primary, .popup__actions [type="submit"]');
+    if (submitBtn) { try { submitBtn.click(); } catch(e) {} return; }
+    if (form) { try { form.submit(); } catch(e) {} return; }
+  }
+  // Esc to close modal with existing guards
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    try { popupToggle(popup); } catch(e) {}
+  }
+});
+
+// Click outside to close any open modal
+document.addEventListener('click', function (e) {
+  try {
+    const overlay = e.target.closest('.overlay-container');
+    if (!overlay) return;
+    // Only when clicking directly on the overlay background, not inside the popup
+    if (e.target === overlay && overlay.classList.contains('show')) {
+      const id = overlay.id;
+      if (!id) return;
+      try { popupToggle(id); } catch(err) { overlay.classList.remove('show'); }
+    }
+  } catch (_) {}
+}, true);

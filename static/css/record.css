@@ -4,7 +4,7 @@
   padding-top: 20px;
   height: calc(100% - 82px);
   background-color: var(--body-bg, #121212);
-  color: var(--body-text, #ffffff);
+  color: var(--body-text, var(--brand-green, #00ff00));
 }
 
 .record-page__title {
@@ -13,7 +13,7 @@
   line-height: 1.2;
   text-align: center;
   margin-bottom: 20px;
-  color: var(--body-text, #ffffff);
+  color: var(--body-text, var(--brand-green, #00ff00));
 }
 
 .record-page__body {
@@ -69,9 +69,9 @@
 /* Make all controls look like the modal close button (btn-secondary) */
 .record-page .button {
   display: inline-block;
-  color: var(--button-text, #ffffff);
+  color: var(--button-text, var(--brand-green, #00ff00));
   background-color: var(--button-bg, #1a1a1a);
-  border: 1px solid var(--button-border, #000000);
+  border: 1px solid var(--button-border, var(--brand-green, #00ff00));
   padding: 10px 12px;
   border-radius: var(--control-radius, 10px);
   cursor: pointer;
@@ -80,18 +80,24 @@
 
 .record-page .button:hover,
 .record-page .button:focus {
-  background-color: var(--topbar-bg, #0f0f0f);
-  color: var(--topbar-text, #ffd43b);
+  background-color: var(--topbar-bg, #000000);
+  color: var(--topbar-text, var(--brand-green, #00ff00));
 }
 
 .record-page .record-page__setting-element,
 .record-page input#name,
 .record-page textarea#desc {
-  color: var(--control-text, #ffffff);
+  color: var(--control-text, var(--brand-green, #00ff00));
   background-color: var(--control-bg, #1a1a1a);
-  border: 1px solid var(--control-border, #000000);
+  border: 1px solid var(--control-border, var(--brand-green, #00ff00));
   border-radius: var(--control-radius, 10px);
   padding: 8px 10px;
+}
+
+.record-page input#name::placeholder,
+.record-page textarea#desc::placeholder {
+  color: var(--table-td-text, var(--body-text, #ffffff));
+  opacity: 0.8;
 }
 
 .record-page .record-page__setting-element:focus,
@@ -106,14 +112,16 @@
 .record-page .record-page__setting-title,
 .record-page .record-page__setting-element,
 .record-page #time {
-  color: var(--body-text, #ffffff);
+  color: var(--body-text, var(--brand-green, #00ff00));
 }
 
 /* Progress bar visibility */
 .record-page .progress {
   background-color: var(--sidebar-bg, #2b2b2b);
+  border: 1px solid var(--sidebar-text, var(--button-border, #000000));
+  border-radius: 6px;
 }
 
 .record-page .progress .progress-bar {
-  background-color: var(--btn-focus, #ffd43b);
+  background: linear-gradient(90deg, var(--btn-focus, #ffd43b), var(--topbar-bg, #0f0f0f));
 }
