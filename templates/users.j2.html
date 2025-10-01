@@ -114,24 +114,24 @@
           <div class="perm-layout">
             <div class="perm-layout__left">
               <div class="popup__form-control form-control">
-                <label class="form-control__label">Логин:</label>
-                <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
+                <label class="form-control__label" for="add-login">Логин:</label>
+                <input id="add-login" type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
               </div>
               <div class="popup__form-control form-control">
-                <label class="form-control__label">Имя:</label>
-                <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
+                <label class="form-control__label" for="add-name">Имя:</label>
+                <input id="add-name" type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
               </div>
               <div class="popup__form-control form-control">
-                <label class="form-control__label">Пароль:</label>
-                <input type="password" name="password" class="input form-control__control" placeholder="Введите пароль..." autocomplete="one-time-code"/>
+                <label class="form-control__label" for="add-password">Пароль:</label>
+                <input id="add-password" type="password" name="password" class="input form-control__control" placeholder="Введите пароль..." autocomplete="one-time-code"/>
               </div>
               <div class="popup__form-control form-control">
-                <label class="form-control__label">Подтвердите пароль:</label>
-                <input type="password" name="password2" class="input form-control__control" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
+                <label class="form-control__label" for="add-password2">Подтвердите пароль:</label>
+                <input id="add-password2" type="password" name="password2" class="input form-control__control" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
               </div>
               <div class="popup__form-control form-control">
-                <label class="form-control__label">Группа:</label>
-                <select name="group" class="select form-control__control">
+                <label class="form-control__label" for="add-group">Группа:</label>
+                <select id="add-group" name="group" class="select form-control__control">
                   {% for g in groups %}
                     <option class="select__option" value="{{ g }}">
                       {{ groups[g] }}
@@ -140,9 +140,9 @@
                 </select>
               </div>
               <div class="popup__form-control form-control">
-                <label class="checkbox">Активен:
+                <label class="checkbox" for="add-enabled">Активен:
 
-                  <input class="visually-hidden" type="checkbox" name="enabled" checked="checked"/>
+                  <input id="add-enabled" class="visually-hidden" type="checkbox" name="enabled" checked="checked"/>
 
                   <span class="checkbox__flag"></span>
                 </label>
@@ -211,16 +211,16 @@
       <div class="popup__body">
         <form class="popup__form" id="edit" name="edit" action="{{ url_for('users_edit', id='0') }}" method="post">
           <div class="popup__form-control form-control">
-            <label class="form-control__label" for="name">Логин:</label>
-            <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
+            <label class="form-control__label" for="edit-login">Логин:</label>
+            <input id="edit-login" type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
           </div>
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Имя:</label>
-            <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
+            <label class="form-control__label" for="edit-name">Имя:</label>
+            <input id="edit-name" type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
           </div>
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Группа:</label>
-            <select name="group" class="select form-control__control">
+            <label class="form-control__label" for="edit-group">Группа:</label>
+            <select id="edit-group" name="group" class="select form-control__control">
               {% for g in groups %}
                 <option class="select__option" value="{{ g }}">
                   {{ groups[g] }}
@@ -229,9 +229,9 @@
             </select>
           </div>
           <div class="popup__form-control form-control">
-            <label class="checkbox">Активен:
+            <label class="checkbox" for="edit-enabled">Активен:
 
-              <input class="visually-hidden checkbox-active" type="checkbox" name="enabled"/>
+              <input id="edit-enabled" class="visually-hidden checkbox-active" type="checkbox" name="enabled"/>
 
               <span class="checkbox__flag"></span>
             </label>
