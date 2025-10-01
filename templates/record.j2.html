@@ -13,11 +13,32 @@
   <h1 class="record-page__title">Запись видео</h1>
   {% endif %}
   <div class="record-page__body">
-    <div class="record-page__video">
-      <video class="video" autoplay playsinline id="video"></video>
+    <div class="record-page__videos">
+      <div class="record-page__video">
+        <label class="record-page__video-label">Экран</label>
+        <video class="video" autoplay playsinline id="video-screen"></video>
+      </div>
+      <div class="record-page__video">
+        <label class="record-page__video-label">Камера</label>
+        <video class="video" autoplay playsinline id="video-camera"></video>
+      </div>
     </div>
     <div class="record-page__menu">
       <div class="record-page__pult">
+        <div class="record-page__source-selection">
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="camera" id="source-camera" checked>
+            <span>Только камера</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="screen" id="source-screen">
+            <span>Только экран</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="both" id="source-both">
+            <span>Экран + камера</span>
+          </label>
+        </div>
         <button class="button" id="camera">Включить камеру</button>
         <button class="button" id="start">Начать запись</button>
         <button class="button" id="pause">Пауза</button>

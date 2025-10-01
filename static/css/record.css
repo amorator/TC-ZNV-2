@@ -24,6 +24,21 @@
   height: calc(100% - 68px);
 }
 
+.record-page__videos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-page__video-label {
+  display: block;
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  color: var(--body-text, #333);
+  text-align: center;
+}
+
 .record-page__video {
   height: 100%;
 }
@@ -44,6 +59,34 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.record-page__source-selection {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--control-border, #ccc);
+  border-radius: var(--control-radius, 4px);
+  background: var(--control-bg, #f9f9f9);
+}
+
+.record-page__source-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--body-text, #333);
+}
+
+.record-page__source-label input[type="radio"] {
+  margin: 0;
+  accent-color: var(--button-bg, #007bff);
+}
+
+.record-page__source-label span {
+  user-select: none;
 }
 
 .record-page__settings {

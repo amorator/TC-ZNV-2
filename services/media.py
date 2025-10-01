@@ -47,7 +47,7 @@ class MediaService:
         if old == new:
             rename(old, old + '.mp4')
             old += '.mp4'
-        process = Popen(["ffmpeg", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], universal_newlines=True)
+        process = Popen(["ffmpeg", "-hide_banner", "-y", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], universal_newlines=True)
         out, err = process.communicate()
         if etype == 'file':
             self._sql.file_ready([entity_id])
@@ -65,5 +65,17 @@ class MediaService:
             ord.attachments.append(path.basename(new))
             self._sql.order_edit_attachments(['|'.join(ord.attachments), entity_id])
         remove(old)
+
+    def stop(self) -> None:
+        """Stop media service gracefully.
+        
+        Waits for all pending conversions to complete.
+        """
+        try:
+            # Wait for thread pool to finish all tasks
+            if hasattr(self.thread_pool, 'stop'):
+                self.thread_pool.stop()
+        except Exception as e:
+            print(f'Error stopping media service: {e}')
 
 

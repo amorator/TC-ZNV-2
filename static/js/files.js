@@ -627,29 +627,148 @@ document.addEventListener('DOMContentLoaded', function () {
   // Socket.IO live updates for files table
   try {
     if (window.io) {
+      /**
+       * @type {import('socket.io-client').Socket}
+       */
       const socket = window.io(window.location.origin, {
-        // Prefer WebSocket to avoid Engine.IO polling 400 behind some proxies
-        transports: ['websocket'],
-        upgrade: false,
+        // Allow both transports for better compatibility
+        transports: ['websocket', 'polling'],
+        upgrade: true,
         path: '/socket.io/',
         withCredentials: true,
-        forceNew: true
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000
       });
-      socket.on('connect', function() {});
-      socket.on('connect_error', function(err) {
-        // Fallback to polling if WS blocked
-        try { if (socket && socket.io) { socket.io.opts.transports = ['polling']; } } catch (e) {}
-      });
-      socket.on('files:changed', function(evt) {
-        // Soft refresh: fetch current page HTML, replace tbody, keep search & current page
+      
+      // Store socket globally for potential replacement
+      window.socket = socket;
+      
+      /**
+       * Handle successful connection - refresh table to get latest data
+       */
+      socket.on('connect', function() {
         softRefreshFilesTable();
       });
-      // Also listen on default namespace
+      
+      /**
+       * Handle disconnection - Socket.IO will attempt automatic reconnection
+       * @param {string} reason - Reason for disconnection
+       */
+      socket.on('disconnect', function(reason) {
+        // Connection lost, will attempt reconnection
+      });
+      
+      /**
+       * Handle connection errors - Socket.IO will handle reconnection automatically
+       * @param {Error} err - Connection error
+       */
+      socket.on('connect_error', function(err) {
+        // Connection error, Socket.IO will handle reconnection automatically
+      });
+      
+      /**
+       * Handle successful reconnection - refresh table to get latest data
+       * @param {number} attemptNumber - Number of reconnection attempts
+       */
+      socket.on('reconnect', function(attemptNumber) {
+        softRefreshFilesTable();
+      });
+      
+      /**
+       * Handle reconnection errors - Socket.IO will continue trying
+       * @param {Error} error - Reconnection error
+       */
+      socket.on('reconnect_error', function(error) {
+        // Reconnection error, will continue trying
+      });
+      
+      /**
+       * Handle reconnection failure - create a completely new socket connection
+       */
+      socket.on('reconnect_failed', function() {
+        setTimeout(() => {
+          try {
+            /**
+             * @type {import('socket.io-client').Socket}
+             */
+            const newSocket = window.io(window.location.origin, {
+              transports: ['websocket', 'polling'],
+              upgrade: true,
+              path: '/socket.io/',
+              withCredentials: true,
+              forceNew: true,
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 1000,
+              reconnectionDelayMax: 5000,
+              timeout: 20000
+            });
+            
+            // Copy event handlers to new socket
+            newSocket.on('connect', function() {
+              softRefreshFilesTable();
+            });
+            
+            newSocket.on('disconnect', function(reason) {
+              // Connection lost, will attempt reconnection
+            });
+            
+            newSocket.on('connect_error', function(err) {
+              // Connection error, Socket.IO will handle reconnection automatically
+            });
+            
+            newSocket.on('reconnect', function(attemptNumber) {
+              softRefreshFilesTable();
+            });
+            
+            newSocket.on('reconnect_error', function(error) {
+              // Reconnection error, will continue trying
+            });
+            
+            newSocket.on('reconnect_failed', function() {
+              // Will create another new connection
+            });
+            
+            newSocket.on('files:changed', function(evt) {
+              softRefreshFilesTable();
+            });
+            
+            newSocket.on('/files:changed', function(evt) {
+              softRefreshFilesTable();
+            });
+            
+            // Replace the old socket
+            socket.disconnect();
+            window.socket = newSocket;
+          } catch (e) {
+            // Error creating new socket, will retry on next reconnect_failed
+          }
+        }, 2000);
+      });
+      
+      /**
+       * Handle files changed event - refresh table to show updates
+       * @param {Object} evt - Event data
+       */
+      socket.on('files:changed', function(evt) {
+        softRefreshFilesTable();
+      });
+      
+      /**
+       * Handle files changed event on default namespace - refresh table to show updates
+       * @param {Object} evt - Event data
+       */
       socket.on('/files:changed', function(evt) {
         softRefreshFilesTable();
       });
     }
-  } catch (e) {}
+  } catch (e) {
+    // Socket.IO initialization failed, table will work without live updates
+  }
 
   // Helper: soft refresh table body without losing search/pagination
   function softRefreshFilesTable() {

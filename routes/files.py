@@ -6,6 +6,7 @@ from utils.common import make_dir, hash_str
 from services.permissions import dirs_by_permission
 import os
 from typing import Any, Dict, Tuple, Optional, List
+from random import randint
 
 
 def register(app, media_service, socketio=None) -> None:
@@ -410,7 +411,7 @@ def register(app, media_service, socketio=None) -> None:
 			dirs = list(dirs[did].keys())
 			dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
-			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
+			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') + str(randint(1000, 9999)))
 			fname = path.join(dir, real_name)
 			request.files.get(name + '.webm').save(fname + '.webm')
 			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])

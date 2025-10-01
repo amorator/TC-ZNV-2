@@ -1,9 +1,13 @@
-#! /usr/share/env/bin/python
-
 # Gevent monkey patching must happen before any other imports
 try:
     from gevent import monkey as _gevent_monkey
     _gevent_monkey.patch_all()
+    
+    from gunicorn.workers.ggevent import GeventWorker
+    original = GeventWorker.handle_quit
+    def graceful_handle_quit(self, sig, frame):
+        self.alive = False  # просто останавливаем цикл
+    GeventWorker.handle_quit = graceful_handle_quit
 except Exception:
     pass
 
@@ -29,10 +33,20 @@ from utils.common import make_dir, hash_str
 from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
-from werkzeug.middleware.proxy_fix import ProxyFix
+#from werkzeug.middleware.proxy_fix import ProxyFix
+
+#import signal
+    
+#def handle_exit(sig, frame):
+#    print("Получен сигнал завершения, выходим корректно...")
+#    sys.exit(0)
+    
+# Register signal handler for Ctrl+C
+#signal.signal(signal.SIGINT, handle_exit)
+#signal.signal(signal.SIGTERM, handle_exit)
 
 app = Server(path.dirname(path.realpath(__file__)))
-socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', logger=False, engineio_logger=False, ping_interval=25, ping_timeout=60)
+socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', logger=False, engineio_logger=False, ping_interval=25, ping_timeout=60, allow_upgrades=True, transports=['websocket', 'polling'])
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)
 register_all(app, tp, media_service, socketio)
@@ -43,7 +57,7 @@ make_dir(app._sql.config['files']['root'], 'video')
 make_dir(app._sql.config['files']['root'], 'req')
 
 # Trust proxy headers from Nginx for correct scheme/host and login redirects
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+#app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 @app.context_processor
 def inject_pages():
@@ -150,7 +164,40 @@ def proxy(url):
     return '|'.join(i.text for i in a)
 ############################################################
 
+def signal_handler(signum, frame):
+    """Handle Ctrl+C (SIGINT) gracefully."""
+    print('\nПолучен сигнал остановки (Ctrl+C). Завершение работы...')
+    
+    # Stop Socket.IO gracefully
+    try:
+        socketio.stop()
+        print('Socket.IO остановлен.')
+    except Exception as e:
+        print(f'Ошибка при остановке Socket.IO: {e}')
+    
+    # Stop media service
+    try:
+        media_service.stop()
+        print('Media service остановлен.')
+    except Exception as e:
+        print(f'Ошибка при остановке media service: {e}')
+    
+    # Stop thread pool
+    try:
+        tp.stop()
+        print('Thread pool остановлен.')
+    except Exception as e:
+        print(f'Ошибка при остановке thread pool: {e}')
+    
+    print('Приложение корректно завершено.')
+    exit(0)
+
 if __name__ == '__main__':
-    # Development only
-    register_all(app, tp, media_service, socketio)
-    app.run_debug()
+    try:
+        # Development only
+        register_all(app, tp, media_service, socketio)
+        print('Приложение запущено. Нажмите Ctrl+C для остановки.')
+        app.run_debug()
+    except KeyboardInterrupt:
+        # Fallback handler
+        signal_handler(signal.SIGINT, None)

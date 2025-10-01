@@ -29,3 +29,22 @@ class ThreadPool():
                 if not proc.is_alive():
                     proc.join()
                     self.procs.remove(proc)
+
+    def stop(self):
+        """Stop thread pool gracefully.
+        
+        Waits for all running threads to complete.
+        """
+        print('Ожидание завершения активных задач...')
+        while True:
+            with self._lock:
+                if not self.procs:
+                    break
+                # Wait for all threads to complete
+                for proc in list(self.procs):
+                    if proc.is_alive():
+                        proc.join(timeout=1.0)
+                    else:
+                        self.procs.remove(proc)
+            sleep(0.1)
+        print('Все задачи завершены.')
