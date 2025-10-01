@@ -39,8 +39,16 @@ function popupValues(form, id) {
   }
   let values = document.getElementById(id).getElementsByTagName("td");
   if (form.id == "edit") {
-    form.getElementsByTagName("input")[0].value = values[0].innerText;
-    form.getElementsByTagName("textarea")[0].value = values[1].innerText;
+    const nameVal = (values[0].innerText || '').trim();
+    const descVal = (values[1].innerText || '').trim();
+    form.getElementsByTagName("input")[0].value = nameVal;
+    form.getElementsByTagName("textarea")[0].value = descVal;
+    // Store originals for change detection
+    try {
+      form.dataset.rowId = String(id);
+      form.dataset.origName = nameVal;
+      form.dataset.origDesc = descVal;
+    } catch (_) {}
     let select = form.getElementsByTagName("select")[0];
   } else if (form.id == "delete") {
     let target = form.parentElement.getElementsByTagName("b");
@@ -50,6 +58,10 @@ function popupValues(form, id) {
     const row = document.getElementById(id);
     const note = (row && row.getAttribute('data-note')) ? row.getAttribute('data-note') : '';
     form.getElementsByTagName("textarea")[0].value = note;
+    try {
+      form.dataset.rowId = String(id);
+      form.dataset.origNote = note || '';
+    } catch (_) {}
   }
   form.action = form.action.replace(new RegExp("0$"), id);
 }
@@ -75,7 +87,7 @@ function validateForm(x) {
     // Find the name input field specifically
     const nameInput = form.querySelector('input[name="name"]');
     if (nameInput) {
-      let name = nameInput.value.trim();
+      let name = (nameInput.value || '').replace(/\u00a0/g, ' ').trim();
       if (name == undefined || name == "" || name.length < 1) {
       alert("Задайте корректное имя файла!");
         return false;
@@ -83,6 +95,20 @@ function validateForm(x) {
     } else {
       console.error('Name input not found');
       return false;
+    }
+    // For edit: block submit if no changes (name/description)
+    if (form.id == "edit") {
+      try {
+        const origName = form.dataset.origName || '';
+        const origDesc = form.dataset.origDesc || '';
+        const descInput = form.querySelector('textarea[name="description"]');
+        const nowName = (nameInput.value || '').replace(/\u00a0/g, ' ').trim();
+        const nowDesc = descInput ? (descInput.value || '').trim() : '';
+        if (nowName === origName && nowDesc === origDesc) {
+          try { popupToggle('popup-edit'); } catch(_) {}
+          return false;
+        }
+      } catch (e) {}
     }
   }
   if (form.id == "add") {
@@ -918,6 +944,72 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   bindRowOpenHandlers();
 
+  // Change detection for edit, move, and note modals
+  (function initFilesChangeDetection(){
+    function closeModal(id){ try { popupToggle(id); } catch(_) {} }
+
+    // Edit: compare name/description
+    const editForm = document.getElementById('edit');
+    if (editForm && !editForm._changeBound) {
+      editForm._changeBound = true;
+      const saveBtn = editForm.querySelector('button.btn.btn-primary');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', function(){
+          try {
+            const nameNow = (editForm.querySelector('input[name="name"]').value || '').trim();
+            const descNow = (editForm.querySelector('textarea[name="description"]').value || '').trim();
+            const nameOrig = editForm.dataset.origName || '';
+            const descOrig = editForm.dataset.origDesc || '';
+            if (nameNow === nameOrig && descNow === descOrig) {
+              closeModal('popup-edit');
+              return;
+            }
+          } catch(_) {}
+          try { editForm.submit(); } catch(_) {}
+        });
+      }
+    }
+
+    // Move: compare selects to row data-root/data-sub
+    const moveForm = document.getElementById('move');
+    if (moveForm && !moveForm._changeBound) {
+      moveForm._changeBound = true;
+      moveForm.addEventListener('submit', function(e){
+        try {
+          const rootSel = document.getElementById('move-target-root');
+          const subSel = document.getElementById('move-target-sub');
+          const id = (moveForm.action.match(/\/(\d+)$/) || [])[1];
+          const row = id ? document.getElementById(String(id)) : null;
+          const currentRoot = row ? row.getAttribute('data-root') : null;
+          const currentSub = row ? row.getAttribute('data-sub') : null;
+          const targetRoot = rootSel ? rootSel.value : null;
+          const targetSub = subSel ? subSel.value : null;
+          if (currentRoot && currentSub && targetRoot === currentRoot && targetSub === currentSub) {
+            e.preventDefault();
+            closeModal('popup-move');
+          }
+        } catch(_) {}
+      });
+    }
+
+    // Note: require non-empty and changed text
+    const noteForm = document.getElementById('note');
+    if (noteForm && !noteForm._changeBound) {
+      noteForm._changeBound = true;
+      noteForm.addEventListener('submit', function(e){
+        try {
+          const ta = noteForm.querySelector('textarea[name="note"]');
+          const now = (ta && ta.value ? ta.value.trim() : '');
+          const orig = noteForm.dataset.origNote || '';
+          if (!now || now === orig) {
+            e.preventDefault();
+            closeModal('popup-note');
+          }
+        } catch(_) {}
+      });
+    }
+  })();
+
   // Bind click-to-copy on file name in the first column
   function bindCopyNameHandlers() {
     try {
@@ -1032,11 +1124,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function buildAndShowMenu(row, x, y) {
       const tableCanAdd = table.getAttribute('data-can-add') === '1';
       const canMarkView = table.getAttribute('data-can-mark-view') === '1';
+      const canNotes = table.getAttribute('data-can-notes') === '1';
 
       if (row) {
         const canEdit = row.getAttribute('data-can-edit') === '1';
         const canDelete = row.getAttribute('data-can-delete') === '1';
-        const canNote = row.getAttribute('data-can-note') === '1';
+        const canNote = row.getAttribute('data-can-note') === '1' && canNotes;
         const isReady = row.getAttribute('data-is-ready') !== '0';
         const hasDownload = !!row.getAttribute('data-download');
         const canRefresh = canEdit || canMarkView; // refresh allowed if can edit (owner or edit_any) or can mark viewed

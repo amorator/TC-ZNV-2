@@ -1,4 +1,4 @@
-from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort
+from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort, request
 from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
@@ -426,7 +426,7 @@ def register(app, media_service, socketio=None) -> None:
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
-	@require_permissions(FILES_MARK_VIEWED)
+	@require_permissions(FILES_NOTES)
 	def files_note(did: int = 0, sdid: int = 1, id: int = 1):
 		"""Save or update a note for the file."""
 		if id <= 0:
@@ -530,12 +530,17 @@ def register(app, media_service, socketio=None) -> None:
 	@require_permissions(FILES_UPLOAD)
 	def record(did: int = 0, sdid: int = 1):
 		"""Serve the video recorder UI (optionally embedded for modal usage)."""
+		# Only allow embedded usage from the files modal
+		if request.args.get('embed') != '1':
+			return redirect(url_for('files', did=did, sdid=sdid))
 		id = 3
-		resp = Response(render_template('record.j2.html', id=id, did=did, sdid=sdid))
-		resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+		from flask import make_response
+		html = render_template('components/record.j2.html', id=id, did=did, sdid=sdid)
+		resp = make_response(html)
+		resp.headers['Content-Type'] = 'text/html; charset=utf-8'
+		resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
 		resp.headers["Pragma"] = "no-cache"
 		resp.headers["Expires"] = "0"
-		resp.headers['Cache-Control'] = 'public, max-age=0'
 		return resp
 
 	@app.route('/fls' + '/rec/save' + "/<name>/<desc>/<int:did>/<int:sdid>", methods=['POST'])

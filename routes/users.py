@@ -42,6 +42,12 @@ def register(app):
 			app.flash_error(e)
 			log_action('USER_CREATE', current_user.name, f'failed to create user {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			# notify sockets for soft refresh
+			try:
+				if hasattr(app, 'socketio') and app.socketio:
+					app.socketio.emit('users:changed', {'reason': 'created'}, broadcast=True)
+			except Exception:
+				pass
 			return redirect(url_for('users'))
 
 	@app.route('/srs/edit/<id>', methods=['POST'])
@@ -65,6 +71,11 @@ def register(app):
 			app.flash_error(e)
 			log_action('USER_EDIT', current_user.name, f'failed to edit user {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			try:
+				if hasattr(app, 'socketio') and app.socketio:
+					app.socketio.emit('users:changed', {'reason': 'edited', 'id': id}, broadcast=True)
+			except Exception:
+				pass
 			return redirect(url_for('users'))
 
 	@app.route('/srs/reset/<id>', methods=['POST'])
@@ -79,6 +90,11 @@ def register(app):
 			app.flash_error(e)
 			log_action('USER_RESET', current_user.name, f'failed to reset password for id={id}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			try:
+				if hasattr(app, 'socketio') and app.socketio:
+					app.socketio.emit('users:changed', {'reason': 'reset', 'id': id}, broadcast=True)
+			except Exception:
+				pass
 			return redirect(url_for('users'))
 
 	@app.route('/srs/toggle/<id>', methods=['GET'])
@@ -99,6 +115,11 @@ def register(app):
 			app.flash_error(e)
 			log_action('USER_TOGGLE', current_user.name, f'failed to toggle id={id}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			try:
+				if hasattr(app, 'socketio') and app.socketio:
+					app.socketio.emit('users:changed', {'reason': 'toggled', 'id': id}, broadcast=True)
+			except Exception:
+				pass
 			return redirect(url_for('users'))
 
 	@app.route('/srs/delete/<id>', methods=['POST'])
@@ -116,6 +137,11 @@ def register(app):
 			app.flash_error(e)
 			log_action('USER_DELETE', current_user.name, f'failed to delete user: {str(e)}', request.remote_addr, success=False)
 		finally:
+			try:
+				if hasattr(app, 'socketio') and app.socketio:
+					app.socketio.emit('users:changed', {'reason': 'deleted', 'id': id}, broadcast=True)
+			except Exception:
+				pass
 			return redirect(url_for('users'))
 
 

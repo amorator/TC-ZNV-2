@@ -101,6 +101,24 @@
           syncPermFormFromRow(form, rowId);
           // In case layout needs time, re-sync on next tick
           setTimeout(function(){ syncPermFormFromRow(form, rowId); }, 0);
+          // Store original permission string for change detection
+          try {
+            const row = document.getElementById(rowId);
+            form.dataset.origPerm = (row && row.dataset && row.dataset.perm) ? row.dataset.perm : '';
+            const hidden = form.querySelector('#perm-string-perm');
+            form.dataset.origPermCurrent = hidden ? (hidden.value || '') : '';
+          } catch (_) {}
+        } else if (formId === 'edit') {
+          // Store original field values for change detection
+          try {
+            const row = document.getElementById(rowId);
+            form.dataset.rowId = rowId;
+            form.dataset.origLogin = (row && row.dataset && row.dataset.login) ? row.dataset.login : '';
+            form.dataset.origName = (row && row.dataset && row.dataset.name) ? row.dataset.name : '';
+            form.dataset.origGid = (row && row.dataset && row.dataset.gid) ? row.dataset.gid : '';
+            const enabled = (row && row.dataset && row.dataset.enabled) ? row.dataset.enabled : '';
+            form.dataset.origEnabled = enabled;
+          } catch (_) {}
         }
       }
     }
@@ -386,6 +404,103 @@
   };
 
   document.addEventListener('DOMContentLoaded', attachHandlers);
+
+  // Live soft refresh via Socket.IO
+  (function initUsersLiveUpdates() {
+    try {
+      if (!window.io) return;
+      const socket = window.io(window.location.origin, {
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        path: '/socket.io/',
+        withCredentials: true
+      });
+      socket.on('connect', function(){ softRefreshUsersTable(); });
+      socket.on('users:changed', function(){ softRefreshUsersTable(); });
+      window.usersSocket = socket;
+    } catch (e) {}
+
+    function softRefreshUsersTable() {
+      const table = document.getElementById('maintable');
+      if (!table) return;
+      const tbody = table.tBodies && table.tBodies[0];
+      if (!tbody) return;
+      const url = window.location.href;
+      fetch(url, { credentials: 'include' })
+        .then(r => r.text())
+        .then(html => {
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const newTbody = doc.querySelector('#maintable tbody');
+          if (!newTbody) return;
+          tbody.innerHTML = newTbody.innerHTML;
+          try { document.dispatchEvent(new Event('DOMContentLoaded')); } catch(_) {}
+        })
+        .catch(() => {});
+    }
+  })();
+
+  // Change-detection helpers for edit and permissions forms
+  (function initUsersChangeDetection() {
+    function closeModal(id) {
+      try { popupToggle(id); } catch(_) {}
+    }
+
+    function isEditChanged(form) {
+      try {
+        const login = (form.querySelector('input[name="login"]').value || '').trim();
+        const name = (form.querySelector('input[name="name"]').value || '').trim();
+        const group = (form.querySelector('select[name="group"]').value || '').toString();
+        const enabledEl = form.querySelector('input[name="enabled"]');
+        const enabled = enabledEl ? (enabledEl.checked ? '1' : '0') : '';
+        const oLogin = form.dataset.origLogin || '';
+        const oName = form.dataset.origName || '';
+        const oGid = (form.dataset.origGid || '').toString();
+        const oEnabled = form.dataset.origEnabled || '';
+        return (login !== oLogin) || (name !== oName) || (group !== oGid) || (enabled !== oEnabled);
+      } catch (e) { return true; }
+    }
+
+    function isPermChanged(form) {
+      try {
+        const hidden = form.querySelector('#perm-string-perm');
+        const current = hidden ? (hidden.value || '') : '';
+        const orig = form.dataset.origPerm || form.dataset.origPermCurrent || '';
+        return (current.trim() !== (orig || '').trim());
+      } catch (e) { return true; }
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      // Edit modal save
+      const editForm = document.getElementById('edit');
+      if (editForm) {
+        const saveBtn = editForm.parentElement && editForm.parentElement.querySelector('.btn.btn-primary');
+        // Fallback: find button inside form
+        const btn = saveBtn || editForm.querySelector('button.btn.btn-primary');
+        if (btn && !btn._usersEditBound) {
+          btn._usersEditBound = true;
+          btn.addEventListener('click', function(){
+            if (!isEditChanged(editForm)) {
+              closeModal('popup-edit');
+              return;
+            }
+            try { editForm.submit(); } catch(_) {}
+          });
+        }
+      }
+
+      // Permissions modal save
+      const permForm = document.getElementById('perm');
+      if (permForm && !permForm._usersPermBound) {
+        permForm._usersPermBound = true;
+        permForm.addEventListener('submit', function(e){
+          if (!isPermChanged(permForm)) {
+            e.preventDefault();
+            closeModal('popup-perm');
+          }
+        });
+      }
+    });
+  })();
 
   // Global search cleaner used by searchbar component
   window.searchClean = window.searchClean || function () {

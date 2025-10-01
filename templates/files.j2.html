@@ -34,7 +34,7 @@
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}">
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}">
         <thead class="table__head">
           <tr class="table__head_row">
             <th class="table__head_item">Название</th>
@@ -65,7 +65,7 @@
                 <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
                   data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
-                  data-can-note="{{ 1 if current_user.has('files.mark_viewed') else 0 }}"
+                  data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
                   data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.has('files.mark_viewed') else '' }}"
                   data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
                   data-root="{{ (dirs[did].values() | list)[0] }}"
@@ -78,32 +78,27 @@
                   <td class="table__body_item">{{ file.date }}</td>
                   <td class="table__body_item">{{ file.length_human }}</td>
                   <td class="table__body_item">{{ file.size_human }}</td>
-                  {% if current_user.has('files.see_viewers') %}
-                    <td class="table__body_item">
-                      {# Visible to all: list of viewers in notes column #}
-                      <div class="file-viewers">
-                        <strong>Просмотревшие:</strong>
-                        <span>{{ file.viewed if file.viewed else '—' }}</span>
-                      </div>
-
-                      {# Action: mark as viewed (permission 'm'), non-reversible; prevent repeat #}
+                  <td class="table__body_item">
+                    <div class="file-viewers">
+                      <strong>Просмотревшие:</strong>
+                      <span>{{ file.viewed if file.viewed else '—' }}</span>
+                    </div>
+                    <div class="mt-1">
                       {% if current_user.has('files.mark_viewed') %}
                         {% set already_viewed = (file.viewed and (current_user.name in file.viewed)) %}
-                        <div class="mt-1">
-                          {% if not already_viewed %}
-                            <span onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">Отметить просмотренным</span>
-                          {% endif %}
-                        </div>
-                        <div class="mt-1">
-                          <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
-                        </div>
-                      {% else %}
-                        <div class="mt-1">
-                          <span>{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
-                        </div>
+                        {% if not already_viewed %}
+                          <span onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">Отметить просмотренным</span>
+                        {% endif %}
                       {% endif %}
-                    </td>
-                  {% endif %}
+                    </div>
+                    <div class="mt-1">
+                      {% if current_user.has('files.notes') %}
+                        <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                      {% else %}
+                        <span>{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
+                      {% endif %}
+                    </div>
+                  </td>
                 </tr>
               {% else %}
                 <tr class="table__body_row" id="{{ file.id }}"
@@ -122,17 +117,15 @@
                   <td class="table__body_item">{{ file.date }}</td>
                   <td class="table__body_item">{{ file.length_human }}</td>
                   <td class="table__body_item">{{ file.size_human }}</td>
-                  {% if current_user.has('files.see_viewers') %}
-                    <td class="table__body_item">
-                      Обрабатывается...
-                      <div class="d-inline-flex gap-2 ms-2 align-items-center">
-                        <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный</a>
-                        {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
-                          <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
-                        {% endif %}
-                      </div>
-                    </td>
-                  {% endif %}
+                  <td class="table__body_item">
+                    Обрабатывается...
+                    <div class="d-inline-flex gap-2 ms-2 align-items-center">
+                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный</a>
+                      {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
+                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+                      {% endif %}
+                    </div>
+                  </td>
                 </tr>
               {% endif %}
             {% endfor %}
@@ -165,23 +158,23 @@
   <div id="popup-add" class="overlay-container">
     <div class="popup">
       <h1 class="popup__title">Добавление видео</h1>
-      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data">
+      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off">
 
         <div class="popup__form-control form-control">
-          <label class="form-control__label">Название:</label>
-          <input class="form-control__control input" type="text" name="name" id="add-name" placeholder="Имя файла..." autocomplete="one-time-code">
+          <label class="form-control__label" for="add-name">Название:</label>
+          <input class="form-control__control input" type="text" name="name" id="add-name" placeholder="Имя файла..." autocomplete="off">
         </div>
         <div class="popup__form-control form-control">
 
-          <label class="form-control__label">Описание файла:</label>
-          <textarea class="form-control__control input" name="description" placeholder="Введите описание Файла..."></textarea>
+          <label class="form-control__label" for="add-description">Описание файла:</label>
+          <textarea class="form-control__control input" id="add-description" name="description" placeholder="Введите описание Файла..." autocomplete="off"></textarea>
         </div>
         <div class="popup__form-control form-control">
 
-          <label class="form-control__label">Выбрать файлы (до 5 шт.):</label>
-          <input class="form-control__control" type="file" name="file" id="file" multiple accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" >
+          <label class="form-control__label" for="file">Выбрать файлы (до 5 шт.):</label>
+          <input class="form-control__control" type="file" name="file" id="file" multiple accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" autocomplete="off">
           <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: 5. Имя и описание применятся ко всем.</small>
-          <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}">
+          <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}" autocomplete="off">
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V</small>
         </div>
         <div class="popup__actions">
@@ -207,16 +200,16 @@
       <h1 class="popup__title">Редактирование видео</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
           <div class="popup__form-control form-control">
 
-            <label class="form-control__label">Название:</label>
-            <input class="form-control__control input" type="text" name="name" id="edit-name" placeholder="Имя файла..." autocomplete="one-time-code">
+            <label class="form-control__label" for="edit-name">Название:</label>
+            <input class="form-control__control input" type="text" name="name" id="edit-name" placeholder="Имя файла..." autocomplete="off">
           </div>
           <div class="popup__form-control form-control">
 
-            <label class="form-control__label">Описание файла:</label>
-            <textarea class="form-control__control input" name="description" placeholder="Введите описание Файла..."></textarea>
+            <label class="form-control__label" for="edit-description">Описание файла:</label>
+            <textarea class="form-control__control input" id="edit-description" name="description" placeholder="Введите описание Файла..." autocomplete="off"></textarea>
           </div>
 
           <div class="popup__actions">
@@ -234,7 +227,7 @@
       <div class="popup__body">
 
         <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
-        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
           <div class="popup__actions">
             <button type="submit" class="btn btn-danger" onclick="return validateForm(this.parentElement);">Удалить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
@@ -249,10 +242,10 @@
       <h1 class="popup__title">Примечание</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Примечание к записи:</label>
-            <textarea class="form-control__control input" name="note" placeholder="Введите примечание..."></textarea>
+            <label class="form-control__label" for="note-text">Примечание к записи:</label>
+            <textarea class="form-control__control input" id="note-text" name="note" placeholder="Введите примечание..." autocomplete="off"></textarea>
           </div>
 
           <div class="popup__actions">
@@ -299,9 +292,9 @@
     <div class="popup">
       <h1 class="popup__title">Переместить видео</h1>
       <div class="popup__body">
-        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Выберите категорию:</label>
+            <label class="form-control__label" for="move-target-root">Выберите категорию:</label>
             <select class="form-control__control input" name="target_root" id="move-target-root">
               {% for i in range(dirs | length) %}
                 <option value="{{ (dirs[i].values() | list)[0] }}">{{ (dirs[i].values() | list)[0] }}</option>
@@ -309,7 +302,7 @@
             </select>
           </div>
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Выберите подкатегорию:</label>
+            <label class="form-control__label" for="move-target-sub">Выберите подкатегорию:</label>
             <select class="form-control__control input" name="target_sub" id="move-target-sub">
               {% for i in range(1, dirs[did].keys() | length) %}
                 <option value="{{ (dirs[did].values() | list)[i] }}">{{ (dirs[did].values() | list)[i] }}</option>

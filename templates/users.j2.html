@@ -256,12 +256,12 @@
         </p>
         <form class="popup__form" id="reset" name="reset" action="{{ url_for('users_reset', id='0') }}" method="post">
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Новый пароль:</label>
-            <input class="input form-control__control" type="password" name="password" placeholder="Введите пароль..." autocomplete="one-time-code"/>
+            <label class="form-control__label" for="reset-password">Новый пароль:</label>
+            <input id="reset-password" class="input form-control__control" type="password" name="password" placeholder="Введите пароль..." autocomplete="one-time-code"/>
           </div>
           <div class="popup__form-control form-control">
-            <label class="form-control__label">Подтвердите пароль:</label>
-            <input class="input form-control__control" type="password" name="password2" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
+            <label class="form-control__label" for="reset-password2">Подтвердите пароль:</label>
+            <input id="reset-password2" class="input form-control__control" type="password" name="password2" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
           </div>
 
           <div class="popup__actions d-flex gap-2">

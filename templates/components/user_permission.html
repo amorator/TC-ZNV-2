@@ -4,31 +4,31 @@
 
 <div class="popup__form-control form-control">
     {% set perm_box_id = (perm_input_id ~ '-box') %}
-    <label class="form-control__label">Разрешения</label>
+    <span class="form-control__label">Разрешения</span>
     <div id="{{ perm_box_id }}" class="permissions-grid">
         <div class="permissions-group" data-page="1">
             <div class="permissions-group__title">Заявки</div>
-            <label><input type="checkbox" data-letter="a"> Просмотр</label>
-            <label><input type="checkbox" data-letter="e"> Утверждение</label>
-            <label><input type="checkbox" data-letter="f"> Разрешение</label>
+            <label><input type="checkbox" data-letter="a" name="perms_p1[]" value="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="e" name="perms_p1[]" value="e"> Утверждение</label>
+            <label><input type="checkbox" data-letter="f" name="perms_p1[]" value="f"> Разрешение</label>
         </div>
         <div class="permissions-group" data-page="2">
             <div class="permissions-group__title">Наряды</div>
-            <label><input type="checkbox" data-letter="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="a" name="perms_p2[]" value="a"> Просмотр</label>
         </div>
         <div class="permissions-group" data-page="3">
             <div class="permissions-group__title">Файлы</div>
-            <label><input type="checkbox" data-letter="a"> Просмотр</label>
-            <label><input type="checkbox" data-letter="b"> Загрузка/Запись</label>
-            <label><input type="checkbox" data-letter="c"> Изменение</label>
-            <label><input type="checkbox" data-letter="d"> Удаление</label>
-            <label><input type="checkbox" data-letter="l"> Просмотревшие</label>
-            <label><input type="checkbox" data-letter="m"> Отмечать просмотр</label>
+            <label><input type="checkbox" data-letter="a" name="perms_p3[]" value="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="b" name="perms_p3[]" value="b"> Загрузка/Запись</label>
+            <label><input type="checkbox" data-letter="c" name="perms_p3[]" value="c"> Изменение</label>
+            <label><input type="checkbox" data-letter="d" name="perms_p3[]" value="d"> Удаление</label>
+            <label><input type="checkbox" data-letter="l" name="perms_p3[]" value="l"> Просмотревшие</label>
+            <label><input type="checkbox" data-letter="m" name="perms_p3[]" value="m"> Отмечать просмотр</label>
         </div>
         <div class="permissions-group" data-page="4">
             <div class="permissions-group__title">Пользователи</div>
-            <label><input type="checkbox" data-letter="a"> Просмотр</label>
-            <label><input type="checkbox" data-letter="b"> Управление</label>
+            <label><input type="checkbox" data-letter="a" name="perms_p4[]" value="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="b" name="perms_p4[]" value="b"> Управление</label>
         </div>
     </div>
     <small class="form-text text-muted">Отметьте нужные права для каждой страницы.</small>

@@ -16,8 +16,8 @@ USERS_MANAGE = 'users.manage'
 FILES_UPLOAD = 'files.upload'
 FILES_EDIT_ANY = 'files.edit_any'
 FILES_DELETE_ANY = 'files.delete_any'
-FILES_SEE_VIEWERS = 'files.see_viewers'
 FILES_MARK_VIEWED = 'files.mark_viewed'
+FILES_NOTES = 'files.notes'
 
 # Requests (examples, for adapter)
 REQUESTS_APPROVE = 'requests.approve'
@@ -81,8 +81,8 @@ PERMISSION_LABELS = {
     FILES_UPLOAD: 'Файлы: загрузка/запись',
     FILES_EDIT_ANY: 'Файлы: изменение',
     FILES_DELETE_ANY: 'Файлы: удаление',
-    FILES_SEE_VIEWERS: 'Файлы: просмотревшие',
-    FILES_MARK_VIEWED: 'Файлы: отмечать просмотр',
+    FILES_MARK_VIEWED: 'Файлы: отметить просмотренным',
+    FILES_NOTES: 'Файлы: примечания',
 
     REQUESTS_VIEW_PAGE: 'Заявки: просмотр',
     REQUESTS_APPROVE: 'Заявки: утверждение',
