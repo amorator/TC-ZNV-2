@@ -143,7 +143,29 @@ def register(app, media_service, socketio=None) -> None:
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
 			
 			uploaded_file.save(fpath + '.webm')
-			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
+			# initial metadata: length=0, size in MB from uploaded file size
+			try:
+				uploaded_file.seek(0, os.SEEK_END)
+				size_bytes = uploaded_file.tell()
+				uploaded_file.seek(0)
+			except Exception:
+				size_bytes = 0
+			size_mb = round(size_bytes / (1024*1024), 1) if size_bytes else 0
+			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb])
+			# try to detect duration from original .webm and notify clients
+			try:
+				import subprocess
+				p = subprocess.Popen(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", fpath + '.webm'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+				sout, _ = p.communicate(timeout=10)
+				length_seconds = int(float((sout or '0').strip()) or 0)
+				app._sql.file_update_metadata([length_seconds, size_mb, id])
+				if socketio:
+					try:
+						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+					except Exception:
+						pass
+			except Exception:
+				pass
 			log_action('FILE_UPLOAD', current_user.name, f'uploaded file {name} to {dirs[0]}/{dirs[sdid]}', request.remote_addr)
 			# notify all clients about new pending file
 			if socketio:
@@ -179,7 +201,7 @@ def register(app, media_service, socketio=None) -> None:
 			if not name:
 				raise ValueError('Название файла не может быть пустым')
 			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
-			fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
+			fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
 			if socketio:
 				try:
 					socketio.emit('files:changed', {'reason': 'init', 'id': fid}, broadcast=True)
@@ -205,6 +227,28 @@ def register(app, media_service, socketio=None) -> None:
 			# Save to original and begin conversion
 			base = path.join(file_rec.path, path.splitext(file_rec.real_name)[0])
 			uploaded_file.save(base + '.webm')
+			# update size from uploaded file
+			try:
+				uploaded_file.seek(0, os.SEEK_END)
+				size_bytes = uploaded_file.tell()
+				uploaded_file.seek(0)
+			except Exception:
+				size_bytes = 0
+			size_mb = round(size_bytes / (1024*1024), 1) if size_bytes else 0
+			try:
+				# probe duration from original
+				import subprocess
+				p = subprocess.Popen(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", base + '.webm'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+				sout, _ = p.communicate(timeout=10)
+				length_seconds = int(float((sout or '0').strip()) or 0)
+				app._sql.file_update_metadata([length_seconds, size_mb, id])
+				if socketio:
+					try:
+						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+					except Exception:
+						pass
+			except Exception:
+				pass
 			media_service.convert_async(base + '.webm', base + '.mp4', ('file', id))
 			if socketio:
 				try:
@@ -395,6 +439,92 @@ def register(app, media_service, socketio=None) -> None:
 		except Exception as e:
 			app.flash_error(e)
 		return redirect(url_for('files', did=did, sdid=sdid))
+
+	# Manual metadata refresh (duration/size) via context menu
+	@app.route('/fls' + '/refresh' + '/<int:id>', methods=['POST'])
+	@require_permissions(FILES_VIEW_PAGE)
+	def files_refresh(id: int):
+		"""Recompute file duration and size using robust ffprobe strategies and update DB; emits soft refresh."""
+		try:
+			file_rec = app._sql.file_by_id([id])
+			if not file_rec:
+				return abort(404)
+			# Determine target media path: prefer converted mp4, fallback to original webm
+			base = path.join(file_rec.path, path.splitext(file_rec.real_name)[0])
+			target = path.join(file_rec.path, file_rec.real_name)
+			if not os.path.exists(target):
+				target = base + '.webm'
+			# Allow owner or users with edit_any/mark_viewed to refresh
+			owner_name = (file_rec.owner or '')
+			is_owner = (current_user.name + ' (') in owner_name
+			if not (is_owner or current_user.has('files.edit_any') or current_user.has('files.mark_viewed')):
+				return abort(403)
+
+			length_seconds = 0
+			size_mb = 0.0
+			# size
+			try:
+				size_bytes = os.path.getsize(target)
+				size_mb = round(size_bytes / (1024*1024), 1) if size_bytes else 0.0
+			except Exception:
+				pass
+			# 1) format.duration
+			try:
+				import subprocess, json
+				p = subprocess.Popen(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+				sout, _ = p.communicate(timeout=10)
+				length_seconds = int(float((sout or '0').strip()) or 0)
+			except Exception:
+				pass
+			# 2) stream.duration
+			if not length_seconds:
+				try:
+					p = subprocess.Popen(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=noprint_wrappers=1:nokey=1", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+					sout, _ = p.communicate(timeout=10)
+					length_seconds = int(float((sout or '0').strip()) or 0)
+				except Exception:
+					pass
+			# 3) nb_frames / r_frame_rate
+			if not length_seconds:
+				try:
+					p = subprocess.Popen(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames,nb_frames,r_frame_rate", "-of", "json", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+					sout, _ = p.communicate(timeout=10)
+					data = json.loads(sout or '{}')
+					streams = data.get('streams') or []
+					frames = 0
+					fps = 0.0
+					if streams:
+						st = streams[0]
+						frames_str = st.get('nb_read_frames') or st.get('nb_frames') or '0'
+						try:
+							frames = int(frames_str)
+						except Exception:
+							frames = int(float(frames_str) or 0)
+						rate_str = st.get('r_frame_rate') or '0/1'
+						try:
+							num, den = rate_str.split('/')
+							den_v = float(den) if float(den) != 0 else 1.0
+							fps = float(num) / den_v
+						except Exception:
+							fps = 0.0
+					if frames > 0 and fps > 0:
+						length_seconds = int(frames / fps)
+				except Exception:
+					pass
+			try:
+				app._sql.file_update_metadata([length_seconds, size_mb, id])
+			except Exception:
+				pass
+			# Notify clients
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+				except Exception:
+					pass
+			return {'ok': 1}
+		except Exception as e:
+			app.flash_error(e)
+			return {'error': str(e)}, 400
 
 	@app.route('/fls' + '/rec' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
 	@require_permissions(FILES_UPLOAD)

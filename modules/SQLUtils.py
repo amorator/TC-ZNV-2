@@ -234,7 +234,11 @@ class SQLUtils(SQL):
         return [File(*d) for d in data] if data else None
 
     def file_add(self, args):
-        self.execute_non_query(f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready) VALUES (%s, %s, %s, %s, %s, %s, %s);", args)
+        # args: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
+        self.execute_non_query(
+            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready, length, size) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            args,
+        )
         return self.cur.lastrowid
 
     def file_edit(self, args):
@@ -254,6 +258,16 @@ class SQLUtils(SQL):
     
     def file_move(self, args):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET path = %s WHERE id = %s;", args)
+
+    def file_update_metadata(self, args):
+        """Update length (seconds) and size (MB) for a file.
+
+        Args: [length_seconds, size_mb, id]
+        """
+        self.execute_non_query(
+            f"UPDATE {self.config['db']['prefix']}_file SET length = %s, size = %s WHERE id = %s;",
+            args,
+        )
 
     def order_all(self):
         data = self.execute_query(f"SELECT * FROM {self.config['db']['prefix']}_order;")

@@ -40,7 +40,7 @@
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}">Заявки</a>
             {% endif %}
             {% if current_user.has('orders.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}">Приказы</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}">Наряды-допуски</a>
             {% endif %}
             {% if current_user.has('files.view') %}
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}">Файлы</a>

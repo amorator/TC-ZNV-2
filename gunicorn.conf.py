@@ -15,7 +15,7 @@ keepalive = 120  # HTTP keep-alive timeout
 # Логи
 capture_output = True
 loglevel = "info"  # Изменено с debug на info для production
-accesslog = "logs/gaccess.log"  # Включен access log для gunicorn
+#accesslog = "logs/gaccess.log"  # access log из-за конфигурации gunicorn не пишется, альтернатива - accesslog - настроено в middleware.py
 errorlog = "logs/gerror.log"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 

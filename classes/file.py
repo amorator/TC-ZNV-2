@@ -16,7 +16,9 @@ class File:
         date: str = '',
         ready: int = 1,
         viewed: Optional[str] = None,
-        note: str = ''
+        note: str = '',
+        length_seconds: int = 0,
+        size_mb: float = 0.0,
     ) -> None:
         """Create a file entity.
 
@@ -42,3 +44,29 @@ class File:
         self.ready: int = ready
         self.viewed: Optional[str] = viewed
         self.note: str = note if note else ''
+        self.length_seconds: int = int(length_seconds or 0)
+        try:
+            self.size_mb: float = float(size_mb or 0)
+        except Exception:
+            self.size_mb = 0.0
+
+    @property
+    def length_human(self) -> str:
+        """Human readable duration like H:MM:SS or M:SS; dash if unknown."""
+        total = int(self.length_seconds or 0)
+        if total <= 0:
+            return '—'
+        h = total // 3600
+        m = (total % 3600) // 60
+        s = total % 60
+        if h > 0:
+            return f"{h}:{m:02d}:{s:02d}"
+        return f"{m}:{s:02d}"
+
+    @property
+    def size_human(self) -> str:
+        """Human readable size in megabytes with one decimal; dash if unknown."""
+        val = float(self.size_mb or 0)
+        if val <= 0:
+            return '—'
+        return f"{val:.1f} МБ"

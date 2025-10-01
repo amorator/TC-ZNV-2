@@ -1010,12 +1010,10 @@ document.addEventListener('DOMContentLoaded', function () {
       // Only override on files page (when table exists)
       if (!document.getElementById('maintable')) return;
       e.preventDefault();
+      e.stopPropagation();
       const row = e.target.closest && e.target.closest('tr.table__body_row');
-      if (row) {
-        buildAndShowMenu(row, e.pageX, e.pageY);
-      } else {
-        buildAndShowMenu(null, e.pageX, e.pageY);
-      }
+      // Use viewport coordinates like on users page for accurate anchoring
+      buildAndShowMenu(row || null, e.clientX, e.clientY);
     });
 
     // Hide on click elsewhere or Esc
@@ -1041,6 +1039,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const canNote = row.getAttribute('data-can-note') === '1';
         const isReady = row.getAttribute('data-is-ready') !== '0';
         const hasDownload = !!row.getAttribute('data-download');
+        const canRefresh = canEdit || canMarkView; // refresh allowed if can edit (owner or edit_any) or can mark viewed
 
         // Toggle visibility of items based on permissions
         toggleItem('open', isReady);
@@ -1052,6 +1051,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const alreadyViewed = row.getAttribute('data-already-viewed') === '1';
         toggleItem('mark-viewed', isReady && canMarkView && !alreadyViewed);
         toggleItem('note', isReady && canNote);
+        toggleItem('refresh', canRefresh);
         toggleItem('add', tableCanAdd);
         toggleItem('record', tableCanAdd);
         toggleSeparator(true);
@@ -1067,6 +1067,7 @@ document.addEventListener('DOMContentLoaded', function () {
         toggleItem('delete', false);
         toggleItem('mark-viewed', false);
         toggleItem('note', false);
+        toggleItem('refresh', false);
         toggleItem('add', tableCanAdd);
         toggleItem('record', tableCanAdd);
         toggleSeparator(false);
@@ -1075,10 +1076,22 @@ document.addEventListener('DOMContentLoaded', function () {
         bindActions(null);
       }
 
-      // Position menu
-      menu.style.left = x + 'px';
-      menu.style.top = y + 'px';
+      // Position menu near cursor with viewport clamping
       menu.classList.remove('d-none');
+      const margin = 4;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const rect = menu.getBoundingClientRect();
+      let px = x;
+      let py = y;
+      if (px + rect.width + margin > vw) {
+        px = Math.max(vw - rect.width - margin, margin);
+      }
+      if (py + rect.height + margin > vh) {
+        py = Math.max(vh - rect.height - margin, margin);
+      }
+      menu.style.left = px + 'px';
+      menu.style.top = py + 'px';
     }
 
     function toggleItem(action, show) {
@@ -1094,6 +1107,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const moveEl = menu.querySelector('[data-action="move"]');
       const markViewedEl = menu.querySelector('[data-action="mark-viewed"]');
       const noteEl = menu.querySelector('[data-action="note"]');
+      const refreshEl = menu.querySelector('[data-action="refresh"]');
       const addEl = menu.querySelector('[data-action="add"]');
       const recordEl = menu.querySelector('[data-action="record"]');
 
@@ -1161,6 +1175,15 @@ document.addEventListener('DOMContentLoaded', function () {
           popupToggle('popup-note', parseInt(id, 10));
           menu.classList.add('d-none');
         };
+
+        if (refreshEl) refreshEl.onclick = function() {
+          try {
+            fetch(`${window.location.origin}/fls/refresh/${id}`, { method: 'POST', credentials: 'include' })
+              .then(() => { try { window.socket && window.socket.emit && window.socket.emit('files:changed', { reason: 'refresh-request', id }); } catch(e) {} })
+              .finally(() => { try { softRefreshFilesTable(); } catch(e) {} });
+          } catch (e) { try { softRefreshFilesTable(); } catch(_) {} }
+          menu.classList.add('d-none');
+        };
       } else {
         // Clear row-specific handlers
         if (openEl) openEl.onclick = null;
@@ -1169,6 +1192,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (deleteEl) deleteEl.onclick = null;
         if (markViewedEl) markViewedEl.onclick = null;
         if (noteEl) noteEl.onclick = null;
+        if (refreshEl) refreshEl.onclick = null;
       }
 
       if (addEl) addEl.onclick = function() {
@@ -1185,5 +1209,11 @@ document.addEventListener('DOMContentLoaded', function () {
       const sep = menu.querySelector('.context-menu__separator');
       if (sep) sep.style.display = show ? 'block' : 'none';
     }
+
+    // Hide menu on scroll/resize and suppress native context menu over it
+    const hideMenu = function(){ if (!menu.classList.contains('d-none')) menu.classList.add('d-none'); };
+    window.addEventListener('scroll', hideMenu, true);
+    window.addEventListener('resize', hideMenu);
+    menu.addEventListener('contextmenu', function(e){ e.preventDefault(); e.stopPropagation(); });
   })();
 });

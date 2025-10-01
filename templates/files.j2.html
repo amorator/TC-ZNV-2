@@ -41,20 +41,22 @@
             <th class="table__head_item">Описание</th>
             <th class="table__head_item">Создатель</th>
             <th class="table__head_item">Дата создания</th>
+            <th class="table__head_item">Длина</th>
+            <th class="table__head_item">Размер</th>
             <th class="table__head_item">Примечания</th>
           </tr>
         </thead>
         <tbody class="table__body">
           <tr class="table__body_actions">
-            <td class="table__body_action" colspan="3">
+            <td class="table__body_action" colspan="2">
               {% include 'components/searchbar.html' %}
             </td>
             <td>
             {% if current_user.has('files.upload') %}
-            <td class="table__body_action files-page__table--actions">
-              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-add" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
-              <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="popupToggle('popup-rec');"><i class="bi bi-camera-video"></i></button>
-            </td>
+              <td class="table__body_action files-page__table--actions">
+                <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-add" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+                <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="popupToggle('popup-rec');"><i class="bi bi-camera-video"></i></button>
+              </td>
             {% endif %}
           </tr>
           {% if files %}
@@ -74,6 +76,8 @@
                   <td class="table__body_item">{{ file.description }}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
+                  <td class="table__body_item">{{ file.length_human }}</td>
+                  <td class="table__body_item">{{ file.size_human }}</td>
                   {% if current_user.has('files.see_viewers') %}
                     <td class="table__body_item">
                       {# Visible to all: list of viewers in notes column #}
@@ -116,6 +120,8 @@
                   <td class="table__body_item">{{ file.description }}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
+                  <td class="table__body_item">{{ file.length_human }}</td>
+                  <td class="table__body_item">{{ file.size_human }}</td>
                   {% if current_user.has('files.see_viewers') %}
                     <td class="table__body_item">
                       Обрабатывается...
@@ -143,6 +149,7 @@
           <li class="context-menu__item" data-action="edit">Изменить</li>
           <li class="context-menu__item" data-action="delete">Удалить</li>
           <li class="context-menu__item" data-action="move">Переместить</li>
+          <li class="context-menu__item" data-action="refresh">Обновить информацию</li>
           <li class="context-menu__item" data-action="mark-viewed">Пометить просмотренным</li>
           <li class="context-menu__item" data-action="note">Оставить примечание</li>
           <li class="context-menu__separator"></li>
