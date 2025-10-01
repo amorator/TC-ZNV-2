@@ -25,7 +25,6 @@ from hashlib import md5
 from classes.user import User
 from classes.request import Request
 from classes.order import Order
-from classes.page import Page, Pages
 from modules.server import Server
 from flask_socketio import SocketIO
 from modules.threadpool import ThreadPool
@@ -33,17 +32,6 @@ from utils.common import make_dir, hash_str
 from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
-#from werkzeug.middleware.proxy_fix import ProxyFix
-
-#import signal
-    
-#def handle_exit(sig, frame):
-#    print("Получен сигнал завершения, выходим корректно...")
-#    sys.exit(0)
-    
-# Register signal handler for Ctrl+C
-#signal.signal(signal.SIGINT, handle_exit)
-#signal.signal(signal.SIGTERM, handle_exit)
 
 app = Server(path.dirname(path.realpath(__file__)))
 socketio = SocketIO(app, async_mode='gevent', cors_allowed_origins='*', logger=False, engineio_logger=False, ping_interval=25, ping_timeout=60, allow_upgrades=True, transports=['websocket', 'polling'])
@@ -51,17 +39,8 @@ tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)
 register_all(app, tp, media_service, socketio)
 
-# moved to utils.common: make_dir, hash_str
-
 make_dir(app._sql.config['files']['root'], 'video')
 make_dir(app._sql.config['files']['root'], 'req')
-
-# Trust proxy headers from Nginx for correct scheme/host and login redirects
-#app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
-
-@app.context_processor
-def inject_pages():
-    return dict(pages=app.pages)
 
 #############################################################
 #   404   401   403   500   421     413

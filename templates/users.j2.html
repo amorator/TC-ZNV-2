@@ -47,7 +47,7 @@
               <td class="table__body_item">{{ groups[user.gid] }}</td>
               <td class="table__body_item">{{ user.permission_string() }}</td>
               <td class="table__body_item" data-enabled="{{ user.is_enabled() }}">
-                <a href="{{ url_for(pages[id].name + '_toggle', id=user.id) if user.login != 'admin' and current_user.is_allowed(id, 'z') else '#'}}" class="btn btn-link p-0 d-inline-flex align-items-center">
+                <a href="{{ url_for('users_toggle', id=user.id) if user.login != 'admin' and current_user.is_allowed(id, 'z') else '#'}}" class="btn btn-link p-0 d-inline-flex align-items-center">
                   <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
                 </a>
               </td>
@@ -75,7 +75,7 @@
     <div class="popup">
       <h1 class="popup__title">Добавление пользователя</h1>
       <div class="popup__body">
-        <form class="popup__form" id="add" name="add" action="{{ url_for(pages[id].name + '_add') }}" method="post">
+        <form class="popup__form" id="add" name="add" action="{{ url_for('users_add') }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label">Логин:</label>
             <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
@@ -125,7 +125,7 @@
     <div class="popup">
       <h1 class="popup__title">Редактирование пользователя</h1>
       <div class="popup__body">
-        <form class="popup__form" id="edit" name="edit" action="{{ url_for(pages[id].name + '_edit', id='0') }}" method="post">
+        <form class="popup__form" id="edit" name="edit" action="{{ url_for('users_edit', id='0') }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="name">Логин:</label>
             <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
@@ -169,7 +169,7 @@
         <p>Установить новый пароль для
           <b>uname</b>
         </p>
-        <form class="popup__form" id="reset" name="reset" action="{{ url_for(pages[id].name + '_reset', id='0') }}" method="post">
+        <form class="popup__form" id="reset" name="reset" action="{{ url_for('users_reset', id='0') }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label">Новый пароль:</label>
             <input class="input form-control__control" type="password" name="password" placeholder="Введите пароль..." autocomplete="one-time-code"/>
@@ -194,7 +194,7 @@
       <div class="popup__body">
         <p>Вы действительно хотите удалить пользователя
           <b>uname</b>?</p>
-        <form class="popup__form" id="delete" name="delete" action="{{ url_for(pages[id].name + '_delete', id='0') }}" method="post">
+        <form class="popup__form" id="delete" name="delete" action="{{ url_for('users_delete', id='0') }}" method="post">
           <div class="popup__actions d-flex gap-2">
             <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement.parentElement);">Удалить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>

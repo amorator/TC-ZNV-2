@@ -161,7 +161,7 @@
   <div id="popup-add" class="overlay-container">
     <div class="popup">
       <h1 class="popup__title">Добавление видео</h1>
-      <form class="popup__form" id="add" action="{{ url_for(pages[id].name + '_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data">
+      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data">
 
         <div class="popup__form-control form-control">
           <label class="form-control__label">Название:</label>
@@ -174,8 +174,9 @@
         </div>
         <div class="popup__form-control form-control">
 
-          <label class="form-control__label">Выбрать файл:</label>
-          <input class="form-control__control" type="file" name="file" id="file" multiple=false accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" >
+          <label class="form-control__label">Выбрать файлы (до 5 шт.):</label>
+          <input class="form-control__control" type="file" name="file" id="file" multiple accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" >
+          <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: 5. Имя и описание применятся ко всем.</small>
           <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}">
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V</small>
         </div>
@@ -202,7 +203,7 @@
       <h1 class="popup__title">Редактирование видео</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit" action="{{ url_for(pages[id].name + '_edit', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post">
           <div class="popup__form-control form-control">
 
             <label class="form-control__label">Название:</label>
@@ -229,7 +230,7 @@
       <div class="popup__body">
 
         <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
-        <form class="popup__form" id="delete" action="{{ url_for(pages[id].name + '_delete', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post">
           <div class="popup__actions">
             <button type="submit" class="btn btn-danger" onclick="return validateForm(this.parentElement);">Удалить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
@@ -244,7 +245,7 @@
       <h1 class="popup__title">Примечание</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="note" action="{{ url_for(pages[id].name + '_note', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label">Примечание к записи:</label>
             <textarea class="form-control__control input" name="note" placeholder="Введите примечание..."></textarea>
@@ -294,7 +295,7 @@
     <div class="popup">
       <h1 class="popup__title">Переместить видео</h1>
       <div class="popup__body">
-        <form class="popup__form" id="move" action="{{ url_for(pages[id].name + '_move', did=did, sdid=sdid, id=0) }}" method="post">
+        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label">Выберите категорию:</label>
             <select class="form-control__control input" name="target_root" id="move-target-root">

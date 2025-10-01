@@ -89,50 +89,43 @@ function validateForm(x) {
     let fileInput = document.getElementById("file");
     let len = fileInput.files.length;
     if (len == undefined || len == 0) {
-      alert("Выберите файл!");
+      alert("Выберите файл(ы)!");
       return false;
     }
-    
-    // Client-side file validation
-    let file = fileInput.files[0];
-    if (file) {
-      // Get max file size from config
-      const maxSizeMbElement = document.getElementById('max-file-size-mb');
-      const maxSizeMb = maxSizeMbElement ? parseInt(maxSizeMbElement.value) : 500;
-      const maxSize = maxSizeMb * 1024 * 1024;
-      
-      if (file.size > maxSize) {
-        alert(`Файл слишком большой. Максимальный размер: ${maxSizeMb}MB`);
+    if (len > 5) {
+      alert("Можно выбрать максимум 5 файлов");
+      return false;
+    }
+    // Client-side file validation for each file
+    const files = Array.from(fileInput.files);
+    const maxSizeMbElement = document.getElementById('max-file-size-mb');
+    const maxSizeMb = maxSizeMbElement ? parseInt(maxSizeMbElement.value) : 500;
+    const maxSize = maxSizeMb * 1024 * 1024;
+    const allowedTypes = ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/x-flv', 'video/x-m4v'];
+    const allowedExtensions = ['.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.size > maxSize) {
+        alert(`Файл ${f.name} слишком большой. Максимальный размер: ${maxSizeMb}MB`);
         return false;
       }
-      
-      // Check file type
-      const allowedTypes = ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/x-flv', 'video/x-m4v'];
-      const allowedExtensions = ['.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'];
-      
-      let isValidType = allowedTypes.includes(file.type);
+      if (f.size === 0) {
+        alert(`Файл ${f.name} пустой!`);
+        return false;
+      }
+      let isValidType = allowedTypes.includes(f.type);
       if (!isValidType) {
-        // Fallback to extension check
-        const fileName = file.name.toLowerCase();
+        const fileName = f.name.toLowerCase();
         isValidType = allowedExtensions.some(ext => fileName.endsWith(ext));
       }
-      
       if (!isValidType) {
-        alert(`Неподдерживаемый формат файла. Разрешены: ${allowedExtensions.join(', ')}`);
+        alert(`Неподдерживаемый формат: ${f.name}. Разрешены: ${allowedExtensions.join(', ')}`);
         return false;
       }
-      
-      // Check if file is empty
-      if (file.size === 0) {
-        alert("Файл пустой!");
-        return false;
-      }
-      
-      // Start upload with progress tracking (prevent native submit)
-      
-      startUploadWithProgress(form);
-      return false;
     }
+    // Prevent native submit; start upload (single or multi handled inside)
+    startUploadWithProgress(form);
+    return false;
   }
   
   // For non-add forms, submit normally
@@ -175,30 +168,125 @@ function startUploadWithProgress(form) {
     };
   }
   
-  // Create FormData for upload
-  const formData = new FormData(form);
-  
-  // Create XMLHttpRequest for progress tracking
-  const xhr = new XMLHttpRequest();
-  
-  // Store xhr globally for cancellation
-  window.currentUploadXHR = xhr;
-  
-  // Ensure cookies/session are sent (same-origin safety)
-  try { xhr.withCredentials = true; } catch(e) {}
-  
-  // Track upload progress
-  xhr.upload.addEventListener('progress', function(e) {
-    if (e.lengthComputable) {
-      const percentComplete = (e.loaded / e.total) * 100;
-      progressBar.style.width = percentComplete + '%';
-      progressBar.setAttribute('aria-valuenow', percentComplete);
-      
-      const loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
-      const totalMB = (e.total / (1024 * 1024)).toFixed(1);
-      statusText.textContent = `Загрузка файла... ${loadedMB}MB / ${totalMB}MB (${Math.round(percentComplete)}%)`;
+  // Read selected files
+  const fileInput = form.querySelector('input[type="file"]');
+  const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+  const multi = files.length > 1;
+
+  // Combined progress accounting
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  let uploadedBytesSoFar = 0;
+
+  // Helper to render combined progress
+  function renderCombinedProgress(currentFileLoaded, currentFileTotal, index) {
+    const loaded = uploadedBytesSoFar + currentFileLoaded;
+    const percent = totalBytes > 0 ? (loaded / totalBytes) * 100 : 100;
+    progressBar.style.width = percent + '%';
+    progressBar.setAttribute('aria-valuenow', percent);
+    const loadedMB = (loaded / (1024 * 1024)).toFixed(1);
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+    statusText.textContent = multi
+      ? `Загрузка файлов (${index+1}/${files.length})... ${loadedMB}MB / ${totalMB}MB (${Math.round(percent)}%)`
+      : `Загрузка файла... ${loadedMB}MB / ${totalMB}MB (${Math.round(percent)}%)`;
+  }
+
+  // Upload a single file (reusing single/two-phase logic)
+  function uploadOne(file, index, doneCb, errCb) {
+    const nameVal = form.querySelector('input[name="name"]').value;
+    const descVal = (form.querySelector('textarea[name="description"]').value || '');
+
+    const xhr = new XMLHttpRequest();
+    window.currentUploadXHR = xhr;
+    try { xhr.withCredentials = true; } catch(e) {}
+
+    xhr.upload.addEventListener('progress', function(e) {
+      if (e.lengthComputable) {
+        renderCombinedProgress(e.loaded, e.total, index);
+      }
+    });
+    xhr.upload.addEventListener('load', function() {
+      try { statusText.textContent = multi ? 'Отправлено, выполняется обработка...' : 'Файл загружен, выполняется обработка...'; } catch(e) {}
+    });
+
+    xhr.addEventListener('error', function() { errCb('Ошибка соединения'); });
+    xhr.addEventListener('abort', function() { errCb('Загрузка отменена'); });
+    xhr.addEventListener('load', function() {
+      if (xhr.status >= 200 && xhr.status < 400) {
+        uploadedBytesSoFar += file.size;
+        doneCb();
+      } else {
+        errCb('Ошибка загрузки файла');
+      }
+    });
+
+    // Determine flow (two-phase if >= 1.5GB)
+    const threshold = (1024*1024*1024*1.5);
+    const isLarge = file.size >= threshold;
+
+    if (isLarge) {
+      // init
+      const initXhr = new XMLHttpRequest();
+      try { initXhr.withCredentials = true; } catch(e) {}
+      initXhr.open('POST', form.action.replace('/add/', '/add/init/'));
+      initXhr.onload = function(){
+        try {
+          const resp = JSON.parse(initXhr.responseText || '{}');
+          if (resp && resp.upload_url) {
+            // upload
+            const fd = new FormData();
+            fd.append('file', file, file.name);
+            xhr.open('POST', resp.upload_url);
+            xhr.send(fd);
+          } else {
+            errCb('Не удалось инициализировать загрузку');
+          }
+        } catch(e) { errCb('Ошибка инициализации загрузки'); }
+      };
+      initXhr.onerror = function(){ errCb('Ошибка соединения при инициализации'); };
+      const initData = new FormData();
+      initData.append('name', nameVal);
+      initData.append('description', descVal);
+      initXhr.send(initData);
+    } else {
+      // single-phase POST to add endpoint with this one file
+      const fd = new FormData();
+      fd.append('name', nameVal);
+      fd.append('description', descVal);
+      fd.append('file', file, file.name);
+      xhr.open('POST', form.action);
+      xhr.send(fd);
     }
-  });
+  }
+
+  // If single file, fall back to old behavior via the same helper
+  if (files.length <= 1) {
+    if (files.length === 1) {
+      renderCombinedProgress(0, files[0].size, 0);
+      uploadOne(files[0], 0, function onDone() {
+        // success UI
+        progressBar.style.width = '100%';
+        progressBar.setAttribute('aria-valuenow', 100);
+        statusText.textContent = 'Загрузка завершена! Перенаправление...';
+        setTimeout(() => { popupToggle('popup-add'); window.location.reload(); }, 1000);
+      }, function onErr(msg){ handleUploadError(msg); });
+    }
+    return;
+  }
+
+  // Multiple files: upload sequentially
+  let index = 0;
+  function next() {
+    if (index >= files.length) {
+      progressBar.style.width = '100%';
+      progressBar.setAttribute('aria-valuenow', 100);
+      statusText.textContent = 'Все файлы загружены! Обновление...';
+      setTimeout(() => { popupToggle('popup-add'); window.location.reload(); }, 1000);
+      return;
+    }
+    renderCombinedProgress(0, files[index].size, index);
+    uploadOne(files[index], index, function(){ index++; next(); }, function(msg){ handleUploadError(msg); });
+  }
+  next();
 
   // When upload finished sending to server (server may still be processing)
   xhr.upload.addEventListener('load', function() {
@@ -252,47 +340,7 @@ function startUploadWithProgress(form) {
     handleUploadError('Загрузка отменена');
   });
   
-  // For large files: initialize record first, then upload to phase-2 endpoint
-  const isLarge = (function(){
-    try {
-      const fi = form.querySelector('input[type="file"]');
-      if (fi && fi.files && fi.files[0]) {
-        // Trigger two-phase for files >= 1.5GB to ensure DB record appears early
-        const size = fi.files[0].size;
-        const threshold = (1024*1024*1024*1.5);
-        return size >= threshold;
-      }
-    } catch(e) {}
-    return false;
-  })();
-
-  if (isLarge) {
-    const initXhr = new XMLHttpRequest();
-    try { initXhr.withCredentials = true; } catch(e) {}
-    initXhr.open('POST', form.action.replace('/add/', '/add/init/'));
-    initXhr.onload = function(){
-      try {
-        const resp = JSON.parse(initXhr.responseText || '{}');
-        if (resp && resp.upload_url) {
-          xhr.open('POST', resp.upload_url);
-          xhr.send(formData);
-        } else {
-          handleUploadError('Не удалось инициализировать загрузку');
-        }
-      } catch(e) {
-        handleUploadError('Ошибка инициализации загрузки');
-      }
-    };
-    initXhr.onerror = function(){ handleUploadError('Ошибка соединения при инициализации'); };
-    const initData = new FormData();
-    initData.append('name', form.querySelector('input[name="name"]').value);
-    initData.append('description', (form.querySelector('textarea[name="description"]').value||''));
-    initXhr.send(initData);
-  } else {
-    // Start upload
-    xhr.open('POST', form.action);
-    xhr.send(formData);
-  }
+  // Note: per-file upload logic implemented above
 }
 
 /**

@@ -98,11 +98,11 @@
                 <span class="approval__object_title">Разрешение</span>
                 <div class="approval__object_actions">
                   <a class="approval__object_action approval__object_action--aprove" href="{{ url_for('requests_allow', id=req.id) }}">
-                   <div class="mask allow-mask"></div>
+                   <i class="bi bi-check2-circle"></i>
                   </a>
-                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="document.getElementById('popup-reason').getElementsByTagName('form')[0].action = '{{ url_for(pages[id].name + '_deny', id='0') }}'; popupToggle('popup-reason', {{ req.id }});"">
+                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="document.getElementById('popup-reason').getElementsByTagName('form')[0].action = '{{ url_for('requests_deny', id='0') }}'; popupToggle('popup-reason', {{ req.id }});"">
 
-                    <div class="mask cross-mask"></div>
+                    <i class="bi bi-x-lg"></i>
                   </a>
                 </div>
               </div>
@@ -144,7 +144,7 @@
       <h1 class="popup__title">Укажите причину отказа</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="reason" action="{{ url_for(pages[id].name + '_disapprove', id='0') }}" method="post">
+        <form class="popup__form" id="reason" action="{{ url_for('requests_disapprove', id='0') }}" method="post">
           <div class="popup__form-control form-control">
             <label class="form-control__label">Причина: </label>
             <textarea class="input form-control__control" name="reason" placeholder="..."></textarea>
@@ -162,7 +162,7 @@
     <div class="popup">
       <h1 class="popup__title">Создание заявки</h1>
       <div class="popup__body">
-        <form class="popup__form" id="add" action="{{ url_for(pages[id].name + '_add') }}" method="post">
+        <form class="popup__form" id="add" action="{{ url_for('requests_add') }}" method="post">
           <div class="popup__form-control form-control">
             <label  class="form-control__label">Создатель (данные аккаунта будут автоматически добавлены):</label>
             <input class="input form-control__control" type="text" name="creator" placeholder="Введите имя создателя..." autocomplete="one-time-code">
@@ -187,7 +187,7 @@
       <h1 class="popup__title">Редактирование заявки</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit1" action="{{ url_for(pages[id].name + '_edit1', id='0') }}" method="post">
+        <form class="popup__form" id="edit1" action="{{ url_for('requests_edit1', id='0') }}" method="post">
           <div class="popup__form-control form-control">
 
 
@@ -213,7 +213,7 @@
       <h1 class="popup__title">Редактирование заявки</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit2" action="{{ url_for(pages[id].name + '_edit2', id='0') }}" method="post">
+        <form class="popup__form" id="edit2" action="{{ url_for('requests_edit2', id='0') }}" method="post">
           <div class="popup__form-control form-control">
 
             <label class="form-control__label">Время вывода в ремонт:</label>
@@ -243,7 +243,7 @@
       <h1 class="popup__title">Удалить заявку</h1>
       <div class="popup__body">
         <p>Вы действительно хотите удалить заявку от <b>rname</b>?</p>
-        <form class="popup__form" id="delete" action="{{ url_for(pages[id].name + '_delete', id='0') }}" method="post">
+        <form class="popup__form" id="delete" action="{{ url_for('requests_delete', id='0') }}" method="post">
           <div class="popup__actions">
             <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>

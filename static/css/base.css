@@ -298,11 +298,7 @@ body {
   height: 100%;
 }
 
-.mask {
-  background: none !important;
-  width: auto;
-  height: auto;
-}
+/* legacy .mask removed; icons now use Bootstrap Icons <i class="bi ..."> */
 
 .header {
   display: flex;

@@ -6,7 +6,6 @@ from hashlib import md5
 from re import sub
 from os import chdir
 
-from classes.page import Pages
 from modules.SQLUtils import SQLUtils
 
 class Server(Flask):
@@ -25,7 +24,7 @@ class Server(Flask):
         self.config['REMEMBER_COOKIE_SECURE'] = True
         self.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
         self.init()
-        self.load_data()
+        self.get_dirs()
 
     def init(self):
         self.login_manager = LoginManager(self)
@@ -33,18 +32,6 @@ class Server(Flask):
         self.login_manager.login_message = u'Please log in to access this page.'
         self.login_manager.refresh_view = 'reauth'
         self._sql = SQLUtils()
-
-    def load_data(self):
-        self.pages = Pages(
-            ['Главная', 'index', '/', 0],
-            ['Заявки', 'requests', '/rsts', 0],
-            ['Наряды-допуски', 'orders', '/rdrs', 0],
-            ['Видео', 'files', '/fls', 0],
-            ['Вход', 'login', '/login', 1, 'class=right'],
-            ['Выход', 'logout', '/logout', 1, 'class=right'],
-            ['Пользователи', 'users', '/srs', 0, 'class=right'],
-        )
-        self.get_dirs()
 
     def get_dirs(self):
         self.dirs = []
