@@ -1,4 +1,5 @@
-#from sqlite3 import connect
+"""Database access layer with connection pooling and simple helpers."""
+
 import mysql.connector as mysql
 
 from classes.user import User
@@ -6,8 +7,14 @@ from classes.request import Request
 from classes.file import File
 from classes.order import Order
 from modules.core import Config
+from .logging import get_logger
+
+_log = get_logger(__name__)
+
 
 class SQL(Config):
+    """Base SQL class holding connection pool and raw exec helpers."""
+
     def __init__(self):
         super().__init__()
         self._pool = None
@@ -15,6 +22,7 @@ class SQL(Config):
     def with_conn(func):
         def _with_conn(self, command, args=[]):
             if not self._pool:
+                _log.info("Creating MySQL connection pool")
                 self._pool = mysql.pooling.MySQLConnectionPool(
                     pool_name="znv_pool",
                     pool_size=int(self.config['db'].get('pool_size', 5)),
@@ -25,9 +33,16 @@ class SQL(Config):
                     database=self.config['db']['name'],
                     charset="utf8mb4",
                     collation="utf8mb4_general_ci",
+                    connection_timeout=int(self.config['db'].get('connect_timeout', 10)),
                 )
             self.conn = self._pool.get_connection()
-            self.cur = self.conn.cursor()
+            # Ensure connection is alive; reconnect if needed
+            try:
+                self.conn.ping(reconnect=True, attempts=1, delay=0)
+            except Exception:
+                pass
+            # Use buffered cursor to allow fetch after execute reliably
+            self.cur = self.conn.cursor(buffered=True)
             data = func(self, command, args)
             self.cur.close()
             self.conn.close()
@@ -49,10 +64,12 @@ class SQL(Config):
         self.cur.execute(command, args)
         return self.cur.fetchall()
 
+
 class SQLUtils(SQL):
+    """High-level, typed helpers that map rows to domain objects."""
+
     def __init__(self):
         super().__init__()
-        #self.init_tables()
 
     '''def init_tables(self):
         self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_group (
@@ -143,7 +160,6 @@ class SQLUtils(SQL):
     def user_reset(self, args):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_user SET password = %s WHERE id = %s;", args)
 
-    #################
 
     def request_all(self):
         data = self.execute_query(f"SELECT * FROM {self.config['db']['prefix']}_request;")
@@ -168,7 +184,6 @@ class SQLUtils(SQL):
     def request_delete(self, args):
         self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_request WHERE id = %s;", args)
 
-    ################################3##############
 
     def file_by_id(self, args):
         data = self.execute_scalar(f"SELECT * FROM {self.config['db']['prefix']}_file WHERE id = %s;", args)
@@ -198,10 +213,7 @@ class SQLUtils(SQL):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET note = %s WHERE id = %s;", args)
     
     def file_move(self, args):
-        # args: [new_path, id]
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET path = %s WHERE id = %s;", args)
-        
-#############################################
 
     def order_all(self):
         data = self.execute_query(f"SELECT * FROM {self.config['db']['prefix']}_order;")
@@ -240,6 +252,3 @@ class SQLUtils(SQL):
         data = self.execute_query(f'SELECT * FROM znv.web_order WHERE DATE(start_date) <= STR_TO_DATE(%s, "%Y-%m-%d") AND DATE(end_date) >= STR_TO_DATE(%s, "%Y-%m-%d") AND state < 1;', [date, date])
         return [Order(*d) for d in data] if data else None
     
-#############################################
-
-SQLUtils()

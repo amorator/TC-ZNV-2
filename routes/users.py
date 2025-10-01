@@ -1,5 +1,8 @@
 from flask import render_template, url_for, request, redirect
 from flask_login import login_user, logout_user, current_user
+from modules.logging import get_logger, log_action
+
+_log = get_logger(__name__)
 
 
 def register(app):
@@ -17,8 +20,10 @@ def register(app):
 			if app._sql.user_exists(login, name):
 				raise Exception('Пользователь уже существует!')
 			app._sql.user_add([login, name, app.hash(request.form.get('password')), request.form.get('group'), int(request.form.get('enabled') != None), request.form.get('permission')])
+			log_action('USER_CREATE', current_user.name, f'created user {name} ({login})', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
+			log_action('USER_CREATE', current_user.name, f'failed to create user {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('users'))
 
@@ -31,8 +36,10 @@ def register(app):
 			if app._sql.user_exists(login, name, id):
 				raise Exception('Имя или логин занято другим пользователем!')
 			app._sql.user_edit([login, name, request.form.get('group'), int(request.form.get('enabled') != None), request.form.get('permission'), id])
+			log_action('USER_EDIT', current_user.name, f'edited user {name} ({login})', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
+			log_action('USER_EDIT', current_user.name, f'failed to edit user {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('users'))
 
@@ -60,9 +67,12 @@ def register(app):
 	@app.permission_required(4, 'z')
 	def users_delete(id):
 		try:
+			user = app._sql.user_by_id([id])
 			app._sql.user_delete([id])
+			log_action('USER_DELETE', current_user.name, f'deleted user {user.name} ({user.login})', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
+			log_action('USER_DELETE', current_user.name, f'failed to delete user: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('users'))
 

@@ -1,10 +1,3 @@
-// Submit on Enter anywhere on the login page
-$(document).on('keypress', function(e){
-  if (e.which === 13){
-    $("#submit").trigger('click');
-  }
-});
-
 /**
  * Validate login form minimally and submit.
  * @param {HTMLFormElement} x

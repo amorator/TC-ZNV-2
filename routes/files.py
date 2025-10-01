@@ -4,9 +4,12 @@ from datetime import datetime as dt
 from os import path, remove
 from utils.common import make_dir, hash_str
 from services.permissions import dirs_by_permission
+from modules.logging import get_logger, log_access, log_action
 import os
 from typing import Any, Dict, Tuple, Optional, List
 from random import randint
+
+_log = get_logger(__name__)
 
 
 def register(app, media_service, socketio=None) -> None:
@@ -140,6 +143,7 @@ def register(app, media_service, socketio=None) -> None:
 			
 			uploaded_file.save(fpath + '.webm')
 			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
+			log_action('FILE_UPLOAD', current_user.name, f'uploaded file {name} to {dirs[0]}/{dirs[sdid]}', request.remote_addr)
 			# notify all clients about new pending file
 			if socketio:
 				try:
@@ -150,6 +154,7 @@ def register(app, media_service, socketio=None) -> None:
 			media_service.convert_async(fpath + '.webm', fpath + '.mp4', ('file', id))
 		except Exception as e:
 			app.flash_error(e)
+			log_action('FILE_UPLOAD', current_user.name, f'failed to upload file {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('files', did=did, sdid=sdid))
 
@@ -221,6 +226,7 @@ def register(app, media_service, socketio=None) -> None:
 			name = request.form.get('name')
 			desc = request.form.get('description')
 			app._sql.file_edit([name, desc, id])
+			log_action('FILE_EDIT', current_user.name, f'edited file {file.name} (id={id})', request.remote_addr)
 			if socketio:
 				try:
 					socketio.emit('files:changed', {'reason': 'edited', 'id': id}, broadcast=True)
@@ -228,6 +234,7 @@ def register(app, media_service, socketio=None) -> None:
 					pass
 		except Exception as e:
 			app.flash_error(e)
+			log_action('FILE_EDIT', current_user.name, f'failed to edit file {file.name}: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('files', did=did, sdid=sdid))
 
@@ -248,6 +255,7 @@ def register(app, media_service, socketio=None) -> None:
 			return abort(403)
 		try:
 			app._sql.file_delete([id])
+			log_action('FILE_DELETE', current_user.name, f'deleted file {file.name} (id={id})', request.remote_addr)
 			# Remove converted file if exists
 			try:
 				remove(path.join(file.path, file.real_name))
@@ -268,6 +276,7 @@ def register(app, media_service, socketio=None) -> None:
 					pass
 		except Exception as e:
 			app.flash_error(e)
+			log_action('FILE_DELETE', current_user.name, f'failed to delete file {file.name}: {str(e)}', request.remote_addr, success=False)
 		finally:
 			return redirect(url_for('files', did=did, sdid=sdid))
 

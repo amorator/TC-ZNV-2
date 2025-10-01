@@ -15,12 +15,12 @@ keepalive = 120  # HTTP keep-alive timeout
 # Логи
 capture_output = True
 loglevel = "info"  # Изменено с debug на info для production
-accesslog = "/usr/share/znv2/logs/access.log"
-errorlog = "/usr/share/znv2/logs/error.log"
+accesslog = "logs/gaccess.log"  # Включен access log для gunicorn
+errorlog = "logs/gerror.log"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # Сокет
-bind = "unix:/usr/share/znv2/server.sock"
+bind = "unix:server.sock"
 
 # Безопасность и производительность
 max_requests = 1000  # Перезапуск воркера после N запросов (предотвращение утечек памяти)
@@ -50,7 +50,8 @@ umask = 0o007  # Права доступа для создаваемых фай�
 
 # Переменные окружения (Python 3.13 в виртуальном окружении)
 raw_env = [
-    'PYTHONPATH=/usr/share/znv2/.venv/lib/python3.13/site-packages:/usr/share/znv2',
+    'PYTHONPATH=/usr/share/znv2',
+    'PWD=/usr/share/znv2',
 ]
 
 # Обработка сигналов
