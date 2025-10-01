@@ -1,84 +1,111 @@
 /* Using Bootstrap table defaults; keep minimal tweaks */
 .table {
-  width: 100%;
-  border: none;
+    width: 100%;
+    border: none;
 }
 
 .table__head_item {
-  font-weight: 600;
-  text-align: left;
-  border: none;
+    font-weight: 600;
+    text-align: left;
+    border: none;
 }
 
 .table__head_item:first-child {
-  border-left: none;
+    border-left: none;
 }
 
 .table__head_item:last-child {
-  border-right: none;
+    border-right: none;
 }
 
 .table__body_action {
-  text-align: center;
-  border: none;
+    text-align: center;
+    border: none;
 }
 
 .table__body_action:first-child {
-  border-left: none;
+    border-left: none;
 }
 
 .table__body_action:last-child {
-  border-right: none;
+    border-right: none;
 }
 
 .table__body_item {
-  text-align: left;
-  border: none;
-  vertical-align: top;
+    text-align: left;
+    border: none;
+    vertical-align: top;
 }
 
 .table__body_item:last-child {
-  border-right: none;
+    border-right: none;
 }
 
 .table__body_item:first-child {
-  border-left: none;
+    border-left: none;
 }
 
 .table__body_row:nth-child(even) {
-  background: inherit;
+    background: inherit;
 }
 
 .table__body_row:last-child .table__body_item {
-  border-bottom: none;
+    border-bottom: none;
 }
 
 .table__body_row:last-child .table__body_item:last-child {
-  border-radius: 0;
+    border-radius: 0;
 }
 
 .table__body_row:last-child .table__body_item:first-child {
-  border-radius: 0;
+    border-radius: 0;
 }
 
 /* Files (video) page specific adjustments */
 .files-page__table tbody tr:not(:first-child)>th,
 .files-page__table tbody tr:not(:first-child)>td {
-  font-size: 0.8em;
+    font-size: 0.8em;
 }
 
 /* Zebra striping from the second row (keep first row as-is) */
 .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
 .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-  background-color: #f8fafc;
+    background-color: #f8fafc;
 }
 
 .theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
 .theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-  background-color: #1f1f1f;
+    background-color: #1f1f1f;
 }
 
 .theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
 .theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-  background-color: #202020;
+    background-color: #202020;
 }
+
+/* Colored table head and first row (shared) */
+.table-colored thead {
+    background: #ffe08a;
+}
+
+.theme-dark .table-colored thead {
+    background: rgba(255, 255, 255, .08);
+}
+
+.theme-dark-hc .table-colored thead {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-bottom: 1px solid var(--brand-green, #00ff00);
+}
+
+.table-colored tbody tr:first-child>th,
+.table-colored tbody tr:first-child>td {
+    background: #fff3bf;
+}
+
+.theme-dark .table-colored tbody tr:first-child>th,
+.theme-dark .table-colored tbody tr:first-child>td {
+    background: rgba(255, 255, 255, .08);
+}
+
+/* Hover styles are handled in themes.css to unify across all tables */

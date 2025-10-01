@@ -621,72 +621,7 @@
     color: var(--topbar-text);
 }
 
-/* Context menu styles */
-.context-menu {
-    position: absolute;
-    z-index: 3000;
-    min-width: 220px;
-    background: var(--modal-bg, var(--body-bg));
-    color: var(--text);
-    border: 1px solid #000000;
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
-}
-
-.context-menu.d-none {
-    display: none;
-}
-
-.context-menu__list {
-    list-style: none;
-    margin: 0;
-    padding: 6px 0;
-}
-
-.context-menu__item {
-    padding: 8px 12px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.context-menu__item:hover {
-    background: var(--sidebar-bg);
-}
-
-.context-menu__separator {
-    height: 1px;
-    margin: 6px 0;
-    background: var(--sidebar-bg);
-}
-
-/* Dark theme adjustments */
-.theme-dark .context-menu {
-    background: #1a1a1a;
-    color: #f8f9fa;
-    border-color: #000000;
-}
-
-.theme-dark .context-menu__item:hover {
-    background: #2a2a2a;
-}
-
-/* High-contrast theme adjustments */
-.theme-dark-hc .context-menu {
-    background: #000000;
-    color: var(--brand-green, #00ff00);
-    border-color: var(--brand-green, #00ff00);
-    box-shadow: 0 0 0 1px var(--brand-green, #00ff00), 0 8px 24px rgba(0, 0, 0, .6);
-}
-
-.theme-dark-hc .context-menu__item:hover {
-    background: #111111;
-    color: var(--brand-green, #00ff00);
-}
-
-.theme-dark-hc .context-menu__separator {
-    background: var(--brand-green, #00ff00);
-    opacity: .5;
-}
+/* Context menu styles moved to components/context-menu.css */
 
 .theme-dark .table-colored.table-hover tbody tr:first-child,
 .theme-dark .table-colored.table-hover tbody tr:first-child>th,

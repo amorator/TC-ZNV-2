@@ -846,6 +846,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Rebind dblclick handlers for opening player
         try { bindRowOpenHandlers(); } catch(e) {}
+        // Rebind copy handlers for names
+        try { bindCopyNameHandlers(); } catch(e) {}
 
         // Reapply sort (desc by date)
         try { sortFilesTableByDateDesc(); } catch(e) {}
@@ -915,6 +917,66 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) {}
   }
   bindRowOpenHandlers();
+
+  // Bind click-to-copy on file name in the first column
+  function bindCopyNameHandlers() {
+    try {
+      const links = document.querySelectorAll('#maintable tbody .files-page__link');
+      links.forEach((el) => {
+        // Avoid duplicate listeners
+        if (el._copyBound) return;
+        el._copyBound = true;
+        el.style.cursor = 'copy';
+        el.title = 'Клик — скопировать имя';
+        el.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          const text = (el.textContent || '').trim();
+          if (!text) return;
+          const onDone = () => {
+            // brief visual feedback
+            const prev = el.style.transition;
+            const prevBg = el.style.backgroundColor;
+            el.style.transition = 'background-color 0.2s ease';
+            el.style.backgroundColor = 'rgba(255, 230, 150, 0.9)';
+            setTimeout(() => { el.style.backgroundColor = prevBg || ''; el.style.transition = prev || ''; }, 200);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(onDone).catch(function(){
+              // Fallback
+              try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'absolute';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                onDone();
+              } catch(_) {}
+            });
+          } else {
+            // Legacy fallback
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = text;
+              ta.setAttribute('readonly', '');
+              ta.style.position = 'absolute';
+              ta.style.left = '-9999px';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              ta.remove();
+              onDone();
+            } catch(_) {}
+          }
+        });
+      });
+    } catch (e) {}
+  }
+  bindCopyNameHandlers();
 
   // Player hotkeys while popup-view is open
   document.addEventListener('keydown', function(e) {

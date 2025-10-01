@@ -1,0 +1,93 @@
+{# Hidden field to submit legacy permission string; UI uses only checkboxes #}
+{% set perm_input_id = perm_input_id or 'perm-string' %}
+<input type="hidden" name="permission" id="{{ perm_input_id }}" />
+
+<div class="popup__form-control form-control">
+    {% set perm_box_id = (perm_input_id ~ '-box') %}
+    <label class="form-control__label">Разрешения</label>
+    <div id="{{ perm_box_id }}" class="permissions-grid">
+        <div class="permissions-group" data-page="1">
+            <div class="permissions-group__title">Заявки</div>
+            <label><input type="checkbox" data-letter="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="e"> Утверждение</label>
+            <label><input type="checkbox" data-letter="f"> Разрешение</label>
+        </div>
+        <div class="permissions-group" data-page="2">
+            <div class="permissions-group__title">Наряды</div>
+            <label><input type="checkbox" data-letter="a"> Просмотр</label>
+        </div>
+        <div class="permissions-group" data-page="3">
+            <div class="permissions-group__title">Файлы</div>
+            <label><input type="checkbox" data-letter="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="b"> Загрузка/Запись</label>
+            <label><input type="checkbox" data-letter="c"> Изменение</label>
+            <label><input type="checkbox" data-letter="d"> Удаление</label>
+            <label><input type="checkbox" data-letter="l"> Просмотревшие</label>
+            <label><input type="checkbox" data-letter="m"> Отмечать просмотр</label>
+        </div>
+        <div class="permissions-group" data-page="4">
+            <div class="permissions-group__title">Пользователи</div>
+            <label><input type="checkbox" data-letter="a"> Просмотр</label>
+            <label><input type="checkbox" data-letter="b"> Управление</label>
+        </div>
+    </div>
+    <small class="form-text text-muted">Отметьте нужные права для каждой страницы.</small>
+</div>
+
+<script>
+    // Minimal, local to this partial. Avoid globals by scoping to container.
+    (function () {
+        var input = document.getElementById('{{ perm_input_id }}');
+        var box = document.getElementById('{{ perm_box_id }}');
+        if (!input || !box) return;
+
+        function buildLegacyFromBoxes() {
+            // Pages 1..4 -> collect checked letters
+            var pages = { 1: [], 2: [], 3: [], 4: [] };
+            var groups = box.querySelectorAll('.permissions-group');
+            groups.forEach(function (group) {
+                var page = parseInt(group.getAttribute('data-page'), 10);
+                var letters = [];
+                group.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+                    if (cb.checked) letters.push(cb.getAttribute('data-letter'));
+                });
+                // sort for stable output
+                letters.sort();
+                pages[page] = letters;
+            });
+            // Join into CSV per page, ensure we output 4 pages
+            var arr = [];
+            for (var i = 1; i <= 4; i++) {
+                arr.push(pages[i].join(''));
+            }
+            input.value = arr.join(',');
+        }
+
+        function applyBoxesFromLegacy() {
+            // Expect format: 4 comma-separated strings (can be fewer — pad)
+            var raw = (input.value || '').trim();
+            var parts = raw.split(',');
+            while (parts.length < 4) parts.push('');
+            var groups = box.querySelectorAll('.permissions-group');
+            groups.forEach(function (group) {
+                var page = parseInt(group.getAttribute('data-page'), 10);
+                var letters = (parts[page - 1] || '').split('');
+                var set = {};
+                letters.forEach(function (ch) { set[ch] = true; });
+                group.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+                    var ch = cb.getAttribute('data-letter');
+                    cb.checked = !!set[ch];
+                });
+            });
+        }
+
+        // Wire events
+        box.addEventListener('change', function (e) {
+            if (e.target && e.target.matches('input[type="checkbox"][data-letter]')) {
+                buildLegacyFromBoxes();
+            }
+        });
+        // On first load, reflect input->boxes; if empty, keep unchecked
+        applyBoxesFromLegacy();
+    })();
+</script>

@@ -124,15 +124,55 @@ class SQLUtils(SQL):
 
     def user_by_id(self, args):
         data = self.execute_scalar(f"SELECT * FROM {self.config['db']['prefix']}_user WHERE id = %s;", args)
-        return User(*data) if data else None
+        if not data:
+            return None
+        user = User(*data)
+        try:
+            if user.login and user.login.strip().lower() == 'admin':
+                setattr(user, 'is_config_admin', True)
+        except Exception:
+            pass
+        return user
 
     def user_by_login(self, args):
-        data = self.execute_scalar(f"SELECT * FROM {self.config['db']['prefix']}_user WHERE login LIKE %s;", args)
-        return User(*data) if data else None
+        # Case-insensitive exact match by login
+        data = self.execute_scalar(
+            f"SELECT * FROM {self.config['db']['prefix']}_user WHERE LOWER(login) = LOWER(%s) LIMIT 1;",
+            args,
+        )
+        if not data:
+            return None
+        user = User(*data)
+        try:
+            if user.login and user.login.strip().lower() == 'admin':
+                setattr(user, 'is_config_admin', True)
+        except Exception:
+            pass
+        return user
 
     def user_exists(self, login, name, id=0):
-        uid = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_user WHERE login LIKE %s OR name LIKE %s;", [login, name])
-        return False if not uid else uid[0] != int(id)
+        """Return True if another user exists with same login or name (case-insensitive).
+
+        Args:
+            login (str): proposed login
+            name (str): proposed display name
+            id (int): existing user id to exclude from check (0 for new user)
+        """
+        row = self.execute_scalar(
+            f"""
+            SELECT id
+            FROM {self.config['db']['prefix']}_user
+            WHERE (LOWER(login) = LOWER(%s) OR LOWER(name) = LOWER(%s))
+            LIMIT 1;
+            """,
+            [login, name],
+        )
+        if not row:
+            return False
+        try:
+            return int(row[0]) != int(id)
+        except Exception:
+            return True
 
     def user_all(self):
         data = self.execute_query(f"SELECT * FROM {self.config['db']['prefix']}_user;")

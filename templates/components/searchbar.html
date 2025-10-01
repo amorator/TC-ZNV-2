@@ -1,0 +1,11 @@
+<div class="searchbar d-flex align-items-center gap-2">
+    <input id="searchinp" class="searchbar__input" type="text" placeholder="Поиск..." autocomplete="off" />
+    <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"
+        aria-label="Очистить поиск">
+        <i class="bi bi-x-lg"></i>
+    </button>
+    {# Optional slot for extra actions on the right #}
+    {% if caller is defined %}
+    {% call caller() %}{% endcall %}
+    {% endif %}
+</div>

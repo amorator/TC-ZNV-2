@@ -10,6 +10,7 @@
   <link href="{{ url_for('static', filename='css/lib/bootstrap-icons.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/themes.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/components/context-menu.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/base.css') }}" rel="stylesheet">
   {% block css %}{% endblock %}
   {% if current_user.is_authenticated %}
@@ -18,6 +19,7 @@
   <script src="{{ url_for('static', filename='js/lib/bootstrap.bundle.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/lib/jquery.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/themes.js') }}" defer="defer"></script>
+  <script src="{{ url_for('static', filename='js/scripts.js') }}" defer="defer"></script>
   
   {% block js %}{% endblock %}
 </head>
@@ -33,17 +35,20 @@
       <header class="app-topbar px-3">
         <div class="app-topbar__row">
           <div class="app-topbar__group">
-            <a class="topbtn{{ ' active' if request.path == url_for('index') else '' }}" href="{{ url_for('index') }}">Главная</a>
-            <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}">Заявки</a>
-            <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}">Приказы</a>
-            <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}">Файлы</a>
-            {% if current_user.is_allowed(2, 'i') %}
-              <a class="topbtn" href="/rdrs/table" target="_blank" style="background-color: grey">Таблица для согласования</a>
+            <a class="topbtn{{ ' active' if request.path == url_for('index') else '' }}" href="{{ url_for('index') }}"><i class="bi bi-slash-circle"></i></a>
+            {% if current_user.has('requests.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}">Заявки</a>
+            {% endif %}
+            {% if current_user.has('orders.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}">Приказы</a>
+            {% endif %}
+            {% if current_user.has('files.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}">Файлы</a>
             {% endif %}
           </div>
           <div class="app-topbar__group">
-            {% if current_user.is_allowed(6) %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}">Пользователи</a>
+            {% if current_user.has('users.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}"><i class="bi bi-person-lines-fill"></i></a>
             {% endif %}
             <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ url_for('logout') }}">Выход ({{ current_user.name }})</a>

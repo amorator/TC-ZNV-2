@@ -9,6 +9,12 @@
   border: none;
 }
 
+/* Match /fls table font sizing */
+.users-page__table tbody tr:not(:first-child)>th,
+.users-page__table tbody tr:not(:first-child)>td {
+  font-size: 0.8em;
+}
+
 .search {
   display: flex;
   color: var(--text);
@@ -34,4 +40,205 @@
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* Permissions grid */
+.permissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+/* Make permissions modal more compact: wider modal, scrollable body, two columns */
+#popup-perm .popup {
+  max-width: 980px;
+  width: 90vw;
+  min-width: 760px;
+}
+
+#popup-perm .popup__body {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+#popup-perm .perm-layout {
+  display: grid !important;
+  grid-template-columns: 1fr 2fr !important;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Apply the same two-column layout to Add modal */
+#popup-add .perm-layout {
+  display: grid !important;
+  grid-template-columns: 1fr 2fr !important;
+  gap: 16px;
+  align-items: start;
+}
+
+#popup-add .perm-layout__left .form-control__control {
+  background: var(--modal-bg, var(--body-bg));
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+#popup-add .permissions-grid {
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 12px 16px;
+  background: var(--modal-bg, var(--body-bg));
+  padding: 8px;
+  border-radius: 8px;
+}
+
+#popup-perm .perm-layout__left .form-control__control {
+  background: var(--modal-bg, var(--body-bg));
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+#popup-perm .permissions-grid {
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 12px 16px;
+  background: var(--modal-bg, var(--body-bg));
+  padding: 8px;
+  border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+  #popup-perm .permissions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #popup-perm .perm-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  #popup-add .permissions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #popup-add .perm-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.permissions-group {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background-color: var(--modal-bg, var(--body-bg));
+}
+
+/* Ensure Active checkbox in Edit modal is visible and aligned */
+#popup-edit .checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#popup-edit .checkbox .checkbox__flag {
+  display: inline-block;
+}
+
+/* Ensure Active checkbox visible in Add modal too */
+#popup-add .checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#popup-add .checkbox .checkbox__flag {
+  display: inline-block;
+}
+
+.permissions-group__title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.permissions-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+/* Click-to-copy login visual style similar to files-page__link */
+.users-page__login {
+  text-decoration: none;
+  color: var(--text);
+  cursor: copy;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.users-page__login.copied {
+  border-color: var(--btn-focus);
+  background-color: rgba(255, 230, 150, 0.9);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.users-page__name {
+  text-decoration: none;
+  color: var(--text);
+  cursor: copy;
+  /* ensure pointer indicates copy */
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.users-page__name.copied {
+  border-color: var(--btn-focus);
+  background-color: rgba(255, 230, 150, 0.9);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Permissions cell formatting */
+.perms-cell {
+  font-size: 0.75em;
+  line-height: 1.2;
+  cursor: default;
+}
+
+.perms-cell__item+.perms-cell__item {
+  margin-top: 2px;
+}
+
+.perms-cell__cat {
+  font-weight: 600;
+}
+
+.perms-cell__rights {
+  font-style: italic;
+  white-space: normal;
+}
+
+/* Plain text look for permissions */
+.perms-cell,
+.perms-cell * {
+  background: inherit !important;
+  border: none !important;
+  text-decoration: none !important;
+}
+
+/* Center and enlarge toggle icon in Active column */
+td[data-enabled] {
+  text-align: center;
+}
+
+td[data-enabled] .bi {
+  font-size: 1.35rem;
+}
+
+/* Pointer cursor over Active toggle (except admin rows) */
+tr.table__body_row td[data-enabled] {
+  cursor: pointer;
+}
+
+tr.table__body_row[data-login="admin"] td[data-enabled] {
+  cursor: default;
 }

@@ -116,6 +116,8 @@ def login():
 
     - GET: render login form
     - POST: validate credentials and redirect to previous target or home
+
+    Logs authentication attempts in actions.log.
     """
     if current_user.is_authenticated:
         return redirect('/')
@@ -124,12 +126,15 @@ def login():
     user = app._sql.user_by_login([request.form['login']])
     if not user:
         app.flash_error('Неверное имя пользователя или пароль!')
+        log_action('LOGIN', 'unknown', 'login failed: user not found', request.remote_addr, success=False)
         return render_template('login.j2.html')
     if not user.is_enabled():
         app.flash_error('Пользователь отключен!')
+        log_action('LOGIN', user.name, 'login failed: user disabled', request.remote_addr, success=False)
         return render_template('login.j2.html')
     if app.hash(request.form['password']) != user.password:
         app.flash_error('Неверное имя пользователя или пароль!')
+        log_action('LOGIN', user.name, 'login failed: bad password', request.remote_addr, success=False)
         return render_template('login.j2.html')
     login_user(user)
     log_action('LOGIN', user.name, f'user logged in', request.remote_addr)

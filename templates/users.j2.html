@@ -1,68 +1,103 @@
 {% extends 'base.j2.html' %}
-{% block headextra %}
-  <link rel="stylesheet" href="{{url_for('static',filename='css/table.css')}}"/>
-  <link rel="stylesheet" href="{{url_for('static',filename='css/users.css')}}"/>
-  <link rel="stylesheet" href="{{url_for('static',filename='css/popup.css')}}"/>
-  <link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}"/>
-  <link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
-  <link rel="stylesheet" href="{{url_for('static',filename='css/components/checkbox.css')}}"/>
-  <script type="text/javascript" src="{{ url_for('static', filename='js/users.js') }}"></script>
+{% block css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/search.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/users.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/popup.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/select.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/input.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/checkbox.css') }}"/>
+{% endblock %}
+
+{% block js %}
+  <script type="text/javascript" src="{{ url_for('static', filename='js/users.js') }}" defer="defer"></script>
 {% endblock %}
 {% block main %}
 
   <section class="users-page container-fluid py-3">
-    <table class="users-page__table table table-striped table-hover table-sm align-middle" id="maintable">
+    <table class="users-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-manage="{{ 1 if current_user.has('users.manage') else 0 }}">
       <thead class="table__head">
         <tr class="table__head_row">
-          <th class="table__head_item">ИД</th>
           <th class="table__head_item">Логин</th>
           <th class="table__head_item">Имя</th>
           <th class="table__head_item">Группа</th>
-          <th class="table__head_item">Права</th>
+          <th class="table__head_item">Разрешения</th>
           <th class="table__head_item">Активен</th>
-          <th class="table__head_item">Управление</th>
         </tr>
       </thead>
       <tbody class="table__body">
         <tr id="search" class="table__body_actions">
-          <td class="table__body_action" colspan="6">
-              <div class="search">
-              <input id="searchinp" type="text" placeholder="Поиск..."/>
-              <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="searchClean()"><i class="bi bi-x-lg"></i></button>
-            </div>
-          </td>
-          <td class="table__body_action">
-            {% if current_user.is_allowed(id, 'b') %}
-              <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
-            {% endif %}
+          <td class="table__body_action" colspan="5">
+            {% include 'components/searchbar.html' %}
           </td>
         </tr>
         {% if users %}
           {% for user in users %}
-
-            <tr id="{{ user.id }}" class="table__body_row">
-              <td class="table__body_item">{{ user.id }}</td>
-              <td class="table__body_item">{{ user.login }}</td>
-              <td class="table__body_item">{{ user.name }}</td>
+            <tr id="{{ user.id }}" class="table__body_row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}">
+              <td class="table__body_item"><span class="users-page__login">{{ user.login }}</span></td>
+              <td class="table__body_item"><span class="users-page__name" title="Клик — скопировать имя">{{ user.name }}</span></td>
               <td class="table__body_item">{{ groups[user.gid] }}</td>
-              <td class="table__body_item">{{ user.permission_string() }}</td>
-              <td class="table__body_item" data-enabled="{{ user.is_enabled() }}">
-                <a href="{{ url_for('users_toggle', id=user.id) if user.login != 'admin' and current_user.is_allowed(id, 'z') else '#'}}" class="btn btn-link p-0 d-inline-flex align-items-center">
-                  <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
-                </a>
-              </td>
-
-              <td class="table__body_item">
-                <div class="actions">
-                  {% if current_user.is_allowed(id, 'z') %}
-                    <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-reset', {{ user.id }});"><i class="bi bi-arrow-clockwise"></i></button>
-                    {% if user.login != 'admin' %}
-                      <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-edit', {{ user.id }});"><i class="bi bi-pencil-square"></i></button>
-                      <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ user.id }});"><i class="bi bi-trash3"></i></button>
-
-                    {% endif %}
+              <td class="table__body_item perms-cell">
+                {# If admin rights present, show only Admin line and skip others #}
+                {% set perm_labels = user.permission_labels() %}
+                {% set admin_ns = namespace(is_admin=false) %}
+                {% for label in perm_labels %}
+                  {% if label and label.strip().lower().startswith('администратор:') %}
+                    {% set admin_ns.is_admin = true %}
                   {% endif %}
-                </div>
+                {% endfor %}
+                {% if admin_ns.is_admin %}
+                  <div class="perms-cell__item">
+                    <span class="perms-cell__cat">Админ</span>: <span class="perms-cell__rights">полный доступ</span>
+                  </div>
+                {% else %}
+                  {# Build ordered unique list of categories first #}
+                  {% set cats = namespace(items=[]) %}
+                  {% for label in perm_labels %}
+                    {% set parts = label.split(':', 1) %}
+                    {% set cat = parts[0].strip() %}
+                    {% if not cat.lower().startswith('администратор') %}
+                      {% if cat and (cat not in cats.items) %}
+                        {% set _ = cats.items.append(cat) %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+
+                  {# For each category, collect and normalize rights, then render one line #}
+                  {% for cat in cats.items %}
+                    {% set rights_ns = namespace(list=[]) %}
+                    {% for label in perm_labels %}
+                      {% set parts = label.split(':', 1) %}
+                      {% if parts and parts[0].strip() == cat and parts|length > 1 %}
+                        {% set raw = parts[1].strip() %}
+                        {% set raw = raw.replace(';', ',') %}
+                        {% set raw = raw.replace('Загрузка/Запись', 'Загрузка') %}
+                        {% set raw = raw|lower %}
+                        {% for item in raw.split(',') %}
+                          {% set it = item.strip() %}
+                          {% if it and (it not in rights_ns.list) %}
+                            {% set _ = rights_ns.list.append(it) %}
+                          {% endif %}
+                        {% endfor %}
+                      {% endif %}
+                    {% endfor %}
+
+                    {# If there are other rights, hide 'просмотр' #}
+                    {% set final_ns = namespace(list=[]) %}
+                    {% for r in rights_ns.list %}
+                      {% if not (rights_ns.list|length > 1 and r == 'просмотр') %}
+                        {% set _ = final_ns.list.append(r) %}
+                      {% endif %}
+                    {% endfor %}
+
+                    <div class="perms-cell__item">
+                      <span class="perms-cell__cat">{{ cat }}</span>: <span class="perms-cell__rights">{{ final_ns.list|join(', ') }}</span>
+                    </div>
+                  {% endfor %}
+                {% endif %}
+              </td>
+              <td class="table__body_item" data-enabled="{{ user.is_enabled() }}">
+                <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
               </td>
             </tr>
           {% endfor %}
@@ -76,41 +111,48 @@
       <h1 class="popup__title">Добавление пользователя</h1>
       <div class="popup__body">
         <form class="popup__form" id="add" name="add" action="{{ url_for('users_add') }}" method="post">
-          <div class="popup__form-control form-control">
-            <label class="form-control__label">Логин:</label>
-            <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
-          </div>
-          <div class="popup__form-control form-control">
-            <label class="form-control__label">Имя:</label>
-            <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
-          </div>
-          <div class="popup__form-control form-control">
-            <label class="form-control__label">Пароль:</label>
-            <input type="password" name="password" class="input form-control__control" placeholder="Введите пароль..." autocomplete="one-time-code"/>
-          </div>
-          <div class="popup__form-control form-control">
-            <label class="form-control__label">Подтвердите пароль:</label>
-            <input type="password" name="password2" class="input form-control__control" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
-          </div>
-          <div class="popup__form-control form-control">
-            <label class="form-control__label">Группа:</label>
-            <select name="group" class="select form-control__control">
-              {% for g in groups %}
-                <option class="select__option" value="{{ g }}">
-                  {{ groups[g] }}
-                </option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="popup__form-control form-control">
-            <label class="checkbox">Активен:
+          <div class="perm-layout">
+            <div class="perm-layout__left">
+              <div class="popup__form-control form-control">
+                <label class="form-control__label">Логин:</label>
+                <input type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
+              </div>
+              <div class="popup__form-control form-control">
+                <label class="form-control__label">Имя:</label>
+                <input type="text" name="name" class="input form-control__control" placeholder="Введите имя..." autocomplete="one-time-code"/>
+              </div>
+              <div class="popup__form-control form-control">
+                <label class="form-control__label">Пароль:</label>
+                <input type="password" name="password" class="input form-control__control" placeholder="Введите пароль..." autocomplete="one-time-code"/>
+              </div>
+              <div class="popup__form-control form-control">
+                <label class="form-control__label">Подтвердите пароль:</label>
+                <input type="password" name="password2" class="input form-control__control" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
+              </div>
+              <div class="popup__form-control form-control">
+                <label class="form-control__label">Группа:</label>
+                <select name="group" class="select form-control__control">
+                  {% for g in groups %}
+                    <option class="select__option" value="{{ g }}">
+                      {{ groups[g] }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="popup__form-control form-control">
+                <label class="checkbox">Активен:
 
-              <input class="visually-hidden" type="checkbox" name="enabled" checked="checked"/>
+                  <input class="visually-hidden" type="checkbox" name="enabled" checked="checked"/>
 
-              <span class="checkbox__flag"></span>
-            </label>
+                  <span class="checkbox__flag"></span>
+                </label>
+              </div>
+            </div>
+            <div class="perm-layout__right">
+              {% set perm_input_id = 'perm-string-add' %}
+              {% include 'components/user_permission.html' %}
+            </div>
           </div>
-          {% include 'user_permission.html' %}
 
           <div class="popup__actions d-flex gap-2">
             <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Добавить</button>
@@ -120,6 +162,48 @@
       </div>
     </div>
   </div>
+
+  <!-- Context menu for users table -->
+  <div id="context-menu" class="context-menu d-none">
+    <ul class="context-menu__list">
+      <li class="context-menu__item" data-action="toggle">Включить</li>
+      <li class="context-menu__item" data-action="edit">Изменить</li>
+      <li class="context-menu__item" data-action="perm">Изменить разрешения</li>
+      <li class="context-menu__item" data-action="reset">Сбросить пароль</li>
+      <li class="context-menu__item" data-action="delete">Удалить</li>
+      <li class="context-menu__separator"></li>
+      <li class="context-menu__item" data-action="add">Добавить</li>
+    </ul>
+  </div>
+
+  <div id="popup-perm" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title">Изменение разрешений</h1>
+      <div class="popup__body">
+        <form class="popup__form" id="perm" name="perm" action="{{ url_for('users_edit', id='0') }}" method="post">
+          {# Скрытые поля, чтобы при сохранении через users_edit не терялись остальные данные #}
+          <input type="hidden" name="login" value="" />
+          <input type="hidden" name="name" value="" />
+          <input type="hidden" name="group" value="" />
+          <input type="hidden" name="enabled" value="" />
+
+          <div class="perm-layout">
+            <div class="perm-layout__right" style="grid-column: 1 / -1;">
+              {% set perm_input_id = 'perm-string-perm' %}
+              {% include 'components/user_permission.html' %}
+            </div>
+          </div>
+
+          <div class="popup__actions d-flex gap-2">
+            <button class="btn btn-primary" type="submit">Сохранить</button>
+            <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-perm');">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  
 
   <div id="popup-edit" class="overlay-container">
     <div class="popup">
@@ -152,7 +236,6 @@
               <span class="checkbox__flag"></span>
             </label>
           </div>
-          {% include 'user_permission.html' %}
           <div class="popup__actions d-flex gap-2">
             <button class="btn btn-primary" type="button" onclick="validateForm(this.parentElement.parentElement);">Сохранить</button>
             <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-edit');">Отмена</button>
@@ -161,6 +244,8 @@
       </div>
     </div>
   </div>
+
+  
 
   <div id="popup-reset" class="overlay-container">
     <div class="popup">
