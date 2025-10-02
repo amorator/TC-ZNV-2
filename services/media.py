@@ -46,11 +46,33 @@ class MediaService:
         """
         old, new, entity = args
         etype, entity_id = entity
+        
+        # Check if source file exists
+        if not path.exists(old):
+            print(f"Source file not found: {old}")
+            if etype == 'file':
+                self._sql.file_ready([entity_id])
+            return
+            
         if old == new:
             rename(old, old + '.mp4')
             old += '.mp4'
-        process = Popen(["ffmpeg", "-hide_banner", "-y", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], universal_newlines=True)
-        out, err = process.communicate()
+        process = Popen(["ffmpeg", "-hide_banner", "-y", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        try:
+            out, err = process.communicate(timeout=300)  # 5 minute timeout
+            if process.returncode != 0:
+                print(f"FFmpeg failed for {old} -> {new}: {err}")
+                # Still mark as ready but with error indication
+                if etype == 'file':
+                    self._sql.file_ready([entity_id])
+                return
+        except Exception as e:
+            print(f"FFmpeg timeout or error for {old} -> {new}: {e}")
+            process.kill()
+            # Mark as ready even on error to prevent hanging
+            if etype == 'file':
+                self._sql.file_ready([entity_id])
+            return
         # After conversion, probe duration and size (robust ffprobe)
         length_seconds, size_mb = self._probe_length_and_size(new)
         if etype == 'file':

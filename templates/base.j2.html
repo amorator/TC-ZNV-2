@@ -48,7 +48,7 @@
           </div>
           <div class="app-topbar__group">
             {% if current_user.has('users.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}"><i class="bi bi-person-lines-fill"></i></a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}"><i class="bi bi-person-fill"></i></a>
             {% endif %}
             <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ url_for('logout') }}">Выход ({{ current_user.name }})</a>

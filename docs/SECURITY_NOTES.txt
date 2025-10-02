@@ -1,0 +1,77 @@
+Files and Users pages - implemented validations, restrictions, and protections
+
+1) Common (frontend behavior)
+- All modal submits use AJAX; default form submission prevented (onsubmit="return false").
+- Inputs are trimmed client-side before validation/send (text/password/textarea).
+- Modals are force-closed with popupClose to avoid double toggles and reopen.
+- Enter key does not auto-submit; explicit buttons trigger actions only.
+- Custom context menus suppress the native menu; close on outside click/Escape.
+- Prefer soft refresh (AJAX) over full reloads.
+- Avoid duplicate event handlers using flags; re-attach row handlers after soft refreshes.
+
+2) Files (frontend)
+- AJAX navigation between categories/subcategories; history via pushState.
+- Soft refresh preserves search and page; handlers rebound.
+- Open via double-click; context menu includes Open at the top.
+- Search is instant and works with pagination.
+- Upload:
+  - Multiple files: name field disabled; real file names (without extensions) used.
+  - Single file: name auto-filled unless user typed; lock inputs during upload.
+  - Max 5 files; client-side checks for size and type/extensions; cancel supported.
+- Add/Edit:
+  - Name required (unless multiple files selected).
+  - Description trimmed; "Нет описания..." not injected into edit form.
+  - Edit: no changes -> close modal without request.
+- Notes:
+  - Saved via AJAX; row data-note and visible text updated locally immediately.
+- Mark viewed:
+  - AJAX GET; updates row locally; hides when already viewed; emits socket event.
+- Processing state (not ready):
+  - Context menu limited to Refresh and Delete; Edit/Open/Move/Note/Mark viewed hidden.
+  - Refresh permission aligned with having edit or delete rights.
+- Ready state: full menu per permissions (Open/Download/Edit/Move/Delete/Mark viewed/Note/Refresh).
+- Pagination: 15 rows per page; remembers last page in localStorage.
+
+3) Files (backend)
+- All POST routes return JSON for AJAX; no redirect.
+- No forced ready=1.
+- Refresh re-evaluates on server; soft refresh fetches updated HTML (ready flag included).
+- Socket.IO events emitted on changes for live updates.
+
+4) Users (frontend)
+- Context menu: Toggle, Edit, Change permissions, Reset password, Delete, Add (if can manage).
+- Search filters rows live.
+- Toggle Active via click; guarded against double toggling.
+- Validation (Add/Edit): login and name required; passwords required for Add/Reset with min length from config; Add checks confirmation.
+- Permissions modal:
+  - Only permissions editable; summary of login/name/group/enabled shown.
+  - Hidden login/name/group/enabled populated from row for backend validation.
+  - No-op prevention via client-side change detection.
+- Edit modal:
+  - No-op prevention; on success, cells and dataset updated locally (login/name/group/enabled).
+- Delete: removes row locally on success.
+- Add/Permissions: avoid full reload; use soft table refresh to reflect new/derived values.
+- Soft refresh exposed as window.softRefreshUsersTable; after tbody replacement, row handlers rebound.
+
+5) Client-side permission gating (UI)
+- Files table attributes: data-can-add, data-can-mark-view, data-can-notes.
+- File row attributes: data-can-edit, data-can-delete, data-can-note, data-is-ready, data-view-url, data-already-viewed.
+- Users table attribute: data-can-manage; admin row blocks toggle.
+
+6) Server-side robustness
+- Users routes (add/edit/reset/toggle/delete) return JSON for AJAX; min password length read from config.ini and injected into template.
+- Files routes (add/edit/delete/note/move/refresh) return JSON for AJAX; no forced ready=1.
+- Media conversion: ffmpeg timeout (~5 min), source existence checks, error handling; DB helper file_ready(did, sdid, id, ready) used to update readiness.
+
+7) Modal behavior and accessibility
+- Overlays close on background click and Escape.
+- popupClose ensures consistent state across .show/.visible implementations; first input focuses on open when available.
+
+8) Logging and noise
+- "Navigated to ..." browser logs avoided via AJAX navigation.
+- Redundant console logs removed; double-close logs fixed via popupClose.
+
+9) Miscellaneous safeguards
+- After uploads complete, inputs re-enabled via resetAfterUpload.
+- Duplicate search handlers/bindings guarded via flags.
+- Move modal preselects current root/sub; no-op move closes without submit.

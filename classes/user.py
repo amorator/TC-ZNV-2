@@ -50,9 +50,10 @@ class User(UserMixin):
           b: files.upload / record / add
           c: files.edit_any / move
           d: files.delete_any
-          l: files.see_viewers
-          m: files.mark_viewed / note
+          l: files.notes (view and edit notes)
+          m: files.mark_viewed (mark as viewed)
           z: admin.any
+          Note: viewers list is visible to all users
         1: requests (examples)
           e: requests.approve
           f: requests.allow
@@ -61,9 +62,9 @@ class User(UserMixin):
         try:
             from modules.permissions import (
                 FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY,
-                FILES_SEE_VIEWERS, FILES_MARK_VIEWED, REQUESTS_APPROVE, REQUESTS_ALLOW,
+                FILES_MARK_VIEWED, FILES_NOTES, REQUESTS_APPROVE, REQUESTS_ALLOW,
                 REQUESTS_VIEW_PAGE, ORDERS_VIEW_PAGE, USERS_VIEW_PAGE, USERS_MANAGE,
-                ADMIN_ANY,
+                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_ANY,
             )
         except Exception:
             # Fallback if import cycle during app startup
@@ -75,7 +76,7 @@ class User(UserMixin):
                 'b': FILES_UPLOAD,
                 'c': FILES_EDIT_ANY,
                 'd': FILES_DELETE_ANY,
-                'l': FILES_SEE_VIEWERS,
+                'l': FILES_NOTES,
                 'm': FILES_MARK_VIEWED,
                 'z': ADMIN_ANY,
             },
@@ -92,6 +93,11 @@ class User(UserMixin):
             4: {  # users page
                 'a': USERS_VIEW_PAGE,
                 'b': USERS_MANAGE,  # manage includes add/edit/toggle/delete/reset
+                'z': ADMIN_ANY,
+            },
+            5: {  # groups page
+                'a': GROUPS_VIEW_PAGE,
+                'b': GROUPS_MANAGE,
                 'z': ADMIN_ANY,
             },
         }
@@ -112,6 +118,7 @@ class User(UserMixin):
             2: ORDERS_VIEW_PAGE,
             3: FILES_VIEW_PAGE,
             4: USERS_VIEW_PAGE,
+            5: GROUPS_VIEW_PAGE,
         }
         for index, letters in enumerate(self.permission, start=1):
             view_scope = view_scope_by_page.get(index)

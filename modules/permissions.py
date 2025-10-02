@@ -11,12 +11,15 @@ REQUESTS_VIEW_PAGE = 'requests.view'
 ORDERS_VIEW_PAGE = 'orders.view'
 USERS_VIEW_PAGE = 'users.view'
 USERS_MANAGE = 'users.manage'
+GROUPS_VIEW_PAGE = 'groups.view'
+GROUPS_MANAGE = 'groups.manage'
 
 # Files actions
 FILES_UPLOAD = 'files.upload'
 FILES_EDIT_ANY = 'files.edit_any'
 FILES_DELETE_ANY = 'files.delete_any'
 FILES_MARK_VIEWED = 'files.mark_viewed'
+FILES_SEE_VIEWERS = 'files.see_viewers'
 FILES_NOTES = 'files.notes'
 
 # Requests (examples, for adapter)
@@ -82,6 +85,7 @@ PERMISSION_LABELS = {
     FILES_EDIT_ANY: 'Файлы: изменение',
     FILES_DELETE_ANY: 'Файлы: удаление',
     FILES_MARK_VIEWED: 'Файлы: отметить просмотренным',
+    FILES_SEE_VIEWERS: 'Файлы: видеть просматривающих',
     FILES_NOTES: 'Файлы: примечания',
 
     REQUESTS_VIEW_PAGE: 'Заявки: просмотр',
@@ -92,6 +96,9 @@ PERMISSION_LABELS = {
 
     USERS_VIEW_PAGE: 'Пользователи: просмотр',
     USERS_MANAGE: 'Пользователи: управление',
+
+    GROUPS_VIEW_PAGE: 'Группы: просмотр',
+    GROUPS_MANAGE: 'Группы: управление',
 
     ADMIN_ANY: 'Администратор: все права',
 }

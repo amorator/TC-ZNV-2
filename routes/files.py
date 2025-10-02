@@ -4,7 +4,7 @@ from datetime import datetime as dt
 from os import path, remove
 from utils.common import make_dir, hash_str
 from services.permissions import dirs_by_permission
-from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED
+from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
 import os
 from typing import Any, Dict, Tuple, Optional, List
@@ -179,6 +179,9 @@ def register(app, media_service, socketio=None) -> None:
 			app.flash_error(e)
 			log_action('FILE_UPLOAD', current_user.name, f'failed to upload file {name}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			# Return JSON for AJAX requests, redirect for traditional forms
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'success', 'message': 'File uploaded successfully'}, 200
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	# Phase 1: init record (for large uploads to appear immediately)
@@ -281,6 +284,9 @@ def register(app, media_service, socketio=None) -> None:
 			app.flash_error(e)
 			log_action('FILE_EDIT', current_user.name, f'failed to edit file {file.name}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			# Return JSON for AJAX requests, redirect for traditional forms
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'success', 'message': 'File updated successfully'}, 200
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/delete' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
@@ -323,6 +329,9 @@ def register(app, media_service, socketio=None) -> None:
 			app.flash_error(e)
 			log_action('FILE_DELETE', current_user.name, f'failed to delete file {file.name}: {str(e)}', request.remote_addr, success=False)
 		finally:
+			# Return JSON for AJAX requests, redirect for traditional forms
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'success', 'message': 'File deleted successfully'}, 200
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/show' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
@@ -383,9 +392,14 @@ def register(app, media_service, socketio=None) -> None:
 		file = app._sql.file_by_id([id])
 		if not file:
 			app.flash_error('File not found')
+			# AJAX-aware error response
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'error', 'message': 'File not found'}, 404
 			return redirect(url_for('files', did=did, sdid=sdid))
 		if not (current_user.has('files.edit_any') or current_user.name + ' (' in file.owner):
 			return abort(403)
+		ok = True
+		error_message = ''
 		try:
 			# Determine target directory within the same root/category
 			_dirs = dirs_by_permission(app, 3, 'f')
@@ -393,17 +407,18 @@ def register(app, media_service, socketio=None) -> None:
 			dirs = list(_dirs[did].keys())
 			selected_root = request.form.get('target_root')
 			selected_sub = request.form.get('target_sub')
-			# Validate selected root exists in dirs
-			valid_roots = [ (dirs.values() | list)[0] for dirs in _dirs ]
+			# Validate selected root exists in allowed dirs
+			valid_roots = [list(d.keys())[0] for d in _dirs]
 			if selected_root not in valid_roots:
 				raise ValueError('Неверная категория назначения')
 			# Find its sub list to validate subcategory
 			root_index = valid_roots.index(selected_root)
-			valid_subs = (list(_dirs[root_index].values())[1:])
+			valid_subs = list(_dirs[root_index].values())[1:]
 			if selected_sub not in valid_subs:
 				raise ValueError('Неверная подкатегория назначения')
 			new_dir = os.path.join(app._sql.config['files']['root'], 'video', selected_root, selected_sub)
-			make_dir(os.path.join(app._sql.config['files']['root'], 'video'), root, selected)
+			# Ensure destination directory exists
+			make_dir(os.path.join(app._sql.config['files']['root'], 'video'), selected_root, selected_sub)
 			# Move files on disk: real_name without extension combines with mp4/webm if exist
 			old_base = os.path.join(file.path, os.path.splitext(file.real_name)[0])
 			new_base = os.path.join(new_dir, os.path.splitext(file.real_name)[0])
@@ -421,8 +436,16 @@ def register(app, media_service, socketio=None) -> None:
 				except Exception:
 					pass
 		except Exception as e:
+			ok = False
+			error_message = str(e)
 			app.flash_error(e)
 		finally:
+			# Return JSON for AJAX requests, redirect for traditional forms
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				if ok:
+					return {'status': 'success', 'message': 'File moved successfully', 'new_path': new_dir}, 200
+				else:
+					return {'status': 'error', 'message': error_message or 'Failed to move file'}, 400
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
@@ -436,8 +459,19 @@ def register(app, media_service, socketio=None) -> None:
 		note = request.form.get('note', '').strip()
 		try:
 			app._sql.file_note([note, id])
+			log_action('FILE_NOTE', current_user.name, f'updated note for file (id={id})', request.remote_addr)
+			# Notify clients about note update
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'note', 'id': id}, broadcast=True)
+				except Exception:
+					pass
 		except Exception as e:
 			app.flash_error(e)
+			log_action('FILE_NOTE', current_user.name, f'failed to update note for file (id={id}): {str(e)}', request.remote_addr, success=False)
+		# Return JSON for AJAX requests, redirect for traditional forms
+		if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+			return {'status': 'success', 'message': 'Note updated successfully'}, 200
 		return redirect(url_for('files', did=did, sdid=sdid))
 
 	# Manual metadata refresh (duration/size) via context menu
@@ -521,9 +555,14 @@ def register(app, media_service, socketio=None) -> None:
 					socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
 				except Exception:
 					pass
+			# Return JSON for AJAX requests, simple response for traditional requests
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'success', 'message': 'File metadata refreshed successfully'}, 200
 			return {'ok': 1}
 		except Exception as e:
 			app.flash_error(e)
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'error', 'message': str(e)}, 500
 			return {'error': str(e)}, 400
 
 	@app.route('/fls' + '/rec' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
@@ -559,8 +598,16 @@ def register(app, media_service, socketio=None) -> None:
 			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') + str(randint(1000, 9999)))
 			fname = path.join(dir, real_name)
 			request.files.get(name + '.webm').save(fname + '.webm')
-			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0])
+			# Args need to match file_add signature: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
+			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
 			media_service.convert_async(fname + '.webm', fname + '.mp4', ('file', id))
+			log_action('FILE_RECORD', current_user.name, f'recorded file {name} (id={id})', request.remote_addr)
+			# Notify clients about new file
+			if socketio:
+				try:
+					socketio.emit('files:changed', {'reason': 'recorded', 'id': id}, broadcast=True)
+				except Exception:
+					pass
 			return {200: 'OK'}
 		except Exception as e:
 			app.flash_error(e)

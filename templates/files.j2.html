@@ -103,10 +103,11 @@
               {% else %}
                 <tr class="table__body_row" id="{{ file.id }}"
                   data-id="{{ file.id }}"
+                  data-url="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
                   data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
-                  data-can-edit="0"
+                  data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
-                  data-can-note="0"
+                  data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
                   data-root="{{ (dirs[did].values() | list)[0] }}"
                   data-sub="{{ (dirs[did].values() | list)[sdid] }}"
                   data-is-ready="0"
@@ -157,8 +158,8 @@
 
   <div id="popup-add" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Добавление видео</h1>
-      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off">
+      <h1 class="popup__title mb-4">Добавление видео</h1>
+      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
           <label class="form-control__label" for="add-name">Название:</label>
@@ -177,9 +178,9 @@
           <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}" autocomplete="off">
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V</small>
         </div>
-        <div class="popup__actions">
-          <button type="submit" class="btn btn-primary" id="add-submit-btn" onclick="return validateForm(this.parentElement);">Добавить</button>
+        <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
           <button type="button" class="btn btn-secondary" id="add-cancel-btn" onclick="popupToggle('popup-add');" >Отмена</button>
+          <button type="button" class="btn btn-primary" id="add-submit-btn" onclick="validateForm(this);">Добавить</button>
         </div>
         
         <!-- Progress bar for file upload -->
@@ -197,10 +198,10 @@
 
   <div id="popup-edit" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Редактирование видео</h1>
+      <h1 class="popup__title mb-4">Редактирование видео</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
+        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
 
             <label class="form-control__label" for="edit-name">Название:</label>
@@ -212,9 +213,9 @@
             <textarea class="form-control__control input" id="edit-description" name="description" placeholder="Введите описание Файла..." autocomplete="off"></textarea>
           </div>
 
-          <div class="popup__actions">
-            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Сохранить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit');" >Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -223,14 +224,14 @@
 
   <div id="popup-delete" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Удалить видео</h1>
+      <h1 class="popup__title mb-4">Удалить видео</h1>
       <div class="popup__body">
 
         <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
-        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
-          <div class="popup__actions">
-            <button type="submit" class="btn btn-danger" onclick="return validateForm(this.parentElement);">Удалить</button>
+        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
+            <button type="button" class="btn btn-danger" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
       </div>
@@ -239,18 +240,18 @@
 
   <div id="popup-note" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Примечание</h1>
+      <h1 class="popup__title mb-4">Примечание</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
+        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="note-text">Примечание к записи:</label>
             <textarea class="form-control__control input" id="note-text" name="note" placeholder="Введите примечание..." autocomplete="off"></textarea>
           </div>
 
-          <div class="popup__actions">
-            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Сохранить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-note');" >Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -260,7 +261,7 @@
   <!-- Recording modal -->
   <div id="popup-rec" class="overlay-container">
     <div class="popup popup--wide">
-      <h1 class="popup__title">Запись видео</h1>
+      <h1 class="popup__title mb-4">Запись видео</h1>
       <div class="popup__body" style="padding: 0;">
         <iframe
           id="rec-iframe"
@@ -277,7 +278,7 @@
   <!-- Video player modal -->
   <div id="popup-view" class="overlay-container">
     <div class="popup popup--wide">
-      <h1 class="popup__title">Просмотр видео</h1>
+      <h1 class="popup__title mb-4">Просмотр видео</h1>
       <div class="popup__body">
         <video id="player-video" style="width: 100%; height: auto; outline: none;" controls playsinline></video>
       </div>
@@ -290,9 +291,9 @@
   <!-- Move file modal -->
   <div id="popup-move" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Переместить видео</h1>
+      <h1 class="popup__title mb-4">Переместить видео</h1>
       <div class="popup__body">
-        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off">
+        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-root">Выберите категорию:</label>
             <select class="form-control__control input" name="target_root" id="move-target-root">
@@ -309,9 +310,9 @@
               {% endfor %}
             </select>
           </div>
-          <div class="popup__actions">
-            <button type="submit" class="btn btn-primary" onclick="return validateForm(this.parentElement);">Переместить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-move');" >Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="validateForm(this);">Переместить</button>
           </div>
         </form>
       </div>

@@ -9,9 +9,6 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/checkbox.css') }}"/>
 {% endblock %}
 
-{% block js %}
-  <script type="text/javascript" src="{{ url_for('static', filename='js/users.js') }}" defer="defer"></script>
-{% endblock %}
 {% block main %}
 
   <section class="users-page container-fluid py-3">
@@ -108,9 +105,9 @@
 
   <div id="popup-add" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Добавление пользователя</h1>
+      <h1 class="popup__title mb-4">Добавление пользователя</h1>
       <div class="popup__body">
-        <form class="popup__form" id="add" name="add" action="{{ url_for('users_add') }}" method="post">
+        <form class="popup__form" id="add" name="add" action="{{ url_for('users_add') }}" method="post" onsubmit="return false;">
           <div class="perm-layout">
             <div class="perm-layout__left">
               <div class="popup__form-control form-control">
@@ -154,9 +151,9 @@
             </div>
           </div>
 
-          <div class="popup__actions d-flex gap-2">
-            <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement.parentElement);">Добавить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
+            <button type="button" class="btn btn-primary" onclick="validateForm(this);">Добавить</button>
           </div>
         </form>
       </div>
@@ -178,9 +175,9 @@
 
   <div id="popup-perm" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Изменение разрешений</h1>
+      <h1 class="popup__title mb-4">Изменение разрешений</h1>
       <div class="popup__body">
-        <form class="popup__form" id="perm" name="perm" action="{{ url_for('users_edit', id='0') }}" method="post">
+        <form class="popup__form" id="perm" name="perm" action="{{ url_for('users_edit', id='0') }}" method="post" onsubmit="return false;">
           {# Скрытые поля, чтобы при сохранении через users_edit не терялись остальные данные #}
           <input type="hidden" name="login" value="" />
           <input type="hidden" name="name" value="" />
@@ -194,9 +191,9 @@
             </div>
           </div>
 
-          <div class="popup__actions d-flex gap-2">
-            <button class="btn btn-primary" type="submit">Сохранить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-perm');">Отмена</button>
+            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -207,9 +204,9 @@
 
   <div id="popup-edit" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Редактирование пользователя</h1>
+      <h1 class="popup__title mb-4">Редактирование пользователя</h1>
       <div class="popup__body">
-        <form class="popup__form" id="edit" name="edit" action="{{ url_for('users_edit', id='0') }}" method="post">
+        <form class="popup__form" id="edit" name="edit" action="{{ url_for('users_edit', id='0') }}" method="post" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="edit-login">Логин:</label>
             <input id="edit-login" type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
@@ -236,9 +233,9 @@
               <span class="checkbox__flag"></span>
             </label>
           </div>
-          <div class="popup__actions d-flex gap-2">
-            <button class="btn btn-primary" type="button" onclick="validateForm(this.parentElement.parentElement);">Сохранить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-edit');">Отмена</button>
+            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -249,12 +246,12 @@
 
   <div id="popup-reset" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Изменение пароля пользователя</h1>
+      <h1 class="popup__title mb-4">Изменение пароля пользователя</h1>
       <div class="popup__body">
         <p>Установить новый пароль для
           <b>uname</b>
         </p>
-        <form class="popup__form" id="reset" name="reset" action="{{ url_for('users_reset', id='0') }}" method="post">
+        <form class="popup__form" id="reset" name="reset" action="{{ url_for('users_reset', id='0') }}" method="post" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="reset-password">Новый пароль:</label>
             <input id="reset-password" class="input form-control__control" type="password" name="password" placeholder="Введите пароль..." autocomplete="one-time-code"/>
@@ -264,9 +261,9 @@
             <input id="reset-password2" class="input form-control__control" type="password" name="password2" placeholder="Подтвердите пароль..." autocomplete="one-time-code"/>
           </div>
 
-          <div class="popup__actions d-flex gap-2">
-            <button class="btn btn-primary" type="submit" onclick="validateForm(this.parentElement.parentElement);">изменить</button>
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-reset');">отменить</button>
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
+            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-reset');">Отмена</button>
+            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Изменить</button>
           </div>
         </form>
       </div>
@@ -275,18 +272,28 @@
 
   <div id="popup-delete" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title">Удалить пользователя</h1>
+      <h1 class="popup__title mb-4">Удалить пользователя</h1>
       <div class="popup__body">
         <p>Вы действительно хотите удалить пользователя
           <b>uname</b>?</p>
-        <form class="popup__form" id="delete" name="delete" action="{{ url_for('users_delete', id='0') }}" method="post">
-          <div class="popup__actions d-flex gap-2">
-            <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement.parentElement);">Удалить</button>
+        <form class="popup__form" id="delete" name="delete" action="{{ url_for('users_delete', id='0') }}" method="post" onsubmit="return false;">
+          <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
+            <button type="button" class="btn btn-danger" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
+{% endblock %}
+
+{% block js %}
+<script>
+  // Pass config values to JavaScript
+  window.CONFIG = {
+    min_password_length: {{ min_password_length }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/users.js') }}" defer="defer"></script>
 {% endblock %}

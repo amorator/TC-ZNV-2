@@ -1,6 +1,227 @@
 'use strict';
 
 /**
+ * Toggle popup visibility by ID.
+ * @param {string} popupId - The ID of the popup to toggle
+ */
+function popupToggle(popupId) {
+  const popup = document.getElementById(popupId);
+  if (!popup) return;
+  
+  if (popup.classList.contains('visible')) {
+    // Hide popup
+    popup.classList.remove('visible');
+    popup.style.display = 'none';
+    document.body.style.overflow = ''; // Restore scrolling
+    window.popup = null;
+  } else {
+    // Show popup
+    popup.style.display = 'flex';
+    popup.classList.add('visible');
+    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+    window.popup = popupId;
+    
+    // Focus first input if available
+    setTimeout(() => {
+      const firstInput = popup.querySelector('input:not([type="hidden"]), textarea, select');
+      if (firstInput) {
+        firstInput.focus();
+      }
+    }, 100);
+  }
+}
+
+// Function to force close popup (does not toggle)
+function popupClose(popupId) {
+  const popup = document.getElementById(popupId);
+  if (!popup) return;
+  
+  // Force close regardless of current state (.show or .visible)
+  popup.classList.remove('visible');
+  popup.classList.remove('show');
+  popup.style.display = 'none';
+  document.body.style.overflow = '';
+  window.popup = null;
+}
+
+/**
+ * Close popup when clicking on overlay background.
+ */
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('overlay-container') && e.target.classList.contains('visible')) {
+    const popupId = e.target.id;
+    if (popupId) {
+      popupToggle(popupId);
+    }
+  }
+});
+
+/**
+ * Common form validation functions
+ */
+window.CommonValidation = {
+  /**
+   * Validate that a field is not empty after trimming
+   * @param {HTMLInputElement|HTMLTextAreaElement} field
+   * @param {string} fieldName
+   * @returns {boolean}
+   */
+  validateRequired: function(field, fieldName) {
+    if (!field || !field.value || field.value.trim() === '') {
+      alert(`${fieldName} не может быть пустым`);
+      if (field && field.focus) field.focus();
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Validate password length
+   * @param {HTMLInputElement} passwordField
+   * @param {number} minLength
+   * @returns {boolean}
+   */
+  validatePasswordLength: function(passwordField, minLength) {
+    if (!passwordField || !passwordField.value) {
+      alert('Пароль не может быть пустым');
+      if (passwordField && passwordField.focus) passwordField.focus();
+      return false;
+    }
+    if (passwordField.value.length < minLength) {
+      alert(`Пароль должен быть не менее ${minLength} символов`);
+      if (passwordField.focus) passwordField.focus();
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Validate password confirmation
+   * @param {HTMLInputElement} passwordField
+   * @param {HTMLInputElement} confirmField
+   * @returns {boolean}
+   */
+  validatePasswordMatch: function(passwordField, confirmField) {
+    if (!passwordField || !confirmField) return true;
+    if (passwordField.value !== confirmField.value) {
+      alert('Пароли не совпадают');
+      if (confirmField.focus) confirmField.focus();
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Trim all text inputs in a form
+   * @param {HTMLFormElement} form
+   */
+  trimFormFields: function(form) {
+    if (!form) return;
+    const textFields = form.querySelectorAll('input[type="text"], input[type="password"], textarea');
+    textFields.forEach(field => {
+      if (field.value) {
+        field.value = field.value.trim();
+      }
+    });
+  }
+};
+
+/**
+ * Common AJAX form submission with error handling
+ * @param {HTMLFormElement} form
+ * @param {Object} options
+ * @param {function} options.onSuccess - Called when request succeeds
+ * @param {function} options.onError - Called when request fails
+ * @param {function} options.beforeSend - Called before sending request
+ * @param {function} options.afterSend - Called after request completes
+ */
+window.CommonAjax = {
+  submitForm: function(form, options = {}) {
+    if (!form || !form.action) {
+      console.error('Invalid form or missing action');
+      return;
+    }
+
+    // Trim form fields
+    window.CommonValidation.trimFormFields(form);
+
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+    const originalText = submitBtn ? submitBtn.textContent || submitBtn.value : '';
+
+    // Before send callback
+    if (options.beforeSend) {
+      options.beforeSend(form, submitBtn);
+    } else {
+      // Default: disable submit button
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        if (submitBtn.textContent !== undefined) {
+          submitBtn.textContent = 'Отправка...';
+        } else if (submitBtn.value !== undefined) {
+          submitBtn.value = 'Отправка...';
+        }
+      }
+    }
+
+    fetch(form.action, {
+      method: form.method || 'POST',
+      body: formData,
+      credentials: 'include'
+    })
+    .then(response => {
+      if (response.ok) {
+        if (options.onSuccess) {
+          options.onSuccess(response, form);
+        } else {
+          // Default success: close modal without page reload
+          const modal = form.closest('.overlay-container, .popup, .modal');
+          if (modal) {
+            const modalId = modal.id;
+            try { popupToggle(modalId); } catch(e) {}
+          }
+          // No default page reload - let individual handlers decide
+        }
+      } else {
+        response.text().then(text => {
+          const errorMsg = text || 'Неизвестная ошибка';
+          if (options.onError) {
+            options.onError(errorMsg, response, form);
+          } else {
+            alert('Ошибка: ' + errorMsg);
+          }
+        });
+      }
+    })
+    .catch(error => {
+      console.error('AJAX Error:', error);
+      const errorMsg = 'Ошибка при отправке данных';
+      if (options.onError) {
+        options.onError(errorMsg, null, form);
+      } else {
+        alert(errorMsg);
+      }
+    })
+    .finally(() => {
+      // After send callback
+      if (options.afterSend) {
+        options.afterSend(form, submitBtn, originalText);
+      } else {
+        // Default: re-enable submit button
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          if (submitBtn.textContent !== undefined) {
+            submitBtn.textContent = originalText;
+          } else if (submitBtn.value !== undefined) {
+            submitBtn.value = originalText;
+          }
+        }
+      }
+    });
+  }
+};
+
+/**
  * Global popup keyboard helpers: Esc closes, Enter submits active modal.
  * Guarded to avoid unintended submits from textareas.
  */
@@ -82,14 +303,24 @@ function popupToggle(x, id = 0) {
     } catch(e) {}
   }
   const form = overlay ? overlay.querySelector('form') : null;
-  if (form) {
-    try { form.reset(); } catch(e) {}
-    if (!popup) {
+  const isOpen = overlay && overlay.classList.contains('show');
+  if (!isOpen) {
+    // Opening
+    if (form) {
+      try { form.reset(); } catch(e) {}
       try { popupValues(form, id); } catch(e) {}
     }
+    overlay.style.display = 'flex';
+    overlay.classList.add('show');
+    overlay.classList.add('visible');
+    popup = x;
+  } else {
+    // Closing
+    overlay.classList.remove('show');
+    overlay.classList.remove('visible');
+    overlay.style.display = 'none';
+    popup = null;
   }
-  overlay.classList.toggle('show');
-  popup = overlay.classList.contains('show') ? x : null;
   
   // Reset user typing flag when opening add popup
   if (x === 'popup-add') {
@@ -328,7 +559,7 @@ document.addEventListener('keydown', function (event) {
     const form = overlay.querySelector('form');
     const submitBtn = overlay.querySelector('.popup__actions .btn.btn-primary, .popup__actions [type="submit"]');
     if (submitBtn) { try { submitBtn.click(); } catch(e) {} return; }
-    if (form) { try { form.submit(); } catch(e) {} return; }
+    // No fallback to form.submit() - all forms should have proper button handlers
   }
   // Esc to close modal with existing guards
   if (event.key === 'Escape') {

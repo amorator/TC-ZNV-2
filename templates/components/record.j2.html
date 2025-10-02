@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ request.args.get('theme', 'light') }}" class="theme-{{ request.args.get('theme', 'light') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Запись видео</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components/progress.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/record.css') }}">
+    <style>
+      /* Ensure proper theming for iframe */
+      html, body {
+        background-color: var(--modal-bg, var(--body-bg, #ffffff)) !important;
+        color: var(--body-text, #000000) !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        min-height: 100% !important;
+      }
+      
+      /* Add spacing between video blocks and menu content */
+      .record-page__videos {
+        margin-right: 20px !important;
+      }
+    </style>
+</head>
+<body data-theme="{{ request.args.get('theme', 'light') }}" class="theme-{{ request.args.get('theme', 'light') }}">
+<section class="record-page">
+  {% if request.args.get('embed') != '1' %}
+  <h1 class="record-page__title">Запись видео</h1>
+  {% endif %}
+  <div class="record-page__body">
+    <div class="record-page__videos">
+      <div class="record-page__video">
+        <span class="record-page__video-label">Экран</span>
+        <video class="video" autoplay playsinline id="video-screen"></video>
+      </div>
+      <div class="record-page__video">
+        <span class="record-page__video-label">Камера</span>
+        <video class="video" autoplay playsinline id="video-camera"></video>
+      </div>
+    </div>
+    <div class="record-page__menu">
+      <div class="record-page__pult">
+        <div class="record-page__source-selection">
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="camera" id="source-camera" checked>
+            <span>Только камера</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="screen" id="source-screen">
+            <span>Только экран</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="both" id="source-both">
+            <span>Экран + камера</span>
+          </label>
+        </div>
+        <button class="button" id="camera">Включить камеру</button>
+        <button class="button" id="start">Начать запись</button>
+        <button class="button" id="pause">Пауза</button>
+        <button class="button" id="stop">Стоп</button>
+      </div>
+      <div class="record-page__settings">
+        <div class="record-page__settings-time record-page__setting">
+          <span class="record-page__setting-title">Длина записи:</span>
+          <span class="record-page__setting-element" id="time">00:00:00</span>
+        </div>
+        <div class="record-page__settings-file-name record-page__setting">
+          <label class="record-page__setting-title" for="name">Название файла:</label>
+          <input
+            class="record-page__setting-element"
+            type="text"
+            id="name"
+            name="name"
+            placeholder="Video"
+            required
+            autocomplete="off"
+          />
+        </div>
+        <div class="record-page__settings-description record-page__setting">
+          <label class="record-page__setting-title" for="desc">Описание:</label>
+          <textarea
+            class="record-page__setting-element"
+            id="desc"
+            name="desc"
+            placeholder="Не обязательно..."
+            autocomplete="off"
+          ></textarea>
+        </div>
+        <button class="button" id="save">Сохранить</button>
+        <input style="display: none" value="{{ did }}" id="did" />
+        <input style="display: none" value="{{ sdid }}" id="sdid" />
+        <div class="progress" id="uploadProgress" style="display:none;">
+          <div class="progress-bar" id="uploadProgressBar" role="progressbar" style="width:0%"></div>
+        </div>
+        <div class="upload__container" style="display:none;">
+          <span class="upload__status" id="uploadForm_Status"></span>
+          <span id="uploadForm_Size"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="{{ url_for('static', filename='js/record.js') }}"></script>
+</body>
+</html>

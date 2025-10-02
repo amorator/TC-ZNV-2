@@ -23,8 +23,21 @@ function popupValues(form, id) {
     });
     
     document.getElementById("file").addEventListener("change", function(event) {
-      if (event.target.files.length > 0) {
-        const fileName = event.target.files[0].name;
+      const files = event.target.files;
+      
+      if (files.length > 1) {
+        // Multiple files selected - disable name field and show message
+        nameInput.disabled = true;
+        nameInput.value = '';
+        nameInput.placeholder = 'Будут использованы имена файлов';
+        nameInput.title = 'При загрузке нескольких файлов используются их реальные имена';
+      } else if (files.length === 1) {
+        // Single file selected - enable name field and auto-fill
+        nameInput.disabled = false;
+        nameInput.placeholder = 'Имя файла...';
+        nameInput.title = '';
+        
+        const fileName = files[0].name;
         
         // Only auto-fill if the name field is empty or user hasn't typed anything
         if (!nameInput.value || nameInput.value.trim() === '' || !nameInput.userHasTyped) {
@@ -33,6 +46,11 @@ function popupValues(form, id) {
           nameInput.value = nameWithoutExt;
           nameInput.userHasTyped = false; // Reset flag after auto-fill
         }
+      } else {
+        // No files selected - reset to default state
+        nameInput.disabled = false;
+        nameInput.placeholder = 'Имя файла...';
+        nameInput.title = '';
       }
     });
     return;
@@ -40,16 +58,32 @@ function popupValues(form, id) {
   let values = document.getElementById(id).getElementsByTagName("td");
   if (form.id == "edit") {
     const nameVal = (values[0].innerText || '').trim();
-    const descVal = (values[1].innerText || '').trim();
+    let descVal = (values[1].innerText || '').trim();
+    
+    // Don't show "Нет описания..." in edit form - show empty field instead
+    if (descVal === 'Нет описания...') {
+      descVal = '';
+    }
+    
     form.getElementsByTagName("input")[0].value = nameVal;
     form.getElementsByTagName("textarea")[0].value = descVal;
     // Store originals for change detection
     try {
       form.dataset.rowId = String(id);
       form.dataset.origName = nameVal;
-      form.dataset.origDesc = descVal;
+      form.dataset.origDesc = descVal; // Already cleaned from "Нет описания..."
     } catch (_) {}
     let select = form.getElementsByTagName("select")[0];
+  } else if (form.id == "move") {
+    // Ensure action URL targets the selected file id (replace any trailing /digits)
+    if (form.action) {
+      if (/\/\d+$/.test(form.action)) {
+        form.action = form.action.replace(/\/\d+$/, '/' + id);
+      } else if (/\/0$/.test(form.action)) {
+        form.action = form.action.replace(/\/0$/, '/' + id);
+      }
+    }
+    try { form.dataset.rowId = String(id); } catch(_) {}
   } else if (form.id == "delete") {
     let target = form.parentElement.getElementsByTagName("b");
     target[0].innerText = values[0].innerText;
@@ -73,10 +107,10 @@ function popupValues(form, id) {
  * @param {HTMLElement} x The element that triggered validation (inside a form)
  * @returns {boolean} Whether the native submit should proceed
  */
-function validateForm(x) {
+function validateForm(element) {
   
   // Find the form element
-  const form = x.closest('form');
+  const form = element.closest('form');
   if (!form) {
     console.error('Form not found');
     return false;
@@ -84,12 +118,26 @@ function validateForm(x) {
   
   
   if (form.id == "add" || form.id == "edit") {
+    // Trim all input fields first
+    const inputs = form.querySelectorAll('input[type="text"], input[type="password"], textarea');
+    inputs.forEach(input => {
+      if (input.value) {
+        input.value = input.value.trim();
+      }
+    });
+    
     // Find the name input field specifically
     const nameInput = form.querySelector('input[name="name"]');
     if (nameInput) {
       let name = (nameInput.value || '').replace(/\u00a0/g, ' ').trim();
-      if (name == undefined || name == "" || name.length < 1) {
+      
+      // For multiple file uploads, skip name validation (real names will be used)
+      const fileInput = form.querySelector('input[type="file"]');
+      const isMultiple = fileInput && fileInput.files && fileInput.files.length > 1;
+      
+      if (!isMultiple && (name == undefined || name == "" || name.length < 1)) {
       alert("Задайте корректное имя файла!");
+        nameInput.focus();
         return false;
       }
     } else {
@@ -105,7 +153,7 @@ function validateForm(x) {
         const nowName = (nameInput.value || '').replace(/\u00a0/g, ' ').trim();
         const nowDesc = descInput ? (descInput.value || '').trim() : '';
         if (nowName === origName && nowDesc === origDesc) {
-          try { popupToggle('popup-edit'); } catch(_) {}
+          try { popupClose('popup-edit'); } catch(_) {}
           return false;
         }
       } catch (e) {}
@@ -154,10 +202,18 @@ function validateForm(x) {
     return false;
   }
   
-  // For non-add forms, submit normally
+  // For non-add forms, validate and submit via AJAX
   if (form.id !== "add") {
-    form.submit();
-    return true;
+    // Trim all input fields for other forms too
+    const inputs = form.querySelectorAll('input[type="text"], input[type="password"], textarea');
+    inputs.forEach(input => {
+      if (input.value) {
+        input.value = input.value.trim();
+      }
+    });
+    
+    submitFileFormAjax(form);
+    return false; // Prevent default form submission
   }
   
   return true;
@@ -194,10 +250,31 @@ function startUploadWithProgress(form) {
     };
   }
   
-  // Read selected files
+  // Lock text input fields during upload
+  const nameInput = form.querySelector('input[name="name"]');
+  const descriptionInput = form.querySelector('textarea[name="description"]');
   const fileInput = form.querySelector('input[type="file"]');
+  
+  // Get files array first
   const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+  
+  if (nameInput) {
+    nameInput.disabled = true;
+    // For multiple files, show that names will be used from files
+    if (files.length > 1) {
+      nameInput.placeholder = 'Будут использованы имена файлов';
+      nameInput.value = '';
+    } else {
+      nameInput.placeholder = 'Загрузка...';
+    }
+  }
+  if (descriptionInput) descriptionInput.disabled = true;
+  if (fileInput) fileInput.disabled = true;
   const multi = files.length > 1;
+  if (multi && nameInput) {
+    nameInput.value = '';
+    nameInput.placeholder = 'При множественной загрузке используются реальные имена файлов';
+  }
 
   // Combined progress accounting
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
@@ -292,12 +369,24 @@ function startUploadWithProgress(form) {
         // success UI
         progressBar.style.width = '100%';
         progressBar.setAttribute('aria-valuenow', 100);
-        statusText.textContent = 'Загрузка завершена! Перенаправление...';
-        setTimeout(() => { popupToggle('popup-add'); window.location.reload(); }, 1000);
+        statusText.textContent = 'Загрузка завершена! Обновление таблицы...';
+        setTimeout(() => { 
+          popupToggle('popup-add'); 
+          // Reset form after successful upload
+          try { resetAfterUpload(); } catch(e) {}
+          // Use AJAX refresh instead of page reload
+          try { window.refreshFilesPage(); } catch(e) {}
+          // Emit socket event for other users
+          try { 
+            if (window.socket && window.socket.emit) {
+              window.socket.emit('files:changed', { reason: 'upload-complete' });
+            }
+          } catch(e) {}
+        }, 1000);
       }, function onErr(msg){ handleUploadError(msg); });
     }
-    return;
-  }
+      return;
+    }
 
   // Multiple files: upload sequentially
   let index = 0;
@@ -305,8 +394,19 @@ function startUploadWithProgress(form) {
     if (index >= files.length) {
       progressBar.style.width = '100%';
       progressBar.setAttribute('aria-valuenow', 100);
-      statusText.textContent = 'Все файлы загружены! Обновление...';
-      setTimeout(() => { popupToggle('popup-add'); window.location.reload(); }, 1000);
+      statusText.textContent = 'Все файлы загружены! Обновление таблицы...';
+      setTimeout(() => { 
+        popupToggle('popup-add'); 
+        // Reset form after successful upload
+        try { resetAfterUpload(); } catch(e) {}
+        try { window.refreshFilesPage(); } catch(e) {}
+        // Emit socket event for other users
+        try { 
+          if (window.socket && window.socket.emit) {
+            window.socket.emit('files:changed', { reason: 'upload-complete' });
+          }
+        } catch(e) {}
+      }, 1000);
       return;
     }
     renderCombinedProgress(0, files[index].size, index);
@@ -314,59 +414,161 @@ function startUploadWithProgress(form) {
   }
   next();
 
-  // When upload finished sending to server (server may still be processing)
-  xhr.upload.addEventListener('load', function() {
-    try {
-      statusText.textContent = 'Файл загружен, выполняется обработка...';
-    } catch (e) {}
-    // Do NOT navigate here; wait for server response (xhr.load)
-  });
-  // Treat 2xx/3xx as success (redirects included)
-  const handleSuccess = function() {
-      progressBar.style.width = '100%';
-      progressBar.setAttribute('aria-valuenow', 100);
-      statusText.textContent = 'Загрузка завершена! Перенаправление...';
-      
-      // Close popup after a short delay
-      setTimeout(() => {
-        popupToggle('popup-add');
-        // Reload page to show new file
-        window.location.reload();
-      }, 1000);
-  };
-
-  xhr.addEventListener('load', function() {
-    if (xhr.status >= 200 && xhr.status < 400) {
-      handleSuccess();
-    } else {
-      handleUploadError('Ошибка загрузки файла');
-    }
-  });
-
-  xhr.addEventListener('loadend', function() {
-    // As a safety net: if readyState DONE and success-like code was missed but status OK, proceed
-    try {
-      if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status < 400) {
-        handleSuccess();
+  /**
+   * Helper function to upload a single file with progress tracking
+   * @param {File} file - File to upload
+   * @param {number} index - Index of the file in the upload queue
+   * @param {function} successCb - Success callback
+   * @param {function} errorCb - Error callback
+   */
+  function uploadOne(file, index, successCb, errorCb) {
+    const xhr = new XMLHttpRequest();
+    
+    // Track progress
+    xhr.upload.addEventListener('progress', function(e) {
+      if (e.lengthComputable) {
+        renderCombinedProgress(e.loaded, e.total, index);
       }
-    } catch (e) {}
-  });
+    });
+    
+    // Handle successful upload
+    xhr.addEventListener('load', function() {
+      if (xhr.status >= 200 && xhr.status < 400) {
+        if (successCb) successCb();
+      } else {
+        if (errorCb) errorCb(`Ошибка загрузки: ${xhr.status}`);
+      }
+    });
+    
+    // Handle errors
+    xhr.addEventListener('error', function() {
+      if (errorCb) errorCb('Ошибка соединения');
+    });
+    
+    xhr.addEventListener('abort', function() {
+      if (errorCb) errorCb('Загрузка отменена');
+    });
+    
+    // Prepare form data
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Get files array from the form
+    const fileInput = form.querySelector('input[type="file"]');
+    const allFiles = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
+    
+    // For multiple files, always use the real file name (without extension)
+    if (allFiles.length > 1) {
+      formData.append('name', file.name.replace(/\.[^/.]+$/, "")); // Remove extension
+    } else {
+      // For single file, use the name from input field if available
+      const nameInput = form.querySelector('input[name="name"]');
+      const inputName = nameInput ? nameInput.value.trim() : '';
+      formData.append('name', inputName || file.name.replace(/\.[^/.]+$/, ""));
+    }
+    
+    const descInput = form.querySelector('textarea[name="description"]');
+    formData.append('description', descInput ? descInput.value.trim() : '');
+    
+    // Store xhr for cancellation
+    window.currentUploadXHR = xhr;
+    
+    // Send the request
+    xhr.open('POST', form.action);
+    xhr.send(formData);
+  }
+}
 
-  // Also guard by timeout
-  // Disable artificial timeout-based success; allow long server processing
-  xhr.timeout = 0; // no timeout
-  xhr.ontimeout = function() {};
+/**
+ * Update progress bar for combined upload progress
+ * @param {number} loaded - Bytes loaded for current file
+ * @param {number} total - Total bytes for current file  
+ * @param {number} fileIndex - Index of current file being uploaded
+ */
+function renderCombinedProgress(loaded, total, fileIndex) {
+  const progressBar = document.querySelector('#upload-progress .progress-bar');
+  const statusText = document.querySelector('#upload-progress .upload-status small');
   
-  // Handle upload errors
-  xhr.addEventListener('error', function() {
-    handleUploadError('Ошибка соединения');
-  });
+  if (!progressBar || !statusText) return;
   
-  xhr.addEventListener('abort', function() {
-    handleUploadError('Загрузка отменена');
-  });
+  // Calculate overall progress across all files
+  const files = document.getElementById('file').files;
+  if (!files || files.length === 0) return;
   
-  // Note: per-file upload logic implemented above
+  let totalSize = 0;
+  let loadedSize = 0;
+  
+  // Calculate total size of all files
+  for (let i = 0; i < files.length; i++) {
+    totalSize += files[i].size;
+  }
+  
+  // Calculate loaded size (completed files + current file progress)
+  for (let i = 0; i < fileIndex; i++) {
+    loadedSize += files[i].size;
+  }
+  loadedSize += loaded;
+  
+  // Update progress bar
+  const percentage = totalSize > 0 ? Math.round((loadedSize / totalSize) * 100) : 0;
+  progressBar.style.width = percentage + '%';
+  progressBar.setAttribute('aria-valuenow', percentage);
+  
+  // Update status text
+  const currentFileNum = fileIndex + 1;
+  const totalFiles = files.length;
+  const fileName = files[fileIndex] ? files[fileIndex].name : '';
+  
+  if (totalFiles > 1) {
+    statusText.textContent = `Загрузка файла ${currentFileNum} из ${totalFiles}: ${fileName} (${percentage}%)`;
+  } else {
+    statusText.textContent = `Загрузка файла: ${fileName} (${percentage}%)`;
+  }
+}
+
+/**
+ * Handle upload error and restore UI state
+ * @param {string} message - Error message to display
+ */
+function handleUploadError(message) {
+  const progressDiv = document.getElementById('upload-progress');
+  const statusText = progressDiv.querySelector('.upload-status small');
+  const submitBtn = document.getElementById('add-submit-btn');
+  const cancelBtn = document.getElementById('add-cancel-btn');
+  
+  // Show error message
+  if (statusText) {
+    statusText.textContent = message || 'Ошибка загрузки';
+    statusText.style.color = 'var(--danger-color, #dc3545)';
+  }
+  
+  // Re-enable form
+  if (submitBtn) submitBtn.disabled = false;
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = 'Закрыть';
+    cancelBtn.onclick = function() {
+      popupToggle('popup-add');
+    };
+  }
+  
+  // Re-enable input fields
+  const form = document.getElementById('add');
+  if (form) {
+    const nameInput = form.querySelector('input[name="name"]');
+    const descriptionInput = form.querySelector('textarea[name="description"]');
+    const fileInput = form.querySelector('input[type="file"]');
+    
+    if (nameInput) {
+      nameInput.disabled = false;
+      nameInput.placeholder = 'Имя файла...';
+    }
+    if (descriptionInput) descriptionInput.disabled = false;
+    if (fileInput) fileInput.disabled = false;
+  }
+  
+  // Clear upload reference
+  window.currentUploadXHR = null;
 }
 
 /**
@@ -402,6 +604,21 @@ function cancelUpload() {
     };
   }
   
+  // Re-enable input fields
+  const form = document.getElementById('add');
+  if (form) {
+    const nameInput = form.querySelector('input[name="name"]');
+    const descriptionInput = form.querySelector('textarea[name="description"]');
+    const fileInput = form.querySelector('input[type="file"]');
+    
+    if (nameInput) {
+      nameInput.disabled = false;
+      nameInput.placeholder = 'Имя файла...';
+    }
+    if (descriptionInput) descriptionInput.disabled = false;
+    if (fileInput) fileInput.disabled = false;
+  }
+  
   // Hide progress after delay
   setTimeout(() => {
     progressDiv.classList.add('d-none');
@@ -433,6 +650,21 @@ function handleUploadError(message) {
     cancelBtn.onclick = function() {
       popupToggle('popup-add');
     };
+  }
+  
+  // Re-enable input fields
+  const form = document.getElementById('add');
+  if (form) {
+    const nameInput = form.querySelector('input[name="name"]');
+    const descriptionInput = form.querySelector('textarea[name="description"]');
+    const fileInput = form.querySelector('input[type="file"]');
+    
+    if (nameInput) {
+      nameInput.disabled = false;
+      nameInput.placeholder = 'Имя файла...';
+    }
+    if (descriptionInput) descriptionInput.disabled = false;
+    if (fileInput) fileInput.disabled = false;
   }
   
   // Clear global xhr reference
@@ -946,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Change detection for edit, move, and note modals
   (function initFilesChangeDetection(){
-    function closeModal(id){ try { popupToggle(id); } catch(_) {} }
+    function closeModal(id){ try { popupClose(id); } catch(_) {} }
 
     // Edit: compare name/description
     const editForm = document.getElementById('edit');
@@ -965,14 +1197,14 @@ document.addEventListener('DOMContentLoaded', function () {
               return;
             }
           } catch(_) {}
-          try { editForm.submit(); } catch(_) {}
+          try { window.submitFileFormAjax(editForm); } catch(_) {}
         });
       }
     }
 
     // Move: compare selects to row data-root/data-sub
     const moveForm = document.getElementById('move');
-    if (moveForm && !moveForm._changeBound) {
+        if (moveForm && !moveForm._changeBound) {
       moveForm._changeBound = true;
       moveForm.addEventListener('submit', function(e){
         try {
@@ -988,6 +1220,17 @@ document.addEventListener('DOMContentLoaded', function () {
             e.preventDefault();
             closeModal('popup-move');
           }
+            // If moving, perform AJAX submit and reinitialize table after
+            e.preventDefault();
+            const formData = new FormData(moveForm);
+            fetch(moveForm.action, { method: 'POST', body: formData, credentials: 'include' })
+              .then(r => {
+                if (!r.ok) throw new Error('HTTP '+r.status);
+              })
+              .finally(() => {
+                try { closeModal('popup-move'); } catch(_) {}
+                try { softRefreshFilesTable(); } catch(_) {}
+              });
         } catch(_) {}
       });
     }
@@ -1132,19 +1375,30 @@ document.addEventListener('DOMContentLoaded', function () {
         const canNote = row.getAttribute('data-can-note') === '1' && canNotes;
         const isReady = row.getAttribute('data-is-ready') !== '0';
         const hasDownload = !!row.getAttribute('data-download');
-        const canRefresh = canEdit || canMarkView; // refresh allowed if can edit (owner or edit_any) or can mark viewed
+        const canRefresh = canEdit || canDelete; // align refresh rights with edit or delete
 
-        // Toggle visibility of items based on permissions
+        // Toggle visibility of items based on state and permissions
         toggleItem('open', isReady);
         toggleItem('download', hasDownload || isReady);
         toggleItem('edit', canEdit);
-        toggleItem('move', canEdit);
+        toggleItem('move', isReady && canEdit); // disable move for processing files
         toggleItem('delete', canDelete);
         // If already viewed by current user, hide mark-viewed
         const alreadyViewed = row.getAttribute('data-already-viewed') === '1';
         toggleItem('mark-viewed', isReady && canMarkView && !alreadyViewed);
         toggleItem('note', isReady && canNote);
         toggleItem('refresh', canRefresh);
+
+        // For files in processing state (not ready): only allow Refresh and Delete (no Edit)
+        if (!isReady) {
+          toggleItem('open', false);
+          toggleItem('download', false);
+          toggleItem('move', false);
+          toggleItem('delete', canDelete);
+          toggleItem('note', false);
+          toggleItem('mark-viewed', false);
+          toggleItem('edit', false);
+        }
         toggleItem('add', tableCanAdd);
         toggleItem('record', tableCanAdd);
         toggleSeparator(true);
@@ -1259,7 +1513,33 @@ document.addEventListener('DOMContentLoaded', function () {
         if (markViewedEl) markViewedEl.onclick = function() {
           const viewUrl = row.getAttribute('data-view-url');
           if (viewUrl) {
-            window.location.href = viewUrl;
+            // Use AJAX instead of page redirect
+            fetch(viewUrl, { method: 'GET', credentials: 'include' })
+              .then(response => {
+                if (response.ok) {
+                  // Update row locally to reflect that file has been viewed
+                  row.setAttribute('data-already-viewed', '1');
+                  // Hide the mark-viewed option in context menu
+                  const markViewedOption = menu.querySelector('[data-action="mark-viewed"]');
+                  if (markViewedOption) {
+                    markViewedOption.style.display = 'none';
+                  }
+                  // Emit socket event for other users
+                  try { 
+                    if (window.socket && window.socket.emit) {
+                      window.socket.emit('files:changed', { reason: 'mark-viewed', id: id });
+                    }
+                  } catch(e) {}
+                } else {
+                  // If request fails, fall back to page redirect
+                  window.location.href = viewUrl;
+                }
+              })
+              .catch(error => {
+                console.error('Error marking file as viewed:', error);
+                // Fall back to page redirect on error
+                window.location.href = viewUrl;
+              });
           }
           menu.classList.add('d-none');
         };
@@ -1309,4 +1589,460 @@ document.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('resize', hideMenu);
     menu.addEventListener('contextmenu', function(e){ e.preventDefault(); e.stopPropagation(); });
   })();
+  
+  // Function to refresh the files page after actions
+  window.refreshFilesPage = function() {
+    // Use soft refresh instead of page reload
+    try {
+      if (window.softRefreshFilesTable) {
+        window.softRefreshFilesTable();
+      } else {
+        // Fallback: reload current category/subcategory
+        const currentCategory = document.querySelector('.category-nav .active')?.getAttribute('data-category') || '0';
+        const currentSubcategory = document.querySelector('.subcategory-nav .active')?.getAttribute('data-subcategory') || '1';
+        if (window.navigateToCategory) {
+          window.navigateToCategory(currentCategory, currentSubcategory);
+        }
+      }
+    } catch(e) {
+      console.error('Error refreshing files page:', e);
+    }
+  };
+
+  /**
+   * Navigate to a different category/subcategory via AJAX
+   * @param {number} did - Directory (category) ID
+   * @param {number} sdid - Subdirectory (subcategory) ID
+   * @param {boolean} updateHistory - Whether to update browser history
+   */
+  window.navigateToCategory = function(did, sdid, updateHistory = true) {
+    const url = `/fls/${did}/${sdid}`;
+    console.log('navigateToCategory: Starting AJAX request to', url);
+    
+    fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest' // Indicate AJAX request
+      }
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.text();
+    })
+    .then(html => {
+      // Parse the response HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      // Update category navigation
+      const newCatNav = doc.querySelector('.subbar.cat .subbar__group');
+      const currentCatNav = document.querySelector('.subbar.cat .subbar__group');
+      if (newCatNav && currentCatNav) {
+        currentCatNav.innerHTML = newCatNav.innerHTML;
+        // Re-attach navigation event listeners
+        attachCategoryNavigationListeners();
+      }
+      
+      // Update subcategory navigation
+      const newSubcatNav = doc.querySelector('.subbar.subcat .subbar__group');
+      const currentSubcatNav = document.querySelector('.subbar.subcat .subbar__group');
+      if (newSubcatNav && currentSubcatNav) {
+        currentSubcatNav.innerHTML = newSubcatNav.innerHTML;
+        // Re-attach navigation event listeners
+        attachSubcategoryNavigationListeners();
+      }
+      
+      // Update table
+      const newTable = doc.querySelector('#maintable');
+      const currentTable = document.querySelector('#maintable');
+      if (newTable && currentTable) {
+        currentTable.innerHTML = newTable.innerHTML;
+        // Re-initialize table functionality
+        reinitializeTableAfterNavigation();
+      }
+      
+      // Update browser history
+      if (updateHistory) {
+        const newUrl = `/fls/${did}/${sdid}`;
+        history.pushState({ did: did, sdid: sdid }, '', newUrl);
+      }
+      
+      // Update current page state
+      window.currentDid = did;
+      window.currentSdid = sdid;
+      
+    })
+    .catch(error => {
+      console.error('Navigation error:', error);
+      // Fallback to full page reload
+      window.location.href = url;
+    });
+  };
+
+  /**
+   * Attach event listeners to category navigation links
+   */
+  function attachCategoryNavigationListeners() {
+    const categoryLinks = document.querySelectorAll('.subbar.cat .topbtn');
+    categoryLinks.forEach((link, index) => {
+      // Remove href to prevent default navigation
+      link.removeAttribute('href');
+      // Add cursor pointer style
+      link.style.cursor = 'pointer';
+      
+      // Add click handler
+      link.addEventListener('click', function(e) {
+        console.log('Category click handler triggered for index:', index);
+        e.preventDefault();
+        e.stopPropagation();
+        const did = index;
+        const sdid = 1; // Default to first subcategory
+        console.log('Calling navigateToCategory with did:', did, 'sdid:', sdid);
+        navigateToCategory(did, sdid);
+        return false;
+      });
+    });
+  }
+
+  /**
+   * Attach event listeners to subcategory navigation links
+   */
+  function attachSubcategoryNavigationListeners() {
+    const subcategoryLinks = document.querySelectorAll('.subbar.subcat .topbtn');
+    subcategoryLinks.forEach((link, index) => {
+      // Remove href to prevent default navigation
+      link.removeAttribute('href');
+      // Add cursor pointer style
+      link.style.cursor = 'pointer';
+      
+      // Add click handler
+      link.addEventListener('click', function(e) {
+        console.log('Subcategory click handler triggered for index:', index);
+        e.preventDefault();
+        e.stopPropagation();
+        const did = window.currentDid || 0;
+        const sdid = index + 1; // Subcategories start from 1
+        console.log('Calling navigateToCategory with did:', did, 'sdid:', sdid);
+        navigateToCategory(did, sdid);
+        return false;
+      });
+    });
+  }
+
+  /**
+   * Reinitialize table functionality after navigation
+   */
+  function reinitializeTableAfterNavigation() {
+    try {
+      // Re-initialize context menu after table update
+      // Context menu is already initialized via IIFE, just need to trigger re-binding
+      document.dispatchEvent(new Event('table-updated'));
+      
+      // Re-attach double-click handlers for video opening
+      bindRowOpenHandlers();
+      
+      // Re-attach navigation listeners after content update
+      attachCategoryNavigationListeners();
+      attachSubcategoryNavigationListeners();
+      
+      // Reapply sort (desc by date) and pagination, then restore search
+      try { sortFilesTableByDateDesc(); } catch(e) {}
+      try { initFilesPagination(); } catch(e) {}
+      try {
+        const searchKey = 'files_search:' + location.pathname + location.search;
+        const saved = localStorage.getItem(searchKey) || '';
+        if (saved && saved.trim().length > 0) {
+          filesDoFilter(saved);
+        } else if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
+          window.filesPager.renderPage(window.filesPager.readPage());
+        }
+      } catch(e) {}
+      // Context menu works via event delegation
+      
+    } catch (e) {
+      console.error('Error reinitializing table:', e);
+    }
+  }
+
+  // Initialize navigation on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    // Get current did/sdid from URL or page data
+    const urlParts = window.location.pathname.split('/');
+    if (urlParts[1] === 'fls') {
+      window.currentDid = parseInt(urlParts[2]) || 0;
+      window.currentSdid = parseInt(urlParts[3]) || 1;
+    }
+    
+    // Attach navigation listeners
+    attachCategoryNavigationListeners();
+    attachSubcategoryNavigationListeners();
+    
+    // Handle browser back/forward
+    window.addEventListener('popstate', function(e) {
+      if (e.state && e.state.did !== undefined && e.state.sdid !== undefined) {
+        navigateToCategory(e.state.did, e.state.sdid, false);
+      }
+    });
+  });
+
+  // Function to update file row locally without page refresh
+  window.updateFileRowLocally = function(fileId, fileData) {
+    try {
+      const row = document.querySelector(`tr[data-id="${fileId}"]`);
+      if (!row) return;
+      
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 3) {
+        // Update name (column 0)
+        if (fileData.name !== undefined) {
+          cells[0].textContent = fileData.name;
+        }
+        
+        // Update description (column 1)
+        if (fileData.description !== undefined) {
+          cells[1].textContent = fileData.description;
+        }
+        
+        // Update other fields if provided
+        if (fileData.owner !== undefined && cells[2]) {
+          cells[2].textContent = fileData.owner;
+        }
+        
+        if (fileData.date !== undefined && cells[3]) {
+          cells[3].textContent = fileData.date;
+        }
+      }
+    } catch (e) {
+      console.error('Error updating file row locally:', e);
+    }
+  };
+
+  // Function to add new file row locally
+  window.addFileRowLocally = function(fileData) {
+    try {
+      const tbody = document.querySelector('table tbody');
+      if (!tbody) return;
+      
+      const newRow = document.createElement('tr');
+      newRow.setAttribute('data-id', fileData.id);
+      newRow.innerHTML = `
+        <td>${fileData.name || ''}</td>
+        <td>${fileData.description || ''}</td>
+        <td>${fileData.owner || ''}</td>
+        <td>${fileData.date || ''}</td>
+        <td class="table__body_action">
+          <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-edit" 
+                  onclick="popupValues(document.getElementById('edit'), ${fileData.id}); popupToggle('popup-edit');">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-delete" 
+                  onclick="popupValues(document.getElementById('delete'), ${fileData.id}); popupToggle('popup-delete');">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
+      `;
+      
+      tbody.appendChild(newRow);
+      
+      // Update pagination if needed
+      updateFilePaginationCounts();
+    } catch (e) {
+      console.error('Error adding file row locally:', e);
+    }
+  };
+
+  // Function to remove file row locally
+  window.removeFileRowLocally = function(fileId) {
+    try {
+      const row = document.querySelector(`tr[data-id="${fileId}"]`);
+      if (row) {
+        row.remove();
+        // Update pagination if needed
+        updateFilePaginationCounts();
+      }
+    } catch (e) {
+      console.error('Error removing file row locally:', e);
+    }
+  };
+
+  // Function to update file pagination counts
+  function updateFilePaginationCounts() {
+    try {
+      const tbody = document.querySelector('table tbody');
+      if (!tbody) return;
+      
+      const totalRows = tbody.querySelectorAll('tr').length;
+      const pageInfo = document.querySelector('.pagination-info');
+      if (pageInfo) {
+        // Update total count display
+        pageInfo.textContent = `Всего записей: ${totalRows}`;
+      }
+    } catch (e) {
+      console.error('Error updating file pagination counts:', e);
+    }
+  }
+  
+  /**
+   * Local function removed to avoid recursion - use window.refreshFilesPage directly
+   */
+  
+  /**
+   * Soft refresh files table without page reload
+   */
+  window.softRefreshFilesTable = function() {
+    // Get current category and subcategory
+    const currentCategory = document.querySelector('.category-nav .active')?.getAttribute('data-category') || '0';
+    const currentSubcategory = document.querySelector('.subcategory-nav .active')?.getAttribute('data-subcategory') || '1';
+    
+    // Use AJAX navigation to refresh current view
+    if (window.navigateToCategory) {
+      window.navigateToCategory(currentCategory, currentSubcategory);
+    } else {
+      console.warn('navigateToCategory not available, cannot soft refresh');
+    }
+  };
+  
+  // Function to submit file forms via AJAX
+  window.submitFileFormAjax = function(form) {
+    // Check if there are changes for edit form
+    if (form.id === 'edit') {
+      try {
+        const nameInput = form.querySelector('input[name="name"]');
+        const origName = form.dataset.origName || '';
+        const origDesc = form.dataset.origDesc || '';
+        const descInput = form.querySelector('textarea[name="description"]');
+        const nowName = nameInput ? (nameInput.value || '').replace(/\u00a0/g, ' ').trim() : '';
+        const nowDesc = descInput ? (descInput.value || '').trim() : '';
+        if (nowName === origName && nowDesc === origDesc) {
+          // No changes, just close modal without refreshing table
+          const modal = form.closest('.overlay-container');
+          if (modal) {
+            const modalId = modal.id;
+            try { popupClose(modalId); } catch(e) {}
+          }
+          return;
+        }
+      } catch (e) {}
+    }
+    
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn ? submitBtn.textContent : '';
+    
+    // Disable submit button during request
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Отправка...';
+    }
+    
+    fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(async response => {
+      const contentType = response.headers.get('Content-Type') || '';
+      let data = null;
+      if (contentType.includes('application/json')) {
+        try { data = await response.json(); } catch(_) {}
+      }
+      if (!response.ok || (data && data.status === 'error')) {
+        const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
+        alert(msg);
+        throw new Error(msg);
+      }
+      return data;
+    })
+    .then(() => {
+      // Close modal first
+      const modal = form.closest('.overlay-container');
+      if (modal) {
+        const modalId = modal.id;
+        try { popupClose(modalId); } catch(e) { console.error('Error closing modal:', e); }
+      } else {
+        console.warn('Modal not found for form:', form.id);
+      }
+      
+      // Update table locally instead of full page refresh for some actions
+      try {
+        if (form.id === 'edit') {
+          // File edit - update file name and description locally
+          const fileId = form.action.match(/\/(\d+)$/)?.[1];
+          if (fileId) {
+            updateFileRowLocally(fileId, {
+              name: form.querySelector('input[name="name"]')?.value?.trim(),
+              description: form.querySelector('textarea[name="description"]')?.value?.trim()
+            });
+          } else {
+            window.refreshFilesPage(); // Fallback
+          }
+        } else if (form.id === 'note') {
+          // Update note locally to avoid refresh delay
+          try {
+            const fileId = form.dataset.rowId || (form.action.match(/\/(\d+)$/) || [])[1];
+            const newNote = (form.querySelector('textarea[name="note"]').value || '').trim();
+            if (fileId) {
+              const row = document.getElementById(String(fileId));
+              if (row) {
+                // Update dataset
+                row.setAttribute('data-note', newNote);
+                // Update note text in the notes column (last column)
+                const tds = row.querySelectorAll('td');
+                const notesTd = tds[tds.length - 1];
+                if (notesTd) {
+                  const mt1s = notesTd.querySelectorAll('.mt-1');
+                  const noteContainer = mt1s[mt1s.length - 1] || notesTd; // fallback
+                  const span = noteContainer.querySelector('span') || noteContainer;
+                  const display = newNote ? ('Примечание: ' + newNote) : '<оставить примечание>';
+                  if (span) {
+                    if (display === '<оставить примечание>') {
+                      span.textContent = '<оставить примечание>';
+                    } else {
+                      span.textContent = display;
+                    }
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        } else if (form.id === 'delete') {
+          // File delete - remove row locally
+          const fileId = form.action.match(/\/(\d+)$/)?.[1];
+          if (fileId) {
+            removeFileRowLocally(fileId);
+          } else {
+            window.refreshFilesPage(); // Fallback
+          }
+        } else {
+          // Other forms - soft refresh
+          window.refreshFilesPage();
+        }
+      } catch (e) {
+        console.error('Error updating table locally:', e);
+        window.refreshFilesPage(); // Fallback to soft refresh
+      }
+      
+      // Emit socket event for other users
+      try { 
+        if (window.socket && window.socket.emit) {
+          window.socket.emit('files:changed', { reason: 'form-submit', formId: form.id });
+        }
+      } catch(e) {}
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      alert('Ошибка при отправке данных');
+    })
+    .finally(() => {
+      // Re-enable submit button
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      }
+    });
+  };
 });

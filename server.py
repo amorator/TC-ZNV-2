@@ -32,7 +32,7 @@ from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
 from werkzeug.middleware.proxy_fix import ProxyFix
-from middleware import init_middleware
+from modules.middleware import init_middleware
 
 app = Server(path.dirname(path.realpath(__file__)))
 # Initialize logging

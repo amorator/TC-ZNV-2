@@ -1,4 +1,14 @@
 /**
+ * Trim input field if it exists
+ * @param {HTMLInputElement} input
+ */
+function trimIfExists(input) {
+  if (input && input.value) {
+    input.value = input.value.trim();
+  }
+}
+
+/**
  * Validate login form minimally and submit.
  * @param {HTMLFormElement} x
  */
