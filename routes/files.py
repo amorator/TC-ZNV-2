@@ -407,8 +407,8 @@ def register(app, media_service, socketio=None) -> None:
 			dirs = list(_dirs[did].keys())
 			selected_root = request.form.get('target_root')
 			selected_sub = request.form.get('target_sub')
-			# Validate selected root exists in allowed dirs
-			valid_roots = [list(d.keys())[0] for d in _dirs]
+			# Validate selected root exists in allowed dirs (match values as used in template)
+			valid_roots = [list(d.values())[0] for d in _dirs]
 			if selected_root not in valid_roots:
 				raise ValueError('Неверная категория назначения')
 			# Find its sub list to validate subcategory
