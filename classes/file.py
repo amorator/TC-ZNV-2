@@ -1,6 +1,7 @@
 from flask_login import current_user
 from datetime import datetime as dt
 from typing import Optional, List
+import os
 
 class File:
     """Domain model for a stored media file entry."""
@@ -49,6 +50,58 @@ class File:
             self.size_mb: float = float(size_mb or 0)
         except Exception:
             self.size_mb = 0.0
+        
+        # Check if file exists on disk
+        self.exists: bool = self._check_file_exists()
+
+    def _check_file_exists(self) -> bool:
+        """Check if the file exists on disk (prefer converted mp4, fallback to webm)."""
+        try:
+            # Determine target media path: prefer converted mp4, fallback to original webm
+            base = os.path.join(self.path, os.path.splitext(self.real_name)[0])
+            target = os.path.join(self.path, self.real_name)
+            
+            # For processing files (ready=0), check original webm first
+            if self.ready == 0:
+                webm_target = base + '.webm'
+                if os.path.exists(webm_target):
+                    return True
+                # Also check if converted mp4 exists (conversion might be complete)
+                return os.path.exists(target)
+            else:
+                # For ready files, check converted mp4 first, fallback to webm
+                if not os.path.exists(target):
+                    target = base + '.webm'
+                return os.path.exists(target)
+        except Exception:
+            return False
+
+    def update_exists_status(self) -> None:
+        """Update the exists status by re-checking the file on disk."""
+        self.exists = self._check_file_exists()
+
+    def get_file_path(self) -> str:
+        """Get the appropriate file path for the current state (webm for processing, mp4 for ready)."""
+        try:
+            base = os.path.join(self.path, os.path.splitext(self.real_name)[0])
+            target = os.path.join(self.path, self.real_name)
+            
+            # For processing files (ready=0), prefer webm
+            if self.ready == 0:
+                webm_target = base + '.webm'
+                if os.path.exists(webm_target):
+                    return webm_target
+                # Fallback to mp4 if webm doesn't exist but mp4 does
+                if os.path.exists(target):
+                    return target
+                return webm_target  # Return webm path even if it doesn't exist
+            else:
+                # For ready files, prefer mp4, fallback to webm
+                if os.path.exists(target):
+                    return target
+                return base + '.webm'
+        except Exception:
+            return os.path.join(self.path, self.real_name)
 
     @property
     def length_human(self) -> str:

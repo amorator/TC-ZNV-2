@@ -902,6 +902,36 @@ window.searchClean = function () {
 };
 
 document.addEventListener('DOMContentLoaded', function () {
+  // Initialize missing file banners for files that don't exist
+  const rows = document.querySelectorAll('tr[data-exists="0"]');
+  rows.forEach(row => {
+    const fileId = row.getAttribute('data-id');
+    if (fileId) {
+      // Inline function to mark file as missing (since markFileAsMissing is defined later)
+      try {
+        const targetRow = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
+        if (!targetRow) return;
+        targetRow.setAttribute('data-exists', '0');
+        // Insert banner at the top of the notes column (last column)
+        const tds = targetRow.querySelectorAll('td');
+        const notesTd = tds[tds.length - 1];
+        if (!notesTd) return;
+        let banner = notesTd.querySelector('.file-missing-banner');
+        if (!banner) {
+          banner = document.createElement('div');
+          banner.className = 'file-missing-banner';
+          banner.style.color = 'var(--danger, #b00020)';
+          banner.style.fontWeight = '600';
+          banner.style.marginBottom = '4px';
+          banner.textContent = 'Файл не найден';
+          notesTd.prepend(banner);
+        } else {
+          banner.textContent = 'Файл не найден';
+        }
+      } catch (e) { /* noop */ }
+    }
+  });
+  
   // Run after other ready handlers
   sortFilesTableByDateDesc();
   initFilesPagination();
@@ -1061,6 +1091,14 @@ document.addEventListener('DOMContentLoaded', function () {
        * @param {Object} evt - Event data
        */
       socket.on('files:changed', function(evt) {
+        // Handle file missing status updates
+        if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
+          if (evt.file_exists) {
+            window.clearFileMissingStatus(evt.id);
+          } else {
+            window.markFileAsMissing(evt.id);
+          }
+        }
         softRefreshFilesTable();
       });
       
@@ -1069,11 +1107,77 @@ document.addEventListener('DOMContentLoaded', function () {
        * @param {Object} evt - Event data
        */
       socket.on('/files:changed', function(evt) {
+        // Handle file missing status updates
+        if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
+          if (evt.file_exists) {
+            window.clearFileMissingStatus(evt.id);
+          } else {
+            window.markFileAsMissing(evt.id);
+          }
+        }
         softRefreshFilesTable();
       });
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
+  }
+
+  // Helper: smooth table update without flickering
+  function smoothUpdateTableBody(oldTbody, newTbody) {
+    const oldRows = Array.from(oldTbody.querySelectorAll('tr'));
+    const newRows = Array.from(newTbody.querySelectorAll('tr'));
+    
+    // Create maps for efficient lookup
+    const oldRowMap = new Map();
+    const newRowMap = new Map();
+    
+    oldRows.forEach(row => {
+      const id = row.getAttribute('data-id') || row.id;
+      if (id) oldRowMap.set(id, row);
+    });
+    
+    newRows.forEach(row => {
+      const id = row.getAttribute('data-id') || row.id;
+      if (id) newRowMap.set(id, row);
+    });
+    
+    // Update existing rows
+    for (const [id, newRow] of newRowMap) {
+      const oldRow = oldRowMap.get(id);
+      if (oldRow) {
+        // Update existing row content without replacing the entire row
+        const oldCells = oldRow.querySelectorAll('td');
+        const newCells = newRow.querySelectorAll('td');
+        
+        if (oldCells.length === newCells.length) {
+          // Update cell content
+          for (let i = 0; i < oldCells.length; i++) {
+            if (oldCells[i].innerHTML !== newCells[i].innerHTML) {
+              oldCells[i].innerHTML = newCells[i].innerHTML;
+            }
+          }
+          // Update row attributes
+          Array.from(newRow.attributes).forEach(attr => {
+            if (oldRow.getAttribute(attr.name) !== attr.value) {
+              oldRow.setAttribute(attr.name, attr.value);
+            }
+          });
+        } else {
+          // Row structure changed, replace it
+          oldRow.replaceWith(newRow.cloneNode(true));
+        }
+      } else {
+        // Add new row
+        oldTbody.appendChild(newRow.cloneNode(true));
+      }
+    }
+    
+    // Remove rows that no longer exist
+    for (const [id, oldRow] of oldRowMap) {
+      if (!newRowMap.has(id)) {
+        oldRow.remove();
+      }
+    }
   }
 
   // Helper: soft refresh table body without losing search/pagination
@@ -1100,12 +1204,41 @@ document.addEventListener('DOMContentLoaded', function () {
         const doc = parser.parseFromString(html, 'text/html');
         const newTbody = doc.querySelector('#maintable tbody');
         if (!newTbody) return;
-        tbody.innerHTML = newTbody.innerHTML;
+        
+        // Use smooth update instead of innerHTML replacement
+        smoothUpdateTableBody(tbody, newTbody);
 
         // Rebind dblclick handlers for opening player
         try { bindRowOpenHandlers(); } catch(e) {}
         // Rebind copy handlers for names
         try { bindCopyNameHandlers(); } catch(e) {}
+
+        // Restore missing file banners after table refresh
+        try {
+          const missingRows = document.querySelectorAll('tr[data-exists="0"]');
+          missingRows.forEach(row => {
+            const fileId = row.getAttribute('data-id');
+            if (fileId) {
+              // Use the global function if available, otherwise inline
+              if (window.markFileAsMissing) {
+                window.markFileAsMissing(fileId);
+              } else {
+                // Inline banner creation
+                const tds = row.querySelectorAll('td');
+                const notesTd = tds[tds.length - 1];
+                if (notesTd && !notesTd.querySelector('.file-missing-banner')) {
+                  const banner = document.createElement('div');
+                  banner.className = 'file-missing-banner';
+                  banner.style.color = 'var(--danger, #b00020)';
+                  banner.style.fontWeight = '600';
+                  banner.style.marginBottom = '4px';
+                  banner.textContent = 'Файл не найден';
+                  notesTd.prepend(banner);
+                }
+              }
+            }
+          });
+        } catch(e) {}
 
         // Reapply sort (desc by date)
         try { sortFilesTableByDateDesc(); } catch(e) {}
@@ -1162,12 +1295,33 @@ document.addEventListener('DOMContentLoaded', function () {
       rows.forEach(tr => {
         tr.addEventListener('dblclick', function() {
           const url = tr.getAttribute('data-url');
+          const exists = tr.getAttribute('data-exists');
           if (!url) return;
+          
+          // Don't open missing files
+          if (exists === '0') {
+            return;
+          }
+          
           const player = document.getElementById('player-video');
           if (player) {
             try { player.pause(); } catch(e) {}
             player.src = url;
             try { player.currentTime = 0; } catch(e) {}
+            
+            // Add error handler for missing files
+            player.onerror = function() {
+              const fileId = tr.getAttribute('data-id');
+              console.error('Video load error for file:', fileId);
+              if (fileId) {
+                window.markFileAsMissing(fileId);
+              }
+              // Close the player modal
+              const modal = document.getElementById('popup-view');
+              if (modal) {
+                popupClose('popup-view');
+              }
+            };
           }
           popupToggle('popup-view');
         });
@@ -1376,23 +1530,36 @@ document.addEventListener('DOMContentLoaded', function () {
         const isReady = row.getAttribute('data-is-ready') !== '0';
         const hasDownload = !!row.getAttribute('data-download');
         const canRefresh = canEdit || canDelete; // align refresh rights with edit or delete
+        const isMissing = row.getAttribute('data-exists') === '0';
 
         // Toggle visibility of items based on state and permissions
-        toggleItem('open', isReady);
-        toggleItem('download', hasDownload || isReady);
-        toggleItem('edit', canEdit);
-        toggleItem('move', isReady && canEdit); // disable move for processing files
-        toggleItem('delete', canDelete);
+        if (isMissing) {
+          // Only allow refresh and delete when file missing
+          toggleItem('open', false);
+          toggleItem('download', false);
+          toggleItem('edit', false);
+          toggleItem('move', false);
+          toggleItem('delete', canDelete);
+          toggleItem('note', false);
+          toggleItem('mark-viewed', false);
+          toggleItem('refresh', canRefresh);
+        } else {
+          toggleItem('open', isReady);
+          toggleItem('download', hasDownload || isReady);
+          toggleItem('edit', canEdit);
+          toggleItem('move', isReady && canEdit); // disable move for processing files
+          toggleItem('delete', canDelete);
+        }
         // If already viewed by current user, hide mark-viewed
         const alreadyViewed = row.getAttribute('data-already-viewed') === '1';
         toggleItem('mark-viewed', isReady && canMarkView && !alreadyViewed);
         toggleItem('note', isReady && canNote);
         toggleItem('refresh', canRefresh);
 
-        // For files in processing state (not ready): only allow Refresh and Delete (no Edit)
-        if (!isReady) {
+        // For files in processing state (not ready): only allow Refresh, Delete, and Download (no Edit, Move, Open)
+        if (!isMissing && !isReady) {
           toggleItem('open', false);
-          toggleItem('download', false);
+          toggleItem('download', hasDownload); // Allow download for processing files (webm)
           toggleItem('move', false);
           toggleItem('delete', canDelete);
           toggleItem('note', false);
@@ -1469,6 +1636,18 @@ document.addEventListener('DOMContentLoaded', function () {
             try { player.pause(); } catch(e) {}
             player.src = url;
             try { player.currentTime = 0; } catch(e) {}
+            
+            // Add error handler for missing files
+            player.onerror = function() {
+              console.error('Video load error for file:', id);
+              window.markFileAsMissing(id);
+              // Close the player modal
+              const modal = document.getElementById('popup-view');
+              if (modal) {
+                popupClose('popup-view');
+              }
+            };
+            
             popupToggle('popup-view');
           }
           menu.classList.add('d-none');
@@ -1476,12 +1655,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (downloadEl) downloadEl.onclick = function() {
           if (download) {
-            const a = document.createElement('a');
-            a.href = download;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            // Check if file exists before downloading
+            fetch(download, { method: 'HEAD' })
+              .then(response => {
+                if (!response.ok) {
+                  console.error('Download error for file:', id);
+                  window.markFileAsMissing(id);
+                  return;
+                }
+                // File exists, proceed with download
+                const a = document.createElement('a');
+                a.href = download;
+                a.download = '';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              })
+              .catch(error => {
+                console.error('Download check error for file:', id, error);
+                window.markFileAsMissing(id);
+              });
           }
           menu.classList.add('d-none');
         };
@@ -1551,8 +1744,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (refreshEl) refreshEl.onclick = function() {
           try {
-            fetch(`${window.location.origin}/fls/refresh/${id}`, { method: 'POST', credentials: 'include' })
-              .then(() => { try { window.socket && window.socket.emit && window.socket.emit('files:changed', { reason: 'refresh-request', id }); } catch(e) {} })
+            fetch(`${window.location.origin}/fls/refresh/${id}`, { 
+              method: 'POST', 
+              credentials: 'include',
+              headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+              .then(response => response.json())
+              .then(data => {
+                if (data.status === 'success' && data.file_exists) {
+                  // File exists, clear missing status
+                  window.clearFileMissingStatus(id);
+                } else if (data.status === 'error' && data.message === 'File not found') {
+                  // File missing, mark as missing
+                  window.markFileAsMissing(id);
+                }
+                // Emit socket event for other users
+                try { window.socket && window.socket.emit && window.socket.emit('files:changed', { reason: 'refresh-request', id }); } catch(e) {}
+              })
+              .catch(error => {
+                console.error('Refresh error:', error);
+                // On error, assume file is missing
+                window.markFileAsMissing(id);
+              })
               .finally(() => { try { softRefreshFilesTable(); } catch(e) {} });
           } catch (e) { try { softRefreshFilesTable(); } catch(_) {} }
           menu.classList.add('d-none');
@@ -1588,6 +1801,42 @@ document.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('scroll', hideMenu, true);
     window.addEventListener('resize', hideMenu);
     menu.addEventListener('contextmenu', function(e){ e.preventDefault(); e.stopPropagation(); });
+    
+    // Listen for context menu reinitialization events
+    document.addEventListener('context-menu-reinit', function() {
+      try {
+        // Re-bind all menu item actions to ensure they work with updated table
+        const menuItems = menu.querySelectorAll('.context-menu__item');
+        menuItems.forEach(item => {
+          // Remove existing onclick handlers
+          item.onclick = null;
+          
+          // Re-bind actions based on data-action attribute
+          const action = item.getAttribute('data-action');
+          if (action) {
+            item.onclick = function() {
+              // Find the current row from the menu's data attribute
+              const currentRowId = menu.getAttribute('data-current-row');
+              if (currentRowId) {
+                const row = document.querySelector(`tr[data-id="${currentRowId}"]`);
+                if (row) {
+                  // Re-bind actions for the current row
+                  bindActions(row);
+                  // Trigger the specific action
+                  const actionElement = menu.querySelector(`[data-action="${action}"]`);
+                  if (actionElement && actionElement.onclick) {
+                    actionElement.onclick();
+                  }
+                }
+              }
+              menu.classList.add('d-none');
+            };
+          }
+        });
+      } catch(e) {
+        // Silent fail
+      }
+    });
   })();
   
   // Function to refresh the files page after actions
@@ -1617,7 +1866,7 @@ document.addEventListener('DOMContentLoaded', function () {
    */
   window.navigateToCategory = function(did, sdid, updateHistory = true) {
     const url = `/fls/${did}/${sdid}`;
-    console.log('navigateToCategory: Starting AJAX request to', url);
+    
     
     fetch(url, {
       method: 'GET',
@@ -1655,11 +1904,19 @@ document.addEventListener('DOMContentLoaded', function () {
         attachSubcategoryNavigationListeners();
       }
       
-      // Update table
+      // Update table smoothly
       const newTable = doc.querySelector('#maintable');
       const currentTable = document.querySelector('#maintable');
       if (newTable && currentTable) {
-        currentTable.innerHTML = newTable.innerHTML;
+        const newTbody = newTable.querySelector('tbody');
+        const currentTbody = currentTable.querySelector('tbody');
+        if (newTbody && currentTbody) {
+          // Use smooth update for table body
+          smoothUpdateTableBody(currentTbody, newTbody);
+        } else {
+          // Fallback to full replacement if structure is different
+          currentTable.innerHTML = newTable.innerHTML;
+        }
         // Re-initialize table functionality
         reinitializeTableAfterNavigation();
       }
@@ -1695,12 +1952,12 @@ document.addEventListener('DOMContentLoaded', function () {
       
       // Add click handler
       link.addEventListener('click', function(e) {
-        console.log('Category click handler triggered for index:', index);
+        
         e.preventDefault();
         e.stopPropagation();
         const did = index;
         const sdid = 1; // Default to first subcategory
-        console.log('Calling navigateToCategory with did:', did, 'sdid:', sdid);
+        
         navigateToCategory(did, sdid);
         return false;
       });
@@ -1720,16 +1977,36 @@ document.addEventListener('DOMContentLoaded', function () {
       
       // Add click handler
       link.addEventListener('click', function(e) {
-        console.log('Subcategory click handler triggered for index:', index);
+        
         e.preventDefault();
         e.stopPropagation();
         const did = window.currentDid || 0;
         const sdid = index + 1; // Subcategories start from 1
-        console.log('Calling navigateToCategory with did:', did, 'sdid:', sdid);
+        
         navigateToCategory(did, sdid);
         return false;
       });
     });
+  }
+
+  /**
+   * Reinitialize context menu after table update
+   */
+  function reinitializeContextMenu() {
+    try {
+      // Trigger a custom event to reinitialize context menu
+      // The existing IIFE will handle the reinitialization
+      const event = new CustomEvent('context-menu-reinit', {
+        detail: { timestamp: Date.now() }
+      });
+      document.dispatchEvent(event);
+      
+      // Also trigger table update event for any other listeners
+      document.dispatchEvent(new Event('table-updated'));
+      
+    } catch(e) {
+      // Silent fail
+    }
   }
 
   /**
@@ -1738,11 +2015,40 @@ document.addEventListener('DOMContentLoaded', function () {
   function reinitializeTableAfterNavigation() {
     try {
       // Re-initialize context menu after table update
-      // Context menu is already initialized via IIFE, just need to trigger re-binding
+      reinitializeContextMenu();
+      
+      // Trigger table update event
       document.dispatchEvent(new Event('table-updated'));
       
       // Re-attach double-click handlers for video opening
       bindRowOpenHandlers();
+      
+      // Restore missing file banners after navigation
+      try {
+        const missingRows = document.querySelectorAll('tr[data-exists="0"]');
+        missingRows.forEach(row => {
+          const fileId = row.getAttribute('data-id');
+          if (fileId) {
+            // Use the global function if available, otherwise inline
+            if (window.markFileAsMissing) {
+              window.markFileAsMissing(fileId);
+            } else {
+              // Inline banner creation
+              const tds = row.querySelectorAll('td');
+              const notesTd = tds[tds.length - 1];
+              if (notesTd && !notesTd.querySelector('.file-missing-banner')) {
+                const banner = document.createElement('div');
+                banner.className = 'file-missing-banner';
+                banner.style.color = 'var(--danger, #b00020)';
+                banner.style.fontWeight = '600';
+                banner.style.marginBottom = '4px';
+                banner.textContent = 'Файл не найден';
+                notesTd.prepend(banner);
+              }
+            }
+          }
+        });
+      } catch(e) {}
       
       // Re-attach navigation listeners after content update
       attachCategoryNavigationListeners();
@@ -1818,6 +2124,49 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) {
       console.error('Error updating file row locally:', e);
     }
+  };
+
+  // Mark a file row as missing on disk: show a non-editable banner and flag the row
+  window.markFileAsMissing = function(fileId) {
+    try {
+      const row = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
+      if (!row) return;
+      row.setAttribute('data-exists', '0');
+      // Insert banner at the top of the notes column (last column)
+      const tds = row.querySelectorAll('td');
+      const notesTd = tds[tds.length - 1];
+      if (!notesTd) return;
+      let banner = notesTd.querySelector('.file-missing-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.className = 'file-missing-banner';
+        banner.style.color = 'var(--danger, #b00020)';
+        banner.style.fontWeight = '600';
+        banner.style.marginBottom = '4px';
+        banner.textContent = 'Файл не найден';
+        notesTd.prepend(banner);
+      } else {
+        banner.textContent = 'Файл не найден';
+      }
+    } catch (e) { /* noop */ }
+  };
+
+  // Clear missing status from a file row
+  window.clearFileMissingStatus = function(fileId) {
+    try {
+      const row = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
+      if (!row) return;
+      row.setAttribute('data-exists', '1');
+      // Remove banner from notes column
+      const tds = row.querySelectorAll('td');
+      const notesTd = tds[tds.length - 1];
+      if (notesTd) {
+        const banner = notesTd.querySelector('.file-missing-banner');
+        if (banner) {
+          banner.remove();
+        }
+      }
+    } catch (e) { /* noop */ }
   };
 
   // Function to add new file row locally
@@ -1952,7 +2301,14 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       if (!response.ok || (data && data.status === 'error')) {
         const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
-        alert(msg);
+        // If backend reports missing file, mark the row accordingly
+        try {
+          const isMissing = /file not found/i.test(msg) || /файл не найден/i.test(msg);
+          if (isMissing) {
+            const fileId = (form.dataset && form.dataset.rowId) || (form.action.match(/\/(\d+)$/) || [])[1];
+            if (fileId) { window.markFileAsMissing(fileId); }
+          }
+        } catch(_) {}
         throw new Error(msg);
       }
       return data;
@@ -2017,6 +2373,9 @@ document.addEventListener('DOMContentLoaded', function () {
           } else {
             window.refreshFilesPage(); // Fallback
           }
+        } else if (form.id === 'move') {
+          // After move, soft refresh current category/subcategory
+          window.refreshFilesPage();
         } else {
           // Other forms - soft refresh
           window.refreshFilesPage();
@@ -2035,7 +2394,6 @@ document.addEventListener('DOMContentLoaded', function () {
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('Ошибка при отправке данных');
     })
     .finally(() => {
       // Re-enable submit button

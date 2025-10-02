@@ -71,6 +71,7 @@
                   data-root="{{ (dirs[did].values() | list)[0] }}"
                   data-sub="{{ (dirs[did].values() | list)[sdid] }}"
                   data-note="{{ file.note if file.note else '' }}"
+                  data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
                   <td class="table__body_item">{{ file.description }}</td>
@@ -111,6 +112,7 @@
                   data-root="{{ (dirs[did].values() | list)[0] }}"
                   data-sub="{{ (dirs[did].values() | list)[sdid] }}"
                   data-is-ready="0"
+                  data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item">{{ file.display_name }}</td>
                   <td class="table__body_item">{{ file.description }}</td>

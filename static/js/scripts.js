@@ -313,6 +313,18 @@ function popupToggle(x, id = 0) {
     overlay.style.display = 'flex';
     overlay.classList.add('show');
     overlay.classList.add('visible');
+    
+    // Restore z-index for modal and overlay
+    overlay.style.zIndex = '1050';
+    overlay.style.pointerEvents = 'auto';
+    
+    // Also restore popup inside overlay
+    const popupElement = overlay.querySelector('.popup');
+    if (popupElement) {
+      popupElement.style.zIndex = '1050';
+      popupElement.style.pointerEvents = 'auto';
+    }
+    
     popup = x;
   } else {
     // Closing

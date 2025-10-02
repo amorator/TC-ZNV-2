@@ -375,6 +375,12 @@ def register(app, media_service, socketio=None) -> None:
 		if not file:
 			app.flash_error('File not found')
 			return redirect(url_for('files', did=did, sdid=sdid))
+		
+		# Update file existence status before processing
+		file.update_exists_status()
+		if not file.exists:
+			app.flash_error('Файл не найден на диске')
+			return redirect(url_for('files', did=did, sdid=sdid))
 			
 		try:
 			if file.viewed:
@@ -429,10 +435,15 @@ def register(app, media_service, socketio=None) -> None:
 					os.replace(old_path, new_path)
 			# Update DB path
 			app._sql.file_move([new_dir, id])
+			
+			# Refresh file object to update exists status
+			file.path = new_dir
+			file.update_exists_status()
+			
 			# Notify clients
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'moved', 'id': id}, broadcast=True)
+					socketio.emit('files:changed', {'reason': 'moved', 'id': id, 'file_exists': file.exists}, broadcast=True)
 				except Exception:
 					pass
 		except Exception as e:
@@ -483,17 +494,30 @@ def register(app, media_service, socketio=None) -> None:
 			file_rec = app._sql.file_by_id([id])
 			if not file_rec:
 				return abort(404)
-			# Determine target media path: prefer converted mp4, fallback to original webm
-			base = path.join(file_rec.path, path.splitext(file_rec.real_name)[0])
-			target = path.join(file_rec.path, file_rec.real_name)
-			if not os.path.exists(target):
-				target = base + '.webm'
+			
+			# Update file existence status
+			file_rec.update_exists_status()
+			
+			# Check if file exists on disk
+			if not file_rec.exists:
+				# Notify clients that file is missing
+				if socketio:
+					try:
+						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'file_exists': False}, broadcast=True)
+					except Exception:
+						pass
+				if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+					return {'status': 'error', 'message': 'File not found'}, 404
+				return {'error': 'File not found'}, 404
 			# Allow owner or users with edit_any/mark_viewed to refresh
 			owner_name = (file_rec.owner or '')
 			is_owner = (current_user.name + ' (') in owner_name
 			if not (is_owner or current_user.has('files.edit_any') or current_user.has('files.mark_viewed')):
 				return abort(403)
 
+			# Get the appropriate file path for the current state
+			target = file_rec.get_file_path()
+			
 			length_seconds = 0
 			size_mb = 0.0
 			# size
@@ -549,15 +573,18 @@ def register(app, media_service, socketio=None) -> None:
 				app._sql.file_update_metadata([length_seconds, size_mb, id])
 			except Exception:
 				pass
+			# Update file existence status after successful metadata refresh
+			file_rec.update_exists_status()
+			
 			# Notify clients
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+					socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}, 'file_exists': file_rec.exists}, broadcast=True)
 				except Exception:
 					pass
 			# Return JSON for AJAX requests, simple response for traditional requests
 			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-				return {'status': 'success', 'message': 'File metadata refreshed successfully'}, 200
+				return {'status': 'success', 'message': 'File metadata refreshed successfully', 'file_exists': file_rec.exists}, 200
 			return {'ok': 1}
 		except Exception as e:
 			app.flash_error(e)

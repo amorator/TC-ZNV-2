@@ -74,19 +74,44 @@
 .record-page__source-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   cursor: pointer;
   font-size: 14px;
   color: var(--body-text, #333);
+  padding: 8px 12px;
+  border-radius: var(--control-radius, 4px);
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  background: var(--control-bg, #f9f9f9);
+}
+
+.record-page__source-label:hover {
+  background: var(--control-hover-bg, #e9e9e9);
+  border-color: var(--control-border, #ccc);
 }
 
 .record-page__source-label input[type="radio"] {
   margin: 0;
   accent-color: var(--button-bg, #007bff);
+  transform: scale(1.2);
 }
 
 .record-page__source-label span {
   user-select: none;
+  font-weight: 500;
+}
+
+/* Selected source styling */
+.record-page__source-label.source-selected {
+  background: var(--button-bg, #007bff);
+  color: white;
+  border-color: var(--button-bg, #007bff);
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+}
+
+.record-page__source-label.source-selected span {
+  font-weight: 600;
 }
 
 .record-page__settings {
@@ -107,6 +132,27 @@
 
 .record-page__setting-element {
   flex: 2;
+}
+
+/* Download links styling */
+.download-record-link {
+  display: inline-block;
+  margin: 5px 0;
+  padding: 8px 16px;
+  background: var(--button-bg, #007bff);
+  color: white;
+  text-decoration: none;
+  border-radius: var(--control-radius, 4px);
+  font-size: 14px;
+  transition: background-color 0.2s ease;
+  z-index: 1;
+  position: relative;
+}
+
+.download-record-link:hover {
+  background: var(--button-hover-bg, #0056b3);
+  color: white;
+  text-decoration: none;
 }
 
 /* Make all controls look like the modal close button (btn-secondary) */
@@ -202,6 +248,62 @@
   border-color: var(--progress-border, var(--brand-green, #00ff00));
 }
 
+/* Download container styles */
+.record-download-container {
+  background-color: var(--modal-bg, var(--body-bg, #ffffff));
+  border-color: var(--border-color, #dee2e6);
+  color: var(--body-text, #212529);
+}
+
+.record-download-container .download-record-link {
+  background-color: var(--primary, #007bff);
+  color: white;
+  border: 1px solid var(--primary, #007bff);
+  transition: all 0.2s ease;
+}
+
+.record-download-container .download-record-link:hover {
+  background-color: var(--primary-hover, #0056b3);
+  border-color: var(--primary-hover, #0056b3);
+  color: white;
+  text-decoration: none;
+}
+
 .theme-dark-hc .record-page .progress .progress-bar {
   background: var(--progress-bar, linear-gradient(90deg, var(--brand-green, #00ff00), #003300));
+}
+
+/* Dark theme support for download container */
+.theme-dark .record-download-container {
+  background-color: var(--modal-bg, var(--body-bg, #2d3748));
+  border-color: var(--border-color, #4a5568);
+  color: var(--body-text, #e2e8f0);
+}
+
+.theme-dark .record-download-container .download-record-link {
+  background-color: var(--primary, #3182ce);
+  border-color: var(--primary, #3182ce);
+}
+
+.theme-dark .record-download-container .download-record-link:hover {
+  background-color: var(--primary-hover, #2c5aa0);
+  border-color: var(--primary-hover, #2c5aa0);
+}
+
+.theme-dark-hc .record-download-container {
+  background-color: var(--modal-bg, #000000);
+  border-color: var(--border-color, var(--brand-green, #00ff00));
+  color: var(--body-text, var(--brand-green, #00ff00));
+}
+
+.theme-dark-hc .record-download-container .download-record-link {
+  background-color: var(--primary, var(--brand-green, #00ff00));
+  border-color: var(--primary, var(--brand-green, #00ff00));
+  color: #000000;
+}
+
+.theme-dark-hc .record-download-container .download-record-link:hover {
+  background-color: var(--primary-hover, #00cc00);
+  border-color: var(--primary-hover, #00cc00);
+  color: #000000;
 }

@@ -163,8 +163,14 @@ disable(buttonStop);
   if (sourceScreen) sourceScreen.addEventListener('change', onSourceChange);
   if (sourceBoth) sourceBoth.addEventListener('change', onSourceChange);
   
+  // Add visual feedback for source selection
+  updateSourceSelectionStyles();
+  
   // Initial UI state
   updateVideoVisibility();
+  
+  // Check camera state and update button states accordingly
+  updateButtonStates();
   
   postState();
   // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
@@ -186,7 +192,17 @@ disable(buttonStop);
       } catch(e) {}
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      try { onStopClick(); } catch(e) {}
+      event.stopPropagation();
+      try { 
+        // Check if we're currently recording
+        const isRecording = recState.recording || 
+          (recorderScreen && recorderScreen.state === 'recording') || 
+          (recorderCamera && recorderCamera.state === 'recording');
+        
+        if (isRecording) {
+          onStopClick(); 
+        }
+      } catch(e) {}
     }
   };
   try { window.addEventListener('keydown', handleKey, true); } catch(e) {}
@@ -203,8 +219,9 @@ function setStoppedUI() {
   try { buttonStart.textContent = 'Начать запись'; } catch(e) {}
   try { disable(buttonPause); } catch(e) {}
   try { disable(buttonStop); } catch(e) {}
-  try { if (buttonSave) buttonSave.disabled = false; } catch(e) {}
-  resetTimer(true);
+  // Update save button visibility based on recorded data
+  updateSaveButtonVisibility();
+  // Don't reset timer when stopping - keep the recorded time visible
 }
 
 /**
@@ -233,6 +250,68 @@ function resetAfterSave() {
   
   // Update video visibility after reset
   updateVideoVisibility();
+  
+  // Update button states after reset
+  updateButtonStates();
+  
+  // Reinitialize button handlers to ensure they work
+  if (buttonCamera) buttonCamera.onclick = onCameraClick;
+  if (buttonStart) buttonStart.onclick = onStartClick;
+  if (buttonPause) buttonPause.onclick = onPauseClick;
+  if (buttonStop) buttonStop.onclick = onStopClick;
+  if (buttonSave) buttonSave.onclick = onSaveClick;
+  
+  // Reinitialize source selection handlers
+  if (sourceCamera) {
+    sourceCamera.removeEventListener('change', onSourceChange);
+    sourceCamera.addEventListener('change', onSourceChange);
+  }
+  if (sourceScreen) {
+    sourceScreen.removeEventListener('change', onSourceChange);
+    sourceScreen.addEventListener('change', onSourceChange);
+  }
+  if (sourceBoth) {
+    sourceBoth.removeEventListener('change', onSourceChange);
+    sourceBoth.addEventListener('change', onSourceChange);
+  }
+  
+  // Reinitialize keyboard handlers
+  try {
+    const handleKey = function (event) {
+      const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+      if (event.key === 'Enter' && !isTextarea) {
+        event.preventDefault();
+        try {
+          if ((recorderScreen && recorderScreen.state === 'recording') || (recorderCamera && recorderCamera.state === 'recording')) {
+            stopRecorder().then(() => { onSaveClick(); });
+          } else {
+            onSaveClick();
+          }
+        } catch(e) {}
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        try { 
+          // Check if we're currently recording
+          const isRecording = recState.recording || 
+            (recorderScreen && recorderScreen.state === 'recording') || 
+            (recorderCamera && recorderCamera.state === 'recording');
+          
+          if (isRecording) {
+            onStopClick(); 
+          }
+        } catch(e) {}
+      }
+    };
+    
+    // Remove existing handlers and add new ones
+    window.removeEventListener('keydown', handleKey, true);
+    document.removeEventListener('keydown', handleKey, true);
+    window.addEventListener('keydown', handleKey, true);
+    document.addEventListener('keydown', handleKey, true);
+  } catch(e) {
+    // Silent fail
+  }
   
   postState();
 }
@@ -272,6 +351,49 @@ function stopCameraStream() {
 }
 
 /**
+ * Update button states based on camera and recording state.
+ * @returns {void}
+ */
+function updateButtonStates() {
+  try {
+    // Check if camera is currently active
+    const isCameraActive = buttonCamera && (
+      buttonCamera.textContent.includes('Выключить') || 
+      buttonCamera.textContent.includes('Остановить')
+    );
+    
+    // Check if we have active camera stream
+    const hasActiveStream = videoCamera && videoCamera.srcObject && 
+      videoCamera.srcObject.getTracks && 
+      videoCamera.srcObject.getTracks().some(track => track.readyState === 'live');
+    
+    // Update start button based on camera state
+    if (buttonStart) {
+      if (isCameraActive || hasActiveStream) {
+        enable(buttonStart);
+      } else {
+        disable(buttonStart);
+      }
+    }
+    
+    // Always disable pause and stop buttons on initialization
+    if (buttonPause) disable(buttonPause);
+    if (buttonStop) disable(buttonStop);
+    
+    // Hide save button on initialization
+    if (buttonSave) {
+      buttonSave.disabled = true;
+      try { buttonSave.style.display = 'none'; } catch(e) {}
+    }
+  } catch (e) {
+    // Silent fail - ensure buttons are in safe state
+    if (buttonStart) disable(buttonStart);
+    if (buttonPause) disable(buttonPause);
+    if (buttonStop) disable(buttonStop);
+  }
+}
+
+/**
  * Update video element visibility based on current recording mode.
  * @returns {void}
  */
@@ -302,6 +424,43 @@ function updateVideoVisibility() {
 }
 
 /**
+ * Update visual styles for source selection buttons
+ * @returns {void}
+ */
+function updateSourceSelectionStyles() {
+  try {
+    const labels = document.querySelectorAll('.record-page__source-label');
+    labels.forEach(label => {
+      const radio = label.querySelector('input[type="radio"]');
+      if (radio && radio.checked) {
+        label.classList.add('source-selected');
+      } else {
+        label.classList.remove('source-selected');
+      }
+    });
+  } catch(e) {}
+}
+
+/**
+ * Update save button visibility based on recorded data
+ * @returns {void}
+ */
+function updateSaveButtonVisibility() {
+  try {
+    if (buttonSave) {
+      const hasRecordedData = (recordedScreen.length > 0) || (recordedCamera.length > 0);
+      if (hasRecordedData) {
+        buttonSave.disabled = false;
+        buttonSave.style.display = 'inline-block';
+      } else {
+buttonSave.disabled = true;
+        buttonSave.style.display = 'none';
+      }
+    }
+  } catch(e) {}
+}
+
+/**
  * Handle source selection change (camera/screen/both).
  * @returns {void}
  */
@@ -321,17 +480,23 @@ function onSourceChange() {
       buttonCamera.textContent = 'Включить камеру';
     }
     
+    // Update source selection visual styles
+    updateSourceSelectionStyles();
+    
     // Update video visibility
     updateVideoVisibility();
+    
+    // Update button states based on new source selection
+    updateButtonStates();
     
     // Stop current streams if any
     stopCameraStream();
     // Reset UI state
-    disable(buttonStart);
-    disable(buttonPause);
-    disable(buttonStop);
+disable(buttonStart);
+disable(buttonPause);
+disable(buttonStop);
     if (buttonSave) { 
-      buttonSave.disabled = true; 
+buttonSave.disabled = true;
       try { buttonSave.style.display = 'none'; } catch(e) {} 
     }
     if (videoScreen) videoScreen.style.borderColor = 'gray';
@@ -485,7 +650,7 @@ async function onCameraClick() {
             videoCamera.style.borderColor = 'green';
           }
           
-          buttonCamera.textContent = 'Выключить камеру';
+      buttonCamera.textContent = 'Выключить камеру';
           isScreenRecording = false;
           
         } catch (error) {
@@ -560,14 +725,34 @@ async function onCameraClick() {
     if (recorderScreen) {
       recorderScreen.addEventListener('dataavailable', function (e) {
         recordedScreen.push(e.data);
-        if (recordedScreen.length > 0) { recState.hasData = true; postState(); }
+        if (recordedScreen.length > 0) { 
+          recState.hasData = true; 
+          postState();
+          // Update save button when we have data
+          updateSaveButtonVisibility();
+        }
+      });
+      
+      recorderScreen.addEventListener('stop', function () {
+        // Update UI when recording is actually stopped
+        updateSaveButtonVisibility();
       });
     }
     
     if (recorderCamera) {
       recorderCamera.addEventListener('dataavailable', function (e) {
         recordedCamera.push(e.data);
-        if (recordedCamera.length > 0) { recState.hasData = true; postState(); }
+        if (recordedCamera.length > 0) { 
+          recState.hasData = true; 
+          postState();
+          // Update save button when we have data
+          updateSaveButtonVisibility();
+        }
+      });
+      
+      recorderCamera.addEventListener('stop', function () {
+        // Update UI when recording is actually stopped
+        updateSaveButtonVisibility();
       });
     }
 
@@ -586,11 +771,8 @@ async function onCameraClick() {
     console.log(error);
     alert('Ошибка при настройке записи!');
   }
-}
+  }
 
-/**
- * Start or resume recording and update UI accordingly.
- */
 /**
  * Start or resume recording and update UI accordingly.
  */
@@ -600,10 +782,14 @@ function onStartClick() {
     if (recorderScreen) recorderScreen.start();
     if (recorderCamera) recorderCamera.start();
     buttonStart.textContent = 'Продолжить';
+    // Hide save button when starting new recording
+    try { if (buttonSave) { buttonSave.style.display = 'none'; buttonSave.disabled = true; } } catch(e) {}
   } else {
     // Resume recording
     if (recorderScreen) recorderScreen.resume();
     if (recorderCamera) recorderCamera.resume();
+    // Show save button when resuming (there's already recorded data)
+    try { if (buttonSave) { buttonSave.style.display = 'inline-block'; buttonSave.disabled = false; } } catch(e) {}
   }
   
   if (videoScreen) videoScreen.style.borderColor = 'red';
@@ -615,15 +801,11 @@ function onStartClick() {
   disable(buttonStart);
   enable(buttonPause);
   enable(buttonStop);
-  try { if (buttonSave) { buttonSave.style.display = 'inline-block'; } } catch(e) {}
   recState.recording = true;
   recState.paused = false;
   postState();
 }
 
-/**
- * Pause recording and update UI.
- */
 /**
  * Pause recording and update UI.
  */
@@ -642,9 +824,6 @@ function onPauseClick() {
 /**
  * Stop recording, set stopped UI, and publish state.
  */
-/**
- * Stop recording, set stopped UI, and publish state.
- */
 function onStopClick() {
   if (recorderScreen) {
     recorderScreen.pause();
@@ -654,16 +833,17 @@ function onStopClick() {
     recorderCamera.pause();
     recorderCamera.stop();
   }
-  setStoppedUI();
+  
+  // Update state immediately
   recState.recording = false;
   recState.paused = false;
   recState.hasData = (recordedScreen.length > 0) || (recordedCamera.length > 0);
+  
+  // Update UI with current data state
+  setStoppedUI();
   postState();
 }
 
-/**
- * Save recording. If still recording, ensures recorder is stopped first.
- */
 /**
  * Save recording. If still recording, ensures recorder is stopped first.
  */
@@ -681,11 +861,8 @@ function onSaveClick() {
     recordedScreen = [];
     recordedCamera = [];
   }
-}
+  }
 
-/**
- * Update recording timer once per second while recorder is active.
- */
 /**
  * Update recording timer once per second while recorder is active.
  */
@@ -714,10 +891,6 @@ function timer() {
  * Generate default file name: Rec_DD.MM.YYYY_HH.MM.SS
  * @returns {string}
  */
-/**
- * Generate default file name: Rec_DD.MM.YYYY_HH.MM.SS
- * @returns {string}
- */
 function name() {
   const currentdate = new Date();
   const date = String(currentdate.getDate()).padStart(2, '0');
@@ -730,9 +903,6 @@ function name() {
   return answer;
 }
 
-/**
- * Upload recorded data to the backend and expose a download link for the blob.
- */
 /**
  * Upload recorded data to the backend and provide download links.
  * @returns {Promise<void>}
@@ -751,6 +921,16 @@ async function saveFile() {
     const existingLinks = settings.querySelectorAll('.download-record-link');
     existingLinks.forEach(link => link.remove());
     
+    // Create a container for download links to avoid DOM conflicts
+    let downloadContainer = document.getElementById('download-container');
+    if (!downloadContainer) {
+      downloadContainer = document.createElement('div');
+      downloadContainer.id = 'download-container';
+      downloadContainer.className = 'record-download-container';
+      downloadContainer.style.cssText = 'margin-top: 10px; padding: 10px; border: 1px solid var(--border-color, #ccc); border-radius: 4px; background: var(--bg-color, transparent); position: relative; z-index: 1;';
+      settings.appendChild(downloadContainer);
+    }
+    
     let uploadPromises = [];
     
     // Save screen recording if available
@@ -760,12 +940,12 @@ async function saveFile() {
       
       // Create download link for screen
       const screenDownloadLink = document.createElement('a');
-      screenDownloadLink.className = 'download-record-link button';
+      screenDownloadLink.className = 'download-record-link button btn btn-primary';
       screenDownloadLink.href = URL.createObjectURL(screenBlob);
       screenDownloadLink.download = screenFileName;
       screenDownloadLink.textContent = 'Скачать запись экрана';
-      screenDownloadLink.style.marginRight = '10px';
-      settings.appendChild(screenDownloadLink);
+      screenDownloadLink.style.cssText = 'margin-right: 10px; pointer-events: auto; position: relative; z-index: 1; display: inline-block; text-decoration: none;';
+      downloadContainer.appendChild(screenDownloadLink);
       
       // Upload screen recording
       const screenData = new FormData();
@@ -787,22 +967,23 @@ async function saveFile() {
       
       // Create download link for camera
       const cameraDownloadLink = document.createElement('a');
-      cameraDownloadLink.className = 'download-record-link button';
+      cameraDownloadLink.className = 'download-record-link button btn btn-primary';
       cameraDownloadLink.href = URL.createObjectURL(cameraBlob);
       cameraDownloadLink.download = cameraFileName;
       cameraDownloadLink.textContent = 'Скачать запись камеры';
-      settings.appendChild(cameraDownloadLink);
+      cameraDownloadLink.style.cssText = 'margin-right: 10px; pointer-events: auto; position: relative; z-index: 1; display: inline-block; text-decoration: none;';
+      downloadContainer.appendChild(cameraDownloadLink);
       
       // Upload camera recording
       const cameraData = new FormData();
       cameraData.append(cameraFileName, cameraBlob);
       const cameraUrl = generateUrlString(
         fileName.value + '_cam',
-        fileText.value,
-        document.getElementById('did'),
-        document.getElementById('sdid')
-      );
-      
+      fileText.value,
+      document.getElementById('did'),
+      document.getElementById('sdid')
+    );
+
       uploadPromises.push(uploadFile(cameraData, cameraUrl));
     }
     
@@ -818,6 +999,58 @@ async function saveFile() {
       target: { status: 200 }
     };
     loadHandler(mockEvent);
+    
+    // Don't modify parent window elements to avoid blocking issues
+    
+    // Immediately try to fix any blocking elements
+    setTimeout(() => {
+      // Remove any elements that might be blocking clicks
+      const potentialBlockers = document.querySelectorAll('[style*="position: absolute"], [style*="position: fixed"]');
+      potentialBlockers.forEach(element => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const zIndex = parseInt(style.zIndex) || 0;
+        
+        // If element covers screen and has high z-index, disable pointer events
+        if (zIndex > 0 && rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5) {
+          element.style.pointerEvents = 'none';
+          element.style.zIndex = '-1';
+          element.style.display = 'none';
+        }
+      });
+      
+      // Also check for any elements with high z-index
+      const allElements = document.querySelectorAll('*');
+      allElements.forEach(element => {
+        const style = getComputedStyle(element);
+        const zIndex = parseInt(style.zIndex) || 0;
+        const rect = element.getBoundingClientRect();
+        
+        if (zIndex > 0 && rect.width > window.innerWidth * 0.3 && rect.height > window.innerHeight * 0.3) {
+          element.style.pointerEvents = 'none';
+          element.style.zIndex = '-1';
+          element.style.display = 'none';
+        }
+      });
+    }, 50);
+    
+    // Re-verify event handlers are still working after DOM changes
+    setTimeout(() => {
+      // Reattach event listeners to ensure they work
+      if (sourceCamera) {
+        sourceCamera.removeEventListener('change', onSourceChange);
+        sourceCamera.addEventListener('change', onSourceChange);
+      }
+      if (sourceScreen) {
+        sourceScreen.removeEventListener('change', onSourceChange);
+        sourceScreen.addEventListener('change', onSourceChange);
+      }
+      if (sourceBoth) {
+        sourceBoth.removeEventListener('change', onSourceChange);
+        sourceBoth.addEventListener('change', onSourceChange);
+      }
+      
+    }, 100);
   } catch (e) {
     alert('Сохранить видео не удалось (' + e + ')!');
   }
@@ -856,14 +1089,6 @@ function uploadFile(formData, url) {
  * @param {HTMLInputElement} sdid
  * @returns {string}
  */
-/**
- * Build save URL from form values.
- * @param {string} fileName
- * @param {string} fileText
- * @param {HTMLInputElement} did
- * @param {HTMLInputElement} sdid
- * @returns {string}
- */
 function generateUrlString(fileName, fileText, did, sdid) {
   const name = encodeURIComponent(fileName);
   const desc = encodeURIComponent(fileText);
@@ -871,10 +1096,6 @@ function generateUrlString(fileName, fileText, did, sdid) {
   return `${base}/fls/rec/save/${name}/q${desc}/${did.value}/${sdid.value}`;
 }
 
-/**
- * XHR progress handler for upload.
- * @param {ProgressEvent} event
- */
 /**
  * XHR progress handler for upload.
  * @param {ProgressEvent} event
@@ -887,10 +1108,6 @@ function progressHandler(event) {
 }
 
 /**
- * XHR load handler: closes modal and informs parent on success.
- * @param {ProgressEvent} event
- */
-/**
  * XHR load handler: close modal and inform parent on success.
  * @param {ProgressEvent} event
  */
@@ -899,16 +1116,73 @@ function loadHandler(event) {
   if (uploadProgressBar) uploadProgressBar.style.width = ok ? '100%' : '0%';
   // Notify parent and auto-close on success
   if (ok && window.parent) {
+    // Ensure modal has correct z-index before closing
+    try {
+      const parentOverlay = window.parent.document.querySelector('.overlay-container');
+      const parentPopup = window.parent.document.querySelector('.popup');
+      if (parentOverlay) {
+        parentOverlay.style.zIndex = '1050';
+        parentOverlay.style.pointerEvents = 'auto';
+      }
+      if (parentPopup) {
+        parentPopup.style.zIndex = '1050';
+        parentPopup.style.pointerEvents = 'auto';
+      }
+    } catch(e) {}
+    
     // Reset UI after successful upload
     resetAfterSave();
     try { window.parent.softRefreshFilesTable && window.parent.softRefreshFilesTable(); } catch(e) {}
-    try { window.parent.popupToggle && window.parent.popupToggle('popup-rec'); } catch(e) {}
+    
+    // Close modal directly like in scripts.js
+    try {
+      const overlay = window.parent.document.getElementById('popup-rec');
+      if (overlay) {
+        overlay.classList.remove('show');
+        overlay.classList.remove('visible');
+        overlay.style.display = 'none';
+      }
+      // Reset popup variable in parent
+      if (window.parent.popup === 'popup-rec') {
+        window.parent.popup = null;
+      }
+    } catch(e) {}
+    
     try { window.parent.postMessage({ type: 'rec:saved' }, '*'); } catch(e) {}
     try { window.parent.alert && window.parent.alert('Видео успешно сохранено'); } catch(e) {}
+    
+    // Simple restoration like other modals
+    setTimeout(() => {
+      if (window.parent && window.parent !== window) {
+        try {
+          // Restore critical elements only
+          const parentHtml = window.parent.document.documentElement;
+          const parentBody = window.parent.document.body;
+          if (parentHtml) { parentHtml.style.pointerEvents = 'auto'; parentHtml.style.zIndex = 'auto'; }
+          if (parentBody) { parentBody.style.pointerEvents = 'auto'; parentBody.style.zIndex = 'auto'; }
+        } catch (e) {
+          // Silent fail
+        }
+      }
+      
+      // Also restore elements inside iframe
+      try {
+        const allElements = document.querySelectorAll('*');
+        allElements.forEach(element => {
+          try {
+            element.style.pointerEvents = 'auto';
+            element.style.zIndex = 'auto';
+          } catch(e) {
+            // Skip elements that can't be modified
+          }
+        });
+      } catch (e) {
+        // Silent fail
+      }
+    }, 100); // Short delay
   }
 }
 
-// Handle parent messages (query state, save, discard)
 // Handle parent messages (query state, save, discard)
 /**
  * Handle parent messages: state query, save, discard.
@@ -952,10 +1226,6 @@ window.addEventListener('message', function(ev) {
 
 /**
  * Reset timer and optionally the visible display.
- * @param {boolean} resetDisplayOnly (kept for compatibility)
- */
-/**
- * Reset timer and optionally the visible display.
  * @param {boolean} resetDisplayOnly
  */
 function resetTimer(resetDisplayOnly) {
@@ -965,10 +1235,6 @@ function resetTimer(resetDisplayOnly) {
   try { document.getElementById('time').innerHTML = '00:00:00'; } catch(e) {}
 }
 
-/**
- * Ensure MediaRecorder is stopped and resolve when stop completes.
- * @returns {Promise<void>}
- */
 /**
  * Ensure MediaRecorder is stopped and resolve when stop completes.
  * @returns {Promise<void>}

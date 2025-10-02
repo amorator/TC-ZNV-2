@@ -234,12 +234,11 @@
                 window.usersSocket.emit('users:changed', { reason: 'toggle' });
               }
             } else {
-              alert('Ошибка при изменении статуса пользователя');
+              // Status change failed - handled silently
             }
           })
           .catch(error => {
             console.error('Error:', error);
-            alert('Ошибка при изменении статуса пользователя');
           });
         }
         break;
@@ -431,13 +430,12 @@
         }
       } else {
         response.text().then(text => {
-          alert('Ошибка: ' + (text || 'Неизвестная ошибка'));
+          console.error('Error:', text || 'Неизвестная ошибка');
         });
       }
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('Ошибка при отправке данных');
     })
     .finally(() => {
       // Re-enable submit button
@@ -447,6 +445,45 @@
       }
     });
   }
+
+  // Listen for context menu reinitialization events
+  document.addEventListener('context-menu-reinit', function() {
+    try {
+      const menu = document.getElementById('context-menu');
+      if (!menu) return;
+
+      // Re-bind menu click handler to ensure it works with updated table
+      // Remove existing handler to prevent duplicates
+      if (menu._usersMenuBound) {
+        menu.removeEventListener('click', handleMenuClick);
+        menu._usersMenuBound = false;
+      }
+      
+      // Re-bind the click handler
+      if (!menu._usersMenuBound) {
+        menu._usersMenuBound = true;
+        menu.addEventListener('click', handleMenuClick);
+      }
+      
+      // Re-attach other event listeners that might have been lost
+      const table = getTable();
+      if (table) {
+        const canManage = table.dataset.canManage === '1';
+        
+        // Re-attach context menu handler
+        document.removeEventListener('contextmenu', function() {});
+        document.addEventListener('contextmenu', function(e) {
+          if (!document.getElementById('maintable')) return; // not on users page
+          e.preventDefault();
+          e.stopPropagation();
+          const row = e.target.closest && e.target.closest('tr.table__body_row');
+          showContextMenu(e, row, canManage);
+        });
+      }
+    } catch(e) {
+      // Silent fail
+    }
+  });
 
   document.addEventListener('DOMContentLoaded', attachHandlers);
 
@@ -465,6 +502,64 @@
       window.usersSocket = socket;
     } catch (e) {}
 
+    // Helper: smooth table update without flickering
+    function smoothUpdateUsersTableBody(oldTbody, newTbody) {
+      const oldRows = Array.from(oldTbody.querySelectorAll('tr'));
+      const newRows = Array.from(newTbody.querySelectorAll('tr'));
+      
+      // Create maps for efficient lookup
+      const oldRowMap = new Map();
+      const newRowMap = new Map();
+      
+      oldRows.forEach(row => {
+        const id = row.getAttribute('data-id') || row.id;
+        if (id) oldRowMap.set(id, row);
+      });
+      
+      newRows.forEach(row => {
+        const id = row.getAttribute('data-id') || row.id;
+        if (id) newRowMap.set(id, row);
+      });
+      
+      // Update existing rows
+      for (const [id, newRow] of newRowMap) {
+        const oldRow = oldRowMap.get(id);
+        if (oldRow) {
+          // Update existing row content without replacing the entire row
+          const oldCells = oldRow.querySelectorAll('td');
+          const newCells = newRow.querySelectorAll('td');
+          
+          if (oldCells.length === newCells.length) {
+            // Update cell content
+            for (let i = 0; i < oldCells.length; i++) {
+              if (oldCells[i].innerHTML !== newCells[i].innerHTML) {
+                oldCells[i].innerHTML = newCells[i].innerHTML;
+              }
+            }
+            // Update row attributes
+            Array.from(newRow.attributes).forEach(attr => {
+              if (oldRow.getAttribute(attr.name) !== attr.value) {
+                oldRow.setAttribute(attr.name, attr.value);
+              }
+            });
+          } else {
+            // Row structure changed, replace it
+            oldRow.replaceWith(newRow.cloneNode(true));
+          }
+        } else {
+          // Add new row
+          oldTbody.appendChild(newRow.cloneNode(true));
+        }
+      }
+      
+      // Remove rows that no longer exist
+      for (const [id, oldRow] of oldRowMap) {
+        if (!newRowMap.has(id)) {
+          oldRow.remove();
+        }
+      }
+    }
+
     function softRefreshUsersTable() {
       const table = document.getElementById('maintable');
       if (!table) return;
@@ -477,7 +572,13 @@
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const newTbody = doc.querySelector('#maintable tbody');
           if (!newTbody) return;
-          tbody.innerHTML = newTbody.innerHTML;
+          
+          // Use smooth update instead of innerHTML replacement
+          smoothUpdateUsersTableBody(tbody, newTbody);
+          
+          // Reinitialize context menu after table update
+          reinitializeContextMenu();
+          
           try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
         })
         .catch(() => {});
@@ -485,6 +586,26 @@
     // Expose globally for post-action refreshes
     try { window.softRefreshUsersTable = softRefreshUsersTable; } catch(_) {}
   })();
+
+  /**
+   * Reinitialize context menu after table update
+   */
+  function reinitializeContextMenu() {
+    try {
+      // Trigger a custom event to reinitialize context menu
+      // The existing IIFE will handle the reinitialization
+      const event = new CustomEvent('context-menu-reinit', {
+        detail: { timestamp: Date.now() }
+      });
+      document.dispatchEvent(event);
+      
+      // Also trigger table update event for any other listeners
+      document.dispatchEvent(new Event('table-updated'));
+      
+    } catch(e) {
+      // Silent fail
+    }
+  }
 
   // Change-detection helpers for edit and permissions forms (global scope)
   function closeModal(id) {
@@ -880,7 +1001,6 @@
       }
       if (!response.ok || (data && data.status === 'error')) {
         const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
-        alert(msg);
         throw new Error(msg);
       }
       return data;
@@ -928,6 +1048,8 @@
                   if (userData.enabled !== undefined) row.dataset.enabled = userData.enabled ? '1' : '0';
                 }
               } catch(_) {}
+              // Ensure table is refreshed (sorting/pagination) after edit
+              try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
             }
           } else if (form.id === 'perm') {
             // Soft refresh to update computed labels
@@ -960,7 +1082,6 @@
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('Ошибка при отправке данных');
     })
     .finally(() => {
       // Re-enable submit button
