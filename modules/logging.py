@@ -82,9 +82,11 @@ class LoggingConfig:
         )
         access_handler.setFormatter(access_formatter)
         
-        # Create access logger
+        # Create access logger (clear existing handlers to avoid duplicates)
         access_logger = logging.getLogger('access')
         access_logger.setLevel(logging.INFO)
+        for h in access_logger.handlers[:]:
+            access_logger.removeHandler(h)
         access_logger.addHandler(access_handler)
         access_logger.propagate = False
         
@@ -102,9 +104,11 @@ class LoggingConfig:
         )
         actions_handler.setFormatter(actions_formatter)
         
-        # Create actions logger
+        # Create actions logger (clear existing handlers to avoid duplicates)
         actions_logger = logging.getLogger('actions')
         actions_logger.setLevel(logging.INFO)
+        for h in actions_logger.handlers[:]:
+            actions_logger.removeHandler(h)
         actions_logger.addHandler(actions_handler)
         actions_logger.propagate = False
         
@@ -168,7 +172,11 @@ _logging_config: Optional[LoggingConfig] = None
 def init_logging(config_path: str = "config.ini") -> LoggingConfig:
     """Initialize logging configuration."""
     global _logging_config
-    _logging_config = LoggingConfig(config_path)
+    if _logging_config is None:
+        _logging_config = LoggingConfig(config_path)
+    else:
+        # Reconfigure in place to avoid duplicate handlers on reloads
+        _logging_config._setup_loggers()
     return _logging_config
 
 

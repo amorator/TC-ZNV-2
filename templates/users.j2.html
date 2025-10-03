@@ -30,24 +30,48 @@
         </tr>
         {% if users %}
           {% for user in users %}
-            <tr id="{{ user.id }}" class="table__body_row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}">
-              <td class="table__body_item"><span class="users-page__login">{{ user.login }}</span></td>
+            {# Check if user is admin - inline check for data attribute #}
+            {# Detect admin: by labels OR by legacy string having full access on all pages #}
+            {% set is_admin = false %}
+            {% for label in user.permission_labels() %}
+              {% if label and (label.split(':', 1)[0].strip().lower().startswith('администратор')) %}
+                {% set is_admin = true %}
+              {% endif %}
+            {% endfor %}
+            {% if not is_admin %}
+              {% set perm_str = (user.permission_string()|string).lower().strip() %}
+              {% set parts = perm_str.split(',') %}
+              {% set p1 = parts[0] if parts|length > 0 else '' %}
+              {% set p2 = parts[1] if parts|length > 1 else '' %}
+              {% set p3 = parts[2] if parts|length > 2 else '' %}
+              {% set p4 = parts[3] if parts|length > 3 else '' %}
+              {# Treat admin as full only if Files page has admin or full string includes Files 'f' #}
+              {% set p5 = parts[4] if parts|length > 4 else '' %}
+              {% if 'z' in p3 %}
+                {% set is_admin = true %}
+              {% elif 'a' in p1 and 'e' in p1 and 'f' in p1 and 'a' in p2 and 'a' in p3 and 'b' in p3 and 'c' in p3 and 'd' in p3 and 'l' in p3 and 'm' in p3 and 'f' in p3 and 'a' in p4 and 'b' in p4 %}
+                {% set is_admin = true %}
+              {% endif %}
+            {% endif %}
+            
+            <tr id="{{ user.id }}" class="table__body_row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}" data-is-admin="{{ 1 if user.login|lower == 'admin' else 0 }}" data-full-access="{{ 1 if is_admin else 0 }}">
+              <td class="table__body_item">
+                <span class="users-page__login">{{ user.login }}</span>
+                {% if user.login|lower == 'admin' %}
+                  <i class="bi bi-shield-fill-check text-danger ms-1" title="Администратор системы"></i>
+                {% endif %}
+              </td>
               <td class="table__body_item"><span class="users-page__name" title="Клик — скопировать имя">{{ user.name }}</span></td>
               <td class="table__body_item">{{ groups[user.gid] }}</td>
               <td class="table__body_item perms-cell">
                 {# If admin rights present, show only Admin line and skip others #}
-                {% set perm_labels = user.permission_labels() %}
-                {% set admin_ns = namespace(is_admin=false) %}
-                {% for label in perm_labels %}
-                  {% if label and label.strip().lower().startswith('администратор:') %}
-                    {% set admin_ns.is_admin = true %}
-                  {% endif %}
-                {% endfor %}
-                {% if admin_ns.is_admin %}
+                {% if is_admin %}
                   <div class="perms-cell__item">
                     <span class="perms-cell__cat">Админ</span>: <span class="perms-cell__rights">полный доступ</span>
                   </div>
                 {% else %}
+                  {# Use this user's permission labels #}
+                  {% set perm_labels = user.permission_labels() %}
                   {# Build ordered unique list of categories first #}
                   {% set cats = namespace(items=[]) %}
                   {% for label in perm_labels %}
@@ -93,7 +117,7 @@
                   {% endfor %}
                 {% endif %}
               </td>
-              <td class="table__body_item" data-enabled="{{ user.is_enabled() }}">
+              <td class="table__body_item" data-enabled="{{ 1 if user.is_enabled() else 0 }}">
                 <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
               </td>
             </tr>
@@ -295,6 +319,8 @@
     min_password_length: {{ min_password_length }}
   };
 </script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
 <script src="{{ url_for('static', filename='js/users.js') }}" defer="defer"></script>
 {% endblock %}

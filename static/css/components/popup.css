@@ -28,11 +28,13 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   max-width: 600px;
   width: 100%;
-  max-height: 90vh;
+  max-height: 84vh;
   position: relative;
   z-index: 10000;
   /* Even higher z-index for the popup itself */
   margin: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .popup--wide {
@@ -41,18 +43,19 @@
 }
 
 .popup__title {
-  padding: 20px 30px 0 30px;
+  padding: 6px 10px 0 10px;
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.125rem;
   font-weight: 600;
   color: var(--text-primary, #333333);
   border-bottom: none;
 }
 
 .popup__body {
-  padding: 20px 30px;
+  padding: 6px 10px;
   overflow-y: auto;
-  max-height: calc(90vh - 140px);
+  max-height: none;
+  flex: 1 1 auto;
 }
 
 .popup__form {
@@ -60,14 +63,16 @@
 }
 
 .popup__form-control {
-  margin-bottom: 20px;
+  margin-bottom: 8px;
 }
 
 .popup__actions {
-  padding: 0 30px 30px 30px;
-  margin-top: 20px;
+  padding: 0 10px 6px 10px;
+  margin-top: 0;
   border-top: 1px solid var(--border-color, #dee2e6);
-  padding-top: 20px;
+  padding-top: 6px;
+  flex: 0 0 auto;
+  background: inherit;
 }
 
 /* Buttons theme tokens (light defaults) */

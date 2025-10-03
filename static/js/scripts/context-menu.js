@@ -22,9 +22,17 @@
      * @param {Object} options - Configuration options
      */
     init(options = {}) {
+      // Prevent double initialization
+      if (this.isInitialized) {
+        this.updateOptions(options);
+        return true;
+      }
+      
       try {
         this.menu = document.getElementById('context-menu');
-        if (!this.menu) return false;
+        if (!this.menu) {
+          return false;
+        }
 
         this.options = {
           page: options.page || 'files', // 'files' or 'users'
@@ -51,7 +59,7 @@
       // Context menu trigger
       document.addEventListener('contextmenu', (e) => {
         if (!this.isInitialized) return;
-        this.handleContextMenu(e);
+        this.handleContextMenuEvent(e);
       });
 
       // Hide menu on click outside
@@ -83,14 +91,34 @@
       document.addEventListener('context-menu-reinit', () => {
         this.reinitialize();
       });
+
+      // Listen for modal close events to reinitialize context menu
+      document.addEventListener('click', (e) => {
+        // Check if modal close button was clicked
+        if (e.target.classList.contains('btn-secondary') && 
+            e.target.textContent.includes('Отмена')) {
+          setTimeout(() => {
+            this.reinitialize();
+          }, 100);
+        }
+      });
+
+      // Listen for form submission events
+      document.addEventListener('submit', (e) => {
+        setTimeout(() => {
+          this.reinitialize();
+        }, 100);
+      });
     }
 
     /**
      * Handle context menu trigger
      * @param {MouseEvent} e - Mouse event
      */
-    handleContextMenu(e) {
-      if (!document.getElementById('maintable')) return; // not on correct page
+    handleContextMenuEvent(e) {
+      if (!document.getElementById('maintable')) {
+        return; // not on correct page
+      }
       
       e.preventDefault();
       e.stopPropagation();
@@ -218,14 +246,43 @@
      * @param {Object} permissions - Permission flags
      */
     configureUsersRowItems(row, permissions) {
-      const { isEnabled, canEdit, canDelete, canRefresh } = permissions;
+      const loginVal = (row.dataset.login || '').toLowerCase();
+      // Only protect the built-in admin user; others are editable even if they have admin rights
+      const isProtectedAdmin = (loginVal === 'admin');
+      const canManage = !!this.options.canManage;
+      const canEdit = canManage && !isProtectedAdmin;
+      const canPerm = canManage && !isProtectedAdmin;
+      const canDelete = canManage && !isProtectedAdmin;
 
-      this.toggleItem('toggle', this.options.canManage);
+      // Toggle visibility for protected admin
+      this.toggleItem('toggle', canManage && !isProtectedAdmin);
+      
+      // Update toggle text based on current state (non-admin only)
+      if (canManage && !isProtectedAdmin) {
+        const toggleElement = this.menu.querySelector('[data-action="toggle"]');
+        if (toggleElement) {
+          const enabledNow = row.dataset.enabled === '1';
+          toggleElement.textContent = enabledNow ? 'Выключить' : 'Включить';
+        }
+      }
+      
+      // Admin: only allow reset + keep standard Add available
+      if (isProtectedAdmin) {
+        this.toggleItem('edit', false);
+        this.toggleItem('perm', false);
+        this.toggleItem('reset', canManage);
+        this.toggleItem('delete', false);
+        this.toggleItem('add', canManage);
+        this.toggleSeparator(true);
+        return;
+      }
+      
+      // Regular users
       this.toggleItem('edit', canEdit);
-      this.toggleItem('perm', canEdit);
-      this.toggleItem('reset', canEdit);
+      this.toggleItem('perm', canPerm);
+      this.toggleItem('reset', canManage);
       this.toggleItem('delete', canDelete);
-      this.toggleItem('add', this.options.canManage);
+      this.toggleItem('add', canManage);
       this.toggleSeparator(true);
     }
 
@@ -311,13 +368,14 @@
      */
     handleMenuClick(e) {
       const item = e.target.closest('.context-menu__item');
-      if (!item) return;
+      if (!item) { return; }
       
       const action = item.dataset.action;
-      if (!action) return;
-      
+      if (!action) { return; }
+      // Store current row before hiding menu
+      const currentRow = this.currentRow;
       this.hideMenu();
-      this.executeAction(action, this.currentRow);
+      this.executeAction(action, currentRow);
     }
 
     /**
@@ -360,9 +418,7 @@
               
               player.onerror = function() {
                 console.error('Video load error for file:', id);
-                if (window.markFileAsMissing) {
-                  window.markFileAsMissing(id);
-                }
+                // Note: markFileAsMissing function not found
                 const modal = document.getElementById('popup-view');
                 if (modal && window.popupClose) {
                   window.popupClose('popup-view');
@@ -378,38 +434,54 @@
 
         case 'download':
           if (download) {
-            fetch(download, { method: 'HEAD' })
-              .then(response => {
-                if (response.ok) {
-                  window.open(download, '_blank');
-                } else {
-                  console.error('Download error for file:', id);
-                  if (window.markFileAsMissing) {
-                    window.markFileAsMissing(id);
-                  }
-                }
-              })
-              .catch(error => {
-                console.error('Download fetch error:', error);
-              });
+            // Create a temporary link element for download
+            const link = document.createElement('a');
+            link.href = download;
+            link.download = ''; // This forces download instead of opening
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
           }
           break;
 
         case 'edit':
-          if (id && window.openModal) {
-            window.openModal('edit', id);
+          if (id && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('edit');
+            if (form) {
+              try {
+                window.popupValues(form, id);
+              } catch (e) {
+                console.error('ContextMenu: popupValues failed:', e);
+              }
+            }
+            try {
+              window.popupToggle('popup-edit', id);
+            } catch (e) {
+              console.error('ContextMenu: popupToggle failed:', e);
+            }
+          } else {
+            // Missing required functions or ID
           }
           break;
 
         case 'delete':
-          if (id && window.openModal) {
-            window.openModal('delete', id);
+          if (id && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('delete');
+            if (form) {
+              window.popupValues(form, id);
+            }
+            window.popupToggle('popup-delete', id);
           }
           break;
 
         case 'move':
-          if (id && window.openModal) {
-            window.openModal('move', id);
+          if (id && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('move');
+            if (form) {
+              window.popupValues(form, id);
+            }
+            window.popupToggle('popup-move', id);
           }
           break;
 
@@ -419,9 +491,12 @@
             fetch(refreshUrl, { method: 'POST' })
               .then(response => {
                 if (response.ok) {
-                  if (window.softRefreshFilesTable) {
-                    window.softRefreshFilesTable();
-                  }
+                  // Force context menu to work after table update
+                  setTimeout(() => {
+                    // Reset current row to ensure menu works
+                    this.currentRow = null;
+                    this.isInitialized = true;
+                  }, 100);
                 }
               })
               .catch(error => {
@@ -432,36 +507,50 @@
 
         case 'mark-viewed':
           if (id) {
-            const markUrl = `${window.location.origin}${window.location.pathname}/mark-viewed/${id}`;
-            fetch(markUrl, { method: 'POST' })
-              .then(response => {
-                if (response.ok) {
-                  if (window.softRefreshFilesTable) {
-                    window.softRefreshFilesTable();
-                  }
-                }
-              })
-              .catch(error => {
-                console.error('Mark viewed error:', error);
-              });
+            // Use row-provided view URL (GET route) for consistency
+            const row = document.querySelector(`tr[data-id="${id}"]`) || document.getElementById(String(id));
+            const url = row && row.getAttribute('data-view-url');
+            if (url) {
+              fetch(url, { method: 'GET', credentials: 'include' })
+                .then(() => {
+                  setTimeout(() => {
+                    this.currentRow = null;
+                    this.isInitialized = true;
+                    try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(_) {}
+                  }, 50);
+                })
+                .catch(error => {
+                  console.error('Mark viewed error:', error);
+                });
+            }
           }
           break;
 
         case 'note':
-          if (id && window.openModal) {
-            window.openModal('note', id);
+          if (id && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('note');
+            if (form) {
+              window.popupValues(form, id);
+            }
+            window.popupToggle('popup-note', id);
           }
           break;
 
         case 'add':
           if (window.openModal) {
-            window.openModal('add');
+            try { if (window.modalManager) window.modalManager.activeModal = null; } catch(_) {}
+            window.openModal('popup-add');
+          } else if (window.popupToggle) {
+            window.popupToggle('popup-add');
           }
           break;
 
         case 'record':
           if (window.openModal) {
-            window.openModal('record');
+            try { if (window.modalManager) window.modalManager.activeModal = null; } catch(_) {}
+            window.openModal('popup-rec');
+          } else if (window.popupToggle) {
+            window.popupToggle('popup-rec');
           }
           break;
       }
@@ -477,15 +566,30 @@
 
       switch (action) {
         case 'add':
+          // Use openModal to avoid stale activeModal toggle issues
           if (window.openModal) {
-            window.openModal('add');
+            try {
+              if (window.modalManager) {
+                window.modalManager.activeModal = null;
+              }
+              const addModal = document.getElementById('popup-add');
+              if (addModal) {
+                const addForm = addModal.querySelector('form');
+                if (addForm && typeof addForm.reset === 'function') {
+                  addForm.reset();
+                }
+              }
+            } catch(_) {}
+            window.openModal('popup-add');
+          } else if (window.popupToggle) {
+            window.popupToggle('popup-add');
           }
           break;
 
         case 'toggle':
           if (rowId) {
-            const toggleUrl = `${window.location.origin}${window.location.pathname.replace(/\/srs.*/, '/srs')}/toggle/${rowId}`;
-            fetch(toggleUrl, { method: 'POST', credentials: 'include' })
+            const toggleUrl = `${window.location.origin}/srs/toggle/${rowId}`;
+            fetch(toggleUrl, { method: 'GET', credentials: 'same-origin' })
               .then(response => {
                 if (response.ok) {
                   if (row) {
@@ -495,10 +599,24 @@
                     
                     const toggleCell = row.querySelector('td[data-enabled]');
                     if (toggleCell) {
-                      toggleCell.textContent = newEnabled ? 'Да' : 'Нет';
+                      toggleCell.setAttribute('data-enabled', newEnabled ? '1' : '0');
                       toggleCell.dataset.enabled = newEnabled ? '1' : '0';
+                      
+                      // Update icon classes
+                      const icon = toggleCell.querySelector('.bi');
+                      if (icon) {
+                        icon.classList.remove('bi-toggle-on', 'bi-toggle-off');
+                        icon.classList.add(newEnabled ? 'bi-toggle-on' : 'bi-toggle-off');
+                      }
                     }
                   }
+                  
+                  // Reinitialize context menu after state change
+                  setTimeout(() => {
+                    if (this.reinitialize) {
+                      this.reinitialize();
+                    }
+                  }, 100);
                 }
               })
               .catch(error => {
@@ -508,26 +626,59 @@
           break;
 
         case 'edit':
-          if (rowId && window.openModal) {
-            window.openModal('edit', rowId);
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('edit');
+            if (form) {
+              window.popupValues(form, rowId);
+            }
+            window.popupToggle('popup-edit', rowId);
           }
           break;
 
         case 'perm':
-          if (rowId && window.openModal) {
-            window.openModal('perm', rowId);
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('perm');
+            if (form) {
+              window.popupValues(form, rowId);
+              try {
+                if (window.syncPermFormFromRow) {
+                  window.syncPermFormFromRow(form, rowId);
+                  // re-sync on next tick after modal layout
+                  setTimeout(function(){ try { window.syncPermFormFromRow(form, rowId); } catch(_) {} }, 0);
+                }
+                // Ensure Full Access checkbox reflects hidden value
+                setTimeout(function(){
+                  try {
+                    if (window.refreshPermissionUI) {
+                      window.refreshPermissionUI('perm-string-perm');
+                    } else if (window['refreshPermUI_perm-string-perm']) {
+                      window['refreshPermUI_perm-string-perm']();
+                    }
+                  } catch(_) {}
+                }, 0);
+              } catch(_) {}
+            }
+            window.popupToggle('popup-perm', rowId);
           }
           break;
 
         case 'reset':
-          if (rowId && window.openModal) {
-            window.openModal('reset', rowId);
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('reset');
+            if (form) {
+              window.popupValues(form, rowId);
+            }
+            window.popupToggle('popup-reset', rowId);
           }
           break;
 
         case 'delete':
-          if (rowId && window.openModal) {
-            window.openModal('delete', rowId);
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('delete');
+            if (form) {
+              window.popupValues(form, rowId);
+            }
+            window.popupToggle('popup-delete', rowId);
           }
           break;
       }
@@ -547,14 +698,27 @@
      * Reinitialize context menu after table updates
      */
     reinitialize() {
-      if (!this.isInitialized) return;
+      if (!this.isInitialized) { return; }
       
       try {
+        // Reset state
+        this.currentRow = null;
+        this.hideMenu();
+        
         // Re-bind event listeners
         this.setupEventListeners();
       } catch (e) {
         console.error('Context menu reinitialization failed:', e);
       }
+    }
+
+    /**
+     * Remove event listeners to prevent duplicates
+     */
+    removeEventListeners() {
+      // Note: We can't remove anonymous event listeners easily
+      // The reinitialize function will work by just re-adding listeners
+      // This is a simplified approach - in production you'd want to store references
     }
 
     /**
@@ -568,13 +732,5 @@
 
   // Create global instance
   window.ContextMenuManager = ContextMenuManager;
-  
-  // Auto-initialize if DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      window.contextMenu = new ContextMenuManager();
-    });
-  } else {
-    window.contextMenu = new ContextMenuManager();
-  }
+  window.contextMenu = new ContextMenuManager();
 })();

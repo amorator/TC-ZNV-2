@@ -136,7 +136,7 @@ function validateForm(element) {
       const isMultiple = fileInput && fileInput.files && fileInput.files.length > 1;
       
       if (!isMultiple && (name == undefined || name == "" || name.length < 1)) {
-      alert("Задайте корректное имя файла!");
+      if (window.showToast) { window.showToast('Задайте корректное имя файла!', 'error'); } else { alert('Задайте корректное имя файла!'); }
         nameInput.focus();
         return false;
       }
@@ -163,11 +163,11 @@ function validateForm(element) {
     let fileInput = document.getElementById("file");
     let len = fileInput.files.length;
     if (len == undefined || len == 0) {
-      alert("Выберите файл(ы)!");
+      if (window.showToast) { window.showToast('Выберите файл(ы)!', 'error'); } else { alert('Выберите файл(ы)!'); }
       return false;
     }
     if (len > 5) {
-      alert("Можно выбрать максимум 5 файлов");
+      if (window.showToast) { window.showToast('Можно выбрать максимум 5 файлов', 'error'); } else { alert('Можно выбрать максимум 5 файлов'); }
       return false;
     }
     // Client-side file validation for each file
@@ -180,11 +180,11 @@ function validateForm(element) {
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       if (f.size > maxSize) {
-        alert(`Файл ${f.name} слишком большой. Максимальный размер: ${maxSizeMb}MB`);
+        if (window.showToast) { window.showToast(`Файл ${f.name} слишком большой. Максимальный размер: ${maxSizeMb}MB`, 'error'); } else { alert(`Файл ${f.name} слишком большой. Максимальный размер: ${maxSizeMb}MB`); }
         return false;
       }
       if (f.size === 0) {
-        alert(`Файл ${f.name} пустой!`);
+        if (window.showToast) { window.showToast(`Файл ${f.name} пустой!`, 'error'); } else { alert(`Файл ${f.name} пустой!`); }
         return false;
       }
       let isValidType = allowedTypes.includes(f.type);
@@ -193,7 +193,7 @@ function validateForm(element) {
         isValidType = allowedExtensions.some(ext => fileName.endsWith(ext));
       }
       if (!isValidType) {
-        alert(`Неподдерживаемый формат: ${f.name}. Разрешены: ${allowedExtensions.join(', ')}`);
+        if (window.showToast) { window.showToast(`Неподдерживаемый формат: ${f.name}. Разрешены: ${allowedExtensions.join(', ')}`, 'error'); } else { alert(`Неподдерживаемый формат: ${f.name}. Разрешены: ${allowedExtensions.join(', ')}`); }
         return false;
       }
     }
@@ -1208,6 +1208,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // Use smooth update instead of innerHTML replacement
         smoothUpdateTableBody(tbody, newTbody);
 
+        // Ensure context menu reflects new row states/actions after refresh
+        try { reinitializeContextMenu(); } catch(e) {}
+
         // Rebind dblclick handlers for opening player
         try { bindRowOpenHandlers(); } catch(e) {}
         // Rebind copy handlers for names
@@ -1252,6 +1255,9 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
           window.filesPager.renderPage(currentPage);
         }
+
+        // Final safety: reinitialize context menu once more after all adjustments
+        try { reinitializeContextMenu(); } catch(e) {}
       })
       .catch(() => {});
   }
@@ -1489,7 +1495,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Initialize unified context menu for files page
-  (function initFilesContextMenu() {
+  function initFilesContextMenu() {
     const table = document.getElementById('maintable');
     if (!table) return;
 
@@ -1506,8 +1512,27 @@ document.addEventListener('DOMContentLoaded', function () {
         canMarkView: canMarkView,
         canNotes: canNotes
       });
+    } else {
+      // Fallback: retry after a short delay
+      setTimeout(() => {
+        if (window.contextMenu) {
+          window.contextMenu.init({
+            page: 'files',
+            canAdd: canAdd,
+            canMarkView: canMarkView,
+            canNotes: canNotes
+          });
+        }
+      }, 100);
     }
-  })();
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFilesContextMenu);
+  } else {
+    initFilesContextMenu();
+  }
 
   // Function to refresh the files page after actions
   window.refreshFilesPage = function() {
@@ -2073,4 +2098,113 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   };
+
+  // Initialize context menu for files page
+  function initFilesContextMenu() {
+    const table = document.getElementById('maintable');
+    if (!table) return;
+
+    // Get table permissions
+    const canAdd = table.getAttribute('data-can-add') === '1';
+    const canMarkView = table.getAttribute('data-can-mark-view') === '1';
+    const canNotes = table.getAttribute('data-can-notes') === '1';
+
+    // Initialize unified context menu
+    if (window.contextMenu) {
+      window.contextMenu.init({
+        page: 'files',
+        canAdd: canAdd,
+        canMarkView: canMarkView,
+        canNotes: canNotes
+      });
+    } else {
+      // Fallback: retry after a short delay
+      setTimeout(() => {
+        if (window.contextMenu) {
+          window.contextMenu.init({
+            page: 'files',
+            canAdd: canAdd,
+            canMarkView: canMarkView,
+            canNotes: canNotes
+          });
+        }
+      }, 100);
+    }
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFilesContextMenu);
+  } else {
+    initFilesContextMenu();
+  }
 });
+
+// Mark viewed via AJAX and update row locally without full reload
+window.markViewedAjax = function(fileId) {
+  try {
+    if (!fileId) return;
+    const row = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
+    const markUrl = row && row.getAttribute('data-view-url')
+      ? row.getAttribute('data-view-url')
+      : `${window.location.origin}${window.location.pathname}/view/${fileId}/${(document.querySelector('#maintable')?.getAttribute('data-category'))||'0'}/${(document.querySelector('#maintable')?.getAttribute('data-subcategory'))||'1'}`;
+    fetch(markUrl, { method: 'GET', credentials: 'include' })
+      .then((r) => {
+        if (!r.ok) throw new Error('HTTP '+r.status);
+      })
+      .then(() => {
+        // Update row attributes and visuals
+        if (row) {
+          row.setAttribute('data-already-viewed', '1');
+          row.setAttribute('data-viewed', '1');
+          // Update viewers text by appending current user
+          try {
+            const currentUser = document.getElementById('maintable')?.getAttribute('data-current-user') || '';
+            const viewersSpan = row.querySelector('.file-viewers span');
+            if (viewersSpan) {
+              const prev = (viewersSpan.textContent || '').trim();
+              if (!prev || prev === '—') {
+                viewersSpan.textContent = currentUser || prev;
+              } else if (currentUser && prev.indexOf(currentUser) === -1) {
+                viewersSpan.textContent = prev + ', ' + currentUser;
+              }
+            }
+          } catch(_) {}
+          // Recompute others-viewed flag: if there is any viewer other than current user
+          try {
+            const viewersSpan = row.querySelector('.file-viewers span');
+            const currentUser = document.getElementById('maintable')?.getAttribute('data-current-user') || '';
+            const txt = (viewersSpan && viewersSpan.textContent || '').trim();
+            if (txt) {
+              const names = txt.split(',').map(s => s.trim()).filter(Boolean);
+              const others = names.filter(n => n && n !== currentUser);
+              row.setAttribute('data-others-viewed', others.length > 0 ? '1' : '0');
+            } else {
+              row.setAttribute('data-others-viewed', '0');
+            }
+          } catch(_) {}
+          // Remove the "Отметить просмотренным" link
+          try {
+            const tds = row.querySelectorAll('td');
+            const notesTd = tds[tds.length - 1];
+            const link = notesTd && notesTd.querySelector('span');
+            if (link && link.textContent && link.textContent.indexOf('Отметить просмотренным') !== -1) {
+              link.remove();
+            }
+          } catch(_) {}
+        }
+        // Notify others and optionally soft refresh
+        try {
+          if (window.socket && window.socket.emit) {
+            window.socket.emit('files:changed', { reason: 'mark-viewed', id: fileId });
+          }
+        } catch(_) {}
+        try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(_) {}
+      })
+      .catch((e) => {
+        console.error('Mark viewed error:', e);
+      });
+  } catch (e) {
+    console.error('Mark viewed error:', e);
+  }
+};

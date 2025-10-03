@@ -19,18 +19,34 @@
   <script src="{{ url_for('static', filename='js/lib/bootstrap.bundle.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/lib/jquery.min.js') }}" defer="defer"></script>
   <script src="{{ url_for('static', filename='js/themes.js') }}" defer="defer"></script>
-  <script src="{{ url_for('static', filename='js/scripts.js') }}" defer="defer"></script>
   
   {% block js %}{% endblock %}
 </head>
 
   <body>
-    {% for message in get_flashed_messages() %}
-      <div class="alert alert-warning alert-dismissible fade show m-2" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    {% endfor %}
+    <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1080"></div>
+    <script>
+      window.showToast = function(message, type){
+        try {
+          var container = document.getElementById('toast-container');
+          if (!container) return;
+          var id = 't'+Date.now()+Math.random().toString(16).slice(2);
+          var cls = (type === 'success') ? 'text-bg-success' : (type === 'error' ? 'text-bg-danger' : 'text-bg-warning');
+          var html = '\n<div id="'+id+'" class="toast align-items-center '+cls+' border-0" role="alert" aria-live="assertive" aria-atomic="true">\n  <div class="d-flex">\n    <div class="toast-body">'+(message||'')+'</div>\n    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>\n  </div>\n</div>';
+          container.insertAdjacentHTML('beforeend', html);
+          var el = document.getElementById(id);
+          var t = new bootstrap.Toast(el, { delay: 5000 });
+          t.show();
+          el.addEventListener('hidden.bs.toast', function(){ try { el.remove(); } catch(_) {} });
+        } catch(_) {}
+      };
+      // Render flashed messages as toasts without reload
+      try {
+        {% for message in get_flashed_messages() %}
+        window.showToast({{ message|tojson }}, 'warning');
+        {% endfor %}
+      } catch(_) {}
+    </script>
     {% if current_user.is_authenticated and request.args.get('embed') != '1' %}
       <header class="app-topbar px-3">
         <div class="app-topbar__row">

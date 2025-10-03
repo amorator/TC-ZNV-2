@@ -102,6 +102,18 @@ def register(app):
 					permission_value = ','.join(permission_value)
 				except Exception:
 					permission_value = ''
+
+			# If admin is present (any 'z' in any segment) or configured admin account,
+			# normalize to full access legacy string including Files 'f'
+			try:
+				parts = (permission_value or '').split(',')
+				while len(parts) < 4:
+					parts.append('')
+				is_admin_any = any(('z' in (seg or '')) for seg in parts) or getattr(current_user, 'is_config_admin', False)
+				if is_admin_any:
+					permission_value = 'aef,a,abcdflm,ab'
+			except Exception:
+				pass
 			
 			# Validate required fields
 			if not name:

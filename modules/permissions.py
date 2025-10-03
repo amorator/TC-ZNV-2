@@ -21,6 +21,8 @@ FILES_DELETE_ANY = 'files.delete_any'
 FILES_MARK_VIEWED = 'files.mark_viewed'
 FILES_SEE_VIEWERS = 'files.see_viewers'
 FILES_NOTES = 'files.notes'
+# Files visibility override (bypass group-only restriction)
+FILES_DISPLAY_ALL = 'files.display_all'
 
 # Requests (examples, for adapter)
 REQUESTS_APPROVE = 'requests.approve'
@@ -87,6 +89,7 @@ PERMISSION_LABELS = {
     FILES_MARK_VIEWED: 'Файлы: отметить просмотренным',
     FILES_SEE_VIEWERS: 'Файлы: видеть просматривающих',
     FILES_NOTES: 'Файлы: примечания',
+    FILES_DISPLAY_ALL: 'Файлы: отображать все',
 
     REQUESTS_VIEW_PAGE: 'Заявки: просмотр',
     REQUESTS_APPROVE: 'Заявки: утверждение',

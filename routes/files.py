@@ -39,9 +39,33 @@ def register(app, media_service, socketio=None) -> None:
 		Returns:
 			Tuple[int, int]: Safe `(did, sdid)` indices within bounds.
 		"""
-		if did < 0 or did >= len(_dirs):
+		# If there are no allowed directories at all, return safe defaults
+		total_roots = len(_dirs)
+		if total_roots == 0:
+			return 0, 0
+
+		# Clamp root index
+		if did is None:
 			did = 0
-		if sdid < 1 or sdid >= len(_dirs[did]):
+		if did < 0 or did >= total_roots:
+			did = 0
+
+		# Determine number of subdirectories (keys) under the selected root
+		try:
+			total_subs = len(_dirs[did])
+		except Exception:
+			# In case structure is unexpected, fall back to one-sub layout
+			total_subs = 1
+
+		# Subdirectories are 1-based in UI; index 0 is the root label
+		if total_subs <= 1:
+			# No subdirectories available
+			return did, 0
+
+		# Clamp subdirectory index to [1, total_subs-1]
+		if sdid is None:
+			sdid = 1
+		if sdid < 1 or sdid >= total_subs:
 			sdid = 1
 		return did, sdid
 
@@ -111,9 +135,22 @@ def register(app, media_service, socketio=None) -> None:
 		"""
 		id = 3
 		_dirs = dirs_by_permission(app, id, 'f')
+		# Guard: no available directories for this user
+		if not _dirs or len(_dirs) == 0:
+			max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
+			return render_template('files.j2.html', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
+
 		did, sdid = validate_directory_params(did, sdid, _dirs)
-		dirs = list(_dirs[did].keys())
-		files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])]) if sdid < len(dirs) else None
+		dirs = list(_dirs[did].keys()) if (did is not None and did < len(_dirs)) else []
+		# Guard: if no subdirectories present, render with empty file list
+		if not dirs or len(dirs) <= 1:
+			max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
+			return render_template('files.j2.html', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
+
+		# Safe access to subdir index
+		files = None
+		if 1 <= sdid < len(dirs):
+			files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
 		max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
 		return render_template('files.j2.html', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
 
@@ -122,6 +159,7 @@ def register(app, media_service, socketio=None) -> None:
 	def files_add(did: int = 0, sdid: int = 1):
 		"""Single-phase upload: save original, create DB record (ready=0), start conversion."""
 		try:
+			log_action('FILE_UPLOAD_START', current_user.name, f'start upload to did={did} sdid={sdid}', request.remote_addr)
 			dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, dirs)
 			dirs = list(dirs[did].keys())
@@ -175,6 +213,7 @@ def register(app, media_service, socketio=None) -> None:
 					pass
 			
 			media_service.convert_async(fpath + '.webm', fpath + '.mp4', ('file', id))
+			log_action('FILE_UPLOAD_END', current_user.name, f'uploaded file {name} as {real_name}.webm (id={id})', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
 			log_action('FILE_UPLOAD', current_user.name, f'failed to upload file {name}: {str(e)}', request.remote_addr, success=False)
@@ -194,6 +233,7 @@ def register(app, media_service, socketio=None) -> None:
 		second phase.
 		"""
 		try:
+			log_action('FILE_UPLOAD_INIT_START', current_user.name, f'start init upload to did={did} sdid={sdid}', request.remote_addr)
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
@@ -210,6 +250,7 @@ def register(app, media_service, socketio=None) -> None:
 					socketio.emit('files:changed', {'reason': 'init', 'id': fid}, broadcast=True)
 				except Exception:
 					pass
+			log_action('FILE_UPLOAD_INIT_END', current_user.name, f'init created id={fid} real={real_name}', request.remote_addr)
 			return {'id': fid, 'real_name': real_name, 'upload_url': url_for('files_upload', did=did, sdid=sdid, id=fid)}
 		except Exception as e:
 			app.flash_error(e)
@@ -221,6 +262,7 @@ def register(app, media_service, socketio=None) -> None:
 	def files_upload(id: int, did: int = 0, sdid: int = 1):
 		"""Two-phase upload (upload): receive binary, save original, start conversion."""
 		try:
+			log_action('FILE_UPLOAD_BIN_START', current_user.name, f'start upload binary id={id}', request.remote_addr)
 			file_rec = app._sql.file_by_id([id])
 			if not file_rec:
 				return abort(404)
@@ -258,6 +300,7 @@ def register(app, media_service, socketio=None) -> None:
 					socketio.emit('files:changed', {'reason': 'uploaded', 'id': id}, broadcast=True)
 				except Exception:
 					pass
+			log_action('FILE_UPLOAD_BIN_END', current_user.name, f'uploaded binary for id={id} size_mb={size_mb}', request.remote_addr)
 			return {200: 'OK'}
 		except Exception as e:
 			app.flash_error(e)
@@ -342,7 +385,17 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
-			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), name)
+			# Detect explicit download intent via query flag `dl=1`
+			is_download = (request.args.get('dl') == '1')
+			if is_download:
+				log_action('FILE_DOWNLOAD', current_user.name, f'download file {name} from {dirs[0]}/{dirs[sdid]}', request.remote_addr)
+			else:
+				log_action('FILE_OPEN', current_user.name, f'open file {name} in {dirs[0]}/{dirs[sdid]}', request.remote_addr)
+			return send_from_directory(
+				path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]),
+				name,
+				as_attachment=is_download
+			)
 		except Exception as e:
 			app.flash_error(e)
 			return redirect(url_for('files', did=did, sdid=sdid))
@@ -358,6 +411,7 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
+			log_action('FILE_DOWNLOAD', current_user.name, f'download original {base}.webm from {dirs[0]}/{dirs[sdid]}', request.remote_addr)
 			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), base + '.webm', as_attachment=True)
 		except Exception as e:
 			app.flash_error(e)
@@ -383,11 +437,24 @@ def register(app, media_service, socketio=None) -> None:
 			return redirect(url_for('files', did=did, sdid=sdid))
 			
 		try:
-			if file.viewed:
-				raise Exception('Данный файл уже отмечен как просмотренный!')
-			app._sql.file_view([current_user.name, id])
+			# Build updated viewers string: append current user if not already present
+			current_name = (current_user.name or '').strip()
+			existing = (file.viewed or '').strip()
+			if existing:
+				# Split by comma and normalize whitespace
+				parts = [p.strip() for p in existing.split(',') if p is not None]
+				if current_name and (current_name not in parts):
+					parts.append(current_name)
+				new_value = ', '.join([p for p in parts if p])
+			else:
+				new_value = current_name
+			# Persist if we have something to write
+			if new_value:
+				app._sql.file_view([new_value, id])
+			log_action('FILE_MARK_VIEWED', current_user.name, f'marked viewed id={id} (viewers updated)', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
+			log_action('FILE_MARK_VIEWED', current_user.name, f'failed to mark viewed id={id}: {str(e)}', request.remote_addr, success=False)
 		return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/fls' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
@@ -451,6 +518,13 @@ def register(app, media_service, socketio=None) -> None:
 			error_message = str(e)
 			app.flash_error(e)
 		finally:
+			try:
+				if ok:
+					log_action('FILE_MOVE', current_user.name, f'moved id={id} to {new_dir}', request.remote_addr)
+				else:
+					log_action('FILE_MOVE', current_user.name, f'failed move id={id}: {error_message}', request.remote_addr, success=False)
+			except Exception:
+				pass
 			# Return JSON for AJAX requests, redirect for traditional forms
 			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
 				if ok:
@@ -585,9 +659,18 @@ def register(app, media_service, socketio=None) -> None:
 			# Return JSON for AJAX requests, simple response for traditional requests
 			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
 				return {'status': 'success', 'message': 'File metadata refreshed successfully', 'file_exists': file_rec.exists}, 200
+			# Log success after refresh
+			try:
+				log_action('FILE_REFRESH', current_user.name, f'refreshed metadata for id={id} length={length_seconds}s size_mb={size_mb}', request.remote_addr)
+			except Exception:
+				pass
 			return {'ok': 1}
 		except Exception as e:
 			app.flash_error(e)
+			try:
+				log_action('FILE_REFRESH', current_user.name, f'failed to refresh metadata for id={id}: {str(e)}', request.remote_addr, success=False)
+			except Exception:
+				pass
 			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
 				return {'status': 'error', 'message': str(e)}, 500
 			return {'error': str(e)}, 400
@@ -601,6 +684,11 @@ def register(app, media_service, socketio=None) -> None:
 			return redirect(url_for('files', did=did, sdid=sdid))
 		id = 3
 		from flask import make_response
+		# Log opening of recorder UI
+		try:
+			log_action('RECORD_UI_OPEN', current_user.name, f'open recorder did={did} sdid={sdid}', request.remote_addr)
+		except Exception:
+			pass
 		html = render_template('components/record.j2.html', id=id, did=did, sdid=sdid)
 		resp = make_response(html)
 		resp.headers['Content-Type'] = 'text/html; charset=utf-8'
@@ -624,11 +712,31 @@ def register(app, media_service, socketio=None) -> None:
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
 			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') + str(randint(1000, 9999)))
 			fname = path.join(dir, real_name)
+			# Determine recording type from the provided name (suffix convention from frontend)
+			rec_type = 'unknown'
+			try:
+				if name.endswith('_screen'):
+					rec_type = 'screen'
+				elif name.endswith('_cam'):
+					rec_type = 'camera'
+				else:
+					rec_type = 'single'
+			except Exception:
+				pass
+			# Log start of recording save
+			try:
+				log_action('RECORD_SAVE_START', current_user.name, f'type={rec_type} name="{name}" did={did} sdid={sdid}', request.remote_addr)
+			except Exception:
+				pass
 			request.files.get(name + '.webm').save(fname + '.webm')
 			# Args need to match file_add signature: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
 			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
 			media_service.convert_async(fname + '.webm', fname + '.mp4', ('file', id))
-			log_action('FILE_RECORD', current_user.name, f'recorded file {name} (id={id})', request.remote_addr)
+			# Log successful end of recording save
+			try:
+				log_action('RECORD_SAVE_END', current_user.name, f'type={rec_type} name="{name}" id={id} status=SUCCESS', request.remote_addr)
+			except Exception:
+				pass
 			# Notify clients about new file
 			if socketio:
 				try:
@@ -638,6 +746,11 @@ def register(app, media_service, socketio=None) -> None:
 			return {200: 'OK'}
 		except Exception as e:
 			app.flash_error(e)
+			# Log failed save
+			try:
+				log_action('RECORD_SAVE_END', current_user.name, f'type=unknown name="{name}" status=FAILED error={str(e)}', request.remote_addr, success=False)
+			except Exception:
+				pass
 			return {421: 'Can not process data'}
 
 

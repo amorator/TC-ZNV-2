@@ -1,5 +1,5 @@
 // Initialize unified context menu for users page
-(function initUsersContextMenu() {
+function initUsersContextMenu() {
   const table = document.getElementById('maintable');
   if (!table) return;
 
@@ -12,8 +12,27 @@
       page: 'users',
       canManage: canManage
     });
+  } else {
+    // Fallback: retry after a short delay
+    setTimeout(() => {
+      if (window.contextMenu) {
+        window.contextMenu.init({
+          page: 'users',
+          canManage: canManage
+        });
+      } else {
+        console.warn('Context menu module not loaded');
+      }
+    }, 100);
   }
-})();
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initUsersContextMenu);
+} else {
+  initUsersContextMenu();
+}
 
 // Additional users page functionality
 (function () {
@@ -117,9 +136,31 @@
     const input = form.querySelector('#perm-string-perm');
     const legacy = (row.dataset.perm || '');
     if (input) input.value = legacy;
+    // Normalize UI (convert legacy with 'z' to full-access string, set boxes including 'f')
+    try {
+      if (input && window.refreshPermissionUI) {
+        window.refreshPermissionUI(input.id);
+      }
+    } catch(_) {}
     const boxId = (input ? input.id : 'perm-string-perm') + '-box';
     const box = document.getElementById(boxId);
     if (!box) return;
+    // If legacy equals full admin string, enable admin toggle and lock others
+    try {
+      const partsForZ = (legacy || '').split(',');
+      while (partsForZ.length < 4) partsForZ.push('');
+      const hasZAnywhere = partsForZ.some(function(seg){ return (seg || '').indexOf('z') !== -1; });
+      const isFullAdmin = hasZAnywhere || (legacy === 'aef,a,abcdflm,ab');
+      const adminToggle = box.querySelector('[data-admin-toggle="1"]');
+      if (adminToggle) {
+        adminToggle.checked = isFullAdmin;
+      }
+      box.querySelectorAll('.permissions-group').forEach(function(group){
+        if (group.getAttribute('data-page') !== 'admin') {
+          group.querySelectorAll('input[type="checkbox"]').forEach(function(cb){ cb.disabled = isFullAdmin; });
+        }
+      });
+    } catch(_) {}
     const parts = (legacy || '').split(',');
     while (parts.length < 4) parts.push('');
     const groups = box.querySelectorAll('.permissions-group');
@@ -147,6 +188,9 @@
     } catch (_) {}
   }
 
+  // Expose for other modules (e.g., context-menu)
+  try { window.syncPermFormFromRow = syncPermFormFromRow; } catch(_) {}
+
 
   /** Bind page-level handlers for context menu, search, toggles, and copy. */
   function attachHandlers() {
@@ -167,39 +211,48 @@
       });
     }
 
-    // Make Active column toggle on click
-    table.addEventListener('click', function (e) {
-      if (!canManage) return;
-      const td = e.target.closest('td[data-enabled]');
-      if (!td || !table.contains(td)) return;
-      const row = td.closest('tr.table__body_row');
-      if (!row) return;
-      const isAdmin = (row.dataset.login || '').toLowerCase() === 'admin';
-      if (isAdmin) return; // admin always enabled
-      const id = row.id;
-      if (!id) return;
-      // prevent double toggles
-      if (td._toggling) return;
-      td._toggling = true;
-      const url = `${window.location.origin}/srs/toggle/${id}`;
-
-      fetch(url, { method: 'GET', credentials: 'same-origin' })
-        .then(() => {
-          // Flip state in UI
-          const wasEnabled = (td.getAttribute('data-enabled') === '1' || td.dataset.enabled === '1');
-          const nowEnabled = wasEnabled ? '0' : '1';
-          td.setAttribute('data-enabled', nowEnabled);
-          td.dataset.enabled = nowEnabled;
-          row.dataset.enabled = nowEnabled;
-          const icon = td.querySelector('.bi');
-          if (icon) {
-            icon.classList.remove('bi-toggle-on', 'bi-toggle-off');
-            icon.classList.add(nowEnabled === '1' ? 'bi-toggle-on' : 'bi-toggle-off');
-          }
-        })
-        .catch(() => { /* ignore, backend also redirects if blocked */ })
-        .finally(() => { td._toggling = false; });
-    });
+    // Inline toggle on click for non-admin users (mirrors context-menu toggle)
+    try {
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody && canManage) {
+        tbody.addEventListener('click', function(e){
+          const cell = e.target && e.target.closest && e.target.closest('td[data-enabled]');
+          if (!cell) return;
+          const row = cell.closest('tr.table__body_row');
+          if (!row) return;
+          const loginVal = (row.dataset.login || '').toLowerCase();
+          const isAdmin = (row.dataset.isAdmin === '1') || (loginVal === 'admin');
+          if (isAdmin) {
+            // Protected admin: do not toggle
+    return;
+  }
+          const rowId = row.id;
+          if (!rowId) return;
+          const toggleUrl = `${window.location.origin}/srs/toggle/${rowId}`;
+          fetch(toggleUrl, { method: 'GET', credentials: 'same-origin' })
+            .then(function(response){
+              if (!response.ok) return;
+              const currentEnabled = row.dataset.enabled === '1';
+              const newEnabled = !currentEnabled;
+              row.dataset.enabled = newEnabled ? '1' : '0';
+              // sync cell data-enabled attribute
+              try { cell.setAttribute('data-enabled', newEnabled ? '1' : '0'); } catch(_) {}
+              // update icon classes
+              const icon = cell.querySelector('.bi');
+              if (icon) {
+                icon.classList.remove('bi-toggle-on', 'bi-toggle-off');
+                icon.classList.add(newEnabled ? 'bi-toggle-on' : 'bi-toggle-off');
+              }
+              // Reinitialize context menu after state change
+              try { setTimeout(function(){
+                const evt = new CustomEvent('context-menu-reinit', { detail: { timestamp: Date.now() } });
+                document.dispatchEvent(evt);
+              }, 0); } catch(_) {}
+            })
+            .catch(function(_){});
+        });
+      }
+    } catch(_) {}
 
     // Click-to-copy login similar to files name
     function bindCopy(selector, title) {
@@ -404,9 +457,13 @@
           smoothUpdateUsersTableBody(tbody, newTbody);
           
           // Reinitialize context menu after table update
-          reinitializeContextMenu();
+          try { reinitializeContextMenu(); } catch(_) {}
           
+          // Rebind per-row handlers
           try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+
+          // Final safety: reinitialize context menu again after bindings
+          try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
         })
         .catch(() => {});
     }
@@ -495,6 +552,21 @@
             closeModal('popup-perm');
       return;
     }
+          // Ensure hidden fields are populated to satisfy backend (gid/integer)
+          try {
+            const rowId = permForm.dataset.rowId;
+            const row = rowId ? document.getElementById(String(rowId)) : null;
+            if (row) {
+              const hidLogin = permForm.querySelector('input[name="login"]');
+              const hidName = permForm.querySelector('input[name="name"]');
+              const hidGroup = permForm.querySelector('input[name="group"]');
+              const hidEnabled = permForm.querySelector('input[name="enabled"]');
+              if (hidLogin) hidLogin.value = (row.dataset.login || '').trim();
+              if (hidName) hidName.value = (row.dataset.name || '').trim();
+              if (hidGroup) hidGroup.value = (row.dataset.gid || '').toString();
+              if (hidEnabled) hidEnabled.value = (row.dataset.enabled === '1') ? '1' : '0';
+            }
+          } catch(_) {}
           submitUserFormAjax(permForm);
         });
       }
@@ -705,6 +777,7 @@
     
     if (!form) {
       console.error('Form not found');
+      if (window.showToast) { window.showToast('Форма не найдена', 'error'); }
       return false;
     }
     
@@ -719,6 +792,27 @@
         try { popupClose('popup-edit'); } catch(_) {}
         return false;
       }
+    } else if (form.id === 'perm') {
+      // For permissions form, avoid submit if nothing changed
+      if (!window.isPermChanged(form)) {
+        try { popupClose('popup-perm'); } catch(_) {}
+        return false;
+      }
+      // Ensure hidden fields are populated (backend requires these)
+      try {
+        const rowId = form.dataset.rowId;
+        const row = rowId ? document.getElementById(String(rowId)) : null;
+        if (row) {
+          const hidLogin = form.querySelector('input[name="login"]');
+          const hidName = form.querySelector('input[name="name"]');
+          const hidGroup = form.querySelector('input[name="group"]');
+          const hidEnabled = form.querySelector('input[name="enabled"]');
+          if (hidLogin) hidLogin.value = (row.dataset.login || '').trim();
+          if (hidName) hidName.value = (row.dataset.name || '').trim();
+          if (hidGroup) hidGroup.value = (row.dataset.gid || '').toString();
+          if (hidEnabled) hidEnabled.value = (row.dataset.enabled === '1') ? '1' : '0';
+        }
+      } catch(_) {}
     }
     
     // For permissions form, check if there are changes
@@ -727,6 +821,21 @@
         try { popupClose('popup-perm'); } catch(_) {}
         return false;
       }
+      // Ensure required hidden fields are populated for backend
+      try {
+        const rowId = form.dataset.rowId;
+        const row = rowId ? document.getElementById(String(rowId)) : null;
+        if (row) {
+          const hidLogin = form.querySelector('input[name="login"]');
+          const hidName = form.querySelector('input[name="name"]');
+          const hidGroup = form.querySelector('input[name="group"]');
+          const hidEnabled = form.querySelector('input[name="enabled"]');
+          if (hidLogin) hidLogin.value = (row.dataset.login || '').trim();
+          if (hidName) hidName.value = (row.dataset.name || '').trim();
+          if (hidGroup) hidGroup.value = (row.dataset.gid || '').toString();
+          if (hidEnabled) hidEnabled.value = (row.dataset.enabled === '1') ? '1' : '0';
+        }
+      } catch(_) {}
     }
     
     // Submit form via AJAX
@@ -749,7 +858,7 @@
     if (loginInput && form.id !== 'perm') {
       const login = loginInput.value.trim();
       if (!login || login.length === 0) {
-        alert('Логин не может быть пустым');
+        if (window.showToast) { window.showToast('Логин не может быть пустым', 'error'); } else { alert('Логин не может быть пустым'); }
         loginInput.focus();
         return false;
       }
@@ -760,7 +869,7 @@
     if (nameInput && form.id !== 'perm') {
       const name = nameInput.value.trim();
       if (!name || name.length === 0) {
-        alert('Имя не может быть пустым');
+        if (window.showToast) { window.showToast('Имя не может быть пустым', 'error'); } else { alert('Имя не может быть пустым'); }
         nameInput.focus();
         return false;
       }
@@ -771,7 +880,7 @@
     if (passwordInput && (form.id === 'add' || form.id === 'reset')) {
       const password = passwordInput.value;
       if (!password || password.length === 0) {
-        alert('Пароль не может быть пустым');
+        if (window.showToast) { window.showToast('Пароль не может быть пустым', 'error'); } else { alert('Пароль не может быть пустым'); }
         passwordInput.focus();
         return false;
       }
@@ -779,7 +888,7 @@
       // Get minimum password length from config (fallback to 1)
       const minLength = window.CONFIG?.min_password_length || 1;
       if (password.length < minLength) {
-        alert(`Пароль должен быть не менее ${minLength} символов`);
+        if (window.showToast) { window.showToast(`Пароль должен быть не менее ${minLength} символов`, 'error'); } else { alert(`Пароль должен быть не менее ${minLength} символов`); }
         passwordInput.focus();
         return false;
       }
@@ -792,7 +901,7 @@
         const password = passwordInput.value;
         const confirmPassword = passwordConfirmInput.value;
         if (password !== confirmPassword) {
-          alert('Пароли не совпадают');
+          if (window.showToast) { window.showToast('Пароли не совпадают', 'error'); } else { alert('Пароли не совпадают'); }
           passwordConfirmInput.focus();
           return false;
         }
@@ -918,6 +1027,40 @@
       }
     });
   };
+
+  // Initialize context menu for users page
+  function initUsersContextMenu() {
+    const table = document.getElementById('maintable');
+    if (!table) return;
+
+    // Get table permissions
+    const canManage = table.getAttribute('data-can-manage') === '1';
+
+    // Initialize unified context menu
+    if (window.contextMenu) {
+      window.contextMenu.init({
+        page: 'users',
+        canManage: canManage
+      });
+    } else {
+      // Fallback: retry after a short delay
+      setTimeout(() => {
+        if (window.contextMenu) {
+          window.contextMenu.init({
+            page: 'users',
+            canManage: canManage
+          });
+        }
+      }, 100);
+    }
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initUsersContextMenu);
+  } else {
+    initUsersContextMenu();
+  }
 
   // Global search cleaner handled by files.js
 })();

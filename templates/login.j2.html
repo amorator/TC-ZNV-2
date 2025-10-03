@@ -14,6 +14,7 @@
       id="loginform"
       action="{{ url_for('login') }}"
       method="post"
+      onsubmit="return validateForm(this);"
     >
       <span class="login__title">Авторизация</span>
       <div class="wrap-input100">
@@ -37,7 +38,7 @@
           class="input"
         />
       </div>
-      <button type="button" class="login__button" id="submit" onclick="validateForm(document.getElementById('loginform'));">Войти</button>
+      <button type="submit" class="login__button" id="submit">Войти</button>
     </form>
   </div>
 </div>

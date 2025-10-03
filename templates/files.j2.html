@@ -10,8 +10,10 @@
 {% endblock %}
 
 {% block js %}
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}" defer="defer"></script>
 {% endblock %}
 
 {% block main %}
@@ -19,9 +21,13 @@
     <!-- Категории (директории верхнего уровня) -->
     <div class="subbar cat">
       <div class="subbar__group">
-        {% for i in range(dirs | length) %}
-          <a class="topbtn {{ 'active' if i == did else '' }}" href="{{ url_for('files', did=i, sdid=1) }}">{{ dirs[i].values() | first }}</a>
-        {% endfor %}
+        {% if dirs and (dirs | length) > 0 %}
+          {% for i in range(dirs | length) %}
+            <a class="topbtn {{ 'active' if i == did else '' }}" href="{{ url_for('files', did=i, sdid=1) }}">{{ dirs[i].values() | first }}</a>
+          {% endfor %}
+        {% else %}
+          <span class="topbtn disabled">Нет доступных категорий</span>
+        {% endif %}
       </div>
     </div>
 
@@ -29,13 +35,17 @@
       <!-- Подкатегории (поддиректории выбранной категории) -->
       <div class="subbar subcat">
         <div class="subbar__group">
-          {% for i in range(1, dirs[did].keys() | length) %}
-            <a class="topbtn {{ 'active' if i == sdid else '' }}" href="{{ url_for('files', did=did, sdid=i) }}">{{ (dirs[did].values() | list)[i] }}</a>
-          {% endfor %}
+          {% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > 1 %}
+            {% for i in range(1, dirs[did].keys() | length) %}
+              <a class="topbtn {{ 'active' if i == sdid else '' }}" href="{{ url_for('files', did=did, sdid=i) }}">{{ (dirs[did].values() | list)[i] }}</a>
+            {% endfor %}
+          {% else %}
+            <span class="topbtn disabled">Нет подкатегорий</span>
+          {% endif %}
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}">
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
         <thead class="table__head">
           <tr class="table__head_row">
             <th class="table__head_item">Название</th>
@@ -49,16 +59,16 @@
         </thead>
         <tbody class="table__body">
           <tr class="table__body_actions">
-            <td class="table__body_action" colspan="2">
+            <td class="table__body_action" colspan="7">
               {% include 'components/searchbar.html' %}
             </td>
-            <td>
+            <!--<td>
             {% if current_user.has('files.upload') %}
               <td class="table__body_action files-page__table--actions">
                 <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-add" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
                 <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-record" onclick="popupToggle('popup-rec');"><i class="bi bi-camera-video"></i></button>
               </td>
-            {% endif %}
+            {% endif %}-->
           </tr>
           {% if files %}
             {% for file in files %}
@@ -68,9 +78,11 @@
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
                   data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.has('files.mark_viewed') else '' }}"
+                  data-viewed="{{ 1 if file.viewed else 0 }}"
                   data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
-                  data-root="{{ (dirs[did].values() | list)[0] }}"
-                  data-sub="{{ (dirs[did].values() | list)[sdid] }}"
+                  data-others-viewed="{% if file.viewed %}{% set fv = file.viewed %}{% if (current_user.name not in fv) %}1{% elif (fv|replace(current_user.name, '')|replace(',', '')|replace(' ', '')) %}1{% else %}0{% endif %}{% else %}0{% endif %}"
+                  data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
+                  data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
                   data-note="{{ file.note if file.note else '' }}"
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
@@ -89,15 +101,15 @@
                       {% if current_user.has('files.mark_viewed') %}
                         {% set already_viewed = (file.viewed and (current_user.name in file.viewed)) %}
                         {% if not already_viewed %}
-                          <span onclick="location.href='{{ url_for("files_view", id=file.id, did=did, sdid=sdid) }}'">Отметить просмотренным</span>
+                          <span onclick="window.markViewedAjax({{ file.id }});">Отметить просмотренным</span>
                         {% endif %}
                       {% endif %}
                     </div>
                     <div class="mt-1">
                       {% if current_user.has('files.notes') %}
-                        <span onclick="popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        <span class="note-badge{{ ' note-badge--has' if file.note }}" onclick="popupValues(document.getElementById('note'), {{ file.id }}); popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
                       {% else %}
-                        <span>{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
+                        <span class="note-badge{{ ' note-badge--has' if file.note }}">{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
                       {% endif %}
                     </div>
                   </td>
@@ -110,8 +122,8 @@
                   data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
-                  data-root="{{ (dirs[did].values() | list)[0] }}"
-                  data-sub="{{ (dirs[did].values() | list)[sdid] }}"
+                  data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
+                  data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
                   data-is-ready="0"
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
@@ -300,17 +312,25 @@
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-root">Выберите категорию:</label>
             <select class="form-control__control input" name="target_root" id="move-target-root">
-              {% for i in range(dirs | length) %}
-                <option value="{{ (dirs[i].values() | list)[0] }}">{{ (dirs[i].values() | list)[0] }}</option>
-              {% endfor %}
+              {% if dirs and (dirs | length) > 0 %}
+                {% for i in range(dirs | length) %}
+                  <option value="{{ (dirs[i].values() | list)[0] }}">{{ (dirs[i].values() | list)[0] }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>Нет доступных категорий</option>
+              {% endif %}
             </select>
           </div>
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-sub">Выберите подкатегорию:</label>
             <select class="form-control__control input" name="target_sub" id="move-target-sub">
-              {% for i in range(1, dirs[did].keys() | length) %}
-                <option value="{{ (dirs[did].values() | list)[i] }}">{{ (dirs[did].values() | list)[i] }}</option>
-              {% endfor %}
+              {% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > 1 %}
+                {% for i in range(1, dirs[did].keys() | length) %}
+                  <option value="{{ (dirs[did].values() | list)[i] }}">{{ (dirs[did].values() | list)[i] }}</option>
+                {% endfor %}
+              {% else %}
+                <option value="" disabled>Нет подкатегорий</option>
+              {% endif %}
             </select>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">

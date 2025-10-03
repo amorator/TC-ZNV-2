@@ -64,7 +64,7 @@ class User(UserMixin):
                 FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY,
                 FILES_MARK_VIEWED, FILES_NOTES, REQUESTS_APPROVE, REQUESTS_ALLOW,
                 REQUESTS_VIEW_PAGE, ORDERS_VIEW_PAGE, USERS_VIEW_PAGE, USERS_MANAGE,
-                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_ANY,
+                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_ANY, FILES_DISPLAY_ALL,
             )
         except Exception:
             # Fallback if import cycle during app startup
@@ -78,6 +78,7 @@ class User(UserMixin):
                 'd': FILES_DELETE_ANY,
                 'l': FILES_NOTES,
                 'm': FILES_MARK_VIEWED,
+                'f': FILES_DISPLAY_ALL,
                 'z': ADMIN_ANY,
             },
             1: {

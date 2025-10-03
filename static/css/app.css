@@ -543,6 +543,111 @@
     font-size: 0.75em;
 }
 
+/* Note badge: more visible when note exists */
+.note-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--sidebar-bg);
+    background-color: var(--topbar-bg);
+    color: var(--topbar-text);
+}
+
+.note-badge--has {
+    background-color: #ffd43b;
+    color: #111827;
+    border-color: #cc9a00;
+    font-weight: 700;
+    box-shadow: 0 0 0 2px rgba(255, 212, 59, .5), 0 2px 6px rgba(0, 0, 0, .12);
+    text-transform: none;
+    position: relative;
+}
+
+.theme-dark .note-badge--has {
+    background-color: #5b4a00;
+    color: #ffd43b;
+    border-color: #ffd43b;
+    box-shadow: 0 0 0 2px rgba(255, 212, 59, .35), 0 2px 8px rgba(0, 0, 0, .35);
+}
+
+/* Icon inside note badge when note exists */
+.note-badge--has::before {
+    content: '📝';
+    margin-right: 6px;
+}
+
+/* Multiple left accent bars: row-level base + first-cell overlay for third bar */
+.files-page__table tbody tr.table__body_row {
+    position: relative;
+}
+
+/* 1) Notes bar (blue) as leftmost */
+.files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])>td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #3b82f6;
+    pointer-events: none;
+}
+
+.theme-dark .files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])>td:first-child::before {
+    background: #1d4ed8;
+}
+
+/* 2) Viewed by someone (yellow). Shift right by 4px if there is a note bar */
+.files-page__table tbody tr.table__body_row[data-others-viewed="1"]>td:first-child::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #ff9900;
+    pointer-events: none;
+}
+
+/* when both note and viewed present, move the viewed bar to the right */
+.files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])[data-others-viewed="1"]>td:first-child::after {
+    left: 4px;
+}
+
+.theme-dark .files-page__table tbody tr.table__body_row[data-others-viewed="1"]>td:first-child::after {
+    background: #b08900;
+}
+
+/* 3) Viewed by current user (green) on first cell link ::before */
+.files-page__table tbody tr.table__body_row[data-already-viewed="1"]>td:first-child {
+    position: relative;
+}
+
+.files-page__table tbody tr.table__body_row[data-already-viewed="1"]>td:first-child .files-page__link::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #4caf50;
+    pointer-events: none;
+}
+
+/* shift green by 4px if note exists */
+.files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])[data-already-viewed="1"]>td:first-child .files-page__link::before {
+    left: 4px;
+}
+
+/* shift green by 8px if note and viewed present */
+.files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])[data-viewed="1"][data-already-viewed="1"]>td:first-child .files-page__link::before {
+    left: 8px;
+}
+
+.theme-dark .files-page__table tbody tr.table__body_row[data-already-viewed="1"]>td:first-child .files-page__link::before {
+    background: #2e7d32;
+}
+
 .files-page__table {
     border-collapse: collapse;
     border: 1px solid var(--sidebar-bg);
@@ -555,6 +660,38 @@
 
 .files-page__table .table__body_item span:hover {
     background-color: var(--sidebar-bg);
+}
+
+/* Viewers list styling: visually distinct from action buttons/links */
+
+.files-page__table .file-viewers {
+    display: block;
+    padding: 4px 6px;
+    border: 1px dashed var(--sidebar-bg);
+    border-radius: 4px;
+    background: transparent;
+}
+
+.files-page__table .file-viewers strong {
+    display: block;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.files-page__table .file-viewers span {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted, #6b7280);
+    background: transparent !important;
+    cursor: default;
+}
+
+.theme-dark .files-page__table .file-viewers {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.theme-dark .files-page__table .file-viewers span {
+    color: rgba(255, 255, 255, 0.7);
 }
 
 /* Improve visibility of viewed marker on light/dark themes */
@@ -659,4 +796,10 @@
 
 .upload-progress .upload-status small {
     color: var(--sidebar-text);
+}
+
+/* Disable pointer and dim toggle icon for protected admin */
+.users-page #maintable tr.table__body_row[data-login="admin"] td[data-enabled] {
+    opacity: 0.6;
+    pointer-events: none;
 }

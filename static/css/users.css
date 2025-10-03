@@ -1,12 +1,13 @@
 .users-page {
-  padding-left: 20px;
-  padding-right: 20px;
-  padding-top: 20px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-top: 8px;
 }
 
 .users-page__table {
   width: 100%;
   border: none;
+  margin-top: 6px;
 }
 
 /* Match /fls table font sizing */
@@ -38,8 +39,14 @@
 
 .actions {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+/* Reduce spacing above the table actions row */
+.table__body_actions {
+  padding: 4px 8px !important;
 }
 
 /* Permissions grid */
@@ -57,14 +64,16 @@
 }
 
 #popup-perm .popup__body {
-  max-height: 70vh;
-  overflow: auto;
+  /* Remove inner scrolling and reduce vertical padding */
+  max-height: none;
+  overflow: visible;
+  padding-bottom: 6px;
 }
 
 #popup-perm .perm-layout {
   display: grid !important;
   grid-template-columns: 1fr 2fr !important;
-  gap: 16px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -100,10 +109,30 @@
 
 #popup-perm .permissions-grid {
   grid-template-columns: repeat(2, minmax(240px, 1fr));
-  gap: 12px 16px;
+  gap: 8px 12px;
+  /* tighter grid */
   background: var(--modal-bg, var(--body-bg));
-  padding: 8px;
+  padding: 6px;
+  /* less padding to bring buttons closer */
   border-radius: 8px;
+}
+
+/* Place the Admin (Full Access) group at the end of the right column */
+#popup-perm .permissions-group--admin {
+  order: 99;
+  grid-column: 2;
+  align-self: start;
+}
+
+#popup-perm .permissions-group {
+  padding: 6px 8px;
+  /* compact group padding */
+}
+
+#popup-perm .popup__actions {
+  /* bring actions closer to grid and keep visible */
+  padding-top: 6px;
+  margin-top: 2px;
 }
 
 @media (max-width: 768px) {
@@ -218,11 +247,18 @@
 }
 
 /* Plain text look for permissions */
-.perms-cell,
 .perms-cell * {
-  background: inherit !important;
+  background: transparent !important;
+  /* let td's zebra background show */
   border: none !important;
   text-decoration: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure each rights line has no chip-like background */
+.perms-cell__item,
+.perms-cell__item * {
+  background: transparent !important;
 }
 
 /* Center and enlarge toggle icon in Active column */
@@ -241,4 +277,43 @@ tr.table__body_row td[data-enabled] {
 
 tr.table__body_row[data-login="admin"] td[data-enabled] {
   cursor: default;
+}
+
+/* Special styling for admin user (from backup) */
+.table__body_row[data-is-admin="1"] {
+  background-color: var(--bs-danger-bg-subtle);
+  border-left: 4px solid var(--bs-danger);
+}
+
+.table__body_row[data-is-admin="1"] .users-page__login {
+  color: var(--bs-danger-text-emphasis);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.table__body_row[data-is-admin="1"] .users-page__name {
+  color: var(--bs-danger-text-emphasis);
+  font-weight: 600;
+}
+
+/* Admin user hover effect */
+.table__body_row[data-is-admin="1"]:hover {
+  background-color: var(--bs-danger-bg-subtle);
+  box-shadow: 0 2px 8px rgba(220, 53, 69, 0.2);
+}
+
+/* Full access users (not protected admin): same red stripe, no shield */
+.table__body_row[data-full-access="1"][data-is-admin="0"] {
+  background-color: var(--bs-danger-bg-subtle);
+  border-left: 4px solid var(--bs-danger);
+}
+
+.table__body_row[data-full-access="1"][data-is-admin="0"] .users-page__login,
+.table__body_row[data-full-access="1"][data-is-admin="0"] .users-page__name {
+  color: var(--bs-danger-text-emphasis);
+}
+
+.table__body_row[data-full-access="1"][data-is-admin="0"]:hover {
+  background-color: var(--bs-danger-bg-subtle);
+  box-shadow: 0 2px 8px rgba(220, 53, 69, 0.2);
 }
