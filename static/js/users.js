@@ -1,5 +1,21 @@
-// Context menu and actions for users page
-// Provides: right-click actions, modal hydration, search, copy-to-clipboard, and inline toggling
+// Initialize unified context menu for users page
+(function initUsersContextMenu() {
+  const table = document.getElementById('maintable');
+  if (!table) return;
+
+  // Get table permissions
+  const canManage = table.getAttribute('data-can-manage') === '1';
+
+  // Initialize unified context menu
+  if (window.contextMenu) {
+    window.contextMenu.init({
+      page: 'users',
+      canManage: canManage
+    });
+  }
+})();
+
+// Additional users page functionality
 (function () {
   /**
    * Return users table element or null
@@ -19,63 +35,7 @@
     return row && row.id ? row : null;
   }
 
-  /**
-   * Show custom context menu at cursor position
-   * @param {MouseEvent} e
-   * @param {HTMLElement|null} row
-   * @param {boolean} canManage
-   */
-  function showContextMenu(e, row, canManage) {
-    const menu = document.getElementById('context-menu');
-    if (!menu) return;
-    // Reset visibility
-    menu.classList.remove('d-none');
-    // Position with basic overflow handling
-    const margin = 4;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const rect = menu.getBoundingClientRect();
-    let x = e.clientX;
-    let y = e.clientY;
-    // If menu would overflow to the right/bottom, shift it
-    if (x + rect.width + margin > vw) {
-      x = Math.max(vw - rect.width - margin, margin);
-    }
-    if (y + rect.height + margin > vh) {
-      y = Math.max(vh - rect.height - margin, margin);
-    }
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
 
-    // Configure items based on selection and manage rights
-    const items = menu.querySelectorAll('.context-menu__item');
-    items.forEach(i => (i.style.display = 'none'));
-
-    const addItem = menu.querySelector('[data-action="add"]');
-    addItem.style.display = canManage ? '' : 'none';
-
-    if (row && canManage) {
-      const enabled = row.dataset.enabled === '1';
-      const toggle = menu.querySelector('[data-action="toggle"]');
-      toggle.textContent = enabled ? 'Выключить' : 'Включить';
-      const isAdmin = (row.dataset.login || '').toLowerCase() === 'admin';
-      const actions = isAdmin ? ['reset'] : ['toggle','edit','perm','reset','delete'];
-      actions.forEach(a => {
-        const el = menu.querySelector(`[data-action="${a}"]`);
-        if (el) el.style.display = '';
-      });
-    } else {
-      // Clicked on empty space: only add
-      addItem.style.display = canManage ? '' : 'none';
-    }
-
-    menu.dataset.targetId = row ? row.id : '';
-  }
-
-  function hideContextMenu() {
-    const menu = document.getElementById('context-menu');
-    if (menu) menu.classList.add('d-none');
-  }
 
   /**
    * Open a modal and hydrate the form from selected row
@@ -187,75 +147,6 @@
     } catch (_) {}
   }
 
-  /**
-   * Handle clicks inside custom context menu
-   * @param {MouseEvent} e
-   */
-  function handleMenuClick(e) {
-    const item = e.target.closest('.context-menu__item');
-    if (!item) return;
-    const action = item.dataset.action;
-    const menu = document.getElementById('context-menu');
-    const rowId = menu.dataset.targetId;
-    hideContextMenu();
-    switch (action) {
-      case 'add':
-        openModal('add');
-        break;
-      case 'toggle':
-        if (rowId) {
-          const row = document.getElementById(rowId);
-          const toggleUrl = `${window.location.origin}${window.location.pathname.replace(/\/srs.*/, '/srs')}/toggle/${rowId}`;
-          // Use AJAX instead of page reload
-          fetch(toggleUrl, {
-            method: 'POST',
-            credentials: 'include'
-          })
-          .then(response => {
-            if (response.ok) {
-              // Update row locally instead of full page refresh
-              if (row) {
-                const currentEnabled = row.dataset.enabled === '1';
-                const newEnabled = !currentEnabled;
-                
-                // Update row data
-                row.dataset.enabled = newEnabled ? '1' : '0';
-                
-                // Update toggle icon in the table
-                const toggleIcon = row.querySelector('.bi-toggle-on, .bi-toggle-off');
-                if (toggleIcon) {
-                  toggleIcon.classList.remove('bi-toggle-on', 'bi-toggle-off');
-                  toggleIcon.classList.add(newEnabled ? 'bi-toggle-on' : 'bi-toggle-off');
-                }
-              }
-              
-              // Emit socket event for other users
-              if (window.usersSocket && window.usersSocket.emit) {
-                window.usersSocket.emit('users:changed', { reason: 'toggle' });
-              }
-            } else {
-              // Status change failed - handled silently
-            }
-          })
-          .catch(error => {
-            console.error('Error:', error);
-          });
-        }
-        break;
-      case 'edit':
-        if (rowId) openModal('edit', rowId);
-        break;
-      case 'perm':
-        if (rowId) openModal('perm', rowId);
-        break;
-      case 'reset':
-        if (rowId) openModal('reset', rowId);
-        break;
-      case 'delete':
-        if (rowId) openModal('delete', rowId);
-        break;
-    }
-  }
 
   /** Bind page-level handlers for context menu, search, toggles, and copy. */
   function attachHandlers() {
@@ -263,32 +154,6 @@
     if (!table) return;
     const canManage = table.dataset.canManage === '1';
 
-    // Mirror files.js approach: handle at document level when table exists
-    document.addEventListener('contextmenu', function(e) {
-      if (!document.getElementById('maintable')) return; // not on users page
-      e.preventDefault();
-      e.stopPropagation();
-      const row = e.target.closest && e.target.closest('tr.table__body_row');
-      showContextMenu(e, row, canManage);
-    });
-    document.addEventListener('click', function(e){
-      // Ignore right-click (contextmenu), hide on left click only
-      if (e.button === 0) hideContextMenu();
-    });
-    const menu = document.getElementById('context-menu');
-    if (menu) {
-      // Avoid duplicate binding after soft refresh
-      if (!menu._usersMenuBound) {
-        menu._usersMenuBound = true;
-        menu.addEventListener('click', handleMenuClick);
-      }
-      // Suppress native context menu over our custom menu as well
-      menu.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); });
-    }
-    // Hide on scroll or resize to avoid floating menu in wrong place
-    window.addEventListener('scroll', hideContextMenu, true);
-    window.addEventListener('resize', hideContextMenu);
-    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') hideContextMenu(); });
 
     // Search
     const search = document.getElementById('searchinp');
@@ -446,44 +311,6 @@
     });
   }
 
-  // Listen for context menu reinitialization events
-  document.addEventListener('context-menu-reinit', function() {
-    try {
-      const menu = document.getElementById('context-menu');
-      if (!menu) return;
-
-      // Re-bind menu click handler to ensure it works with updated table
-      // Remove existing handler to prevent duplicates
-      if (menu._usersMenuBound) {
-        menu.removeEventListener('click', handleMenuClick);
-        menu._usersMenuBound = false;
-      }
-      
-      // Re-bind the click handler
-      if (!menu._usersMenuBound) {
-        menu._usersMenuBound = true;
-        menu.addEventListener('click', handleMenuClick);
-      }
-      
-      // Re-attach other event listeners that might have been lost
-      const table = getTable();
-      if (table) {
-        const canManage = table.dataset.canManage === '1';
-        
-        // Re-attach context menu handler
-        document.removeEventListener('contextmenu', function() {});
-        document.addEventListener('contextmenu', function(e) {
-          if (!document.getElementById('maintable')) return; // not on users page
-          e.preventDefault();
-          e.stopPropagation();
-          const row = e.target.closest && e.target.closest('tr.table__body_row');
-          showContextMenu(e, row, canManage);
-        });
-      }
-    } catch(e) {
-      // Silent fail
-    }
-  });
 
   document.addEventListener('DOMContentLoaded', attachHandlers);
 
