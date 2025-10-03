@@ -162,6 +162,13 @@
         // Configure items for general actions (add, record)
         this.configureGeneralItems();
       }
+
+      // If after configuration no visible items left, show a disabled info item
+      const anyVisible = Array.from(this.menu.querySelectorAll('.context-menu__item'))
+        .some(el => el.style.display !== 'none');
+      if (!anyVisible) {
+        this.showNoPermissionsItem();
+      }
     }
 
     /**
@@ -334,6 +341,25 @@
       if (separator) {
         separator.style.display = show ? 'block' : 'none';
       }
+    }
+
+    /**
+     * Ensure a single disabled item indicating no permissions is visible
+     */
+    showNoPermissionsItem() {
+      let infoItem = this.menu.querySelector('[data-action="no-perms"]');
+      if (!infoItem) {
+        infoItem = document.createElement('li');
+        infoItem.className = 'context-menu__item disabled';
+        infoItem.setAttribute('data-action', 'no-perms');
+        infoItem.style.pointerEvents = 'none';
+        infoItem.style.opacity = '0.7';
+        infoItem.textContent = 'Нет разрешений вносить изменения';
+        const list = this.menu.querySelector('.context-menu__list') || this.menu;
+        list.appendChild(infoItem);
+      }
+      infoItem.style.display = 'block';
+      this.toggleSeparator(false);
     }
 
     /**

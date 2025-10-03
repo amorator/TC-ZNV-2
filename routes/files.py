@@ -3,6 +3,7 @@ from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
 from utils.common import make_dir, hash_str
+from utils.dir_utils import validate_directory_params
 from services.permissions import dirs_by_permission
 from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
@@ -28,46 +29,7 @@ def register(app, media_service, socketio=None) -> None:
 	- serving converted and original files
 	- recorder modal endpoints
 	"""
-	def validate_directory_params(did, sdid, _dirs):
-		"""Validate and normalize directory parameters.
-
-		Args:
-			did: Requested directory index.
-			sdid: Requested subdirectory index.
-			_dirs: Nested structure of allowed directories for the current user.
-
-		Returns:
-			Tuple[int, int]: Safe `(did, sdid)` indices within bounds.
-		"""
-		# If there are no allowed directories at all, return safe defaults
-		total_roots = len(_dirs)
-		if total_roots == 0:
-			return 0, 0
-
-		# Clamp root index
-		if did is None:
-			did = 0
-		if did < 0 or did >= total_roots:
-			did = 0
-
-		# Determine number of subdirectories (keys) under the selected root
-		try:
-			total_subs = len(_dirs[did])
-		except Exception:
-			# In case structure is unexpected, fall back to one-sub layout
-			total_subs = 1
-
-		# Subdirectories are 1-based in UI; index 0 is the root label
-		if total_subs <= 1:
-			# No subdirectories available
-			return did, 0
-
-		# Clamp subdirectory index to [1, total_subs-1]
-		if sdid is None:
-			sdid = 1
-		if sdid < 1 or sdid >= total_subs:
-			sdid = 1
-		return did, sdid
+	# validate_directory_params is now imported from utils.dir_utils
 
 	def validate_uploaded_file(file, app):
 		"""Validate uploaded file type and size.

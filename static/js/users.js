@@ -318,45 +318,27 @@ if (document.readyState === 'loading') {
 
   // Legacy function removed - using new validateForm below
   
-  function submitFormAjax(form) {
+  // NOTE: keep name different to avoid shadowing global window.submitFormAjax
+  function submitFormAjaxLocal(form) {
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalText = submitBtn ? submitBtn.textContent : '';
-    
-    // Disable submit button during request
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Отправка...';
     }
-    
-    fetch(form.action, {
+    return fetch(form.action, {
       method: 'POST',
       body: formData,
       credentials: 'include'
     })
     .then(response => {
-      if (response.ok) {
-        // Close modal and refresh table
-        const modal = form.closest('.overlay-container');
-        const modalId = modal ? modal.id : null;
-        if (modalId) closeModal(modalId);
-        refreshUsersPage();
-        
-        // Emit socket event for other users
-        if (window.usersSocket && window.usersSocket.emit) {
-          window.usersSocket.emit('users:changed', { reason: 'form-submit' });
-        }
-      } else {
-        response.text().then(text => {
-          console.error('Error:', text || 'Неизвестная ошибка');
-        });
+      if (!response.ok) {
+        return response.text().then(text => { throw new Error(text || 'Неизвестная ошибка'); });
       }
-    })
-    .catch(error => {
-      console.error('Error:', error);
+      return response;
     })
     .finally(() => {
-      // Re-enable submit button
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
@@ -440,34 +422,18 @@ if (document.readyState === 'loading') {
       }
     }
 
+    // Register and unify soft refresh using TableManager.
+    // Rebinds context menu and per-row handlers after DOM replacement.
+    try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'users', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
     function softRefreshUsersTable() {
-      const table = document.getElementById('maintable');
-      if (!table) return;
-      const tbody = table.tBodies && table.tBodies[0];
-      if (!tbody) return;
-      const url = window.location.href;
-      fetch(url, { credentials: 'include' })
-        .then(r => r.text())
-        .then(html => {
-          const doc = new DOMParser().parseFromString(html, 'text/html');
-          const newTbody = doc.querySelector('#maintable tbody');
-          if (!newTbody) return;
-          
-          // Use smooth update instead of innerHTML replacement
-          smoothUpdateUsersTableBody(tbody, newTbody);
-          
-          // Reinitialize context menu after table update
+      if (window.tableManager && window.tableManager.softRefreshTable) {
+        window.tableManager.softRefreshTable('maintable').then(function(){
           try { reinitializeContextMenu(); } catch(_) {}
-          
-          // Rebind per-row handlers
           try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
-
-          // Final safety: reinitialize context menu again after bindings
           try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
-        })
-        .catch(() => {});
+        });
+      }
     }
-    // Expose globally for post-action refreshes
     try { window.softRefreshUsersTable = softRefreshUsersTable; } catch(_) {}
   })();
 
@@ -575,9 +541,8 @@ if (document.readyState === 'loading') {
 
   // Function to refresh the users page after actions
   window.refreshUsersPage = function() {
-    // For now, simply reload the page
-    // TODO: Implement AJAX table refresh
-    window.location.reload();
+    // Use soft refresh instead of full reload to avoid navigation logs
+    try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
   };
 
   /**
@@ -894,9 +859,9 @@ if (document.readyState === 'loading') {
       }
     }
     
-    // Check password confirmation (for add form)
-    if (form.id === 'add') {
-      const passwordConfirmInput = form.querySelector('input[name="password_confirm"]');
+    // Check password confirmation (for add and reset forms)
+    if (form.id === 'add' || form.id === 'reset') {
+      const passwordConfirmInput = form.querySelector('input[name="password2"]');
       if (passwordConfirmInput && passwordInput) {
         const password = passwordInput.value;
         const confirmPassword = passwordConfirmInput.value;
@@ -913,34 +878,12 @@ if (document.readyState === 'loading') {
   
   // Function to submit user forms via AJAX
   window.submitUserFormAjax = function(form) {
-    const formData = new FormData(form);
-    const submitBtn = form.querySelector('button[type="submit"], button.btn-primary');
-    const originalText = submitBtn ? submitBtn.textContent : '';
-    
-    // Disable submit button during request
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Отправка...';
+    if (!window.submitFormAjax) {
+      console.error('submitFormAjax helper not found');
+      if (window.showToast) { window.showToast('Внутренняя ошибка: нет AJAX помощника', 'error'); }
+      return false;
     }
-    
-    fetch(form.action, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(async response => {
-      const contentType = response.headers.get('Content-Type') || '';
-      let data = null;
-      if (contentType.includes('application/json')) {
-        try { data = await response.json(); } catch(_) {}
-      }
-      if (!response.ok || (data && data.status === 'error')) {
-        const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
-        throw new Error(msg);
-      }
-      return data;
-    })
+    window.submitFormAjax(form)
     .then(() => {
         // Close modal first
         const modal = form.closest('.overlay-container');
@@ -998,15 +941,15 @@ if (document.readyState === 'loading') {
             if (userId) {
               removeUserRowLocally(userId);
             } else {
-              window.location.reload(); // Fallback if no user ID
+              try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
             }
           } else {
-            // Unknown form, full refresh
-            window.location.reload();
+            // Unknown form: prefer soft refresh over full reload
+            try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
           }
         } catch (e) {
           console.error('Error updating table locally:', e);
-          window.location.reload(); // Fallback to full refresh
+          try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
         }
         
         // Emit socket event for other users
@@ -1016,16 +959,7 @@ if (document.readyState === 'loading') {
           }
         } catch(e) {}
     })
-    .catch(error => {
-      console.error('Error:', error);
-    })
-    .finally(() => {
-      // Re-enable submit button
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
-      }
-    });
+    .catch(() => {});
   };
 
   // Initialize context menu for users page

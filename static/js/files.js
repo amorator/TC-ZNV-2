@@ -1180,7 +1180,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // Helper: soft refresh table body without losing search/pagination
+  // Register with TableManager and unify soft refresh.
+  // Preserves search/pagination and rebinds page-specific handlers after refresh.
+  try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'files', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
   function softRefreshFilesTable() {
     const table = document.getElementById('maintable');
     if (!table) return;
@@ -1196,17 +1198,11 @@ document.addEventListener('DOMContentLoaded', function () {
       ? window.filesPager.readPage()
       : 1;
 
-    // Fetch same URL and parse tbody
-    fetch(window.location.href, { credentials: 'include' })
-      .then(r => r.text())
-      .then(html => {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const newTbody = doc.querySelector('#maintable tbody');
+    // Use tableManager refresh then run page-specific rebinds
+    if (window.tableManager && window.tableManager.softRefreshTable) {
+      window.tableManager.softRefreshTable('maintable').then(function(){
+        const newTbody = document.querySelector('#maintable tbody');
         if (!newTbody) return;
-        
-        // Use smooth update instead of innerHTML replacement
-        smoothUpdateTableBody(tbody, newTbody);
 
         // Ensure context menu reflects new row states/actions after refresh
         try { reinitializeContextMenu(); } catch(e) {}
@@ -1258,8 +1254,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Final safety: reinitialize context menu once more after all adjustments
         try { reinitializeContextMenu(); } catch(e) {}
-      })
-      .catch(() => {});
+      });
+    }
   }
 
   // Periodic refresh while there are rows in processing state
@@ -1972,42 +1968,7 @@ document.addEventListener('DOMContentLoaded', function () {
       } catch (e) {}
     }
     
-    const formData = new FormData(form);
-    const submitBtn = form.querySelector('button[type="submit"]');
-    const originalText = submitBtn ? submitBtn.textContent : '';
-    
-    // Disable submit button during request
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Отправка...';
-    }
-    
-    fetch(form.action, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(async response => {
-      const contentType = response.headers.get('Content-Type') || '';
-      let data = null;
-      if (contentType.includes('application/json')) {
-        try { data = await response.json(); } catch(_) {}
-      }
-      if (!response.ok || (data && data.status === 'error')) {
-        const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
-        // If backend reports missing file, mark the row accordingly
-        try {
-          const isMissing = /file not found/i.test(msg) || /файл не найден/i.test(msg);
-          if (isMissing) {
-            const fileId = (form.dataset && form.dataset.rowId) || (form.action.match(/\/(\d+)$/) || [])[1];
-            if (fileId) { window.markFileAsMissing(fileId); }
-          }
-        } catch(_) {}
-        throw new Error(msg);
-      }
-      return data;
-    })
+    submitFormAjax(form)
     .then(() => {
       // Close modal first
       const modal = form.closest('.overlay-container');
@@ -2087,16 +2048,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       } catch(e) {}
     })
-    .catch(error => {
-      console.error('Error:', error);
-    })
-    .finally(() => {
-      // Re-enable submit button
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
-      }
-    });
+    .catch(() => {});
   };
 
   // Initialize context menu for files page
