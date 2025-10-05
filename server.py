@@ -91,10 +91,45 @@ def too_large(e):
     """Return human-readable 413 payload too large error."""
     return f"Слишком большой файл {e}!", 403
 
+def _render_50x(err, code):
+    try:
+        import traceback
+        from datetime import datetime
+        now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        details = ''.join(traceback.format_exc())
+        # If there is no active exception context, format_exc returns 'NoneType: None\n'
+        if details.strip() == 'NoneType: None':
+            details = ''
+        # Keep only from the last traceback frame for brevity
+        if details:
+            marker = 'File '
+            last = details.rfind(marker)
+            if last != -1:
+                details = details[last:]
+        return render_template(
+            'error_pages/50x.j2.html',
+            error_text=str(err),
+            error_details=details,
+            now_text=now_text,
+        ), code
+    except Exception:
+        return f"Ошибка сервера {err}! Сообщите о проблеме 21-00 (ОАСУ).", code
+
 @app.errorhandler(500)
 def internal_server_error(e):
-    """Return generic 500 error with contact hint."""
-    return f"Ошибка сервера {e}! Сообщите о проблеме 21-00 (ОАСУ).", 500
+    return _render_50x(e, 500)
+
+@app.errorhandler(502)
+def bad_gateway(e):
+    return _render_50x(e, 502)
+
+@app.errorhandler(503)
+def service_unavailable(e):
+    return _render_50x(e, 503)
+
+@app.errorhandler(504)
+def gateway_timeout(e):
+    return _render_50x(e, 504)
 
 @app.login_manager.user_loader
 def load_user(id):

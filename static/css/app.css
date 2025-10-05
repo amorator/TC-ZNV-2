@@ -639,6 +639,11 @@
     left: 4px;
 }
 
+/* shift green by 4px when others also viewed (show both green and yellow) */
+.files-page__table tbody tr.table__body_row[data-others-viewed="1"][data-already-viewed="1"]>td:first-child .files-page__link::before {
+    left: 4px;
+}
+
 /* shift green by 8px if note and viewed present */
 .files-page__table tbody tr.table__body_row[data-note]:not([data-note=""])[data-viewed="1"][data-already-viewed="1"]>td:first-child .files-page__link::before {
     left: 8px;

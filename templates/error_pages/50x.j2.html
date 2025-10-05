@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Критическая ошибка</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: url('/static/images/50x-img.png') center center / cover no-repeat fixed;
+      color: #00ff66; /* ярко-зелёный */
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+      text-align: center;
+    }
+    .wrap {
+      background: rgba(0, 0, 0, 0.35);
+      padding: 24px 28px;
+      border-radius: 10px;
+      max-width: 900px;
+      width: 92%;
+    }
+    h1 { margin: 0 0 10px 0; font-size: 2rem; }
+    .hint { margin: 0 0 16px 0; font-size: 1.05rem; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.95rem;
+      line-height: 1.35;
+      color: #a0ffbf;
+    }
+  </style>
+  <meta http-equiv="refresh" content="30">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:,">
+  <meta http-equiv="cache-control" content="no-cache">
+</head>
+<body>
+  <div class="wrap">
+    <div class="ts">{{ now_text }}</div>
+    <h1>Критическая ошибка!</h1>
+    <div class="hint">Сообщите о проблеме в ОАСУ (тел.: 21-00)<br>Сохраните текст ошибки!</div>
+    <pre>{{ error_text }}</pre>
+    {% if error_details %}
+    <br>
+    <pre>{{ error_details }}</pre>
+    {% endif %}
+  </div>
+</body>
+</html>
+
+
