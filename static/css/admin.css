@@ -233,3 +233,60 @@
     color: var(--brand-green, #00ff00);
     border-color: var(--brand-green, #00ff00);
 }
+
+/* Logs section caption and container background (match modal/table areas) */
+.logs-card .border-top {
+    background: var(--modal-bg, var(--surface-2, #f8f9fa));
+    border-top-color: var(--border, rgba(0, 0, 0, .1));
+}
+
+.theme-dark .logs-card .border-top {
+    background: #232323;
+    border-top-color: #333;
+}
+
+.theme-dark-hc .logs-card .border-top {
+    background: #000;
+    border-top-color: var(--brand-green, #00ff00);
+}
+
+.logs-card .border-top .small.text-muted {
+    /* Match card header title style */
+    color: var(--text, #212529);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.theme-dark .logs-card .border-top .small.text-muted {
+    color: #e6e6e6;
+}
+
+.theme-dark-hc .logs-card .border-top .small.text-muted {
+    color: var(--brand-green, #00ff00);
+}
+
+/* Make logs table container follow the same background */
+.logs-card .table-responsive {
+    background: inherit;
+}
+
+/* Logs caption typography matches card header */
+.logs-card .logs-caption {
+    color: var(--text, #212529);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.theme-dark .logs-card .logs-caption {
+    color: #e6e6e6;
+}
+
+.theme-dark-hc .logs-card .logs-caption {
+    color: var(--brand-green, #00ff00);
+}
+
+/* Normalize logs table row font-size (files-page__table reduces all but first row) */
+.logs-table tbody tr>th,
+.logs-table tbody tr>td {
+    font-size: 0.8em;
+}

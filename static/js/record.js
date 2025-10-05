@@ -1,3 +1,52 @@
+(function syncThemeFromParent(){
+  try {
+    function applyTheme(theme){
+      try {
+        if (!theme) return;
+        document.documentElement.setAttribute('data-theme', theme);
+        document.body && document.body.setAttribute('data-theme', theme);
+        // normalize class theme-*
+        try {
+          const root = document.documentElement;
+          const classes = (root.className || '').split(/\s+/).filter(Boolean);
+          const filtered = classes.filter(c => !/^theme-/.test(c));
+          filtered.push('theme-' + theme);
+          root.className = filtered.join(' ');
+        } catch(_) {}
+        // also normalize on body to avoid stale theme-light
+        try {
+          if (document.body) {
+            const bClasses = (document.body.className || '').split(/\s+/).filter(Boolean);
+            const bFiltered = bClasses.filter(c => !/^theme-/.test(c));
+            bFiltered.push('theme-' + theme);
+            document.body.className = bFiltered.join(' ');
+          }
+        } catch(_) {}
+        try { localStorage.setItem('theme', theme); } catch(_) {}
+        // ensure background uses current CSS variables
+        try {
+          document.documentElement.style.backgroundColor = 'var(--modal-bg, var(--body-bg))';
+          document.body.style.backgroundColor = 'var(--modal-bg, var(--body-bg))';
+          document.body.style.color = 'var(--body-text)';
+        } catch(_) {}
+      } catch(_) {}
+    }
+    // Initial from URL
+    try {
+      const params = new URLSearchParams(location.search);
+      const t = params.get('theme');
+      if (t) applyTheme(t);
+    } catch(_) {}
+    // Listen to parent messages
+    window.addEventListener('message', function(ev){
+      try {
+        const data = ev && ev.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type === 'theme') applyTheme(data.value);
+      } catch(_) {}
+    });
+  } catch(_) {}
+})();
 /**
  * Hide and disable a control if present.
  * @param {HTMLElement|HTMLButtonElement|null} x - Element to disable
@@ -100,6 +149,12 @@ const BYTES_IN_MB = 1048576;
             var dstRoot = document.documentElement;
             dstRoot.className = (dstRoot.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
             dstRoot.className = (dstRoot.className ? dstRoot.className + ' ' : '') + ev.data.className;
+            try {
+              if (document.body) {
+                document.body.className = (document.body.className || '').split(/\s+/).filter(function(c){ return !/^theme-/.test(c); }).join(' ');
+                document.body.className = (document.body.className ? document.body.className + ' ' : '') + ev.data.className;
+              }
+            } catch(_) {}
           } else {
             syncOnce();
           }
@@ -163,8 +218,7 @@ disable(buttonStop);
   if (sourceScreen) sourceScreen.addEventListener('change', onSourceChange);
   if (sourceBoth) sourceBoth.addEventListener('change', onSourceChange);
   
-  // Add visual feedback for source selection
-  updateSourceSelectionStyles();
+  // Backup behavior: no custom selected visuals for radio group
   
   // Initial UI state
   updateVideoVisibility();
@@ -173,6 +227,7 @@ disable(buttonStop);
   updateButtonStates();
   
   postState();
+  // Ensure correct initial background/app state in parent
   // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
   /**
    * Handle keyboard shortcuts in the recorder iframe.
@@ -208,6 +263,33 @@ disable(buttonStop);
   try { window.addEventListener('keydown', handleKey, true); } catch(e) {}
   try { document.addEventListener('keydown', handleKey, true); } catch(e) {}
 });
+
+// Stop media and cleanup when iframe is being unloaded (modal closed or navigation)
+try {
+  window.addEventListener('beforeunload', function(){
+    try { stopRecorder(); } catch(_) {}
+    try { stopCameraStream(); } catch(_) {}
+    try { recState = { recording: false, paused: false, hasData: (recordedScreen.length>0)||(recordedCamera.length>0) }; postState(); } catch(_) {}
+  });
+  window.addEventListener('pagehide', function(){
+    try { stopRecorder(); } catch(_) {}
+    try { stopCameraStream(); } catch(_) {}
+  });
+} catch(_) {}
+
+// Pause/cleanup on tab/iframe hidden to avoid camera left on in background
+try {
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) {
+      try { if (recorderScreen && recorderScreen.state === 'recording') recorderScreen.pause(); } catch(_) {}
+      try { if (recorderCamera && recorderCamera.state === 'recording') recorderCamera.pause(); } catch(_) {}
+      try { disable(buttonPause); enable(buttonStart); } catch(_) {}
+      try { if (videoScreen) videoScreen.style.borderColor = 'green'; } catch(_) {}
+      try { if (videoCamera) videoCamera.style.borderColor = 'green'; } catch(_) {}
+      try { postState(); } catch(_) {}
+    }
+  });
+} catch(_) {}
 
 /**
  * Update UI to stopped state: borders, buttons, timer and save toggle.
@@ -423,23 +505,7 @@ function updateVideoVisibility() {
   } catch(e) {}
 }
 
-/**
- * Update visual styles for source selection buttons
- * @returns {void}
- */
-function updateSourceSelectionStyles() {
-  try {
-    const labels = document.querySelectorAll('.record-page__source-label');
-    labels.forEach(label => {
-      const radio = label.querySelector('input[type="radio"]');
-      if (radio && radio.checked) {
-        label.classList.add('source-selected');
-      } else {
-        label.classList.remove('source-selected');
-      }
-    });
-  } catch(e) {}
-}
+// Removed selected-state visuals to match backup styling
 
 /**
  * Update save button visibility based on recorded data
@@ -449,7 +515,8 @@ function updateSaveButtonVisibility() {
   try {
     if (buttonSave) {
       const hasRecordedData = (recordedScreen.length > 0) || (recordedCamera.length > 0);
-      if (hasRecordedData) {
+      const canShow = hasRecordedData && !recState.recording; // show only when paused or stopped
+      if (canShow) {
         buttonSave.disabled = false;
         buttonSave.style.display = 'inline-block';
       } else {
@@ -480,8 +547,7 @@ function onSourceChange() {
       buttonCamera.textContent = 'Включить камеру';
     }
     
-    // Update source selection visual styles
-    updateSourceSelectionStyles();
+    // Backup behavior: rely on native radio styling only
     
     // Update video visibility
     updateVideoVisibility();
@@ -526,6 +592,8 @@ async function onCameraClick() {
       }
       buttonCamera.textContent = buttonText;
       stopCameraStream();
+      // Update buttons after turning off
+      try { updateButtonStates(); } catch(_) {}
       if (videoScreen) videoScreen.style.borderColor = 'gray';
       if (videoCamera) videoCamera.style.borderColor = 'gray';
       clearInterval(timerInterval);
@@ -586,6 +654,7 @@ async function onCameraClick() {
           
           buttonCamera.textContent = 'Остановить захват';
           isDualRecording = true;
+          try { updateButtonStates(); } catch(_) {}
           
         } catch (error) {
           alert('Невозможно получить доступ к экрану или камере!');
@@ -617,6 +686,7 @@ async function onCameraClick() {
           
           buttonCamera.textContent = 'Остановить захват';
           isScreenRecording = true;
+          try { updateButtonStates(); } catch(_) {}
           
         } catch (error) {
           alert('Невозможно получить доступ к экрану!');
@@ -648,8 +718,9 @@ async function onCameraClick() {
             videoCamera.style.borderColor = 'green';
           }
           
-      buttonCamera.textContent = 'Выключить камеру';
+          buttonCamera.textContent = 'Выключить камеру';
           isScreenRecording = false;
+          try { updateButtonStates(); } catch(_) {}
           
         } catch (error) {
           alert('Невозможно получить доступ к камере!');
@@ -778,14 +849,10 @@ function onStartClick() {
     if (recorderScreen) recorderScreen.start();
     if (recorderCamera) recorderCamera.start();
     buttonStart.textContent = 'Продолжить';
-    // Hide save button when starting new recording
-    try { if (buttonSave) { buttonSave.style.display = 'none'; buttonSave.disabled = true; } } catch(e) {}
   } else {
     // Resume recording
     if (recorderScreen) recorderScreen.resume();
     if (recorderCamera) recorderCamera.resume();
-    // Show save button when resuming (there's already recorded data)
-    try { if (buttonSave) { buttonSave.style.display = 'inline-block'; buttonSave.disabled = false; } } catch(e) {}
   }
   
   if (videoScreen) videoScreen.style.borderColor = 'red';
@@ -797,6 +864,8 @@ function onStartClick() {
   disable(buttonStart);
   enable(buttonPause);
   enable(buttonStop);
+  // Hide save while actively recording
+  try { if (buttonSave) { buttonSave.style.display = 'none'; buttonSave.disabled = true; } } catch(e) {}
   recState.recording = true;
   recState.paused = false;
   postState();
@@ -812,6 +881,8 @@ function onPauseClick() {
   if (videoCamera) videoCamera.style.borderColor = 'green';
   enable(buttonStart);
   disable(buttonPause);
+  // Show save when paused and data exists
+  updateSaveButtonVisibility();
   recState.recording = false;
   recState.paused = true;
   postState();
@@ -837,6 +908,8 @@ function onStopClick() {
   
   // Update UI with current data state
   setStoppedUI();
+  // Show save after stop if there is data
+  updateSaveButtonVisibility();
   postState();
 }
 
@@ -847,7 +920,12 @@ function onSaveClick() {
   // If recording, stop first to flush data
   const isRecording = (recorderScreen && recorderScreen.state === 'recording') || 
                      (recorderCamera && recorderCamera.state === 'recording');
-  if (isRecording) {
+  const isPaused = (!isRecording) && (
+    (recorderScreen && recorderScreen.state === 'paused') ||
+    (recorderCamera && recorderCamera.state === 'paused')
+  );
+  if (isRecording || isPaused) {
+    // Always stop to flush data before saving
     return stopRecorder().then(() => onSaveClick());
   }
   saveFile()
@@ -923,7 +1001,6 @@ async function saveFile() {
       downloadContainer = document.createElement('div');
       downloadContainer.id = 'download-container';
       downloadContainer.className = 'record-download-container';
-      downloadContainer.style.cssText = 'margin-top: 10px; padding: 10px; border: 1px solid var(--border-color, #ccc); border-radius: 4px; background: var(--bg-color, transparent); position: relative; z-index: 1;';
       settings.appendChild(downloadContainer);
     }
     
@@ -936,11 +1013,10 @@ async function saveFile() {
       
       // Create download link for screen
       const screenDownloadLink = document.createElement('a');
-      screenDownloadLink.className = 'download-record-link button btn btn-primary';
+      screenDownloadLink.className = 'download-record-link btn btn-primary';
       screenDownloadLink.href = URL.createObjectURL(screenBlob);
       screenDownloadLink.download = screenFileName;
       screenDownloadLink.textContent = 'Скачать запись экрана';
-      screenDownloadLink.style.cssText = 'margin-right: 10px; pointer-events: auto; position: relative; z-index: 1; display: inline-block; text-decoration: none;';
       downloadContainer.appendChild(screenDownloadLink);
       
       // Upload screen recording
@@ -963,11 +1039,10 @@ async function saveFile() {
       
       // Create download link for camera
       const cameraDownloadLink = document.createElement('a');
-      cameraDownloadLink.className = 'download-record-link button btn btn-primary';
+      cameraDownloadLink.className = 'download-record-link btn btn-primary';
       cameraDownloadLink.href = URL.createObjectURL(cameraBlob);
       cameraDownloadLink.download = cameraFileName;
       cameraDownloadLink.textContent = 'Скачать запись камеры';
-      cameraDownloadLink.style.cssText = 'margin-right: 10px; pointer-events: auto; position: relative; z-index: 1; display: inline-block; text-decoration: none;';
       downloadContainer.appendChild(cameraDownloadLink);
       
       // Upload camera recording
@@ -1217,6 +1292,15 @@ window.addEventListener('message', function(ev) {
         window.parent.postMessage({ type: 'rec:discarded' }, '*');
       }
     } catch(e) {}
+  } else if (msg.type === 'rec:close') {
+    try {
+      // Ensure everything is stopped and UI is reset when parent closes
+      stopRecorder().then(() => {
+        try { stopCameraStream(); } catch(_) {}
+        try { resetAfterSave(); } catch(_) {}
+        try { recState = { recording: false, paused: false, hasData: (recordedScreen.length>0)||(recordedCamera.length>0) }; postState(); } catch(_) {}
+      });
+    } catch(_) {}
   }
 });
 

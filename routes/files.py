@@ -51,8 +51,10 @@ def register(app, media_service, socketio=None) -> None:
 		if not file or not file.filename:
 			raise ValueError('Файл не выбран')
 		
-		# Check file extension
-		allowed_extensions = {'.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'}
+		# Check file extension (video + audio)
+		video_ext = {'.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'}
+		audio_ext = {'.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga', '.wma', '.mka', '.opus'}
+		allowed_extensions = video_ext | audio_ext
 		file_ext = os.path.splitext(file.filename.lower())[1]
 		if file_ext not in allowed_extensions:
 			raise ValueError(f'Неподдерживаемый формат файла. Разрешены: {", ".join(allowed_extensions)}')
@@ -83,6 +85,13 @@ def register(app, media_service, socketio=None) -> None:
 				pass
 		
 		return True
+
+	def _is_audio_filename(filename: str) -> bool:
+		try:
+			ext = os.path.splitext((filename or '').lower())[1]
+			return ext in {'.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga', '.wma', '.mka', '.opus'}
+		except Exception:
+			return False
 
 	@app.route('/files' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
 	@app.route('/files' + '/<int:did>', methods=['GET'])
@@ -144,6 +153,7 @@ def register(app, media_service, socketio=None) -> None:
 			fpath = path.join(dir, real_name)
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
 			
+			# Save original as temporary .webm path (ffmpeg detects format by content)
 			uploaded_file.save(fpath + '.webm')
 			# initial metadata: length=0, size in MB from uploaded file size
 			try:
@@ -153,7 +163,10 @@ def register(app, media_service, socketio=None) -> None:
 			except Exception:
 				size_bytes = 0
 			size_mb = round(size_bytes / (1024*1024), 1) if size_bytes else 0
-			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb])
+			# Decide target extension by uploaded file type
+			is_audio = _is_audio_filename(uploaded_file.filename)
+			target_ext = '.m4a' if is_audio else '.mp4'
+			id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb])
 			# try to detect duration from original .webm and notify clients
 			try:
 				import subprocess
@@ -176,7 +189,8 @@ def register(app, media_service, socketio=None) -> None:
 				except Exception:
 					pass
 			
-			media_service.convert_async(fpath + '.webm', fpath + '.mp4', ('file', id))
+			# Start background conversion to the chosen target
+			media_service.convert_async(fpath + '.webm', fpath + ('.m4a' if is_audio else '.mp4'), ('file', id))
 			log_action('FILE_UPLOAD_END', current_user.name, f'uploaded file {name} as {real_name}.webm (id={id})', request.remote_addr)
 		except Exception as e:
 			app.flash_error(e)
@@ -245,7 +259,7 @@ def register(app, media_service, socketio=None) -> None:
 				size_bytes = 0
 			size_mb = round(size_bytes / (1024*1024), 1) if size_bytes else 0
 			try:
-				# probe duration from original
+			# probe duration from original (works for audio/video)
 				import subprocess
 				p = subprocess.Popen(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", base + '.webm'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 				sout, _ = p.communicate(timeout=10)
@@ -258,7 +272,9 @@ def register(app, media_service, socketio=None) -> None:
 						pass
 			except Exception:
 				pass
-			media_service.convert_async(base + '.webm', base + '.mp4', ('file', id))
+			# Choose target by final real_name extension
+			target_ext = (path.splitext(file_rec.real_name)[1] or '.mp4').lower()
+			media_service.convert_async(base + '.webm', base + ('.m4a' if target_ext == '.m4a' else '.mp4'), ('file', id))
 			if socketio:
 				try:
 					socketio.emit('files:changed', {'reason': 'uploaded', 'id': id}, broadcast=True)

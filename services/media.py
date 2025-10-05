@@ -5,6 +5,7 @@ import os
 from typing import Tuple, Any, Optional
 
 from modules.threadpool import ThreadPool
+from modules.logging import get_logger
 
 
 class MediaService:
@@ -27,6 +28,11 @@ class MediaService:
         self.files_root = files_root
         self._sql = sql_utils
         self.socketio = socketio
+        try:
+            self._log = get_logger(__name__)
+        except Exception:
+            import logging as _pylog
+            self._log = _pylog.getLogger(__name__)
 
     def convert_async(self, src_path: str, dst_path: str, entity: Tuple[str, int]) -> None:
         """Schedule asynchronous conversion from src to dst for the given entity.
@@ -46,6 +52,7 @@ class MediaService:
         """
         old, new, entity = args
         etype, entity_id = entity
+        # noisy during normal operation; keep only errors in logs
         
         # Check if source file exists
         if not path.exists(old):
@@ -55,9 +62,29 @@ class MediaService:
             return
             
         if old == new:
+            # If destination equals source, force a default target extension
+            # Default to mp4; audio pipeline below will override when needed
             rename(old, old + '.mp4')
             old += '.mp4'
-        process = Popen(["ffmpeg", "-hide_banner", "-y", "-i", old, "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf", "scale=800:600", new], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        # Select conversion pipeline based on target extension
+        dst_ext = (os.path.splitext(new)[1] or '').lower()
+        if dst_ext == '.m4a':
+            # Audio-only: convert to AAC in M4A container
+            process = Popen([
+                "ffmpeg", "-hide_banner", "-y", "-i", old,
+                "-vn",               # drop video
+                "-c:a", "aac",
+                "-b:a", "192k",
+                new
+            ], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        else:
+            # Video: H.264 in MP4 with scaling/CRF
+            process = Popen([
+                "ffmpeg", "-hide_banner", "-y", "-i", old,
+                "-c:v", "libx264", "-preset", "slow", "-crf", "28",
+                "-b:v", "250k", "-vf", "scale=800:600",
+                new
+            ], stdout=PIPE, stderr=PIPE, universal_newlines=True)
         try:
             out, err = process.communicate(timeout=300)  # 5 minute timeout
             if process.returncode != 0:
@@ -75,19 +102,37 @@ class MediaService:
             return
         # After conversion, probe duration and size (robust ffprobe)
         length_seconds, size_mb = self._probe_length_and_size(new)
+        # conversion done; avoid extra info logs
         if etype == 'file':
             self._sql.file_ready([entity_id])
             try:
                 self._sql.file_update_metadata([length_seconds, size_mb, entity_id])
+                # Ensure DB real_name matches actual target extension (mp4/m4a)
+                try:
+                    self._sql.file_update_real_name([path.basename(new), entity_id])
+                except Exception:
+                    pass
             except Exception:
                 pass
             # Notify clients about conversion completion
             if self.socketio:
                 try:
-                    self.socketio.emit('files:changed', {'reason': 'converted', 'id': entity_id, 'meta': {'length': length_seconds, 'size': size_mb}}, namespace='/', broadcast=True)
-                    # allow the socket server to flush the message in async loop
+                    payload = {'reason': 'converted', 'id': entity_id, 'meta': {'length': length_seconds, 'size': size_mb}}
+                    # event emitted; avoid verbose logs
+                    # Default namespace emit
+                    self.socketio.emit('files:changed', payload, broadcast=True)
+                    self.socketio.sleep(0)
+                    # Also emit with explicit namespace for some clients
+                    try:
+                        self.socketio.emit('files:changed', payload, namespace='/', broadcast=True)
+                    except Exception:
+                        pass
                     self.socketio.sleep(0)
                 except Exception:
+                    try:
+                        self._log.exception('MEDIA_EMIT_ERROR id=%s', entity_id)
+                    except Exception:
+                        pass
                     pass
         elif etype == 'order':
             ord = self._sql.order_by_id([entity_id])

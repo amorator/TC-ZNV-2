@@ -3,6 +3,7 @@
 {% block css %}
 <link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/components/table.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/files.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block js %}
@@ -19,7 +20,7 @@
           <button id="btnRefreshPresence" class="btn btn-sm btn-outline-secondary">Обновить</button>
         </div>
         <div class="table-responsive presence-table-wrap">
-          <table id="presenceTable" class="users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0">
+          <table id="presenceTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0">
             <thead class="table__head">
               <tr class="table__head_row">
                 <th class="table__head_item">Пользователь</th>
@@ -57,9 +58,9 @@
         </div>
         <pre id="logsView" class="logs-view mb-0 p-3"></pre>
         <div class="border-top p-2">
-          <div class="small text-muted mb-2">Логи</div>
+          <div class="mb-2"><strong class="logs-caption">Логи</strong></div>
           <div class="table-responsive">
-            <table id="logsTable" class="users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table">
+            <table id="logsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table">
               <thead class="table__head">
                 <tr class="table__head_row">
                   <th class="table__head_item">Файл</th>

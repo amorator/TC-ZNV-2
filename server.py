@@ -47,6 +47,19 @@ try:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 except Exception:
     pass
+# Optional cross-process message queue (e.g., Redis) to deliver emits across workers
+_socketio_kwargs = {}
+try:
+    mq = app._sql.config.get('socketio', {}).get('message_queue')
+    if mq:
+        _socketio_kwargs['message_queue'] = mq
+        try:
+            _log.debug('Socket.IO using message_queue=%s', mq)
+        except Exception:
+            pass
+except Exception:
+    pass
+
 socketio = SocketIO(
     app,
     async_mode='gevent',
@@ -57,6 +70,7 @@ socketio = SocketIO(
     ping_timeout=60,
     allow_upgrades=True,
     transports=['websocket', 'polling'],
+    **_socketio_kwargs,
 )
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)

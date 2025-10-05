@@ -13,23 +13,37 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components/progress.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/record.css') }}">
+  <script>
+    // Apply theme ASAP based on URL param before deferred scripts
+    (function(){
+      try {
+        var params = new URLSearchParams(location.search);
+        var t = params.get('theme');
+        if (t) {
+          document.documentElement.setAttribute('data-theme', t);
+          document.body && document.body.setAttribute('data-theme', t);
+          var cls = document.documentElement.className || '';
+          cls = cls.replace(/\btheme-[\w-]+\b/g, '').trim();
+          document.documentElement.className = (cls + ' theme-' + t).trim();
+        }
+      } catch(e) {}
+    })();
+  </script>
     <style>
-      /* Ensure proper theming for iframe */
+      /* Ensure proper theming for iframe using theme tokens directly (as in backup) */
       html, body {
         background-color: var(--modal-bg, var(--body-bg, #ffffff)) !important;
         color: var(--body-text, #000000) !important;
         margin: 0 !important;
         padding: 0 !important;
-        min-height: 100% !important;
+        min-height: 100vh !important;
+        height: 100% !important;
       }
-      
       /* Add spacing between video blocks and menu content */
-      .record-page__videos {
-        margin-right: 20px !important;
-      }
+      .record-page__videos { margin-right: 20px !important; }
     </style>
 </head>
-<body data-theme="{{ request.args.get('theme', 'light') }}" class="theme-{{ request.args.get('theme', 'light') }}">
+<body data-theme="{{ request.args.get('theme', 'light') }}" class="theme-{{ request.args.get('theme', 'light') }}" style="background-color: var(--modal-bg, var(--body-bg, #ffffff)) !important; min-height: 100vh;">
 <section class="record-page">
   {% if request.args.get('embed') != '1' %}
   <h1 class="record-page__title">Запись видео</h1>

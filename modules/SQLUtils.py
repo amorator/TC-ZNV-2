@@ -271,6 +271,10 @@ class SQLUtils(SQL):
         placeholders = ', '.join(['%s'] * len(args))
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET ready = 1 WHERE id IN ({placeholders});", args)
 
+    def file_update_real_name(self, args):
+        """Update file real_name after conversion. Args: [real_name, id]"""
+        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s WHERE id = %s;", args)
+
     def file_view(self, args):
         """Mark file as viewed. Args: [viewed, id]"""
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET viewed = %s WHERE id = %s;", args)

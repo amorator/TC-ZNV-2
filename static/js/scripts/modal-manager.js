@@ -438,11 +438,70 @@
 
   window.popupToggle = (modalId, rowId = null, data = null) => {
     const isOpen = window.modalManager.isModalOpen(modalId);
+    // Intercept recorder modal close to query iframe state and confirm
+    if (modalId === 'popup-rec' && isOpen) {
+      try {
+        const iframe = document.getElementById('rec-iframe');
+        if (iframe && iframe.contentWindow) {
+          window.__recCloseRequested = true;
+          try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+          iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+          // Fallback if no response arrives
+          window.__recStateTimer = setTimeout(function() {
+            try { window.__recCloseRequested = false; } catch(_) {}
+            try { if (window.showRecConfirmDialog) window.showRecConfirmDialog(); } catch(_) {}
+            try { window.__recStateTimer = null; } catch(_) {}
+          }, 300);
+          return true;
+        }
+      } catch(_) {}
+      // If no iframe, just close
+      return window.modalManager.closeModal(modalId);
+    }
+    // Default toggle
     if (isOpen) {
       return window.modalManager.closeModal(modalId);
     } else {
       return window.modalManager.openModal(modalId, data, rowId);
     }
   };
+  
+  // Recorder close control (mirror of legacy handler) but using modalManager
+  window.addEventListener('message', function(ev) {
+    try {
+      const data = ev.data || {};
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'rec:state' && window.__recCloseRequested) {
+        window.__recCloseRequested = false;
+        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+        const st = data.state || {};
+        const isRecording = !!st.recording;
+        const isPaused = !!st.paused;
+        const hasData = !!st.hasData;
+        if (isRecording) {
+          alert('Остановите запись перед закрытием окна.');
+          return;
+        }
+        if (!window.__recSaving && (hasData || isPaused)) {
+          if (window.showRecConfirmDialog) window.showRecConfirmDialog();
+          return;
+        }
+        // Safe to close: notify iframe to cleanup then close via manager
+        try {
+          const iframe = document.getElementById('rec-iframe');
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'rec:close' }, '*');
+          }
+        } catch(_) {}
+        try { window.modalManager.closeModal('popup-rec'); } catch(_) {}
+      } else if (data.type === 'rec:discarded') {
+        try { window.modalManager.closeModal('popup-rec'); } catch(_) {}
+        window.__recSaving = false;
+      } else if (data.type === 'rec:saved') {
+        window.__recSaving = false;
+        try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
+      }
+    } catch(_) {}
+  });
 })();
 

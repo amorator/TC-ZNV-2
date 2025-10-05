@@ -87,7 +87,7 @@
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
-                  <td class="table__body_item">{{ file.description }}</td>
+                  <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
                   <td class="table__body_item">{{ file.length_human }}</td>
@@ -128,7 +128,7 @@
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item">{{ file.display_name }}</td>
-                  <td class="table__body_item">{{ file.description }}</td>
+                  <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
                   <td class="table__body_item">{{ file.owner }}</td>
                   <td class="table__body_item">{{ file.date }}</td>
                   <td class="table__body_item">{{ file.length_human }}</td>
@@ -136,7 +136,7 @@
                   <td class="table__body_item">
                     Обрабатывается...
                     <div class="d-inline-flex gap-2 ms-2 align-items-center">
-                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный</a>
+                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
                       {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
                         <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
                       {% endif %}
@@ -173,7 +173,7 @@
 
   <div id="popup-add" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title mb-4">Добавление видео</h1>
+      <h1 class="popup__title mb-4">Добавление видео/аудио</h1>
       <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
@@ -188,10 +188,13 @@
         <div class="popup__form-control form-control">
 
           <label class="form-control__label" for="file">Выбрать файлы (до 5 шт.):</label>
-          <input class="form-control__control" type="file" name="file" id="file" multiple accept="video/mp4,video/webm,video/avi,video/quicktime,video/x-msvideo,video/x-ms-wmv,video/x-flv,video/x-m4v" autocomplete="off">
-          <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: 5. Имя и описание применятся ко всем.</small>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <input class="form-control__control" type="file" name="file" id="file" multiple autocomplete="off"
+              accept="video/*,audio/*,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus">
+          </div>
+          <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: 5. При множественной загрузке используются реальные имена файлов.</small>
           <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}" autocomplete="off">
-          <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V</small>
+          <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы видео: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V; аудио: MP3, WAV, FLAC, AAC, M4A, OGG/OPUS, WMA</small>
         </div>
         <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
           <button type="button" class="btn btn-secondary" id="add-cancel-btn" onclick="popupToggle('popup-add');" >Отмена</button>
@@ -283,6 +286,40 @@
           src="{{ url_for('record', did=did, sdid=sdid) }}?embed=1"
           style="width: 100%; height: 70vh; border: 0; display: block;"
         ></iframe>
+        <script>
+          (function syncIframeThemeImmediately(){
+            try {
+              var iframe = document.getElementById('rec-iframe');
+              if (!iframe || !iframe.src) return;
+              function getTheme(){
+                try {
+                  var t = document.documentElement.getAttribute('data-theme')
+                    || (document.body && document.body.getAttribute('data-theme'));
+                  if (t) return t;
+                  var cls = document.documentElement.className || '';
+                  var m = cls.match(/theme-([\w-]+)/);
+                  if (m && m[1]) return m[1];
+                  try { return localStorage.getItem('selectedTheme') || localStorage.getItem('theme') || 'light'; } catch(_) { return 'light'; }
+                } catch(_) { return 'light'; }
+              }
+              var theme = getTheme();
+              try {
+                var u = new URL(iframe.src, window.location.origin);
+                u.searchParams.set('embed', '1');
+                u.searchParams.set('theme', theme);
+                var updated = u.toString();
+                if (updated !== iframe.src) iframe.src = updated;
+              } catch(_){
+                var join = iframe.src.indexOf('?') !== -1 ? '&' : '?';
+                if (iframe.src.indexOf('theme=') === -1) iframe.src = iframe.src + join + 'theme=' + encodeURIComponent(theme);
+              }
+              // Also forward theme to iframe after it loads
+              iframe.addEventListener('load', function(){
+                try { iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'theme', value: theme }, '*'); } catch(_) {}
+              }, { once: true });
+            } catch(_) {}
+          })();
+        </script>
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-rec');">Закрыть</button>
@@ -299,6 +336,19 @@
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-view');">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio player modal -->
+  <div id="popup-audio" class="overlay-container">
+    <div class="popup">
+      <h1 class="popup__title mb-4">Прослушивание аудио</h1>
+      <div class="popup__body">
+        <audio id="player-audio" style="width: 100%; outline: none;" controls></audio>
+      </div>
+      <div class="popup__actions">
+        <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-audio');">Закрыть</button>
       </div>
     </div>
   </div>

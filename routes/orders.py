@@ -194,8 +194,11 @@ def register(app, tp, media_service):
 		ord.attachments.append(name)
 		app._sql.order_edit_attachments(['|'.join(ord.attachments), ord.id])
 		f = path.splitext(fname)
-		if f[1].lower() in ('.mp4', '.avi', '.webm', '.mov'):
+		ext = f[1].lower()
+		if ext in ('.mp4', '.avi', '.webm', '.mov', '.mkv', '.flv', '.m4v'):
 			media_service.convert_async(fname, f[0] + '.mp4', ('order', id))
+		elif ext in ('.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga', '.wma', '.mka', '.opus'):
+			media_service.convert_async(fname, f[0] + '.m4a', ('order', id))
 
 	@app.route('/orders/file/<string:name>', methods=['GET'])
 	@app.permission_required(2, 'a')

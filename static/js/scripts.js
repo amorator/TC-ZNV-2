@@ -306,13 +306,21 @@ function displayName(name) {
 function popupToggle(x, id = 0) {
   const overlay = document.getElementById(x);
   // Intercept recorder popup close attempts
-  if (x === 'popup-rec' && overlay && overlay.classList.contains('show')) {
+  if (x === 'popup-rec' && overlay && (overlay.classList.contains('show') || overlay.classList.contains('visible'))) {
     // about to close; ask iframe for state
     try {
       const iframe = document.getElementById('rec-iframe');
       if (iframe && iframe.contentWindow) {
         window.__recCloseRequested = true;
+        // Clear any previous timer
+        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
         iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+        // Fallback: if iframe doesn't respond in time, show confirm dialog conservatively
+        window.__recStateTimer = setTimeout(function() {
+          try { window.__recCloseRequested = false; } catch(_) {}
+          try { showRecConfirmDialog(); } catch(_) {}
+          try { window.__recStateTimer = null; } catch(_) {}
+        }, 300);
         // actual close will be decided in message handler below
         return;
       }
@@ -401,6 +409,7 @@ window.addEventListener('message', function(ev) {
   if (!data || typeof data !== 'object') return;
   if (data.type === 'rec:state' && window.__recCloseRequested) {
     window.__recCloseRequested = false;
+    try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
     const st = data.state || {};
     const isRecording = !!st.recording;
     const isPaused = !!st.paused;
@@ -415,10 +424,21 @@ window.addEventListener('message', function(ev) {
       showRecConfirmDialog();
       return;
     }
-    // Safe to close
+    // Safe to close: instruct iframe to cleanup then hide modal
+    try {
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'rec:close' }, '*');
+      }
+    } catch(_) {}
     const overlay = document.getElementById('popup-rec');
-    if (overlay) overlay.classList.remove('show');
+    if (overlay) {
+      overlay.classList.remove('show');
+      overlay.classList.remove('visible');
+      overlay.style.display = 'none';
+    }
     popup = null;
+    try { if (window.modalManager && window.modalManager.activeModal === 'popup-rec') { window.modalManager.activeModal = null; } } catch(_) {}
   } else if (data.type === 'rec:discarded') {
     // after discard in iframe, close popup
     const overlay = document.getElementById('popup-rec');

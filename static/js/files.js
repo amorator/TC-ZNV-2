@@ -22,14 +22,15 @@ function popupValues(form, id) {
       nameInput.userHasTyped = true;
     });
     
-    document.getElementById("file").addEventListener("change", function(event) {
+    const fileInput = document.getElementById("file");
+    fileInput.addEventListener("change", function(event) {
       const files = event.target.files;
       
       if (files.length > 1) {
         // Multiple files selected - disable name field and show message
         nameInput.disabled = true;
         nameInput.value = '';
-        nameInput.placeholder = 'Будут использованы имена файлов';
+        nameInput.placeholder = 'Будут использованы реальные имена файлов';
         nameInput.title = 'При загрузке нескольких файлов используются их реальные имена';
       } else if (files.length === 1) {
         // Single file selected - enable name field and auto-fill
@@ -53,6 +54,16 @@ function popupValues(form, id) {
         nameInput.title = '';
       }
     });
+    // Also toggle name field immediately based on current selection (if any)
+    try {
+      const files = fileInput.files || [];
+      if (files.length > 1) {
+        nameInput.disabled = true;
+        nameInput.value = '';
+        nameInput.placeholder = 'Будут использованы реальные имена файлов';
+        nameInput.title = 'При загрузке нескольких файлов используются их реальные имена';
+      }
+    } catch(_) {}
     return;
   }
   let values = document.getElementById(id).getElementsByTagName("td");
@@ -161,6 +172,7 @@ function validateForm(element) {
   }
   if (form.id == "add") {
     let fileInput = document.getElementById("file");
+    // no external filter selector; accept covers both audio and video
     let len = fileInput.files.length;
     if (len == undefined || len == 0) {
       if (window.showToast) { window.showToast('Выберите файл(ы)!', 'error'); } else { alert('Выберите файл(ы)!'); }
@@ -175,8 +187,13 @@ function validateForm(element) {
     const maxSizeMbElement = document.getElementById('max-file-size-mb');
     const maxSizeMb = maxSizeMbElement ? parseInt(maxSizeMbElement.value) : 500;
     const maxSize = maxSizeMb * 1024 * 1024;
-    const allowedTypes = ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/x-flv', 'video/x-m4v'];
-    const allowedExtensions = ['.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'];
+    const allowedTypes = [
+      // video
+      'video/mp4', 'video/webm', 'video/avi', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/x-flv', 'video/x-m4v',
+      // audio
+      'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/aac', 'audio/mp4', 'audio/ogg', 'audio/opus', 'audio/x-ms-wma'
+    ];
+    const allowedExtensions = ['.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v', '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga', '.wma', '.mka', '.opus'];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       if (f.size > maxSize) {
@@ -275,6 +292,101 @@ function startUploadWithProgress(form) {
     nameInput.value = '';
     nameInput.placeholder = 'При множественной загрузке используются реальные имена файлов';
   }
+
+  // Reset add form to initial state after successful upload
+  function resetAfterUpload() {
+    try {
+      const form = document.getElementById('add');
+      if (!form) return;
+      // Native reset first to restore pristine state
+      try { form.reset(); } catch(_) {}
+      const nameInput = form.querySelector('input[name="name"]');
+      const descInput = form.querySelector('textarea[name="description"]');
+      const fileInput = form.querySelector('input[type="file"]');
+      const progressDiv = document.getElementById('upload-progress');
+      const submitBtn = document.getElementById('add-submit-btn');
+      const cancelBtn = document.getElementById('add-cancel-btn');
+      const fileNameLabel = document.getElementById('file-name');
+      // Clear inputs
+      if (nameInput) {
+        nameInput.disabled = false;
+        nameInput.value = '';
+        nameInput.placeholder = 'Имя файла...';
+        nameInput.title = '';
+        nameInput.userHasTyped = false;
+      }
+      if (descInput) { descInput.disabled = false; descInput.value = ''; }
+      if (fileInput) {
+        try { fileInput.disabled = false; fileInput.removeAttribute('disabled'); fileInput.value = ''; } catch(_) {}
+        // Also clear any CSS classes that may visually disable the control
+        try { fileInput.classList.remove('disabled'); } catch(_) {}
+        // In case a wrapper mimics disabled state
+        try { const wrapper = fileInput.closest('.form-control'); if (wrapper) wrapper.classList.remove('disabled'); } catch(_) {}
+      }
+      if (fileNameLabel) { fileNameLabel.textContent = ''; }
+      // Re-run autofill logic, if available
+      try { if (typeof popupValues === 'function') popupValues(); } catch(_) {}
+      // Fire change for listeners bound to file input (to update UI hints)
+      try { if (fileInput) fileInput.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+      // Hide progress UI
+      if (progressDiv) {
+        progressDiv.classList.add('d-none');
+        const statusText = progressDiv.querySelector('.upload-status small');
+        if (statusText) { statusText.style.color = ''; statusText.textContent = 'Загрузка файла...'; }
+        const bar = progressDiv.querySelector('.progress-bar');
+        if (bar) { bar.style.width = '0%'; bar.setAttribute('aria-valuenow', 0); }
+      }
+      // Buttons
+      if (submitBtn) submitBtn.disabled = false;
+      if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'Отмена'; cancelBtn.onclick = function(){ popupToggle('popup-add'); }; }
+    } catch(_) {}
+  }
+
+  // Ensure recorder iframe inherits current theme
+  (function ensureRecorderIframeTheme() {
+    try {
+      const iframe = document.getElementById('rec-iframe');
+      if (!iframe || !iframe.src) return;
+      const getTheme = () => (
+        document.documentElement.getAttribute('data-theme')
+        || (document.body && document.body.getAttribute('data-theme'))
+        || (function() {
+             try {
+               const cls = document.documentElement.className || '';
+               const m = cls.match(/theme-([\w-]+)/);
+               return m ? m[1] : '';
+             } catch(_) { return ''; }
+           })()
+        || (function() { try { return localStorage.getItem('theme') || ''; } catch(_) { return ''; } })()
+        || 'light'
+      );
+      const themeAttr = getTheme();
+      try {
+        const u = new URL(iframe.src, window.location.origin);
+        u.searchParams.set('embed', '1');
+        u.searchParams.set('theme', themeAttr);
+        const updated = u.toString();
+        if (updated !== iframe.src) iframe.src = updated;
+      } catch(_) {
+        // Fallback: naive append
+        const join = iframe.src.includes('?') ? '&' : '?';
+        if (!iframe.src.includes('theme=')) iframe.src = iframe.src + join + 'theme=' + encodeURIComponent(themeAttr);
+      }
+      // Also send theme via postMessage after iframe loads
+      const sendTheme = () => {
+        try {
+          iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'theme', value: getTheme() }, '*');
+        } catch(_) {}
+      };
+      iframe.addEventListener('load', sendTheme, { once: true });
+      // Observe theme changes on the parent and forward to iframe
+      try {
+        const observer = new MutationObserver(function() { sendTheme(); });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+        if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+      } catch(_) {}
+    } catch(_) {}
+  })();
 
   // Combined progress accounting
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
@@ -902,6 +1014,51 @@ window.searchClean = function () {
 };
 
 document.addEventListener('DOMContentLoaded', function () {
+  // Bind add modal name autofill from selected file if single and name empty
+  (function initAddNameAutofill(){
+    try {
+      const nameInput = document.getElementById('add-name');
+      const fileInput = document.getElementById('file');
+      if (!nameInput || !fileInput) return;
+      if (!nameInput._typedBound) {
+        nameInput._typedBound = true;
+        nameInput.addEventListener('input', function(){ nameInput.userHasTyped = true; });
+        nameInput.addEventListener('paste', function(){ nameInput.userHasTyped = true; });
+      }
+      if (!fileInput._changeBound) {
+        fileInput._changeBound = true;
+        const handle = function(){
+          const files = fileInput.files || [];
+          if (files.length === 1) {
+            // Enable and autofill if empty or user hasn't typed yet
+            nameInput.disabled = false;
+            nameInput.placeholder = 'Имя файла...';
+            nameInput.title = '';
+            const fileName = files[0].name || '';
+            if (!nameInput.value || nameInput.value.trim() === '' || !nameInput.userHasTyped) {
+              const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
+              nameInput.value = nameWithoutExt;
+              nameInput.userHasTyped = false;
+            }
+          } else if (files.length > 1) {
+            // Multiple files: lock and clear name
+            nameInput.disabled = true;
+            nameInput.value = '';
+            nameInput.placeholder = 'Будут использованы реальные имена файлов';
+            nameInput.title = 'При загрузке нескольких файлов используются их реальные имена';
+          } else {
+            // No files selected
+            nameInput.disabled = false;
+            nameInput.placeholder = 'Имя файла...';
+            nameInput.title = '';
+          }
+        };
+        fileInput.addEventListener('change', handle);
+        // Apply once on load in case file input already has a file (e.g., reopening)
+        handle();
+      }
+    } catch(_) {}
+  })();
   // Initialize missing file banners for files that don't exist
   const rows = document.querySelectorAll('tr[data-exists="0"]');
   rows.forEach(row => {
@@ -966,72 +1123,77 @@ document.addEventListener('DOMContentLoaded', function () {
       /**
        * @type {import('socket.io-client').Socket}
        */
-      const socket = window.io(window.location.origin, {
-        // Allow both transports for better compatibility
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        path: '/socket.io/',
-        withCredentials: true,
-        forceNew: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 20000
-      });
+      const socket = (window.socket && typeof window.socket.on === 'function')
+        ? window.socket
+        : window.io(window.location.origin, {
+            transports: ['websocket', 'polling'],
+            upgrade: true,
+            path: '/socket.io/',
+            withCredentials: true,
+            forceNew: true,
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000
+          });
       
-      // Store socket globally for potential replacement
-      window.socket = socket;
+      // Preserve existing global socket; only set if absent
+      if (!window.socket || window.socket !== socket) {
+        window.socket = socket;
+      }
       
       /**
        * Handle successful connection - refresh table to get latest data
        */
-      socket.on('connect', function() {
-        softRefreshFilesTable();
-      });
+      if (!socket._filesBound) {
+        socket._filesBound = true;
+        socket.on('connect', function() {
+          softRefreshFilesTable();
+        });
       
       /**
        * Handle disconnection - Socket.IO will attempt automatic reconnection
        * @param {string} reason - Reason for disconnection
        */
-      socket.on('disconnect', function(reason) {
-        // Connection lost, will attempt reconnection
-      });
+        socket.on('disconnect', function(reason) {
+          // Connection lost, will attempt reconnection
+        });
       
       /**
        * Handle connection errors - Socket.IO will handle reconnection automatically
        * @param {Error} err - Connection error
        */
-      socket.on('connect_error', function(err) {
-        // Connection error, Socket.IO will handle reconnection automatically
-      });
+        socket.on('connect_error', function(err) {
+          // Connection error, Socket.IO will handle reconnection automatically
+        });
       
       /**
        * Handle successful reconnection - refresh table to get latest data
        * @param {number} attemptNumber - Number of reconnection attempts
        */
-      socket.on('reconnect', function(attemptNumber) {
-        softRefreshFilesTable();
-      });
+        socket.on('reconnect', function(attemptNumber) {
+          softRefreshFilesTable();
+        });
       
       /**
        * Handle reconnection errors - Socket.IO will continue trying
        * @param {Error} error - Reconnection error
        */
-      socket.on('reconnect_error', function(error) {
-        // Reconnection error, will continue trying
-      });
+        socket.on('reconnect_error', function(error) {
+          // Reconnection error, will continue trying
+        });
       
       /**
        * Handle reconnection failure - create a completely new socket connection
        */
-      socket.on('reconnect_failed', function() {
-        setTimeout(() => {
+        socket.on('reconnect_failed', function() {
+          setTimeout(() => {
           try {
             /**
              * @type {import('socket.io-client').Socket}
              */
-            const newSocket = window.io(window.location.origin, {
+              const newSocket = window.io(window.location.origin, {
               transports: ['websocket', 'polling'],
               upgrade: true,
               path: '/socket.io/',
@@ -1045,25 +1207,25 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             
             // Copy event handlers to new socket
-            newSocket.on('connect', function() {
-              softRefreshFilesTable();
-            });
+              newSocket.on('connect', function() {
+                softRefreshFilesTable();
+              });
             
-            newSocket.on('disconnect', function(reason) {
-              // Connection lost, will attempt reconnection
-            });
+              newSocket.on('disconnect', function(reason) {
+                // Connection lost, will attempt reconnection
+              });
             
-            newSocket.on('connect_error', function(err) {
-              // Connection error, Socket.IO will handle reconnection automatically
-            });
+              newSocket.on('connect_error', function(err) {
+                // Connection error, Socket.IO will handle reconnection automatically
+              });
             
-            newSocket.on('reconnect', function(attemptNumber) {
-              softRefreshFilesTable();
-            });
+              newSocket.on('reconnect', function(attemptNumber) {
+                softRefreshFilesTable();
+              });
             
-            newSocket.on('reconnect_error', function(error) {
-              // Reconnection error, will continue trying
-            });
+              newSocket.on('reconnect_error', function(error) {
+                // Reconnection error, will continue trying
+              });
             
             newSocket.on('reconnect_failed', function() {
               // Will create another new connection
@@ -1078,45 +1240,55 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             
             // Replace the old socket
-            socket.disconnect();
-            window.socket = newSocket;
+              socket.disconnect();
+              window.socket = newSocket;
           } catch (e) {
             // Error creating new socket, will retry on next reconnect_failed
           }
-        }, 2000);
-      });
+          }, 2000);
+        });
       
       /**
        * Handle files changed event - refresh table to show updates
        * @param {Object} evt - Event data
        */
-      socket.on('files:changed', function(evt) {
-        // Handle file missing status updates
-        if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
-          if (evt.file_exists) {
-            window.clearFileMissingStatus(evt.id);
-          } else {
-            window.markFileAsMissing(evt.id);
+        socket.on('files:changed', function(evt) {
+          // Handle file missing status updates
+          if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
+            if (evt.file_exists) {
+              window.clearFileMissingStatus(evt.id);
+            } else {
+              window.markFileAsMissing(evt.id);
+            }
           }
-        }
-        softRefreshFilesTable();
-      });
+          if (window.tableManager && window.tableManager.softRefreshTable) {
+            softRefreshFilesTable();
+          } else {
+            // Stronger fallback to ensure UI updates
+            window.forceRefreshFilesTable && window.forceRefreshFilesTable();
+          }
+        });
       
       /**
        * Handle files changed event on default namespace - refresh table to show updates
        * @param {Object} evt - Event data
        */
-      socket.on('/files:changed', function(evt) {
-        // Handle file missing status updates
-        if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
-          if (evt.file_exists) {
-            window.clearFileMissingStatus(evt.id);
-          } else {
-            window.markFileAsMissing(evt.id);
+        socket.on('/files:changed', function(evt) {
+          // Handle file missing status updates
+          if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
+            if (evt.file_exists) {
+              window.clearFileMissingStatus(evt.id);
+            } else {
+              window.markFileAsMissing(evt.id);
+            }
           }
-        }
-        softRefreshFilesTable();
-      });
+          if (window.tableManager && window.tableManager.softRefreshTable) {
+            softRefreshFilesTable();
+          } else {
+            window.forceRefreshFilesTable && window.forceRefreshFilesTable();
+          }
+        });
+      }
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
@@ -1183,11 +1355,24 @@ document.addEventListener('DOMContentLoaded', function () {
   // Register with TableManager and unify soft refresh.
   // Preserves search/pagination and rebinds page-specific handlers after refresh.
   try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'files', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
+  // Prevent overlapping refreshes and recover from errors
+  let __filesRefreshBusy = false;
+  let __filesRefreshStartedAt = 0;
   function softRefreshFilesTable() {
     const table = document.getElementById('maintable');
     if (!table) return;
     const tbody = table.tBodies && table.tBodies[0];
     if (!tbody) return;
+    // Skip if another refresh is in flight; hard reset if stuck > 8s
+    if (__filesRefreshBusy) {
+      if (Date.now() - __filesRefreshStartedAt > 8000) {
+        __filesRefreshBusy = false;
+      } else {
+        return;
+      }
+    }
+    __filesRefreshBusy = true;
+    __filesRefreshStartedAt = Date.now();
 
     // Keep current search and page
     const searchKey = 'files_search:' + location.pathname + location.search;
@@ -1254,23 +1439,73 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Final safety: reinitialize context menu once more after all adjustments
         try { reinitializeContextMenu(); } catch(e) {}
-      });
+      }).catch(function(){
+        try { window.forceRefreshFilesTable && window.forceRefreshFilesTable(); } catch(_) {}
+      }).finally(function(){ __filesRefreshBusy = false; });
     }
   }
 
+  // Strong fallback refresh: fetch current page and replace table when tableManager is unavailable
+  window.forceRefreshFilesTable = function() {
+    try {
+      const table = document.getElementById('maintable');
+      if (!table) return;
+      const tbody = table.tBodies && table.tBodies[0];
+      const searchKey = 'files_search:' + location.pathname + location.search;
+      let savedSearch = '';
+      try { savedSearch = localStorage.getItem(searchKey) || ''; } catch(e) {}
+      const currentPage = (window.filesPager && typeof window.filesPager.readPage === 'function')
+        ? window.filesPager.readPage()
+        : 1;
+      fetch(window.location.href, { credentials: 'include' })
+        .then(r => r.text())
+        .then(html => {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const newTable = doc.querySelector('#maintable');
+          if (newTable) {
+            const newTbody = newTable.querySelector('tbody');
+            if (newTbody && tbody) {
+              // Smoothly merge
+              try { smoothUpdateTableBody(tbody, newTbody); } catch(_) { table.innerHTML = newTable.innerHTML; }
+            } else {
+              table.innerHTML = newTable.innerHTML;
+            }
+            // Re-initialize bindings
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { bindRowOpenHandlers(); } catch(_) {}
+            try { bindCopyNameHandlers(); } catch(_) {}
+            try { sortFilesTableByDateDesc(); } catch(_) {}
+            try { initFilesPagination(); } catch(_) {}
+            if (savedSearch && savedSearch.trim().length > 0) {
+              filesDoFilter(savedSearch);
+            } else if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
+              window.filesPager.renderPage(currentPage);
+            }
+          }
+        })
+        .catch(() => {});
+    } catch(_) {}
+  };
+
   // Periodic refresh while there are rows in processing state
   (function setupProcessingWatcher() {
-    let timer = null;
+    // Reuse a single global timer across re-inits
+    if (window.__filesProcessingWatcherInit) return;
+    window.__filesProcessingWatcherInit = true;
+    if (typeof window.__filesProcessTimer === 'undefined') window.__filesProcessTimer = null;
     function checkAndSchedule() {
       const table = document.getElementById('maintable');
       if (!table) return;
-      // Check by scanning text content (no :contains in querySelector)
-      const need = Array.from(table.querySelectorAll('td.table__body_item')).some(td => (td.innerText || td.textContent || '').indexOf('Обрабатывается') !== -1);
-      if (need && timer == null) {
-        timer = setInterval(softRefreshFilesTable, 10000);
-      } else if (!need && timer != null) {
-        clearInterval(timer);
-        timer = null;
+      // Detect processing rows by explicit attribute or fallback by text
+      const rows = Array.from(table.querySelectorAll('tbody tr.table__body_row'));
+      const need = rows.some(tr => tr.getAttribute('data-is-ready') === '0') ||
+                   Array.from(table.querySelectorAll('td.table__body_item')).some(td => (td.innerText || td.textContent || '').indexOf('Обрабатывается') !== -1);
+      if (need && window.__filesProcessTimer == null) {
+        window.__filesProcessTimer = setInterval(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 10000);
+      } else if (!need && window.__filesProcessTimer != null) {
+        clearInterval(window.__filesProcessTimer);
+        window.__filesProcessTimer = null;
       }
     }
     // Initial and on visibility change
@@ -1280,12 +1515,32 @@ document.addEventListener('DOMContentLoaded', function () {
         checkAndSchedule();
       }
     });
-    // Also re-evaluate after each soft refresh
-    const origSoft = softRefreshFilesTable;
-    softRefreshFilesTable = function() {
-      origSoft();
-      setTimeout(checkAndSchedule, 1000);
-    };
+    // Also re-evaluate after each soft refresh, once
+    if (!window.__filesSoftWrapped) {
+      window.__filesSoftWrapped = true;
+      const origSoft = softRefreshFilesTable;
+      window.softRefreshFilesTable = function() {
+        try { origSoft(); } catch(_) {}
+        setTimeout(checkAndSchedule, 1000);
+      };
+    }
+  })();
+
+  // Global light fallback: periodic refresh every 20s to catch missed socket events
+  (function setupLightAutoRefresh(){
+    try {
+      if (window.__filesLightTimer) return;
+      window.__filesLightTimer = setInterval(function(){
+        if (document.hidden) return;
+        try {
+          if (window.tableManager && window.tableManager.softRefreshTable) {
+            softRefreshFilesTable();
+          } else if (window.forceRefreshFilesTable) {
+            window.forceRefreshFilesTable();
+          }
+        } catch(_) {}
+      }, 20000);
+    } catch(_) {}
   })();
 
   // Initial bind for dblclick row open
@@ -1305,27 +1560,49 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
           }
           
-          const player = document.getElementById('player-video');
-          if (player) {
-            try { player.pause(); } catch(e) {}
-            player.src = url;
-            try { player.currentTime = 0; } catch(e) {}
-            
-            // Add error handler for missing files
-            player.onerror = function() {
-              const fileId = tr.getAttribute('data-id');
-              console.error('Video load error for file:', fileId);
-              if (fileId) {
-                window.markFileAsMissing(fileId);
-              }
-              // Close the player modal
-              const modal = document.getElementById('popup-view');
-              if (modal) {
-                popupClose('popup-view');
-              }
-            };
+          const isAudio = (url || '').toLowerCase().endsWith('.m4a');
+          if (isAudio) {
+            const audio = document.getElementById('player-audio');
+            if (audio) {
+              try { audio.pause(); } catch(e) {}
+              audio.src = url;
+              try { audio.currentTime = 0; } catch(e) {}
+              audio.onerror = function() {
+                const fileId = tr.getAttribute('data-id');
+                console.error('Audio load error for file:', fileId);
+                if (fileId) {
+                  window.markFileAsMissing(fileId);
+                }
+                const modal = document.getElementById('popup-audio');
+                if (modal) {
+                  popupClose('popup-audio');
+                }
+              };
+            }
+            popupToggle('popup-audio');
+          } else {
+            const player = document.getElementById('player-video');
+            if (player) {
+              try { player.pause(); } catch(e) {}
+              player.src = url;
+              try { player.currentTime = 0; } catch(e) {}
+              
+              // Add error handler for missing files
+              player.onerror = function() {
+                const fileId = tr.getAttribute('data-id');
+                console.error('Video load error for file:', fileId);
+                if (fileId) {
+                  window.markFileAsMissing(fileId);
+                }
+                // Close the player modal
+                const modal = document.getElementById('popup-view');
+                if (modal) {
+                  popupClose('popup-view');
+                }
+              };
+            }
+            popupToggle('popup-view');
           }
-          popupToggle('popup-view');
         });
       });
     } catch (e) {}
@@ -1475,7 +1752,11 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!overlay || !overlay.classList.contains('show')) return;
     const video = document.getElementById('player-video');
     if (!video) return;
-    if (e.code === 'KeyF') {
+    const code = e.code || '';
+    const key = (e.key || '').toLowerCase();
+    const isF = code === 'KeyF' || key === 'f' || key === 'а'; // RU layout 'ф' is same physical as 'a'; but F key on RU yields 'а'
+    const isM = code === 'KeyM' || key === 'm' || key === 'ь';
+    if (isF) {
       e.preventDefault();
       try {
         if (!document.fullscreenElement) {
@@ -1484,7 +1765,7 @@ document.addEventListener('DOMContentLoaded', function () {
           document.exitFullscreen && document.exitFullscreen();
         }
       } catch(_) {}
-    } else if (e.code === 'KeyM') {
+    } else if (isM) {
       e.preventDefault();
       try { video.muted = !video.muted; } catch(_) {}
     }
@@ -1941,7 +2222,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (window.navigateToCategory) {
       window.navigateToCategory(currentCategory, currentSubcategory);
     } else {
-      console.warn('navigateToCategory not available, cannot soft refresh');
+      // silent if soft refresh is unavailable
     }
   };
   
@@ -1976,7 +2257,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const modalId = modal.id;
         try { popupClose(modalId); } catch(e) { console.error('Error closing modal:', e); }
       } else {
-        console.warn('Modal not found for form:', form.id);
+        // silent if modal not found
       }
       
       // Update table locally instead of full page refresh for some actions

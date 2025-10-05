@@ -2,9 +2,18 @@
   padding-left: 20px;
   padding-right: 20px;
   padding-top: 20px;
-  height: calc(100% - 82px);
-  background-color: var(--modal-bg, var(--body-bg, #ffffff));
+  min-height: 100vh;
+  height: auto;
+  background: var(--modal-bg, var(--body-bg, #ffffff)) !important;
   color: var(--body-text, #212529);
+}
+
+/* Ensure inner panels inherit modal background across themes */
+.record-page__menu,
+.record-page__pult,
+.record-page__settings {
+  background: var(--modal-bg, transparent) !important;
+  color: var(--body-text, inherit);
 }
 
 .record-page__title {
@@ -74,26 +83,17 @@
 .record-page__source-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   cursor: pointer;
   font-size: 14px;
   color: var(--body-text, #333);
-  padding: 8px 12px;
-  border-radius: var(--control-radius, 4px);
-  border: 2px solid transparent;
-  transition: all 0.2s ease;
-  background: var(--control-bg, #f9f9f9);
 }
 
-.record-page__source-label:hover {
-  background: var(--control-hover-bg, #e9e9e9);
-  border-color: var(--control-border, #ccc);
-}
+/* no hover box styling in backup */
 
 .record-page__source-label input[type="radio"] {
   margin: 0;
   accent-color: var(--button-bg, #007bff);
-  transform: scale(1.2);
 }
 
 .record-page__source-label span {
@@ -101,18 +101,7 @@
   font-weight: 500;
 }
 
-/* Selected source styling */
-.record-page__source-label.source-selected {
-  background: var(--button-bg, #007bff);
-  color: white;
-  border-color: var(--button-bg, #007bff);
-  font-weight: 600;
-  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
-}
-
-.record-page__source-label.source-selected span {
-  font-weight: 600;
-}
+/* no selected-box styling in backup */
 
 .record-page__settings {
   display: flex;
@@ -155,7 +144,7 @@
   text-decoration: none;
 }
 
-/* Make all controls look like the modal close button (btn-secondary) */
+/* Buttons follow generic button tokens from themes */
 .record-page .button {
   display: inline-block;
   color: var(--button-text, #000000);
@@ -169,8 +158,8 @@
 
 .record-page .button:hover,
 .record-page .button:focus {
-  background-color: var(--button-hover-bg, var(--topbar-bg, #f1f3f5));
-  color: var(--button-hover-text, var(--topbar-text, #000000));
+  background-color: var(--topbar-bg, #f1f3f5);
+  color: var(--topbar-text, #000000);
 }
 
 .record-page .record-page__setting-element,
@@ -192,7 +181,7 @@
 .record-page .record-page__setting-element:focus,
 .record-page input#name:focus,
 .record-page textarea#desc:focus {
-  outline: 2px solid var(--btn-focus, var(--focus-ring, #0d6efd));
+  outline: 2px solid var(--btn-focus);
   outline-offset: 0;
 }
 
@@ -250,12 +239,29 @@
 
 /* Download container styles */
 .record-download-container {
-  background-color: var(--modal-bg, var(--body-bg, #ffffff));
-  border-color: var(--border-color, #dee2e6);
-  color: var(--body-text, #212529);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 10px;
+  background-color: var(--bg-primary, var(--modal-bg));
+  border: 1px solid var(--border-color, var(--modal-border, #dee2e6));
+  color: var(--text-primary, var(--body-text));
+  border-radius: 4px;
 }
 
 .record-download-container .download-record-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   background-color: var(--primary, #007bff);
   color: white;
   border: 1px solid var(--primary, #007bff);
