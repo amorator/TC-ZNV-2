@@ -2214,16 +2214,16 @@ document.addEventListener('DOMContentLoaded', function () {
    * Soft refresh files table without page reload
    */
   window.softRefreshFilesTable = function() {
-    // Get current category and subcategory
-    const currentCategory = document.querySelector('.category-nav .active')?.getAttribute('data-category') || '0';
-    const currentSubcategory = document.querySelector('.subcategory-nav .active')?.getAttribute('data-subcategory') || '1';
-    
-    // Use AJAX navigation to refresh current view
-    if (window.navigateToCategory) {
-      window.navigateToCategory(currentCategory, currentSubcategory);
-    } else {
-      // silent if soft refresh is unavailable
-    }
+    try {
+      if (window.tableManager && typeof window.tableManager.softRefreshTable === 'function') {
+        // Lightweight in-place refresh to avoid full navigation and rebind storms
+        return window.tableManager.softRefreshTable('maintable');
+      }
+      // Fallback to forceRefresh if table manager is unavailable
+      if (typeof window.forceRefreshFilesTable === 'function') {
+        return window.forceRefreshFilesTable();
+      }
+    } catch(_) {}
   };
   
   // Function to submit file forms via AJAX
