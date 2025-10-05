@@ -82,6 +82,9 @@ const BYTES_IN_MB = 1048576;
 /** @type {HTMLInputElement|null} */ let sourceCamera;
 /** @type {HTMLInputElement|null} */ let sourceScreen;
 /** @type {HTMLInputElement|null} */ let sourceBoth;
+/** @type {HTMLInputElement|null} */ let sourceAudio;
+/** @type {HTMLElement|null} */ let audioIndicatorWrap;
+/** @type {HTMLElement|null} */ let audioIndicator;
 
 // Timer state
 /** @type {number} */ let h = 0;
@@ -98,11 +101,15 @@ const BYTES_IN_MB = 1048576;
 /** @type {MediaRecorder|null} */ let recorderCamera;
 /** @type {MediaStream|null} */ let currentStreamScreen = null;
 /** @type {MediaStream|null} */ let currentStreamCamera = null;
+/** @type {MediaStream|null} */ let currentStreamAudio = null;
 /** @type {boolean} */ let isScreenRecording = false;
 /** @type {boolean} */ let isDualRecording = false;
+/** @type {boolean} */ let isAudioOnly = false;
 
 /** @typedef {{recording: boolean, paused: boolean, hasData: boolean}} RecState */
 /** @type {RecState} */ let recState = { recording: false, paused: false, hasData: false };
+/** @type {BlobPart[]} */ let recordedAudio = [];
+/** @type {MediaRecorder|null} */ let recorderAudio = null;
 
 /**
  * Sync theme classes from parent window into iframe (same-origin).
@@ -188,12 +195,15 @@ document.addEventListener('DOMContentLoaded', function() {
   buttonSave = document.getElementById('save');
   videoScreen = document.getElementById('video-screen');
   videoCamera = document.getElementById('video-camera');
+  audioIndicatorWrap = document.getElementById('audio-indicator-wrap');
+  audioIndicator = document.getElementById('audio-indicator');
   fileName = document.getElementById('name');
   dirName = document.getElementById('type');
   fileText = document.getElementById('desc');
   sourceCamera = document.getElementById('source-camera');
   sourceScreen = document.getElementById('source-screen');
   sourceBoth = document.getElementById('source-both');
+  sourceAudio = document.getElementById('source-audio');
 
   sizeText = document.getElementById('uploadForm_Size');
   statusText = document.getElementById('uploadForm_Status');
@@ -217,6 +227,7 @@ disable(buttonStop);
   if (sourceCamera) sourceCamera.addEventListener('change', onSourceChange);
   if (sourceScreen) sourceScreen.addEventListener('change', onSourceChange);
   if (sourceBoth) sourceBoth.addEventListener('change', onSourceChange);
+  if (sourceAudio) sourceAudio.addEventListener('change', onSourceChange);
   
   // Backup behavior: no custom selected visuals for radio group
   
@@ -246,18 +257,10 @@ disable(buttonStop);
         }
       } catch(e) {}
     } else if (event.key === 'Escape') {
+      // Do not perform any actions on ESC inside recorder; parent handles guarded close
       event.preventDefault();
       event.stopPropagation();
-      try { 
-        // Check if we're currently recording
-        const isRecording = recState.recording || 
-          (recorderScreen && recorderScreen.state === 'recording') || 
-          (recorderCamera && recorderCamera.state === 'recording');
-        
-        if (isRecording) {
-          onStopClick(); 
-        }
-      } catch(e) {}
+      return;
     }
   };
   try { window.addEventListener('keydown', handleKey, true); } catch(e) {}
@@ -283,9 +286,11 @@ try {
     if (document.hidden) {
       try { if (recorderScreen && recorderScreen.state === 'recording') recorderScreen.pause(); } catch(_) {}
       try { if (recorderCamera && recorderCamera.state === 'recording') recorderCamera.pause(); } catch(_) {}
+      try { if (recorderAudio && recorderAudio.state === 'recording') try { recorderAudio.pause && recorderAudio.pause(); } catch(e) {} } catch(_) {}
       try { disable(buttonPause); enable(buttonStart); } catch(_) {}
       try { if (videoScreen) videoScreen.style.borderColor = 'green'; } catch(_) {}
       try { if (videoCamera) videoCamera.style.borderColor = 'green'; } catch(_) {}
+      try { if (audioIndicator) audioIndicator.style.borderColor = 'green'; } catch(_) {}
       try { postState(); } catch(_) {}
     }
   });
@@ -315,6 +320,7 @@ function resetAfterSave() {
   try { if (uploadProgressBar) uploadProgressBar.style.width = '0%'; } catch(e) {}
   try { if (videoScreen) videoScreen.style.borderColor = 'gray'; } catch(e) {}
   try { if (videoCamera) videoCamera.style.borderColor = 'gray'; } catch(e) {}
+  try { if (audioIndicator) audioIndicator.style.borderColor = '#000000'; } catch(e) {}
   try { buttonStart.textContent = 'Начать запись'; } catch(e) {}
   try { enable(buttonCamera); } catch(e) {}
   try { enable(buttonStart); } catch(e) {}
@@ -324,10 +330,12 @@ function resetAfterSave() {
   resetTimer(true);
   recordedScreen = [];
   recordedCamera = [];
+  recordedAudio = [];
   // Fully stop camera and reset state
   try { stopCameraStream(); } catch(e) {}
   recorderScreen = null;
   recorderCamera = null;
+  recorderAudio = null;
   recState = { recording: false, paused: false, hasData: false };
   
   // Update video visibility after reset
@@ -356,43 +364,9 @@ function resetAfterSave() {
     sourceBoth.removeEventListener('change', onSourceChange);
     sourceBoth.addEventListener('change', onSourceChange);
   }
-  
-  // Reinitialize keyboard handlers
-  try {
-    const handleKey = function (event) {
-      const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
-      if (event.key === 'Enter' && !isTextarea) {
-        event.preventDefault();
-        try {
-          if ((recorderScreen && recorderScreen.state === 'recording') || (recorderCamera && recorderCamera.state === 'recording')) {
-            stopRecorder().then(() => { onSaveClick(); });
-          } else {
-            onSaveClick();
-          }
-        } catch(e) {}
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        try { 
-          // Check if we're currently recording
-          const isRecording = recState.recording || 
-            (recorderScreen && recorderScreen.state === 'recording') || 
-            (recorderCamera && recorderCamera.state === 'recording');
-          
-          if (isRecording) {
-            onStopClick(); 
-          }
-        } catch(e) {}
-      }
-    };
-    
-    // Remove existing handlers and add new ones
-    window.removeEventListener('keydown', handleKey, true);
-    document.removeEventListener('keydown', handleKey, true);
-    window.addEventListener('keydown', handleKey, true);
-    document.addEventListener('keydown', handleKey, true);
-  } catch(e) {
-    // Silent fail
+  if (sourceAudio) {
+    sourceAudio.removeEventListener('change', onSourceChange);
+    sourceAudio.addEventListener('change', onSourceChange);
   }
   
   postState();
@@ -412,6 +386,10 @@ function stopCameraStream() {
       try { currentStreamCamera.getTracks().forEach(t => t.stop()); } catch(e) {}
       currentStreamCamera = null;
     }
+    if (currentStreamAudio) {
+      try { currentStreamAudio.getTracks().forEach(t => t.stop()); } catch(e) {}
+      currentStreamAudio = null;
+    }
     if (videoScreen && videoScreen.srcObject) {
       videoScreen.srcObject = null;
     }
@@ -425,11 +403,14 @@ function stopCameraStream() {
       buttonText = 'Включить захват';
     } else if (isScreenRecording) {
       buttonText = 'Включить захват';
+    } else if (isAudioOnly) {
+      buttonText = 'Включить микрофон';
     }
     buttonCamera.textContent = buttonText; 
   } catch(e) {}
   isScreenRecording = false;
   isDualRecording = false;
+  isAudioOnly = false;
 }
 
 /**
@@ -484,6 +465,7 @@ function updateVideoVisibility() {
     const isScreenMode = sourceScreen && sourceScreen.checked;
     const isBothMode = sourceBoth && sourceBoth.checked;
     const isCameraMode = sourceCamera && sourceCamera.checked;
+    const isAudioMode = sourceAudio && sourceAudio.checked;
     
     // Show/hide video elements based on mode
     if (videoScreen) {
@@ -491,6 +473,9 @@ function updateVideoVisibility() {
     }
     if (videoCamera) {
       videoCamera.style.display = (isCameraMode || isBothMode) ? 'block' : 'none';
+    }
+    if (audioIndicatorWrap) {
+      audioIndicatorWrap.style.display = isAudioMode ? 'block' : 'none';
     }
     
     // Show/hide labels - find labels by their text content
@@ -500,6 +485,8 @@ function updateVideoVisibility() {
         label.style.display = (isScreenMode || isBothMode) ? 'block' : 'none';
       } else if (label.textContent.includes('Камера')) {
         label.style.display = (isCameraMode || isBothMode) ? 'block' : 'none';
+      } else if (label.textContent.includes('Микрофон')) {
+        label.style.display = isAudioMode ? 'block' : 'none';
       }
     });
   } catch(e) {}
@@ -514,7 +501,7 @@ function updateVideoVisibility() {
 function updateSaveButtonVisibility() {
   try {
     if (buttonSave) {
-      const hasRecordedData = (recordedScreen.length > 0) || (recordedCamera.length > 0);
+      const hasRecordedData = (recordedScreen.length > 0) || (recordedCamera.length > 0) || (recordedAudio.length > 0);
       const canShow = hasRecordedData && !recState.recording; // show only when paused or stopped
       if (canShow) {
         buttonSave.disabled = false;
@@ -536,14 +523,22 @@ function onSourceChange() {
     if (sourceBoth && sourceBoth.checked) {
       isDualRecording = true;
       isScreenRecording = false;
+      isAudioOnly = false;
       buttonCamera.textContent = 'Включить захват';
     } else if (sourceScreen && sourceScreen.checked) {
       isScreenRecording = true;
       isDualRecording = false;
+      isAudioOnly = false;
       buttonCamera.textContent = 'Включить захват';
+    } else if (sourceAudio && sourceAudio.checked) {
+      isScreenRecording = false;
+      isDualRecording = false;
+      isAudioOnly = true;
+      buttonCamera.textContent = 'Включить микрофон';
     } else {
       isScreenRecording = false;
       isDualRecording = false;
+      isAudioOnly = false;
       buttonCamera.textContent = 'Включить камеру';
     }
     
@@ -567,6 +562,7 @@ buttonSave.disabled = true;
     }
     if (videoScreen) videoScreen.style.borderColor = 'gray';
     if (videoCamera) videoCamera.style.borderColor = 'gray';
+    if (audioIndicator) audioIndicator.style.borderColor = '#000000';
     resetTimer(true);
   } catch(e) {}
 }
@@ -602,6 +598,7 @@ async function onCameraClick() {
       // Check current source selection
       const isScreenMode = sourceScreen && sourceScreen.checked;
       const isBothMode = sourceBoth && sourceBoth.checked;
+      const isAudioMode = sourceAudio && sourceAudio.checked;
       
       if (isBothMode) {
         // Dual recording: both screen and camera
@@ -692,6 +689,30 @@ async function onCameraClick() {
           alert('Невозможно получить доступ к экрану!');
           return;
         }
+      } else if (isAudioMode) {
+        // Audio-only recording
+        try {
+          currentStreamAudio = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channels: 2,
+              autoGainControl: false,
+              echoCancellation: false,
+              noiseSuppression: false,
+              sampleRate: 48000,
+              sampleSize: 16
+            }
+          });
+          if (audioIndicator) {
+            audioIndicator.style.borderColor = 'green';
+            audioIndicator.textContent = 'Микрофон включен';
+          }
+          buttonCamera.textContent = 'Выключить микрофон';
+          isAudioOnly = true;
+          try { updateButtonStates(); } catch(_) {}
+        } catch (error) {
+          alert('Невозможно получить доступ к микрофону!');
+          return;
+        }
       } else {
         // Camera recording only
         try {
@@ -777,6 +798,14 @@ async function onCameraClick() {
           audioBitsPerSecond: 192000
         });
       }
+    } else if (isAudioOnly) {
+      // Setup audio recorder only
+      if (currentStreamAudio) {
+        recorderAudio = new MediaRecorder(currentStreamAudio, {
+          mimeType: 'audio/webm;codecs=opus',
+          audioBitsPerSecond: 192000
+        });
+      }
     } else {
       // Setup camera recorder only
       if (currentStreamCamera) {
@@ -823,6 +852,19 @@ async function onCameraClick() {
         updateSaveButtonVisibility();
       });
     }
+    if (recorderAudio) {
+      recorderAudio.addEventListener('dataavailable', function (e) {
+        recordedAudio.push(e.data);
+        if (recordedAudio.length > 0) {
+          recState.hasData = true;
+          postState();
+          updateSaveButtonVisibility();
+        }
+      });
+      recorderAudio.addEventListener('stop', function () {
+        updateSaveButtonVisibility();
+      });
+    }
 
     // Update video visibility after setting up streams
     updateVideoVisibility();
@@ -848,15 +890,20 @@ function onStartClick() {
     // Start recording
     if (recorderScreen) recorderScreen.start();
     if (recorderCamera) recorderCamera.start();
+    if (recorderAudio) recorderAudio.start();
     buttonStart.textContent = 'Продолжить';
+    try { if (!timerInterval) { timerInterval = setInterval(timer, 1000); } } catch(e) {}
   } else {
     // Resume recording
     if (recorderScreen) recorderScreen.resume();
     if (recorderCamera) recorderCamera.resume();
+    if (recorderAudio) try { recorderAudio.resume && recorderAudio.resume(); } catch(e) {}
+    try { if (!timerInterval) { timerInterval = setInterval(timer, 1000); } } catch(e) {}
   }
   
   if (videoScreen) videoScreen.style.borderColor = 'red';
   if (videoCamera) videoCamera.style.borderColor = 'red';
+  if (audioIndicator) audioIndicator.style.borderColor = 'red';
 
   if (uploadProgress) uploadProgress.style.display = 'block';
   if (uploadProgressBar) uploadProgressBar.style.width = '0%';
@@ -877,8 +924,10 @@ function onStartClick() {
 function onPauseClick() {
   if (recorderScreen) recorderScreen.pause();
   if (recorderCamera) recorderCamera.pause();
+  if (recorderAudio) try { recorderAudio.pause && recorderAudio.pause(); } catch(e) {}
   if (videoScreen) videoScreen.style.borderColor = 'green';
   if (videoCamera) videoCamera.style.borderColor = 'green';
+  if (audioIndicator) audioIndicator.style.borderColor = 'green';
   enable(buttonStart);
   disable(buttonPause);
   // Show save when paused and data exists
@@ -900,11 +949,15 @@ function onStopClick() {
     recorderCamera.pause();
     recorderCamera.stop();
   }
+  if (recorderAudio) {
+    try { recorderAudio.stop(); } catch(e) {}
+  }
   
   // Update state immediately
   recState.recording = false;
   recState.paused = false;
-  recState.hasData = (recordedScreen.length > 0) || (recordedCamera.length > 0);
+  recState.hasData = (recordedScreen.length > 0) || (recordedCamera.length > 0) || (recordedAudio.length > 0);
+  try { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } } catch(e) {}
   
   // Update UI with current data state
   setStoppedUI();
@@ -934,6 +987,7 @@ function onSaveClick() {
   if (buttonSave.disabled) {
     recordedScreen = [];
     recordedCamera = [];
+    recordedAudio = [];
   }
   }
 
@@ -942,7 +996,8 @@ function onSaveClick() {
  */
 function timer() {
   const isRecording = (recorderScreen && recorderScreen.state === 'recording') || 
-                     (recorderCamera && recorderCamera.state === 'recording');
+                     (recorderCamera && recorderCamera.state === 'recording') ||
+                     (recorderAudio && recorderAudio.state === 'recording');
   if (isRecording) {
     s += 1;
     if (s == 60) {
@@ -1032,6 +1087,29 @@ async function saveFile() {
       uploadPromises.push(uploadFile(screenData, screenUrl));
     }
     
+  // Save audio recording if available (audio-only or from camera/screen if present)
+  if (recordedAudio && recordedAudio.length > 0) {
+    const audioBlob = new Blob(recordedAudio, { type: 'audio/webm' });
+    const audioFileName = fileName.value + '_audio.webm';
+    // Create download link for audio
+    const audioDownloadLink = document.createElement('a');
+    audioDownloadLink.className = 'download-record-link btn btn-primary';
+    audioDownloadLink.href = URL.createObjectURL(audioBlob);
+    audioDownloadLink.download = audioFileName;
+    audioDownloadLink.textContent = 'Скачать аудио';
+    downloadContainer.appendChild(audioDownloadLink);
+    // Upload audio
+    const audioData = new FormData();
+    audioData.append(audioFileName, audioBlob);
+    const audioUrl = generateUrlString(
+      fileName.value + '_audio',
+      fileText.value,
+      document.getElementById('did'),
+      document.getElementById('sdid')
+    );
+    uploadPromises.push(uploadFile(audioData, audioUrl));
+  }
+
     // Save camera recording if available
     if (recorderCamera && recordedCamera && recordedCamera.length > 0) {
       const cameraBlob = new Blob(recordedCamera, { type: 'video/webm' });
@@ -1119,6 +1197,10 @@ async function saveFile() {
       if (sourceBoth) {
         sourceBoth.removeEventListener('change', onSourceChange);
         sourceBoth.addEventListener('change', onSourceChange);
+      }
+      if (sourceAudio) {
+        sourceAudio.removeEventListener('change', onSourceChange);
+        sourceAudio.addEventListener('change', onSourceChange);
       }
       
     }, 100);
@@ -1279,8 +1361,9 @@ window.addEventListener('message', function(ev) {
       disable(buttonStop);
       enable(buttonCamera);
       enable(buttonStart);
-      if (videoScreen) videoScreen.style.borderColor = 'gray';
-      if (videoCamera) videoCamera.style.borderColor = 'gray';
+    if (videoScreen) videoScreen.style.borderColor = 'gray';
+    if (videoCamera) videoCamera.style.borderColor = 'gray';
+    if (audioIndicator) { audioIndicator.style.borderColor = '#000000'; audioIndicator.textContent = ''; }
       resetTimer(true);
       recState = { recording: false, paused: false, hasData: false };
       
@@ -1325,6 +1408,7 @@ function stopRecorder() {
       let activeRecorders = [];
       if (recorderScreen && recorderScreen.state !== 'inactive') activeRecorders.push(recorderScreen);
       if (recorderCamera && recorderCamera.state !== 'inactive') activeRecorders.push(recorderCamera);
+      if (recorderAudio && recorderAudio.state !== 'inactive') activeRecorders.push(recorderAudio);
       
       if (activeRecorders.length === 0) { resolve(); return; }
       
@@ -1340,7 +1424,7 @@ function stopRecorder() {
       activeRecorders.forEach(recorder => {
         try { 
           recorder.addEventListener('stop', handleStop); 
-          recorder.pause();
+          if (recorder.pause) try { recorder.pause(); } catch(e) {}
           recorder.stop();
         } catch(e) { 
           handleStop(); 

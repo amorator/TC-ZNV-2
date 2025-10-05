@@ -9,7 +9,7 @@ def register(app, tp, media_service):
 	@app.permission_required(2)
 	def orders():
 		orders = app._sql.order_all()
-		return render_template('orders.j2.html', title='Наряды — Заявки-Наряды-Видео', id=2, orders=orders, groups=app._sql.group_all())
+		return render_template('orders.j2.html', title='Наряды — Заявки-Наряды-Файлы', id=2, orders=orders, groups=app._sql.group_all())
 
 	@app.route('/orders/add', methods=['POST'])
 	@app.permission_required(2, 'b')

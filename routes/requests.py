@@ -9,7 +9,7 @@ def register(app):
 	@app.permission_required(1)
 	def requests():
 		requests = app._sql.request_all()
-		return render_template('requests.j2.html', title='Заявки — Заявки-Наряды-Видео', id=1, requests=requests)
+		return render_template('requests.j2.html', title='Заявки — Заявки-Наряды-Файлы', id=1, requests=requests)
 
 	@app.route('/requests/file/<string:name>', methods=['GET'])
 	@app.permission_required(1)

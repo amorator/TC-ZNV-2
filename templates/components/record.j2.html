@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Запись видео</title>
+    <title>Запись файлов</title>
     <link rel="icon" type="image/png" href="/static/images/favicon/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/static/images/favicon/favicon.svg" />
     <link rel="shortcut icon" href="/static/images/favicon/favicon.ico" />
@@ -46,7 +46,7 @@
 <body data-theme="{{ request.args.get('theme', 'light') }}" class="theme-{{ request.args.get('theme', 'light') }}" style="background-color: var(--modal-bg, var(--body-bg, #ffffff)) !important; min-height: 100vh;">
 <section class="record-page">
   {% if request.args.get('embed') != '1' %}
-  <h1 class="record-page__title">Запись видео</h1>
+  <h1 class="record-page__title">Запись файлов</h1>
   {% endif %}
   <div class="record-page__body">
     <div class="record-page__videos">
@@ -57,6 +57,10 @@
       <div class="record-page__video">
         <span class="record-page__video-label">Камера</span>
         <video class="video" autoplay playsinline id="video-camera"></video>
+      </div>
+      <div class="record-page__video" id="audio-indicator-wrap" style="display:none;">
+        <span class="record-page__video-label">Микрофон</span>
+        <div id="audio-indicator" class="audio-indicator" aria-label="Индикатор аудио"></div>
       </div>
     </div>
     <div class="record-page__menu">
@@ -73,6 +77,10 @@
           <label class="record-page__source-label">
             <input type="radio" name="source" value="both" id="source-both">
             <span>Экран + камера</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="audio" id="source-audio">
+            <span>Только аудио</span>
           </label>
         </div>
         <button class="button" id="camera">Включить камеру</button>

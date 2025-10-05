@@ -18,7 +18,7 @@ def register(app):
 	def users():
 		"""Render users page with list and groups."""
 		min_password_length = int(app._sql.config.get('web', 'min_password_length', fallback='1'))
-		return render_template('users.j2.html', title='Пользователи — Заявки-Наряды-Видео', id=4, users=app._sql.user_all(), groups=app._sql.group_all(), min_password_length=min_password_length)
+		return render_template('users.j2.html', title='Пользователи — Заявки-Наряды-Файлы', id=4, users=app._sql.user_all(), groups=app._sql.group_all(), min_password_length=min_password_length)
 
 	@app.route('/users/add', methods=['POST'])
 	@require_permissions(USERS_MANAGE)

@@ -173,7 +173,7 @@
 
   <div id="popup-add" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title mb-4">Добавление видео/аудио</h1>
+      <h1 class="popup__title mb-4">Добавление файлов</h1>
       <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
@@ -216,7 +216,7 @@
 
   <div id="popup-edit" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title mb-4">Редактирование видео</h1>
+      <h1 class="popup__title mb-4">Редактирование файла</h1>
       <div class="popup__body">
 
         <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
@@ -242,10 +242,10 @@
 
   <div id="popup-delete" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title mb-4">Удалить видео</h1>
+      <h1 class="popup__title mb-4">Удалить файл</h1>
       <div class="popup__body">
 
-        <p>Вы действительно хотите удалить видео <b>vname</b>?</p>
+        <p>Вы действительно хотите удалить файл <b>vname</b>?</p>
         <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
             <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');" >Отмена</button>
@@ -279,7 +279,7 @@
   <!-- Recording modal -->
   <div id="popup-rec" class="overlay-container">
     <div class="popup popup--wide">
-      <h1 class="popup__title mb-4">Запись видео</h1>
+      <h1 class="popup__title mb-4">Запись файлов</h1>
       <div class="popup__body" style="padding: 0;">
         <iframe
           id="rec-iframe"
@@ -330,7 +330,7 @@
   <!-- Video player modal -->
   <div id="popup-view" class="overlay-container">
     <div class="popup popup--wide">
-      <h1 class="popup__title mb-4">Просмотр видео</h1>
+      <h1 class="popup__title mb-4">Просмотр файла</h1>
       <div class="popup__body">
         <video id="player-video" style="width: 100%; height: auto; outline: none;" controls playsinline></video>
       </div>
@@ -356,7 +356,7 @@
   <!-- Move file modal -->
   <div id="popup-move" class="overlay-container">
     <div class="popup">
-      <h1 class="popup__title mb-4">Переместить видео</h1>
+      <h1 class="popup__title mb-4">Переместить файл</h1>
       <div class="popup__body">
         <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">

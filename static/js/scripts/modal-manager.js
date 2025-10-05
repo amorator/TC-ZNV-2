@@ -23,13 +23,51 @@
       // Listen for escape key
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && this.activeModal) {
+          // Intercept recorder ESC to guard close
+          if (this.activeModal === 'popup-rec') {
+            try {
+              const iframe = document.getElementById('rec-iframe');
+              if (iframe && iframe.contentWindow) {
+                window.__recCloseRequested = true;
+                try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+                iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+                window.__recStateTimer = setTimeout(function() {
+                  // No fallback confirm for recorder on ESC; do nothing if iframe silent
+                  try { window.__recCloseRequested = false; } catch(_) {}
+                  try { window.__recStateTimer = null; } catch(_) {}
+                }, 300);
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+            } catch(_) {}
+          }
           this.closeModal(this.activeModal);
         }
       });
 
       // Listen for clicks outside modal
       document.addEventListener('click', (e) => {
-        if (this.activeModal && e.target.classList.contains('popup-overlay')) {
+        if (this.activeModal && e.target.classList && e.target.classList.contains('popup-overlay')) {
+          // Intercept recorder overlay click to guard close
+          if (this.activeModal === 'popup-rec') {
+            try {
+              const iframe = document.getElementById('rec-iframe');
+              if (iframe && iframe.contentWindow) {
+                window.__recCloseRequested = true;
+                try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+                iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+                window.__recStateTimer = setTimeout(function() {
+                  // No fallback confirm for recorder on overlay click; do nothing if iframe silent
+                  try { window.__recCloseRequested = false; } catch(_) {}
+                  try { window.__recStateTimer = null; } catch(_) {}
+                }, 300);
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+            } catch(_) {}
+          }
           this.closeModal(this.activeModal);
         }
       });

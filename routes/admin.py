@@ -22,7 +22,7 @@ def register(app, socketio=None):
 			log_action('ADMIN_VIEW', current_user.name, f'ip={request.remote_addr}', request.remote_addr)
 		except Exception:
 			pass
-		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Видео', groups=groups)
+		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Файлы', groups=groups)
 
 	# --- Presence: list active sessions ---
 	@app.route('/admin/presence', methods=['GET'])

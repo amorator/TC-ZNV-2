@@ -113,19 +113,19 @@ def register(app, media_service, socketio=None) -> None:
 		_dirs = dirs_by_permission(app, id, 'f')
 		# Guard: no available directories for this user
 		if not _dirs or len(_dirs) == 0:
-			return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
+			return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
 
 		did, sdid = validate_directory_params(did, sdid, _dirs)
 		dirs = list(_dirs[did].keys()) if (did is not None and did < len(_dirs)) else []
 		# Guard: if no subdirectories present, render with empty file list
 		if not dirs or len(dirs) <= 1:
-			return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
+			return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
 
 		# Safe access to subdir index
 		files = None
 		if 1 <= sdid < len(dirs):
 			files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
-		return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
+		return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
 
 	@app.route('/files' + '/add' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
@@ -699,6 +699,8 @@ def register(app, media_service, socketio=None) -> None:
 					rec_type = 'screen'
 				elif name.endswith('_cam'):
 					rec_type = 'camera'
+				elif name.endswith('_audio'):
+					rec_type = 'audio'
 				else:
 					rec_type = 'single'
 			except Exception:
@@ -709,9 +711,16 @@ def register(app, media_service, socketio=None) -> None:
 			except Exception:
 				pass
 			request.files.get(name + '.webm').save(fname + '.webm')
+			# Choose target extension based on recording type
+			if rec_type == 'audio':
+				real_target = real_name + '.m4a'
+				convert_dst = fname + '.m4a'
+			else:
+				real_target = real_name + '.mp4'
+				convert_dst = fname + '.mp4'
 			# Args need to match file_add signature: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
-			id = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
-			media_service.convert_async(fname + '.webm', fname + '.mp4', ('file', id))
+			id = app._sql.file_add([name, real_target, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
+			media_service.convert_async(fname + '.webm', convert_dst, ('file', id))
 			# Log successful end of recording save
 			try:
 				log_action('RECORD_SAVE_END', current_user.name, f'type={rec_type} name="{name}" id={id} status=SUCCESS', request.remote_addr)

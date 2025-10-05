@@ -612,6 +612,26 @@ document.addEventListener('keydown', function (event) {
   // Esc to close modal with existing guards
   if (event.key === 'Escape') {
     event.preventDefault();
+    // Guarded behavior for recorder: do not close while recording; no fallback confirm on ESC
+    if (popup === 'popup-rec') {
+      try {
+        const overlay = document.getElementById('popup-rec');
+        if (overlay && (overlay.classList.contains('show') || overlay.classList.contains('visible'))) {
+          const iframe = document.getElementById('rec-iframe');
+          if (iframe && iframe.contentWindow) {
+            window.__recCloseRequested = true;
+            try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+            iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+            // Do not auto-confirm via fallback on ESC; if no response, just ignore
+            window.__recStateTimer = setTimeout(function() {
+              try { window.__recCloseRequested = false; } catch(_) {}
+              try { window.__recStateTimer = null; } catch(_) {}
+            }, 300);
+            return;
+          }
+        }
+      } catch(_) {}
+    }
     try { popupToggle(popup); } catch(e) {}
   }
 });
@@ -625,7 +645,23 @@ document.addEventListener('click', function (e) {
     if (e.target === overlay && overlay.classList.contains('show')) {
       const id = overlay.id;
       if (!id) return;
-      try { popupToggle(id); } catch(err) { overlay.classList.remove('show'); }
+    // Guarded behavior for recorder overlay click: do not close while recording; no fallback confirm
+    if (id === 'popup-rec') {
+      try {
+        const iframe = document.getElementById('rec-iframe');
+        if (iframe && iframe.contentWindow) {
+          window.__recCloseRequested = true;
+          try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+          iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+          window.__recStateTimer = setTimeout(function() {
+            try { window.__recCloseRequested = false; } catch(_) {}
+            try { window.__recStateTimer = null; } catch(_) {}
+          }, 300);
+          return;
+        }
+      } catch(_) {}
+    }
+    try { popupToggle(id); } catch(err) { overlay.classList.remove('show'); }
     }
   } catch (_) {}
 }, true);

@@ -39,11 +39,11 @@ def register(app):
                     group.user_count = int(gid_to_count.get(group.id, 0))
                 except Exception:
                     group.user_count = 0
-            return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Видео', groups=groups, admin_group_name=admin_group_name)
+                return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Файлы', groups=groups, admin_group_name=admin_group_name)
         except Exception as e:
             app.flash_error(e)
             _log.error(f"Groups page error: {e}")
-            return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Видео', groups=[], admin_group_name='Программисты')
+            return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Файлы', groups=[], admin_group_name='Программисты')
     
     @app.route('/groups/add', methods=['POST'])
     @require_permissions(USERS_MANAGE)
