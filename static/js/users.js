@@ -228,7 +228,7 @@ if (document.readyState === 'loading') {
   }
           const rowId = row.id;
           if (!rowId) return;
-          const toggleUrl = `${window.location.origin}/srs/toggle/${rowId}`;
+          const toggleUrl = `${window.location.origin}/users/toggle/${rowId}`;
           fetch(toggleUrl, { method: 'GET', credentials: 'same-origin' })
             .then(function(response){
               if (!response.ok) return;

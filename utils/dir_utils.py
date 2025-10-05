@@ -1,7 +1,7 @@
 def validate_directory_params(did, sdid, _dirs):
 	"""Validate and normalize directory parameters for the Files section.
 
-	This helper is shared by multiple `/fls` endpoints to consistently guard
+	This helper is shared by multiple `/files` endpoints to consistently guard
 	against out-of-range indices and empty permission results.
 
 	Parameters

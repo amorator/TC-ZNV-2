@@ -5,23 +5,23 @@ from os import path, remove
 
 
 def register(app, tp, media_service):
-	@app.route('/rdrs', methods=['GET'])
+	@app.route('/orders', methods=['GET'])
 	@app.permission_required(2)
 	def orders():
 		orders = app._sql.order_all()
-		return render_template('orders.j2.html', id=2, orders=orders, groups=app._sql.group_all())
+		return render_template('orders.j2.html', title='Наряды — Заявки-Наряды-Видео', id=2, orders=orders, groups=app._sql.group_all())
 
-	@app.route('/rdrs/add', methods=['POST'])
+	@app.route('/orders/add', methods=['POST'])
 	@app.permission_required(2, 'b')
 	def orders_add():
 		try:
-			responsible = request.form.get('responsible')
-			description = request.form.get('description')
-			number = request.form.get('number')
-			department = request.form.get('department')
-			start_date = request.form.get('start_date')
-			end_date = request.form.get('end_date')
-			iss_date = request.form.get('iss_date')
+			responsible = (request.form.get('responsible') or '').strip()
+			description = (request.form.get('description') or '').strip()
+			number = (request.form.get('number') or '').strip()
+			department = (request.form.get('department') or '').strip()
+			start_date = (request.form.get('start_date') or '').strip()
+			end_date = (request.form.get('end_date') or '').strip()
+			iss_date = (request.form.get('iss_date') or '').strip()
 			comp_date = request.form.get('comp_date')
 			start_date = dt.strptime(start_date, '%Y-%m-%dT%H:%M').strftime('%y.%m.%d %H:%M') if start_date else None
 			end_date = dt.strptime(end_date, '%Y-%m-%dT%H:%M').strftime('%y.%m.%d %H:%M') if end_date else None
@@ -37,20 +37,20 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/edit/<int:id>', methods=['POST'])
+	@app.route('/orders/edit/<int:id>', methods=['POST'])
 	@app.permission_required(2, 'a')
 	def orders_edit(id):
 		ord = app._sql.order_by_id([id])
 		if not (current_user.is_allowed(2, 'c') or current_user.name == ord.creator) or ord.state == 1:
 			return abort(403)
 		try:
-			responsible = request.form.get('responsible')
-			description = request.form.get('description')
-			number = request.form.get('number')
-			department = request.form.get('department')
-			start_date = request.form.get('start_date')
-			end_date = request.form.get('end_date')
-			iss_date = request.form.get('iss_date')
+			responsible = (request.form.get('responsible') or '').strip()
+			description = (request.form.get('description') or '').strip()
+			number = (request.form.get('number') or '').strip()
+			department = (request.form.get('department') or '').strip()
+			start_date = (request.form.get('start_date') or '').strip()
+			end_date = (request.form.get('end_date') or '').strip()
+			iss_date = (request.form.get('iss_date') or '').strip()
 			comp_date = request.form.get('comp_date')
 			start_date = dt.strptime(start_date, '%Y-%m-%dT%H:%M').strftime('%y.%m.%d %H:%M') if start_date else None
 			end_date = dt.strptime(end_date, '%Y-%m-%dT%H:%M').strftime('%y.%m.%d %H:%M') if end_date else None
@@ -65,7 +65,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/delete/<int:id>', methods=['POST'])
+	@app.route('/orders/delete/<int:id>', methods=['POST'])
 	@app.permission_required(2, 'a')
 	def orders_delete(id):
 		ord = app._sql.order_by_id([id])
@@ -87,7 +87,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/appr/<int:id>', methods=['GET'])
+	@app.route('/orders/appr/<int:id>', methods=['GET'])
 	@app.permission_required(2, 'e')
 	def orders_approve(id):
 		try:
@@ -97,7 +97,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/dappr/<int:id>', methods=['GET'])
+	@app.route('/orders/dappr/<int:id>', methods=['GET'])
 	@app.permission_required(2, 'e')
 	def orders_disapprove(id):
 		try:
@@ -107,7 +107,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/status/<int:id>', methods=['POST'])
+	@app.route('/orders/status/<int:id>', methods=['POST'])
 	@app.permission_required(2, 'a')
 	def orders_status(id):
 		if not (current_user.is_allowed(2, 'c') or current_user.is_allowed(2, 'f') or current_user.name == ord.creator) or ord.state == 1:
@@ -115,7 +115,7 @@ def register(app, tp, media_service):
 		try:
 			state = int(request.form.get('status'))
 			if state == 1:
-				comp_date = request.form.get('comp_date')
+				comp_date = (request.form.get('comp_date') or '').strip()
 				comp_date = dt.strptime(comp_date, '%Y-%m-%dT%H:%M').strftime('%y.%m.%d %H:%M') if comp_date else None
 			else:
 				comp_date = None
@@ -125,7 +125,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/view/<int:id>', methods=['GET'])
+	@app.route('/orders/view/<int:id>', methods=['GET'])
 	@app.permission_required(2, 'h')
 	def orders_view(id):
 		try:
@@ -143,7 +143,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/file_add/<int:id>', methods=['POST'])
+	@app.route('/orders/file_add/<int:id>', methods=['POST'])
 	@app.permission_required(2, 'b')
 	def orders_file_add(id):
 		ord = app._sql.order_by_id([id])
@@ -168,7 +168,7 @@ def register(app, tp, media_service):
 		finally:
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/file_add_remote/<int:id>', methods=['POST'])
+	@app.route('/orders/file_add_remote/<int:id>', methods=['POST'])
 	@app.permission_required(2, 'b')
 	def orders_file_add_remote(id):
 		ord = app._sql.order_by_id([id])
@@ -197,7 +197,7 @@ def register(app, tp, media_service):
 		if f[1].lower() in ('.mp4', '.avi', '.webm', '.mov'):
 			media_service.convert_async(fname, f[0] + '.mp4', ('order', id))
 
-	@app.route('/rdrs/file/<string:name>', methods=['GET'])
+	@app.route('/orders/file/<string:name>', methods=['GET'])
 	@app.permission_required(2, 'a')
 	def order_file_show(name):
 		try:
@@ -206,7 +206,7 @@ def register(app, tp, media_service):
 			app.flash_error(e)
 			return redirect(url_for('orders'))
 
-	@app.route('/rdrs/file_delete/<int:id>/<string:name>', methods=['POST'])
+	@app.route('/orders/file_delete/<int:id>/<string:name>', methods=['POST'])
 	@app.permission_required(2, 'b')
 	def order_file_delete(id, name):
 		ord = app._sql.order_by_id([id])

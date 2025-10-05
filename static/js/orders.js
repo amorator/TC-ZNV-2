@@ -109,7 +109,7 @@ function validateForm(x) {
 function sendFiles(id) {
   let form = document.createElement('form');
   form.method = 'POST';
-  form.action = '/rdrs/file_add/' + id.toString();
+  form.action = '/orders/file_add/' + id.toString();
   form.enctype = 'multipart/form-data';
   form.append(event.target);
   document.body.appendChild(form);

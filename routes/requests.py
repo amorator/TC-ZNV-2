@@ -5,13 +5,13 @@ from os import path, remove
 
 
 def register(app):
-	@app.route('/rsts', methods=['GET'])
+	@app.route('/requests', methods=['GET'])
 	@app.permission_required(1)
 	def requests():
 		requests = app._sql.request_all()
-		return render_template('requests.j2.html', id=1, requests=requests)
+		return render_template('requests.j2.html', title='Заявки — Заявки-Наряды-Видео', id=1, requests=requests)
 
-	@app.route('/rsts/file/<string:name>', methods=['GET'])
+	@app.route('/requests/file/<string:name>', methods=['GET'])
 	@app.permission_required(1)
 	def request_file_show(name):
 		try:
@@ -20,7 +20,7 @@ def register(app):
 			app.flash_error(e)
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/file_delete/<int:id>/<string:name>', methods=['GET'])
+	@app.route('/requests/file_delete/<int:id>/<string:name>', methods=['GET'])
 	@app.permission_required(1, 'b')
 	def requests_file_delete(id, name):
 		req = app._sql.request_by_id([id])
@@ -35,7 +35,7 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/file_add/<int:id>', methods=['POST'])
+	@app.route('/requests/file_add/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'b')
 	def requests_file_add(id):
 		req = app._sql.request_by_id([id])
@@ -57,43 +57,43 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/add', methods=['POST'])
+	@app.route('/requests/add', methods=['POST'])
 	@app.permission_required(1, 'b')
 	def requests_add():
 		try:
-			creator = request.form.get('creator')
-			description = request.form.get('description')
+			creator = (request.form.get('creator') or '').strip()
+			description = (request.form.get('description') or '').strip()
 			app._sql.request_add([dt.now().strftime('%d.%m.%y %H:%M'), creator + '\n' if creator else '', f"{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})", description, ''])
 		except Exception as e:
 			app.flash_error(e)
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/edit1/<int:id>', methods=['POST'])
+	@app.route('/requests/edit1/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'b')
 	def requests_edit1(id):
 		req = app._sql.request_by_id([id])
 		if not ((current_user.is_allowed(1, 'c') or current_user.name + ' (' in req.creator) and req.status_edit() == 1 or current_user.is_allowed(1, 'z')):
 			return abort(403)
 		try:
-			creator = request.form.get('creator')
-			description = request.form.get('description')
+			creator = (request.form.get('creator') or '').strip()
+			description = (request.form.get('description') or '').strip()
 			app._sql.request_edit_before([creator, description, '|'.join(req.files), id])
 		except Exception as e:
 			app.flash_error(e)
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/edit2/<int:id>', methods=['POST'])
+	@app.route('/requests/edit2/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'b')
 	def requests_edit2(id):
 		req = app._sql.request_by_id([id])
 		if not ((current_user.is_allowed(1, 'c') or current_user.name + ' (' in req.creator) and req.status_edit() != 1 or current_user.is_allowed(1, 'z')):
 			return abort(403)
 		try:
-			start_date = request.form.get('start_date')
-			end_date = request.form.get('end_date')
-			final_date = request.form.get('final_date')
+			start_date = (request.form.get('start_date') or '').strip()
+			end_date = (request.form.get('end_date') or '').strip()
+			final_date = (request.form.get('final_date') or '').strip()
 			start_date = dt.strptime(start_date, '%Y-%m-%dT%H:%M') if start_date else ''
 			end_date = dt.strptime(end_date, '%Y-%m-%dT%H:%M') if end_date else ''
 			final_date = dt.strptime(final_date, '%Y-%m-%dT%H:%M') if final_date else ''
@@ -112,7 +112,7 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/delete/<int:id>', methods=['POST'])
+	@app.route('/requests/delete/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'b')
 	def requests_delete(id):
 		req = app._sql.request_by_id([id])
@@ -128,7 +128,7 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/appr/<int:id>', methods=['GET'])
+	@app.route('/requests/appr/<int:id>', methods=['GET'])
 	@app.permission_required(1, 'e')
 	def requests_approve(id):
 		try:
@@ -140,12 +140,12 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/dappr/<int:id>', methods=['POST'])
+	@app.route('/requests/dappr/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'e')
 	def requests_disapprove(id):
 		try:
 			req = app._sql.request_by_id([id])
-			reason = request.form.get('reason')
+			reason = (request.form.get('reason') or '').strip()
 			reason = 'Причина: ' + (reason if reason else 'не указана.')
 			if req.disapprove_now(current_user.name, app._sql.group_name_by_id([current_user.gid]), reason):
 				app._sql.request_edit_status([req.status1, id], 1)
@@ -154,7 +154,7 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/allow/<int:id>', methods=['GET'])
+	@app.route('/requests/allow/<int:id>', methods=['GET'])
 	@app.permission_required(1, 'f')
 	def requests_allow(id):
 		try:
@@ -166,12 +166,12 @@ def register(app):
 		finally:
 			return redirect(url_for('requests'))
 
-	@app.route('/rsts/deny/<int:id>', methods=['POST'])
+	@app.route('/requests/deny/<int:id>', methods=['POST'])
 	@app.permission_required(1, 'f')
 	def requests_deny(id):
 		try:
 			req = app._sql.request_by_id([id])
-			reason = request.form.get('reason')
+			reason = (request.form.get('reason') or '').strip()
 			reason = 'Причина: ' + (reason if reason else 'не указана.')
 			if req.deny_now(current_user.name, app._sql.group_name_by_id([current_user.gid]), reason):
 				app._sql.request_edit_status([req.status2, id], 2)

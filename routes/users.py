@@ -13,14 +13,14 @@ _log = get_logger(__name__)
 
 
 def register(app):
-	@app.route('/srs', methods=['GET'])
+	@app.route('/users', methods=['GET'])
 	@require_permissions(USERS_VIEW_PAGE)
 	def users():
 		"""Render users page with list and groups."""
 		min_password_length = int(app._sql.config.get('web', 'min_password_length', fallback='1'))
-		return render_template('users.j2.html', id=4, users=app._sql.user_all(), groups=app._sql.group_all(), min_password_length=min_password_length)
+		return render_template('users.j2.html', title='Пользователи — Заявки-Наряды-Видео', id=4, users=app._sql.user_all(), groups=app._sql.group_all(), min_password_length=min_password_length)
 
-	@app.route('/srs/add', methods=['POST'])
+	@app.route('/users/add', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
 	def users_add():
 		"""Create a new user. Login uniqueness is case-insensitive.
@@ -56,7 +56,7 @@ def register(app):
 			if app._sql.user_exists(login, name):
 				raise Exception('Пользователь уже существует!')
 			
-			app._sql.user_add([login, name, app.hash(password), request.form.get('group'), int(request.form.get('enabled') != None), request.form.get('permission')])
+			app._sql.user_add([login, name, app.hash(password), (request.form.get('group') or '').strip(), int(request.form.get('enabled') != None), (request.form.get('permission') or '').strip()])
 			log_action('USER_CREATE', current_user.name, f'created user {name} ({login})', request.remote_addr)
 		except Exception as e:
 			ok = False
@@ -78,7 +78,7 @@ def register(app):
 					return {'status': 'error', 'message': error_message or 'Failed to create user'}, 400
 			return redirect(url_for('users'))
 
-	@app.route('/srs/edit/<id>', methods=['POST'])
+	@app.route('/users/edit/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
 	def users_edit(id):
 		"""Edit user fields and permissions (except admin restrictions)."""
@@ -125,7 +125,7 @@ def register(app):
 			if app._sql.user_exists(login, name, id):
 				raise Exception('Имя или логин занято другим пользователем!')
 			
-			app._sql.user_edit([login, name, request.form.get('group'), int(request.form.get('enabled') != None), permission_value, id])
+			app._sql.user_edit([login, name, (request.form.get('group') or '').strip(), int(request.form.get('enabled') != None), permission_value, id])
 			log_action('USER_EDIT', current_user.name, f'edited user {name} ({login})', request.remote_addr)
 		except Exception as e:
 			ok = False
@@ -146,7 +146,7 @@ def register(app):
 					return {'status': 'error', 'message': error_message or 'Failed to update user'}, 400
 			return redirect(url_for('users'))
 
-	@app.route('/srs/reset/<id>', methods=['POST'])
+	@app.route('/users/reset/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
 	def users_reset(id):
 		"""Reset user password."""
@@ -154,7 +154,7 @@ def register(app):
 		error_message = ''
 		try:
 			# Server-side validation with trimming
-			password = request.form.get('password') or ''
+			password = (request.form.get('password') or '').strip()
 			
 			# Validate required fields
 			if not password:
@@ -187,7 +187,7 @@ def register(app):
 					return {'status': 'error', 'message': error_message or 'Failed to reset password'}, 400
 			return redirect(url_for('users'))
 
-	@app.route('/srs/toggle/<id>', methods=['GET'])
+	@app.route('/users/toggle/<id>', methods=['GET'])
 	@require_permissions(USERS_MANAGE)
 	def users_toggle(id):
 		"""Toggle user active flag; admin cannot be disabled."""
@@ -222,7 +222,7 @@ def register(app):
 					return {'status': 'error', 'message': error_message or 'Failed to toggle user'}, 400
 			return redirect(url_for('users'))
 
-	@app.route('/srs/delete/<id>', methods=['POST'])
+	@app.route('/users/delete/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
 	def users_delete(id):
 		"""Delete a user; admin deletion is forbidden."""

@@ -5,7 +5,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
-  <link rel="shortcut icon" href="{{ icon }}">
+    <link rel="icon" type="image/png" href="/static/images/favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon/favicon.svg" />
+    <link rel="shortcut icon" href="/static/images/favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/images/favicon/apple-touch-icon.png" />
+    <link rel="manifest" href="/static/images/favicon/site.webmanifest" />
   <link href="{{ url_for('static', filename='css/lib/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/lib/bootstrap-icons.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/themes.css') }}" rel="stylesheet">
@@ -67,6 +71,9 @@
           <div class="app-topbar__group">
             {% if current_user.has('users.view') %}
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}"><i class="bi bi-person-fill"></i></a>
+            {% endif %}
+            {% if current_user.has('users.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('groups')) else '' }}" href="{{ url_for('groups') }}"><i class="bi bi-people-fill"></i></a>
             {% endif %}
             <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
             <a class="topbtn text-nowrap" href="{{ url_for('logout') }}">Выход ({{ current_user.name }})</a>

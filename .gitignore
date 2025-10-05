@@ -3,3 +3,4 @@ static/stuff/
 server.sock
 Pipfile.lock
 *.log
+*.log.*

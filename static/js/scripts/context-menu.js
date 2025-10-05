@@ -196,6 +196,10 @@
         this.configureUsersRowItems(row, {
           isEnabled, canEdit, canDelete, canRefresh
         });
+      } else if (this.options.page === 'groups') {
+        this.configureGroupsRowItems(row, {
+          canEdit, canDelete
+        });
       }
     }
 
@@ -294,6 +298,29 @@
     }
 
     /**
+     * Configure menu items for groups page
+     * @param {HTMLElement} row - Table row element
+     * @param {Object} permissions - Permission flags
+     */
+    configureGroupsRowItems(row, permissions) {
+      const isSystem = row.dataset.isSystem === '1';
+      const canManage = !!this.options.canManage;
+      const canEdit = canManage && !isSystem;
+      const canDelete = canManage && !isSystem;
+
+      // System groups cannot be edited or deleted
+      this.toggleItem('edit', canEdit);
+      this.toggleItem('delete', canDelete);
+      this.toggleItem('add', canManage);
+      this.toggleSeparator(true);
+      
+      // Show message if no actions available
+      if (!canEdit && !canDelete && !canManage) {
+        this.toggleItem('no-permissions', true);
+      }
+    }
+
+    /**
      * Configure general menu items (no row selected)
      */
     configureGeneralItems() {
@@ -314,6 +341,11 @@
         this.toggleItem('edit', false);
         this.toggleItem('perm', false);
         this.toggleItem('reset', false);
+        this.toggleItem('delete', false);
+        this.toggleItem('add', this.options.canManage);
+        this.toggleSeparator(false);
+      } else if (this.options.page === 'groups') {
+        this.toggleItem('edit', false);
         this.toggleItem('delete', false);
         this.toggleItem('add', this.options.canManage);
         this.toggleSeparator(false);
@@ -420,6 +452,8 @@
         this.executeFilesAction(action, row);
       } else if (this.options.page === 'users') {
         this.executeUsersAction(action, row);
+      } else if (this.options.page === 'groups') {
+        this.executeGroupsAction(action, row);
       }
     }
 
@@ -614,7 +648,7 @@
 
         case 'toggle':
           if (rowId) {
-            const toggleUrl = `${window.location.origin}/srs/toggle/${rowId}`;
+            const toggleUrl = `${window.location.origin}/users/toggle/${rowId}`;
             fetch(toggleUrl, { method: 'GET', credentials: 'same-origin' })
               .then(response => {
                 if (response.ok) {
@@ -695,6 +729,58 @@
               window.popupValues(form, rowId);
             }
             window.popupToggle('popup-reset', rowId);
+          }
+          break;
+
+        case 'delete':
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('delete');
+            if (form) {
+              window.popupValues(form, rowId);
+            }
+            window.popupToggle('popup-delete', rowId);
+          }
+          break;
+      }
+    }
+
+    /**
+     * Execute groups page actions
+     * @param {string} action - Action name
+     * @param {HTMLElement|null} row - Table row element
+     */
+    executeGroupsAction(action, row) {
+      const rowId = row?.id;
+
+      switch (action) {
+        case 'add':
+          // Use openModal to avoid stale activeModal toggle issues
+          if (window.openModal) {
+            try {
+              if (window.modalManager) {
+                window.modalManager.activeModal = null;
+              }
+              const addModal = document.getElementById('popup-add');
+              if (addModal) {
+                const addForm = addModal.querySelector('form');
+                if (addForm && typeof addForm.reset === 'function') {
+                  addForm.reset();
+                }
+              }
+            } catch(_) {}
+            window.openModal('popup-add');
+          } else if (window.popupToggle) {
+            window.popupToggle('popup-add');
+          }
+          break;
+
+        case 'edit':
+          if (rowId && window.popupToggle && window.popupValues) {
+            const form = document.getElementById('edit');
+            if (form) {
+              window.popupValues(form, rowId);
+            }
+            window.popupToggle('popup-edit', rowId);
           }
           break;
 

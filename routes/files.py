@@ -15,7 +15,7 @@ _log = get_logger(__name__)
 
 
 def register(app, media_service, socketio=None) -> None:
-	"""Register all `/fls` routes on the provided Flask app.
+	"""Register all `/files` routes on the provided Flask app.
 
 	Args:
 		app: The application object providing `route`, `permission_required`, `_sql`, and helpers.
@@ -84,9 +84,9 @@ def register(app, media_service, socketio=None) -> None:
 		
 		return True
 
-	@app.route('/fls' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
-	@app.route('/fls' + '/<int:did>', methods=['GET'])
-	@app.route('/fls', methods=['GET'])
+	@app.route('/files' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
+	@app.route('/files' + '/<int:did>', methods=['GET'])
+	@app.route('/files', methods=['GET'])
 	@require_permissions(FILES_VIEW_PAGE)
 	def files(did: int = 0, sdid: int = 1):
 		"""Render files page for the selected directory.
@@ -96,27 +96,29 @@ def register(app, media_service, socketio=None) -> None:
 			sdid: Subdirectory index within the selected root.
 		"""
 		id = 3
+		# Read once to avoid UnboundLocalError on early returns
+		try:
+			max_file_size_mb = int(app._sql.config['files'].get('max_file_size_mb', app._sql.config['files'].get('max_size_mb', 500)))
+		except Exception:
+			max_file_size_mb = 500
 		_dirs = dirs_by_permission(app, id, 'f')
 		# Guard: no available directories for this user
 		if not _dirs or len(_dirs) == 0:
-			max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
-			return render_template('files.j2.html', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
+			return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
 
 		did, sdid = validate_directory_params(did, sdid, _dirs)
 		dirs = list(_dirs[did].keys()) if (did is not None and did < len(_dirs)) else []
 		# Guard: if no subdirectories present, render with empty file list
 		if not dirs or len(dirs) <= 1:
-			max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
-			return render_template('files.j2.html', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
+			return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
 
 		# Safe access to subdir index
 		files = None
 		if 1 <= sdid < len(dirs):
 			files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
-		max_file_size_mb = int(app._sql.config['files'].get('max_size_mb', 500))
-		return render_template('files.j2.html', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
+		return render_template('files.j2.html', title='Видео — Заявки-Наряды-Видео', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
 
-	@app.route('/fls' + '/add' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
+	@app.route('/files' + '/add' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_add(did: int = 0, sdid: int = 1):
 		"""Single-phase upload: save original, create DB record (ready=0), start conversion."""
@@ -186,7 +188,7 @@ def register(app, media_service, socketio=None) -> None:
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	# Phase 1: init record (for large uploads to appear immediately)
-	@app.route('/fls' + '/add/init' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
+	@app.route('/files' + '/add/init' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_add_init(did: int = 0, sdid: int = 1):
 		"""Two-phase upload (init): create DB record before uploading large files.
@@ -219,7 +221,7 @@ def register(app, media_service, socketio=None) -> None:
 			return {'error': str(e)}, 400
 
 	# Phase 2: upload binary and start conversion
-	@app.route('/fls' + '/upload' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.route('/files' + '/upload' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_upload(id: int, did: int = 0, sdid: int = 1):
 		"""Two-phase upload (upload): receive binary, save original, start conversion."""
@@ -268,7 +270,7 @@ def register(app, media_service, socketio=None) -> None:
 			app.flash_error(e)
 			return {'error': str(e)}, 400
 
-	@app.route('/fls' + '/edit' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.route('/files' + '/edit' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_edit(id: int, did: int = 0, sdid: int = 1):
 		"""Edit file metadata (name, description). Only owner or privileged users."""
@@ -276,8 +278,8 @@ def register(app, media_service, socketio=None) -> None:
 		if not (current_user.has('files.edit_any') or current_user.name + ' (' in file.owner):
 			return abort(403)
 		try:
-			name = request.form.get('name')
-			desc = request.form.get('description')
+			name = (request.form.get('name') or '').strip()
+			desc = (request.form.get('description') or '').strip()
 			app._sql.file_edit([name, desc, id])
 			log_action('FILE_EDIT', current_user.name, f'edited file {file.name} (id={id})', request.remote_addr)
 			if socketio:
@@ -294,7 +296,7 @@ def register(app, media_service, socketio=None) -> None:
 				return {'status': 'success', 'message': 'File updated successfully'}, 200
 			return redirect(url_for('files', did=did, sdid=sdid))
 
-	@app.route('/fls' + '/delete' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.route('/files' + '/delete' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_delete(id: int, did: int = 0, sdid: int = 1):
 		"""Delete file: remove DB record and any existing media files (.mp4, .webm)."""
@@ -339,7 +341,7 @@ def register(app, media_service, socketio=None) -> None:
 				return {'status': 'success', 'message': 'File deleted successfully'}, 200
 			return redirect(url_for('files', did=did, sdid=sdid))
 
-	@app.route('/fls' + '/show' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
+	@app.route('/files' + '/show' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
 	@require_permissions(FILES_VIEW_PAGE)
 	def files_show(did: int, sdid: int, name: str):
 		"""Serve converted media file (.mp4) from the selected directory."""
@@ -363,7 +365,7 @@ def register(app, media_service, socketio=None) -> None:
 			return redirect(url_for('files', did=did, sdid=sdid))
 
 	# Serve original uploaded file (.webm) when processing
-	@app.route('/fls' + '/orig' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
+	@app.route('/files' + '/orig' + '/<int:did>' + '/<int:sdid>' + '/<name>', methods=['GET'])
 	@require_permissions(FILES_VIEW_PAGE)
 	def files_orig(did: int, sdid: int, name: str):
 		"""Serve original uploaded file (.webm) while conversion is in progress."""
@@ -379,7 +381,7 @@ def register(app, media_service, socketio=None) -> None:
 			app.flash_error(e)
 			return redirect(url_for('files', did=did, sdid=sdid))
 
-	@app.route('/fls' + '/view' + '/<int:id>' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
+	@app.route('/files' + '/view' + '/<int:id>' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
 	@require_permissions(FILES_MARK_VIEWED)
 	def files_view(id: int, did: int = 0, sdid: int = 1):
 		"""Mark a file as viewed by the current user once (permission 'm')."""
@@ -419,7 +421,7 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_MARK_VIEWED', current_user.name, f'failed to mark viewed id={id}: {str(e)}', request.remote_addr, success=False)
 		return redirect(url_for('files', did=did, sdid=sdid))
 
-	@app.route('/fls' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
+	@app.route('/files' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
 	def files_move(id: int, did: int = 0, sdid: int = 1):
 		"""Move file to another allowed directory and update DB path."""
@@ -440,8 +442,8 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
-			selected_root = request.form.get('target_root')
-			selected_sub = request.form.get('target_sub')
+			selected_root = (request.form.get('target_root') or '').strip()
+			selected_sub = (request.form.get('target_sub') or '').strip()
 			# Validate selected root exists in allowed dirs (match values as used in template)
 			valid_roots = [list(d.values())[0] for d in _dirs]
 			if selected_root not in valid_roots:
@@ -495,7 +497,7 @@ def register(app, media_service, socketio=None) -> None:
 					return {'status': 'error', 'message': error_message or 'Failed to move file'}, 400
 			return redirect(url_for('files', did=did, sdid=sdid))
 
-	@app.route('/fls' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
+	@app.route('/files' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
 	@require_permissions(FILES_NOTES)
 	def files_note(did: int = 0, sdid: int = 1, id: int = 1):
 		"""Save or update a note for the file."""
@@ -522,7 +524,7 @@ def register(app, media_service, socketio=None) -> None:
 		return redirect(url_for('files', did=did, sdid=sdid))
 
 	# Manual metadata refresh (duration/size) via context menu
-	@app.route('/fls' + '/refresh' + '/<int:id>', methods=['POST'])
+	@app.route('/files' + '/refresh' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_VIEW_PAGE)
 	def files_refresh(id: int):
 		"""Recompute file duration and size using robust ffprobe strategies and update DB; emits soft refresh."""
@@ -637,7 +639,7 @@ def register(app, media_service, socketio=None) -> None:
 				return {'status': 'error', 'message': str(e)}, 500
 			return {'error': str(e)}, 400
 
-	@app.route('/fls' + '/rec' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
+	@app.route('/files' + '/rec' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
 	@require_permissions(FILES_UPLOAD)
 	def record(did: int = 0, sdid: int = 1):
 		"""Serve the video recorder UI (optionally embedded for modal usage)."""
@@ -659,7 +661,7 @@ def register(app, media_service, socketio=None) -> None:
 		resp.headers["Expires"] = "0"
 		return resp
 
-	@app.route('/fls' + '/rec/save' + "/<name>/<desc>/<int:did>/<int:sdid>", methods=['POST'])
+	@app.route('/files' + '/rec/save' + "/<name>/<desc>/<int:did>/<int:sdid>", methods=['POST'])
 	def save(name: str, desc: str, did: int = 0, sdid: int = 1):
 		"""Save recorded video from the recorder iframe and start conversion."""
 		try:

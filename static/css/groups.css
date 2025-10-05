@@ -1,0 +1,95 @@
+/**
+ * Groups page specific styles
+ */
+
+.groups-page {
+    /* Groups page container */
+}
+
+.groups-page__table {
+    /* Groups table styles */
+}
+
+.groups-page__name {
+    /* Group name styling */
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.groups-page__name.copied {
+    background-color: var(--success, #28a745);
+    color: white;
+    border-radius: 3px;
+    padding: 2px 4px;
+    transition: all 0.2s ease;
+}
+
+.groups-page__user-count {
+    /* User count styling */
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* System group styling */
+tr[data-is-system="1"] .groups-page__name {
+    font-weight: 600;
+    color: var(--danger, #dc3545);
+}
+
+/* System group left accent bar (per-cell to avoid layout shift) */
+tr[data-is-system="1"] td:first-child {
+    position: relative;
+}
+
+tr[data-is-system="1"] td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background-color: var(--danger, #dc3545);
+    border-radius: 0 2px 2px 0;
+    pointer-events: none;
+}
+
+/* Do not draw accent bar for header/search rows */
+thead tr th:first-child::before,
+tr.table__body_actions td:first-child::before {
+    content: none !important;
+}
+
+/* Hover effects for interactive rows */
+.groups-page__table tbody tr.table__body_row:hover {
+    background-color: var(--table-hover-bg, rgba(0, 0, 0, 0.05));
+}
+
+/* Copy feedback animation */
+@keyframes copy-feedback {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+.groups-page__name.copied {
+    animation: copy-feedback 0.2s ease;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .groups-page__table {
+        font-size: 0.9rem;
+    }
+
+    .groups-page__name {
+        font-size: 0.9rem;
+    }
+}

@@ -1093,7 +1093,7 @@ function generateUrlString(fileName, fileText, did, sdid) {
   const name = encodeURIComponent(fileName);
   const desc = encodeURIComponent(fileText);
   const base = window.location.origin;
-  return `${base}/fls/rec/save/${name}/q${desc}/${did.value}/${sdid.value}`;
+  return `${base}/files/rec/save/${name}/q${desc}/${did.value}/${sdid.value}`;
 }
 
 /**

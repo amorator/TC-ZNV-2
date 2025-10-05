@@ -32,7 +32,7 @@ function validateForm(x) {
 function sendFiles(id) {
   let form = document.createElement('form');
   form.method = 'POST';
-  form.action = '/rsts/file_add/' + id.toString();
+  form.action = '/requests/file_add/' + id.toString();
   form.enctype = 'multipart/form-data';
   form.append(event.target);
   document.body.appendChild(form);

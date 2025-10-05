@@ -6,6 +6,7 @@ from classes.user import User
 from classes.request import Request
 from classes.file import File
 from classes.order import Order
+from classes.group import Group
 from modules.core import Config
 from .logging import get_logger
 
@@ -163,46 +164,91 @@ class SQL(Config):
         self.cur.execute(command, args)
         return self.cur.fetchall()
 
+    @with_conn
+    def execute_insert(self, command, args=[]):
+        """Execute INSERT and return last inserted id."""
+        self.cur.execute(command, args)
+        self.conn.commit()
+        return self.cur.lastrowid
+
 
 class SQLUtils(SQL):
     """High-level, typed helpers that map rows to domain objects."""
 
     def __init__(self):
         super().__init__()
+        
+        # Common SQL query fragments for optimization
+        self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb"
+        self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
 
     def permission_length(self):
+        """Get the length of permission string from first user.
+        
+        Returns:
+            int: Number of permission segments (pages)
+        """
         data = self.execute_scalar(f"SELECT permission FROM {self.config['db']['prefix']}_user LIMIT 1;")
         return len(data[0].split(','))
 
     def group_name_by_id(self, args):
+        """Get group name by ID.
+        
+        Args:
+            args: List containing group ID
+            
+        Returns:
+            str: Group name
+        """
         return self.execute_scalar(f"SELECT name FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)[0]
 
     # File management functions
     def file_by_id(self, args):
-        """Get file by ID."""
+        """Get file by ID.
+        
+        Args:
+            args: List containing file ID
+            
+        Returns:
+            File object or None if not found
+        """
         from classes.file import File
-        data = self.execute_scalar(f"SELECT id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb FROM {self.config['db']['prefix']}_file WHERE id = %s;", args)
+        data = self.execute_scalar(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file WHERE id = %s;", args)
         return File(*data) if data else None
 
     def file_by_path(self, args):
-        """Get files by path."""
+        """Get files by path.
+        
+        Args:
+            args: List containing file path
+            
+        Returns:
+            List of File objects or None if not found
+        """
         from classes.file import File
-        data = self.execute_query(f"SELECT id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb FROM {self.config['db']['prefix']}_file WHERE path = %s;", args)
+        data = self.execute_query(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file WHERE path = %s;", args)
         return [File(*d) for d in data] if data else None
 
     def file_all(self):
-        """Get all files."""
+        """Get all files.
+        
+        Returns:
+            List of File objects or None if no files found
+        """
         from classes.file import File
-        data = self.execute_query(f"SELECT id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb FROM {self.config['db']['prefix']}_file;")
+        data = self.execute_query(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file;")
         return [File(*d) for d in data] if data else None
 
     def file_add(self, args):
-        """Add new file. Args: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]"""
-        self.execute_non_query(
+        """Add new file.
+        
+        Args:
+            args: List containing [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
+        """
+        return self.execute_insert(
             f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);",
             args,
         )
-        return self.cur.lastrowid
 
     def file_edit(self, args):
         """Edit file. Args: [display_name, description, id]"""
@@ -298,7 +344,7 @@ class SQLUtils(SQL):
         
     def order_active(self, args):
         date = args[0]
-        data = self.execute_query(f'SELECT * FROM znv.web_order WHERE DATE(start_date) <= STR_TO_DATE(%s, "%Y-%m-%d") AND DATE(end_date) >= STR_TO_DATE(%s, "%Y-%m-%d") AND state < 1;', [date, date])
+        data = self.execute_query(f'SELECT * FROM {self.config["db"]["prefix"]}_order WHERE DATE(start_date) <= STR_TO_DATE(%s, "%Y-%m-%d") AND DATE(end_date) >= STR_TO_DATE(%s, "%Y-%m-%d") AND state < 1;', [date, date])
         return [Order(*d) for d in data] if data else None
     
     def _ensure_database_schema(self):
@@ -360,13 +406,16 @@ class SQLUtils(SQL):
             
             # Insert default admin group if not exists
             admin_group_name = self.config.get('admin', 'group', fallback='Администраторы')
-            existing_group = self.execute_scalar(f"SELECT id FROM {prefix}_group WHERE name = %s LIMIT 1;", [admin_group_name])
-            if not existing_group:
+            admin_group_result = self.execute_scalar(f"SELECT id FROM {prefix}_group WHERE LOWER(name) = LOWER(%s) LIMIT 1;", [admin_group_name])
+            if not admin_group_result:
                 self.execute_non_query(f"""
                     INSERT INTO {prefix}_group (name, description) 
                     VALUES (%s, 'Группа администраторов системы');
                 """, [admin_group_name])
                 _log.info(f"Created default admin group: {admin_group_name}")
+                admin_group_id = 1  # New group will have ID 1
+            else:
+                admin_group_id = admin_group_result[0]
             
             # Insert default admin user if not exists
             admin_login = 'admin'  # Fixed login name
@@ -375,14 +424,7 @@ class SQLUtils(SQL):
             # Create admin permissions for all 5 pages (hardcoded for now, 5 pages planned)
             admin_permissions = 'z,z,z,z,z'
             
-            # Get group ID by name
-            admin_group_result = self.execute_scalar(f"SELECT id FROM {prefix}_group WHERE name = %s LIMIT 1;", [admin_group_name])
-            if admin_group_result:
-                admin_group_id = admin_group_result[0]
-            else:
-                admin_group_id = 1  # fallback to first group
-            
-            existing_admin = self.execute_scalar(f"SELECT id FROM {prefix}_user WHERE login = %s LIMIT 1;", [admin_login])
+            existing_admin = self.execute_scalar(f"SELECT id FROM {prefix}_user WHERE LOWER(login) = LOWER(%s) LIMIT 1;", [admin_login])
             if not existing_admin:
                 if admin_password_hash and admin_password_hash.strip():
                     self.execute_non_query(f"""
@@ -403,21 +445,39 @@ class SQLUtils(SQL):
 
     # User management functions
     def user_all(self):
-        """Get all users with their data."""
+        """Get all users with their data.
+        
+        Returns:
+            List of User objects or None if no users found
+        """
         from classes.user import User
-        data = self.execute_query(f"SELECT id, login, name, password, gid, enabled, permission FROM {self.config['db']['prefix']}_user;")
+        data = self.execute_query(f"SELECT {self._USER_SELECT_FIELDS} FROM {self.config['db']['prefix']}_user;")
         return [User(*d) for d in data] if data else None
 
     def user_by_id(self, args):
-        """Get user by ID."""
+        """Get user by ID.
+        
+        Args:
+            args: List containing user ID
+            
+        Returns:
+            User object or None if not found
+        """
         from classes.user import User
-        data = self.execute_scalar(f"SELECT id, login, name, password, gid, enabled, permission FROM {self.config['db']['prefix']}_user WHERE id = %s;", args)
+        data = self.execute_scalar(f"SELECT {self._USER_SELECT_FIELDS} FROM {self.config['db']['prefix']}_user WHERE id = %s;", args)
         return User(*data) if data else None
 
     def user_by_login(self, args):
-        """Get user by login."""
+        """Get user by login (case-insensitive).
+        
+        Args:
+            args: List containing user login
+            
+        Returns:
+            User object or None if not found
+        """
         from classes.user import User
-        data = self.execute_scalar(f"SELECT id, login, name, password, gid, enabled, permission FROM {self.config['db']['prefix']}_user WHERE login = %s;", args)
+        data = self.execute_scalar(f"SELECT {self._USER_SELECT_FIELDS} FROM {self.config['db']['prefix']}_user WHERE LOWER(login) = LOWER(%s);", args)
         return User(*data) if data else None
 
     def user_add(self, args):
@@ -441,7 +501,16 @@ class SQLUtils(SQL):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_user SET password = %s WHERE id = %s;", args)
 
     def user_exists(self, login, name, exclude_id=None):
-        """Check if user with login or name already exists (case-insensitive)."""
+        """Check if user with login or name already exists (case-insensitive).
+        
+        Args:
+            login: User login to check
+            name: User name to check
+            exclude_id: Optional user ID to exclude from check (for updates)
+            
+        Returns:
+            bool: True if user exists, False otherwise
+        """
         if exclude_id:
             data = self.execute_query(f"""
                 SELECT id FROM {self.config['db']['prefix']}_user 
@@ -456,11 +525,84 @@ class SQLUtils(SQL):
 
     # Group management functions
     def group_all(self):
-        """Get all groups as {id: name} dictionary."""
+        """Get all groups as {id: name} dictionary.
+        
+        Returns:
+            dict: Dictionary mapping group IDs to names, or None if no groups found
+        """
         data = self.execute_query(f"SELECT id, name FROM {self.config['db']['prefix']}_group;")
         return {d[0]: d[1] for d in data} if data else None
 
     def group_by_id(self, args):
-        """Get group by ID."""
+        """Get group by ID.
+        
+        Args:
+            args: List containing group ID
+            
+        Returns:
+            tuple: (id, name, description) or None if not found
+        """
         data = self.execute_scalar(f"SELECT id, name, description FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)
         return data if data else None
+
+    def group_add(self, args):
+        """Add new group.
+        
+        Args:
+            args: List containing [name, description]
+            
+        Returns:
+            int: ID of the created group
+        """
+        return self.execute_insert(f"INSERT INTO {self.config['db']['prefix']}_group (name, description) VALUES (%s, %s);", args)
+
+    def group_edit(self, args):
+        """Edit group.
+        
+        Args:
+            args: List containing [name, description, id]
+        """
+        return self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_group SET name = %s, description = %s WHERE id = %s;", args)
+
+    def group_delete(self, args):
+        """Delete group.
+        
+        Args:
+            args: List containing group ID
+        """
+        return self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)
+
+    def group_exists(self, args):
+        """Check if group exists by name (case-insensitive).
+        
+        Args:
+            args: List containing group name
+            
+        Returns:
+            bool: True if group exists, False otherwise
+        """
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_group WHERE LOWER(name) = LOWER(%s);", args)
+        return bool(data)
+
+    def group_exists_except(self, args):
+        """Check if group exists by name excluding specific ID (case-insensitive).
+        
+        Args:
+            args: List containing [name, exclude_id]
+            
+        Returns:
+            bool: True if group exists with different ID, False otherwise
+        """
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_group WHERE LOWER(name) = LOWER(%s) AND id != %s;", args)
+        return bool(data)
+
+    def group_get_all_objects(self):
+        """Get all groups as Group objects.
+        
+        Returns:
+            list: List of Group objects, ordered by name
+        """
+        # Select only columns guaranteed to exist across schemas.
+        # 'updated_at' may be absent in some installations.
+        data = self.execute_query(f"SELECT id, name, description, created_at FROM {self.config['db']['prefix']}_group ORDER BY name;")
+        return [Group(*d) for d in data] if data else []

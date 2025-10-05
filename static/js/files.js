@@ -1556,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', function () {
    * @param {boolean} updateHistory - Whether to update browser history
    */
   window.navigateToCategory = function(did, sdid, updateHistory = true) {
-    const url = `/fls/${did}/${sdid}`;
+    const url = `/files/${did}/${sdid}`;
     
     
     fetch(url, {
@@ -1614,7 +1614,7 @@ document.addEventListener('DOMContentLoaded', function () {
       
       // Update browser history
       if (updateHistory) {
-        const newUrl = `/fls/${did}/${sdid}`;
+        const newUrl = `/files/${did}/${sdid}`;
         history.pushState({ did: did, sdid: sdid }, '', newUrl);
       }
       

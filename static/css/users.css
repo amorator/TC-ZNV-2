@@ -10,7 +10,7 @@
   margin-top: 6px;
 }
 
-/* Match /fls table font sizing */
+/* Match /files table font sizing */
 .users-page__table tbody tr:not(:first-child)>th,
 .users-page__table tbody tr:not(:first-child)>td {
   font-size: 0.8em;
