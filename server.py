@@ -138,7 +138,14 @@ def login():
         return render_template('login.j2.html')
     login_user(user)
     log_action('LOGIN', user.name, f'user logged in', request.remote_addr)
-    return redirect(session['redirected_from'] if 'redirected_from' in session.keys() else '/')
+    target = session['redirected_from'] if 'redirected_from' in session.keys() else '/'
+    # Mark that user just logged in to trigger one-time push permission prompt
+    resp = redirect(target)
+    try:
+        resp.set_cookie('just_logged_in', '1', secure=True, httponly=False, samesite='Lax', path='/')
+    except Exception:
+        pass
+    return resp
 
 @app.route('/logout')
 def logout():

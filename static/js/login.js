@@ -16,7 +16,7 @@ function validateForm(x) {
   // Resolve form element whether x is a button inside the form or the form itself
   var form = (x && x.tagName === 'FORM') ? x : (x && (x.form || (x.closest && x.closest('form'))));
   if (!form) { return false; }
-  try { console.debug('Login: validateForm called'); } catch(_) {}
+  /* removed debug logging */
   // Briefly disable submit button to avoid double clicks
   var btn = form.querySelector('button[type="submit"], .login__button');
   var originalText = btn && (btn.textContent || btn.value);

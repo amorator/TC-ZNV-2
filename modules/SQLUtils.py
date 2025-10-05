@@ -8,6 +8,8 @@ from classes.file import File
 from classes.order import Order
 from classes.group import Group
 from modules.core import Config
+import base64
+import secrets
 from .logging import get_logger
 
 _log = get_logger(__name__)
@@ -403,6 +405,30 @@ class SQLUtils(SQL):
                     INDEX idx_path (path(100))
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """)
+
+            # Create push subscriptions table (for browser notifications)
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_push_sub (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    p256dh VARCHAR(255) DEFAULT '',
+                    auth VARCHAR(255) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_endpoint (endpoint(191)),
+                    INDEX idx_user (user_id),
+                    FOREIGN KEY (user_id) REFERENCES {prefix}_user(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """)
+
+            # Create settings table for app-wide key/value settings (e.g., VAPID keys)
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_setting (
+                    name VARCHAR(64) PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """)
             
             # Insert default admin group if not exists
             admin_group_name = self.config.get('admin', 'group', fallback='Администраторы')
@@ -438,6 +464,34 @@ class SQLUtils(SQL):
                 _log.info(f"Admin user {admin_login} already exists, skipping creation")
                 
             _log.info("Database schema initialization completed successfully")
+
+            # Ensure VAPID keys exist in settings; generate if missing/empty
+            try:
+                pub = self.push_get_vapid_public()
+                priv = self.push_get_vapid_private()
+                subj = self.push_get_vapid_subject()
+                if not pub or not priv:
+                    try:
+                        from cryptography.hazmat.primitives.asymmetric import ec
+                        from cryptography.hazmat.primitives import serialization
+                    except Exception as e:
+                        _log.error(f"Cannot generate VAPID keys: cryptography not installed: {e}")
+                        raise
+                    private_key = ec.generate_private_key(ec.SECP256R1())
+                    private_value = private_key.private_numbers().private_value.to_bytes(32, 'big')
+                    public_key = private_key.public_key()
+                    public_numbers = public_key.public_numbers()
+                    x = public_numbers.x.to_bytes(32, 'big')
+                    y = public_numbers.y.to_bytes(32, 'big')
+                    uncompressed = b"\x04" + x + y
+                    def b64u(data: bytes) -> str:
+                        return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
+                    vapid_public = b64u(uncompressed)
+                    vapid_private = b64u(private_value)
+                    self.push_set_vapid_keys(vapid_public, vapid_private, subj or 'mailto:admin@example.com')
+                    _log.info("Generated and stored VAPID keys in DB settings")
+            except Exception as e:
+                _log.error(f"Error ensuring VAPID keys: {e}")
             
         except Exception as e:
             _log.error(f"Error initializing database schema: {str(e)}")
@@ -606,3 +660,84 @@ class SQLUtils(SQL):
         # 'updated_at' may be absent in some installations.
         data = self.execute_query(f"SELECT id, name, description, created_at FROM {self.config['db']['prefix']}_group ORDER BY name;")
         return [Group(*d) for d in data] if data else []
+
+    # --- Push subscriptions ---
+    def push_add_subscription(self, user_id: int, endpoint: str, p256dh: str, auth: str):
+        """Store or update a push subscription for a user."""
+        # Try update existing by endpoint; if none, insert
+        existing = self.execute_scalar(
+            f"SELECT id FROM {self.config['db']['prefix']}_push_sub WHERE endpoint = %s;",
+            [endpoint]
+        )
+        if existing:
+            return self.execute_non_query(
+                f"UPDATE {self.config['db']['prefix']}_push_sub SET user_id = %s, p256dh = %s, auth = %s WHERE id = %s;",
+                [user_id, p256dh, auth, existing[0]]
+            )
+        return self.execute_insert(
+            f"INSERT INTO {self.config['db']['prefix']}_push_sub (user_id, endpoint, p256dh, auth) VALUES (%s, %s, %s, %s);",
+            [user_id, endpoint, p256dh, auth]
+        )
+
+    def push_remove_subscription(self, endpoint: str):
+        """Remove a push subscription by endpoint."""
+        return self.execute_non_query(
+            f"DELETE FROM {self.config['db']['prefix']}_push_sub WHERE endpoint = %s;",
+            [endpoint]
+        )
+
+    def push_get_user_subscriptions(self, user_id: int):
+        """Get all push subscriptions for a user."""
+        return self.execute_query(
+            f"SELECT id, endpoint, p256dh, auth, created_at FROM {self.config['db']['prefix']}_push_sub WHERE user_id = %s;",
+            [user_id]
+        )
+
+    # --- App settings (VAPID keys storage) ---
+    def setting_get(self, name: str):
+        row = self.execute_scalar(
+            f"SELECT value FROM {self.config['db']['prefix']}_setting WHERE name = %s LIMIT 1;",
+            [name]
+        )
+        return row[0] if row else None
+
+    def setting_set(self, name: str, value: str):
+        return self.execute_non_query(
+            f"INSERT INTO {self.config['db']['prefix']}_setting (name, value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value);",
+            [name, value]
+        )
+
+    def push_get_vapid_public(self):
+        val = self.setting_get('vapid_public')
+        return val.strip() if isinstance(val, str) else None
+
+    def push_get_vapid_private(self):
+        val = self.setting_get('vapid_private')
+        return val.strip() if isinstance(val, str) else None
+
+    def push_get_vapid_subject(self):
+        val = self.setting_get('vapid_subject')
+        return (val.strip() if isinstance(val, str) else None) or 'mailto:admin@example.com'
+
+    def push_set_vapid_keys(self, public_key: str, private_key: str, subject: str = 'mailto:admin@example.com'):
+        self.setting_set('vapid_public', public_key or '')
+        self.setting_set('vapid_private', private_key or '')
+        self.setting_set('vapid_subject', subject or 'mailto:admin@example.com')
+
+    # --- Flask secret key management ---
+    def get_flask_secret_key(self):
+        val = self.setting_get('flask_secret_key')
+        return val if isinstance(val, str) and val.strip() else None
+
+    def set_flask_secret_key(self, value: str):
+        return self.setting_set('flask_secret_key', value)
+
+    def ensure_and_get_flask_secret_key(self):
+        key = self.get_flask_secret_key()
+        if key:
+            return key
+        # Generate a strong URL-safe secret key
+        key = secrets.token_urlsafe(64)
+        self.set_flask_secret_key(key)
+        _log.info("Generated and stored Flask secret key in DB settings")
+        return key

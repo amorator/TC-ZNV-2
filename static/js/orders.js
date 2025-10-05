@@ -40,7 +40,7 @@ function popupValues(form, id) {
     }
   } else if (form.id == "note") {
     let data = values[10].innerText;
-    console.log(data.split('\n'));
+    /* removed debug logging */
     let note;
     if (data.indexOf(':') > -1) {
       note = data.split(':')[1].substring(1);

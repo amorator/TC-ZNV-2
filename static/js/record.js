@@ -588,7 +588,6 @@ async function onCameraClick() {
           isDualRecording = true;
           
         } catch (error) {
-          console.log(error);
           alert('Невозможно получить доступ к экрану или камере!');
           return;
         }
@@ -620,7 +619,6 @@ async function onCameraClick() {
           isScreenRecording = true;
           
         } catch (error) {
-          console.log(error);
           alert('Невозможно получить доступ к экрану!');
           return;
         }
@@ -654,7 +652,6 @@ async function onCameraClick() {
           isScreenRecording = false;
           
         } catch (error) {
-          console.log(error);
           alert('Невозможно получить доступ к камере!');
           return;
         }
@@ -768,7 +765,6 @@ async function onCameraClick() {
     recState = { recording: false, paused: false, hasData: false };
     postState();
   } catch (error) {
-    console.log(error);
     alert('Ошибка при настройке записи!');
   }
   }
