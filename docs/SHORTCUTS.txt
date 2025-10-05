@@ -20,3 +20,4 @@ Recording modal (iframe):
 Notes:
 - Pagination and search states persist across soft refreshes.
 - Table updates live via Socket.IO without page reloads.
+ - Admin page: right-click anywhere for “Обновить”; right-click on logs for copy/download actions; double-click a log to view as text.

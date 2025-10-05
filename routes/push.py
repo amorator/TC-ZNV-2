@@ -98,7 +98,7 @@ def register(app):
 			vapid_subject = (app._sql.push_get_vapid_subject() or 'mailto:admin@example.com')
 			if not vapid_public or not vapid_private:
 				return jsonify({'status': 'error', 'message': 'VAPID keys not configured'}), 400
-			payload = {'title': 'ZNV', 'body': 'Тестовое уведомление', 'icon': '/static/images/notification-icon.png'}
+			payload = {'title': 'Тест', 'body': 'Тестовое уведомление', 'icon': '/static/images/notification-icon.png'}
 			sent = 0
 			for row in rows:
 				endpoint, p256dh, auth = row[1], row[2], row[3]

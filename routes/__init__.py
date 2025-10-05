@@ -3,6 +3,7 @@
 def register_all(app, tp, media_service, socketio=None):
 	from . import users, requests, orders, files, index, groups
 	from . import push
+	from . import admin
 
 	# Ensure Flask secret key is loaded from DB (and generated if missing)
 	try:
@@ -17,5 +18,6 @@ def register_all(app, tp, media_service, socketio=None):
 	files.register(app, media_service, socketio)
 	groups.register(app)
 	push.register(app)
+	admin.register(app, socketio)
 
 

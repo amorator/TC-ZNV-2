@@ -58,6 +58,39 @@
 
 	// Expose controlled initializer
 	window.pushInit = init;
+
+	// Listen for force logout broadcast from admin (reuse shared socket if present)
+	try {
+		if (window.io) {
+			var sock = window.socket;
+			if (!sock) {
+				try {
+					sock = window.io(window.location.origin, {
+						transports: ['websocket','polling'],
+						path: '/socket.io/',
+						withCredentials: true,
+						reconnection: true,
+						reconnectionAttempts: Infinity,
+						reconnectionDelay: 1000,
+						reconnectionDelayMax: 5000
+					});
+					window.socket = sock;
+				} catch(__) {}
+			}
+			sock && sock.on && sock.on('force-logout', function(data){
+				try {
+					var title = (data && data.title) || 'Сессия завершена';
+					var body = (data && data.body) || 'Сессия разорвана администратором. Войдите снова.';
+					if (window.Notification && Notification.permission === 'granted') {
+						try { new Notification(title, { body: body, icon: '/static/images/notification-icon.png' }); } catch(__) {}
+					}
+					if (window.showToast) try { showToast(body, 'warning'); } catch(__) {}
+				} catch(__) {}
+				// Hard redirect to logout to invalidate session and refresh page
+				try { location.replace('/logout'); } catch(__) { try { location.href = '/logout'; } catch(___) {} }
+			});
+		}
+	} catch(_) {}
 })();
 
 

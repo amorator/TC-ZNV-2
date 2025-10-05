@@ -1,0 +1,139 @@
+{% extends 'base.j2.html' %}
+
+{% block css %}
+<link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/components/table.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block js %}
+<script src="{{ url_for('static', filename='js/admin.js') }}" defer="defer"></script>
+{% endblock %}
+
+{% block main %}
+<main class="container-fluid py-3">
+  <div class="row g-3">
+    <div class="col-12 col-lg-7">
+      <div class="card mb-3 presence-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Активные пользователи</strong>
+          <button id="btnRefreshPresence" class="btn btn-sm btn-outline-secondary">Обновить</button>
+        </div>
+        <div class="table-responsive presence-table-wrap">
+          <table id="presenceTable" class="users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0">
+            <thead class="table__head">
+              <tr class="table__head_row">
+                <th class="table__head_item">Пользователь</th>
+                <th class="table__head_item">IP</th>
+                <th class="table__head_item">UA</th>
+                <th class="table__head_item">Страница</th>
+              </tr>
+            </thead>
+            <tbody class="table__body">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card notify-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Уведомления</strong>
+          <div class="d-flex gap-2">
+            <button type="button" id="btnNotifyTest" class="btn btn-sm btn-outline-secondary">Тест</button>
+            {% if current_user.has('admin.manage') %}
+            <button type="button" id="btnOpenNotifyModal" class="btn btn-sm btn-primary">Отправить…</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="card h-100 logs-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Журнал действий</strong>
+          <div class="d-flex gap-2">
+            <input id="logSearch" class="form-control form-control-sm" placeholder="Поиск..." />
+            <button id="btnLogsAll" class="btn btn-sm btn-outline-secondary">Все</button>
+          </div>
+        </div>
+        <pre id="logsView" class="logs-view mb-0 p-3"></pre>
+        <div class="border-top p-2">
+          <div class="small text-muted mb-2">Логи</div>
+          <div class="table-responsive">
+            <table id="logsTable" class="users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table">
+              <thead class="table__head">
+                <tr class="table__head_row">
+                  <th class="table__head_item">Файл</th>
+                  <th class="table__head_item text-end">Размер</th>
+                </tr>
+              </thead>
+              <tbody class="table__body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="application/json" id="server-groups-json">{{ groups|tojson }}</script>
+  <script>
+    window.ADMIN_CAN_MANAGE = {{ 1 if current_user.has('admin.manage') else 0 }};
+  </script>
+
+  <!-- Context menu for admin presence table -->
+  <div id="context-menu" class="context-menu d-none">
+    <ul class="context-menu__list">
+      <li class="context-menu__item" data-action="refresh">Обновить</li>
+      <li class="context-menu__item" data-action="kick">Выгнать</li>
+      <li class="context-menu__item" data-action="message">Сообщение…</li>
+      <li class="context-menu__separator"></li>
+      <li class="context-menu__item" data-action="copy-selection">Копировать выделенное</li>
+      <li class="context-menu__item" data-action="copy-visible">Копировать видимое</li>
+      <li class="context-menu__item" data-action="copy-all">Копировать все</li>
+      <li class="context-menu__separator"></li>
+      <li class="context-menu__item" data-action="download">Скачать</li>
+      <li class="context-menu__item" data-action="download-all">Скачать все</li>
+    </ul>
+  </div>
+
+  <!-- Notification modal -->
+  <div class="modal fade" id="adminNotifyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Отправка уведомлений</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex flex-wrap gap-2 align-items-end">
+            <div class="d-flex flex-column gap-1">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="notifyScopeM" id="notifyScopeAllM" value="all" checked>
+                <label class="form-check-label" for="notifyScopeAllM">Всем</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="notifyScopeM" id="notifyScopeUserM" value="user">
+                <label class="form-check-label" for="notifyScopeUserM">Пользователь</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="notifyScopeM" id="notifyScopeGroupM" value="group">
+                <label class="form-check-label" for="notifyScopeGroupM">Группа</label>
+              </div>
+            </div>
+            <div class="flex-grow-1 d-none" id="notifyComboWrapM">
+              <select id="notifyComboM" class="form-select"></select>
+            </div>
+          </div>
+          <div class="mt-3">
+            <input id="notifyTextM" class="form-control" placeholder="Текст сообщения" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" id="btnSendNotifyM" class="btn btn-primary">Отправить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+

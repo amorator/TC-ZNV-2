@@ -4,7 +4,7 @@ Files and Users pages - implemented validations, restrictions, and protections
 - All modal submits use AJAX; default form submission prevented (onsubmit="return false").
 - Inputs are trimmed client-side before validation/send (text/password/textarea).
 - Modals are force-closed with popupClose to avoid double toggles and reopen.
-- Enter key does not auto-submit; explicit buttons trigger actions only.
+- Enter key submits the currently open modal (primary action), except inside multiline textarea.
 - Custom context menus suppress the native menu; close on outside click/Escape.
 - Prefer soft refresh (AJAX) over full reloads.
 - Avoid duplicate event handlers using flags; re-attach row handlers after soft refreshes.
@@ -75,3 +75,12 @@ Files and Users pages - implemented validations, restrictions, and protections
 - After uploads complete, inputs re-enabled via resetAfterUpload.
 - Duplicate search handlers/bindings guarded via flags.
 - Move modal preselects current root/sub; no-op move closes without submit.
+
+10) Admin page and presence security
+- Admin permissions split: admin.view (page) and admin.manage (actions). admin.any implies both.
+- Presence is tracked via Socket.IO events and HTTP heartbeat; IP respects X-Forwarded-For.
+- Force logout emits to all sockets for targeted user and sets server-side invalidation flag.
+- Middleware clears invalidation flag on first enforcement to avoid repeated logouts after re-login.
+- Admin push notifications use VAPID keys stored in DB; no secrets in config.
+- Flask secret key stored in DB and ensured at startup.
+- Actions/logs endpoints require admin.view; downloads sanitized (basename, path traversal protection).

@@ -64,7 +64,7 @@ class User(UserMixin):
                 FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY,
                 FILES_MARK_VIEWED, FILES_NOTES, REQUESTS_APPROVE, REQUESTS_ALLOW,
                 REQUESTS_VIEW_PAGE, ORDERS_VIEW_PAGE, USERS_VIEW_PAGE, USERS_MANAGE,
-                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_ANY, FILES_DISPLAY_ALL,
+                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_VIEW_PAGE, ADMIN_MANAGE, ADMIN_ANY, FILES_DISPLAY_ALL,
             )
         except Exception:
             # Fallback if import cycle during app startup
@@ -101,6 +101,11 @@ class User(UserMixin):
                 'b': GROUPS_MANAGE,
                 'z': ADMIN_ANY,
             },
+            6: {  # admin page (new slot in legacy permission string)
+                'a': ADMIN_VIEW_PAGE,
+                'b': ADMIN_MANAGE,
+                'z': ADMIN_ANY,
+            },
         }
 
         result = set()
@@ -120,6 +125,7 @@ class User(UserMixin):
             3: FILES_VIEW_PAGE,
             4: USERS_VIEW_PAGE,
             5: GROUPS_VIEW_PAGE,
+            6: ADMIN_VIEW_PAGE,
         }
         for index, letters in enumerate(self.permission, start=1):
             view_scope = view_scope_by_page.get(index)
@@ -133,6 +139,13 @@ class User(UserMixin):
         # Ensure configured admin account has all permissions (from config via SQLUtils flag)
         if getattr(self, 'is_config_admin', False):
             result.add('admin.any')
+        # If user has full admin, reflect admin page rights explicitly for UI and guards
+        try:
+            if 'admin.any' in result:
+                result.add(ADMIN_VIEW_PAGE)
+                result.add(ADMIN_MANAGE)
+        except Exception:
+            pass
         return result
 
     def has(self, scope: str) -> bool:

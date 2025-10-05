@@ -6,3 +6,5 @@ mysql_connector_python
 gunicorn
 ffmpeg
 Flask_SocketIO
+gevent
+pywebpush

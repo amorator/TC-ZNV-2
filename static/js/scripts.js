@@ -56,6 +56,22 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// Global Enter to submit currently open overlay popup (not textarea)
+document.addEventListener('keydown', function(e){
+  try {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const tgt = e.target; if (tgt && tgt.tagName === 'TEXTAREA') return;
+    const overlay = document.querySelector('.overlay-container.show, .overlay-container.visible');
+    if (!overlay) return;
+    // Prefer explicit default button if marked
+    let defBtn = overlay.querySelector('[data-enter="default"]');
+    if (!defBtn) defBtn = overlay.querySelector('.popup__actions .btn-primary');
+    if (!defBtn) return;
+    e.preventDefault();
+    defBtn.click();
+  } catch(_) {}
+}, true);
+
 /**
  * Common form validation functions
  */

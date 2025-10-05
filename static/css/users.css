@@ -61,13 +61,16 @@
   max-width: 980px;
   width: 90vw;
   min-width: 760px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
 #popup-perm .popup__body {
-  /* Remove inner scrolling and reduce vertical padding */
-  max-height: none;
-  overflow: visible;
-  padding-bottom: 6px;
+  /* Scroll body to keep actions visible */
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-bottom: 8px;
 }
 
 #popup-perm .perm-layout {
@@ -130,9 +133,23 @@
 }
 
 #popup-perm .popup__actions {
-  /* bring actions closer to grid and keep visible */
-  padding-top: 6px;
-  margin-top: 2px;
+  position: sticky;
+  bottom: 0;
+  background: var(--modal-bg, var(--body-bg));
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, #ccc);
+}
+
+/* Also ensure Add modal respects viewport height */
+#popup-add .popup {
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#popup-add .popup__body {
+  flex: 1 1 auto;
+  overflow: auto;
 }
 
 @media (max-width: 768px) {

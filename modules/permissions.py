@@ -29,6 +29,8 @@ REQUESTS_APPROVE = 'requests.approve'
 REQUESTS_ALLOW = 'requests.allow'
 
 # Admin
+ADMIN_VIEW_PAGE = 'admin.view'
+ADMIN_MANAGE = 'admin.manage'
 ADMIN_ANY = 'admin.any'
 
 
@@ -103,6 +105,8 @@ PERMISSION_LABELS = {
     GROUPS_VIEW_PAGE: 'Группы: просмотр',
     GROUPS_MANAGE: 'Группы: управление',
 
+    ADMIN_VIEW_PAGE: 'Администрирование: просмотр',
+    ADMIN_MANAGE: 'Администрирование: действия',
     ADMIN_ANY: 'Администратор: все права',
 }
 

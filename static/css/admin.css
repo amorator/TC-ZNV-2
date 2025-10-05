@@ -1,0 +1,235 @@
+.logs-view {
+    background: var(--surface, #fff);
+    color: var(--text, #212529);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    max-height: 60vh;
+    overflow: auto;
+    border-top: 1px solid var(--border, rgba(0, 0, 0, .1));
+    border-radius: 6px;
+}
+
+/* Card headers theming for both tables and logs */
+.card>.card-header {
+    background: var(--surface-2, #f8f9fa);
+    color: var(--text, #212529);
+    border-bottom: 1px solid var(--border, rgba(0, 0, 0, .1));
+}
+
+.theme-dark .card>.card-header {
+    background: #232323;
+    color: #e6e6e6;
+    border-color: #333;
+}
+
+.theme-dark-hc .card>.card-header {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+}
+
+/* Section-specific accents to match other pages */
+.presence-card .card-header strong,
+.notify-card .card-header strong,
+.logs-card .card-header strong {
+    color: var(--text, #212529);
+}
+
+.theme-dark .presence-card .card-header strong,
+.theme-dark .notify-card .card-header strong,
+.theme-dark .logs-card .card-header strong {
+    color: #e6e6e6;
+}
+
+.theme-dark-hc .presence-card .card-header strong,
+.theme-dark-hc .notify-card .card-header strong,
+.theme-dark-hc .logs-card .card-header strong {
+    color: var(--brand-green, #00ff00);
+}
+
+#presenceTable td.user {
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+/* Presence table: visible window ~15 rows with vertical scroll */
+.presence-table-wrap {
+    max-height: calc(15 * 2.25rem + 3rem);
+    /* approx row height 2.25rem; + header paddings */
+    overflow-y: auto;
+}
+
+.presence-table-wrap::-webkit-scrollbar {
+    width: 10px;
+}
+
+.presence-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--border, rgba(0, 0, 0, .3));
+    border-radius: 6px;
+}
+
+.theme-dark .presence-table-wrap::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+}
+
+.theme-dark-hc .presence-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--brand-green, #00ff00);
+}
+
+/* Theme compatibility */
+.theme-dark .logs-view {
+    background: #1e1e1e;
+    color: #e6e6e6;
+    border-color: #333;
+}
+
+.theme-dark-hc .logs-view {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+}
+
+.theme-dark #presenceTable tbody tr:hover {
+    background: rgba(255, 255, 255, .06);
+}
+
+.theme-dark-hc #presenceTable tbody tr:hover {
+    background: #111;
+}
+
+/* Scrollbar styling for logs view */
+.logs-view::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.logs-view::-webkit-scrollbar-track {
+    background: var(--surface-2, #f1f1f1);
+}
+
+.logs-view::-webkit-scrollbar-thumb {
+    background: var(--border, rgba(0, 0, 0, .3));
+    border-radius: 6px;
+}
+
+.logs-view::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, .45);
+}
+
+.theme-dark .logs-view::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+.theme-dark .logs-view::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+}
+
+.theme-dark-hc .logs-view::-webkit-scrollbar-track {
+    background: #000;
+}
+
+.theme-dark-hc .logs-view::-webkit-scrollbar-thumb {
+    background: var(--brand-green, #00ff00);
+}
+
+/* Firefox */
+.logs-view {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border, rgba(0, 0, 0, .4)) var(--surface-2, #f1f1f1);
+}
+
+.theme-dark .logs-view {
+    scrollbar-color: #3a3a3a #1a1a1a;
+}
+
+.theme-dark-hc .logs-view {
+    scrollbar-color: var(--brand-green, #00ff00) #000;
+}
+
+/* Table theming to align with app variables */
+#presenceTable {
+    background: var(--surface, #fff);
+    color: var(--text, #212529);
+}
+
+.theme-dark #presenceTable {
+    background: #1e1e1e;
+    color: #e6e6e6;
+}
+
+.theme-dark-hc #presenceTable {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+}
+
+/* Modal theming */
+.modal-content {
+    background: var(--surface, #fff);
+    color: var(--text, #212529);
+    border-color: var(--border, rgba(0, 0, 0, .1));
+}
+
+.modal-header,
+.modal-footer {
+    border-color: var(--border, rgba(0, 0, 0, .1));
+}
+
+.theme-dark .modal-content {
+    background: #232323;
+    color: #e6e6e6;
+    border-color: #333;
+}
+
+.theme-dark .modal-header,
+.theme-dark .modal-footer {
+    border-color: #333;
+}
+
+.theme-dark-hc .modal-content {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+}
+
+.theme-dark-hc .modal-header,
+.theme-dark-hc .modal-footer {
+    border-color: var(--brand-green, #00ff00);
+}
+
+/* Buttons/inputs alignment with theme variables */
+.btn-outline-secondary {
+    color: var(--text, #212529);
+    border-color: var(--border, rgba(0, 0, 0, .2));
+}
+
+.theme-dark .btn-outline-secondary {
+    color: #e6e6e6;
+    border-color: #444;
+}
+
+.theme-dark-hc .btn-outline-secondary {
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+}
+
+.form-control,
+.form-select {
+    background: var(--surface, #fff);
+    color: var(--text, #212529);
+    border-color: var(--border, rgba(0, 0, 0, .15));
+}
+
+.theme-dark .form-control,
+.theme-dark .form-select {
+    background: #1c1c1c;
+    color: #e6e6e6;
+    border-color: #333;
+}
+
+.theme-dark-hc .form-control,
+.theme-dark-hc .form-select {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+}
