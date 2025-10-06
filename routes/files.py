@@ -750,6 +750,11 @@ def register(app, media_service, socketio=None) -> None:
 			if socketio:
 				try:
 						socketio.emit('files:changed', {'reason': 'recorded', 'id': id})
+						# Also emit with explicit namespace for some clients
+						try:
+							socketio.emit('files:changed', {'reason': 'recorded', 'id': id}, namespace='/')
+						except Exception:
+							pass
 				except Exception:
 					pass
 			return {200: 'OK'}
