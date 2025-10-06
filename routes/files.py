@@ -350,7 +350,7 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_DELETE', current_user.name, f'deleted file {file.name} (id={id})', request.remote_addr)
 			# Remove converted file if exists
 			try:
-			remove(path.join(file.path, file.real_name))
+				remove(path.join(file.path, file.real_name))
 			except Exception:
 				pass
 			# Also remove original uploaded file if exists (e.g., pending .webm)
@@ -578,9 +578,10 @@ def register(app, media_service, socketio=None) -> None:
 						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'file_exists': False}, broadcast=True)
 					except Exception:
 						pass
+				# Return 200 so UI can update gracefully even when file is missing
 				if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-					return {'status': 'error', 'message': 'File not found'}, 404
-				return {'error': 'File not found'}, 404
+					return {'status': 'success', 'message': 'File not found', 'file_exists': False}, 200
+				return {'ok': 1, 'file_exists': False}
 			# Allow owner or users with edit_any/mark_viewed to refresh
 			owner_name = (file_rec.owner or '')
 			is_owner = (current_user.name + ' (') in owner_name
@@ -847,17 +848,26 @@ def register(app, media_service, socketio=None) -> None:
 				return resp
 			fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])]) or []
 			if q:
-				q_up = q.upper()
-				def row_text(file):
-					name = (getattr(file, 'display_name', '') or getattr(file, 'real_name', '') or '')
+				q_cf = q.casefold()
+				def matches(file):
+					# name
+					name = (getattr(file, 'display_name', '') or getattr(file, 'name', '') or getattr(file, 'real_name', '') or '')
+					# description
 					desc = getattr(file, 'description', '') or ''
+					# creator/owner
 					owner = getattr(file, 'owner', '') or ''
+					# creation date (string as shown in table)
 					date = getattr(file, 'date', '') or ''
-					length = getattr(file, 'length_human', '') or ''
-					size = getattr(file, 'size_human', '') or ''
-					viewed = getattr(file, 'viewed', '') or ''
-					return (f"{name}\n{desc}\n{owner}\n{date}\n{length}\n{size}\n{viewed}").upper()
-				fs = [f for f in fs if q_up in row_text(f)]
+					try:
+						return (
+							q_cf in str(name).casefold() or
+							q_cf in str(desc).casefold() or
+							q_cf in str(owner).casefold() or
+							q_cf in str(date).casefold()
+						)
+					except Exception:
+						return False
+				fs = [f for f in fs if matches(f)]
 			# Sort files by date descending (newest first)
 			if fs:
 				fs.sort(key=lambda f: f.date, reverse=True)

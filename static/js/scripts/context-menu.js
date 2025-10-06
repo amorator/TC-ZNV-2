@@ -579,17 +579,38 @@
         case 'refresh':
           if (id) {
             const refreshUrl = `/files/refresh/${id}`;
-            fetch(refreshUrl, { method: 'POST', credentials: 'include' })
-              .then(response => {
+            fetch(refreshUrl, { method: 'POST', credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+              .then(async response => {
+                let data = null;
+                try { data = await response.json(); } catch(_) {}
+                if (data && data.file_exists === false && typeof window.markFileAsMissing === 'function') {
+                  try {
+                    const input = document.getElementById('searchinp');
+                    const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+                    if (q && typeof window.filesDoFilter === 'function') {
+                      // wait for DOM to update with search results, then mark
+                      try {
+                        await window.filesDoFilter(q);
+                        window.markFileAsMissing(id);
+                      } catch(_) { window.markFileAsMissing(id); }
+                    } else {
+                      window.markFileAsMissing(id);
+                    }
+                  } catch(_) {}
+                }
                 if (response.ok) {
-                  // After server refresh, re-render current page or soft refresh
+                  // After server refresh, respect active search; otherwise re-render current page
                   setTimeout(() => {
                     this.currentRow = null;
                     this.isInitialized = true;
                     try {
-                      if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
+                      const input = document.getElementById('searchinp');
+                      const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+                      if (q && typeof window.filesDoFilter === 'function') {
+                        window.filesDoFilter(q);
+                      } else if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
                         window.filesPager.renderPage(window.filesPager.readPage());
-                      } else if (window.softRefreshFilesTable) {
+                      } else if (typeof window.softRefreshFilesTable === 'function') {
                         window.softRefreshFilesTable();
                       }
                     } catch (_) {}
@@ -643,10 +664,9 @@
           break;
 
         case 'record':
-          if (window.openModal) {
+          // Always use popupToggle so recorder iframe src is initialized lazily
+          if (window.popupToggle) {
             try { if (window.modalManager) window.modalManager.activeModal = null; } catch(_) {}
-            window.openModal('popup-rec');
-          } else if (window.popupToggle) {
             window.popupToggle('popup-rec');
           }
           break;

@@ -879,8 +879,8 @@ function initFilesPagination() {
       const did = window.currentDid != null ? window.currentDid : (function(){ try { return parseInt((location.pathname.split('/')[2])||'0',10)||0; } catch(_) { return 0; } })();
       const sdid = window.currentSdid != null ? window.currentSdid : (function(){ try { return parseInt((location.pathname.split('/')[3])||'1',10)||1; } catch(_) { return 1; } })();
       const tbody = table && table.tBodies && table.tBodies[0];
-      const url = `/files/page/${did}/${sdid}?page=${page}&page_size=${pageSize}`;
-      fetch(url, { credentials: 'include' })
+      const url = `/files/page/${did}/${sdid}?page=${page}&page_size=${pageSize}&t=${Date.now()}`;
+      fetch(url, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json', 'Cache-Control': 'no-cache' } })
         .then(r => r.json())
         .then(data => {
           if (data && data.html != null && tbody) {
@@ -902,6 +902,8 @@ function initFilesPagination() {
             try { reinitializeContextMenu(); } catch(_) {}
             try { bindRowOpenHandlers(); } catch(_) {}
             try { bindCopyNameHandlers(); } catch(_) {}
+            // Ensure client-side sort by date desc is applied
+            try { sortFilesTableByDateDesc(); } catch(_) {}
             writePage(data.page || page);
             renderControls(Math.max(1, data.page || page), Math.max(1, Math.ceil((data.total||0)/pageSize)));
           }
@@ -989,9 +991,9 @@ function initFilesPagination() {
  * Preserves pagination state and limits results while searching.
  * @param {string} query The search string
  */
-function filesDoFilter(query) {
+window.filesDoFilter = function filesDoFilter(query) {
   const table = document.getElementById('maintable');
-  if (!table || !table.tBodies || !table.tBodies[0]) return;
+  if (!table || !table.tBodies || !table.tBodies[0]) return Promise.resolve(false);
   const tbody = table.tBodies[0];
   const pager = document.getElementById('files-pagination');
   const did = window.currentDid != null ? window.currentDid : (function(){ try { return parseInt((location.pathname.split('/')[2])||'0',10)||0; } catch(_) { return 0; } })();
@@ -999,8 +1001,8 @@ function filesDoFilter(query) {
   const q = (query || '').trim();
   if (q.length > 0) {
     if (pager) pager.classList.add('d-none');
-    const url = `/files/search/${did}/${sdid}?q=${encodeURIComponent(q)}&page=1&page_size=30`;
-    fetch(url, { credentials: 'include' })
+    const url = `/files/search/${did}/${sdid}?q=${encodeURIComponent(q)}&page=1&page_size=30&t=${Date.now()}`;
+    return fetch(url, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json', 'Cache-Control': 'no-cache' } })
       .then(r => r.json())
       .then(data => {
         if (data && data.html != null) {
@@ -1036,14 +1038,34 @@ function filesDoFilter(query) {
           try { reinitializeContextMenu(); } catch(_) {}
           try { bindRowOpenHandlers(); } catch(_) {}
           try { bindCopyNameHandlers(); } catch(_) {}
+          // Ensure client-side sort by date desc is applied to search results
+          try { sortFilesTableByDateDesc(); } catch(_) {}
+          // Re-apply missing banners if any rows already marked
+          try {
+            const missing = Array.from(tbody.querySelectorAll('tr[data-exists="0"]'));
+            missing.forEach(function(tr){ const id = tr.getAttribute('data-id'); if (id && window.markFileAsMissing) { window.markFileAsMissing(id); } });
+          } catch(_) {}
+          // keep the search value persisted explicitly after replacing rows
+          try {
+            const input = document.getElementById('searchinp');
+            if (input && typeof input.value === 'string') {
+              const searchKey = 'files_search:' + location.pathname + location.search;
+              if (input.value.trim()) {
+                localStorage.setItem(searchKey, input.value);
+              }
+            }
+          } catch(_) {}
+          return true;
         }
+        return true;
       })
-      .catch(() => {});
+      .catch(() => { return false; });
   } else {
     if (pager) pager.classList.remove('d-none');
     if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
       window.filesPager.renderPage(window.filesPager.readPage());
     }
+    return Promise.resolve(true);
   }
 }
 
@@ -1152,7 +1174,14 @@ document.addEventListener('DOMContentLoaded', function () {
       const saved = localStorage.getItem(searchKey);
       if (saved && typeof saved === 'string') {
         input.value = saved;
-        filesDoFilter(saved);
+        // defer filter to next tick to ensure DOM is ready
+        setTimeout(function(){ try { window.filesDoFilter && window.filesDoFilter(saved); } catch(_) {} }, 0);
+        // and once more on window load to cover F5 partial-cache cases
+        try {
+          window.addEventListener('load', function(){
+            setTimeout(function(){ try { window.filesDoFilter && window.filesDoFilter(saved); } catch(_) {} }, 0);
+          });
+        } catch(_) {}
       }
     } catch (e) {}
 
@@ -1165,7 +1194,7 @@ document.addEventListener('DOMContentLoaded', function () {
           localStorage.removeItem(searchKey);
         }
       } catch (err) {}
-      filesDoFilter(val);
+      try { window.filesDoFilter && window.filesDoFilter(val); } catch(_) {}
     });
   }
 

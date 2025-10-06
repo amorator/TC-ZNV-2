@@ -33,12 +33,14 @@ function popupToggle(popupId) {
     } catch(_) {}
     // Safety net: stop any other media on the page
     try { stopAllMedia(); } catch(_) {}
+    try { if (window.__mediaOpenState) window.__mediaOpenState.opening = false; } catch(_) {}
   } else {
     // Show popup
     popup.style.display = 'flex';
     popup.classList.add('visible');
     document.body.style.overflow = 'hidden'; // Prevent background scrolling
     window.popup = popupId;
+    try { if (!window.__mediaOpenState) window.__mediaOpenState = { opening: false }; else window.__mediaOpenState.opening = false; } catch(_) {}
     
     // Focus first input if available
     setTimeout(() => {
@@ -398,40 +400,60 @@ function popupToggle(x, id = 0) {
       try { form.reset(); } catch(e) {}
       try { popupValues(form, id); } catch(e) {}
     }
-    // Lazy-load recorder iframe src on first open
+    // Ensure recorder iframe loads fresh content on open (bypass cache)
     if (x === 'popup-rec') {
       try {
         const iframe = document.getElementById('rec-iframe');
         if (iframe) {
-          if (!iframe.src || iframe.src === 'about:blank') {
-            const ds = iframe.getAttribute('data-src');
-            if (ds) {
-              // attach theme param
-              let urlStr = ds;
-              try {
-                const u = new URL(ds, window.location.origin);
-                const theme = (function(){
-                  try {
-                    return document.documentElement.getAttribute('data-theme')
-                      || (document.body && document.body.getAttribute('data-theme'))
-                      || localStorage.getItem('selectedTheme')
-                      || localStorage.getItem('theme')
-                      || 'light';
-                  } catch(_) { return 'light'; }
-                })();
-                u.searchParams.set('embed', '1');
-                if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
-                urlStr = u.toString();
-              } catch(_) {}
-              iframe.src = urlStr;
-            }
+          let ds = iframe.getAttribute('data-src');
+          // Fallback if data-src missing
+          if (!ds || ds === 'about:blank') {
+            try {
+              const parts = (location.pathname || '/').split('/');
+              const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
+              const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+              ds = `/files/rec/${did}/${sdid}?embed=1`;
+            } catch(_) { ds = '/files/rec/0/1?embed=1'; }
           }
+          let urlStr = ds;
+          try {
+            const u = new URL(ds, window.location.origin);
+            const theme = (function(){
+              try {
+                return document.documentElement.getAttribute('data-theme')
+                  || (document.body && document.body.getAttribute('data-theme'))
+                  || localStorage.getItem('selectedTheme')
+                  || localStorage.getItem('theme')
+                  || 'light';
+              } catch(_) { return 'light'; }
+            })();
+            if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
+            if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
+            u.searchParams.set('t', String(Date.now()));
+            urlStr = u.toString();
+          } catch(_) {}
+          iframe.src = urlStr;
+          // Retry setting src if the browser didn't kick off a request yet
+          try {
+            let attempts = 0;
+            const ensureSrc = function(){
+              try {
+                if (!iframe.src || iframe.src === 'about:blank') {
+                  attempts++;
+                  iframe.src = urlStr;
+                  if (attempts < 5) setTimeout(ensureSrc, 50);
+                }
+              } catch(_) {}
+            };
+            setTimeout(ensureSrc, 0);
+          } catch(_) {}
         }
       } catch(_) {}
     }
     overlay.style.display = 'flex';
     overlay.classList.add('show');
     overlay.classList.add('visible');
+    try { if (!window.__mediaOpenState) { window.__mediaOpenState = { opening: false }; } else { window.__mediaOpenState.opening = false; } } catch(_) {}
     
     // Restore z-index for modal and overlay
     overlay.style.zIndex = '1050';
@@ -450,6 +472,7 @@ function popupToggle(x, id = 0) {
     overlay.classList.remove('show');
     overlay.classList.remove('visible');
     overlay.style.display = 'none';
+    try { if (window.__mediaOpenState) { window.__mediaOpenState.opening = false; } } catch(_) {}
     // Aggressively tear down recorder iframe to avoid background activity
     if (x === 'popup-rec') {
       try {
@@ -697,9 +720,10 @@ function notifyTest() {
 // Global keyboard shortcuts for modals
 document.addEventListener('keydown', function (event) {
   if (!popup) return;
-  const isTextarea = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+  const active = document.activeElement;
+  const isTyping = active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable);
   // Enter to submit current modal (skip inside textarea)
-  if (event.key === 'Enter' && !isTextarea) {
+  if (event.key === 'Enter' && !isTyping) {
     event.preventDefault();
     if (popup === 'popup-rec') {
       const iframe = document.getElementById('rec-iframe');
@@ -718,7 +742,7 @@ document.addEventListener('keydown', function (event) {
   }
   // Esc to close modal with existing guards
   if (event.key === 'Escape') {
-    event.preventDefault();
+    try { event.preventDefault(); event.stopPropagation(); } catch(_) {}
     // Guarded behavior for recorder: do not close while recording; no fallback confirm on ESC
     if (popup === 'popup-rec') {
       try {
@@ -741,32 +765,31 @@ document.addEventListener('keydown', function (event) {
     }
     try { popupClose(popup); } catch(e) {}
   }
-});
+}, true);
 
 // Space to toggle play/pause when media modals are open
 document.addEventListener('keydown', function (event) {
   try {
     if (!popup) return;
-    // Ignore when typing in inputs or contenteditable
+    // Allow Space even when focus is outside players but not while typing
     const active = document.activeElement;
-    const tag = active && active.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     if (event.code !== 'Space' && event.key !== ' ') return;
+    // Prevent background page handlers and scrolling
+    try { event.preventDefault(); event.stopPropagation(); } catch(_) {}
     if (popup === 'popup-audio') {
       const a = document.getElementById('player-audio');
       if (a) {
-        event.preventDefault();
         if (a.paused) { try { a.play(); } catch(_) {} } else { try { a.pause(); } catch(_) {} }
       }
     } else if (popup === 'popup-view') {
       const v = document.getElementById('player-video');
       if (v) {
-        event.preventDefault();
         if (v.paused) { try { v.play(); } catch(_) {} } else { try { v.pause(); } catch(_) {} }
       }
     }
   } catch(_) {}
-});
+}, true);
 
 // Click outside to close any open modal (unified)
 document.addEventListener('click', function (e) {
@@ -796,6 +819,44 @@ document.addEventListener('click', function (e) {
     }
   } catch (_) {}
 }, true);
+
+// Ensure recorder iframe src is set when modal becomes visible (observer)
+(function observeRecorder(){
+  try {
+    const overlay = document.getElementById('popup-rec');
+    if (!overlay || overlay._observerBound) return;
+    overlay._observerBound = true;
+    const ensure = function(){
+      try {
+        const iframe = document.getElementById('rec-iframe');
+        if (!iframe) return;
+        if (iframe.src && iframe.src !== 'about:blank') return;
+        let ds = iframe.getAttribute('data-src');
+        if (!ds || ds === 'about:blank') {
+          try {
+            const parts = (location.pathname || '/').split('/');
+            const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
+            const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+            ds = `/files/rec/${did}/${sdid}?embed=1`;
+          } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+        }
+        try {
+          const u = new URL(ds, window.location.origin);
+          if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
+          u.searchParams.set('t', String(Date.now()));
+          iframe.src = u.toString();
+        } catch(_) { iframe.src = ds + (ds.includes('?') ? '&' : '?') + 't=' + Date.now(); }
+      } catch(_) {}
+    };
+    const mo = new MutationObserver(function(){
+      try {
+        const vis = overlay.classList.contains('show') || overlay.classList.contains('visible') || overlay.style.display === 'flex';
+        if (vis) setTimeout(ensure, 0);
+      } catch(_) {}
+    });
+    mo.observe(overlay, { attributes: true, attributeFilter: ['class','style'] });
+  } catch(_) {}
+})();
 
 // Stop all media when tab becomes hidden (safety)
 document.addEventListener('visibilitychange', function(){
