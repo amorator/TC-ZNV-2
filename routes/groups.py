@@ -42,14 +42,14 @@ def register(app):
                 gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
             except Exception:
                 gid_to_count = {}
-            # Update groups with admin group name for system group detection
+            # Update groups with admin group name and computed user counts
             for group in groups:
                 group._admin_group_name = admin_group_name
                 try:
                     group.user_count = int(gid_to_count.get(group.id, 0))
                 except Exception:
                     group.user_count = 0
-                return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Файлы', groups=groups, admin_group_name=admin_group_name)
+            return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Файлы', groups=groups, admin_group_name=admin_group_name)
         except Exception as e:
             app.flash_error(e)
             _log.error(f"Groups page error: {e}")
@@ -75,11 +75,19 @@ def register(app):
                 groups.sort(key=sort_key)
             except Exception:
                 pass
-            # Pre-compute user counts per group
+            # Pre-compute user counts per group using correct column name
             try:
                 prefix = app._sql.config['db']['prefix']
-                rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
-                gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+                # Some schemas use column `group` instead of gid; detect safely
+                # Prefer gid when present; fallback to column named `group`
+                # We test by attempting a gid query then fallback on error
+                gid_to_count = {}
+                try:
+                    rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
+                    gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+                except Exception:
+                    rows = app._sql.execute_query(f"SELECT \"group\", COUNT(*) as cnt FROM {prefix}_user GROUP BY \"group\";")
+                    gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
             except Exception:
                 gid_to_count = {}
             admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
@@ -126,8 +134,13 @@ def register(app):
             # Pre-compute counts
             try:
                 prefix = app._sql.config['db']['prefix']
-                rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
-                gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+                gid_to_count = {}
+                try:
+                    rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
+                    gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+                except Exception:
+                    rows = app._sql.execute_query(f"SELECT \"group\", COUNT(*) as cnt FROM {prefix}_user GROUP BY \"group\";")
+                    gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
             except Exception:
                 gid_to_count = {}
             admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
