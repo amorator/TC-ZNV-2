@@ -474,19 +474,27 @@
       switch (action) {
         case 'open':
           if (url) {
+            try { if (window.stopAllMedia) window.stopAllMedia(); } catch(_) {}
+            if (!window.__mediaOpenState) { window.__mediaOpenState = { opening: false }; }
+            if (window.__mediaOpenState.opening) return;
+            window.__mediaOpenState.opening = true;
             const isAudio = (url || '').toLowerCase().endsWith('.m4a');
             if (isAudio) {
               const audio = document.getElementById('player-audio');
               if (audio) {
                 try { audio.pause(); } catch(e) {}
-                // Stop any video that may be playing
-                try { const v = document.getElementById('player-video'); if (v) { v.pause && v.pause(); v.removeAttribute('src'); v.src=''; v.load && v.load(); } } catch(_) {}
+                try { const v = document.getElementById('player-video'); if (v) { try { v.pause && v.pause(); } catch(_) {} try { v.onerror = null; } catch(_) {} try { v.removeAttribute('src'); } catch(_) {} } } catch(_) {}
+                audio.muted = false; audio.volume = 1;
+                // Stop any video that may be playing (avoid setting empty src)
+                try { const v = document.getElementById('player-video'); if (v) { try { v.pause && v.pause(); } catch(_) {} try { v.onerror = null; } catch(_) {} try { v.removeAttribute('src'); } catch(_) {} } } catch(_) {}
                 audio.src = url;
                 try { audio.currentTime = 0; } catch(e) {}
                 audio.onerror = function onAudioErr() {
                   try { audio.onerror = null; } catch(_) {}
                   if (window.popupClose) { window.popupClose('popup-audio'); }
+                  try { window.__mediaOpenState.opening = false; } catch(_) {}
                 };
+                audio.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
                 if (window.popupToggle) {
                   window.popupToggle('popup-audio');
                 }
@@ -495,14 +503,18 @@
               const player = document.getElementById('player-video');
               if (player) {
                 try { player.pause(); } catch(e) {}
-                // Stop any audio that may be playing
-                try { const a = document.getElementById('player-audio'); if (a) { a.pause && a.pause(); a.removeAttribute('src'); a.src=''; a.load && a.load(); } } catch(_) {}
+                try { const a = document.getElementById('player-audio'); if (a) { try { a.pause && a.pause(); } catch(_) {} try { a.onerror = null; } catch(_) {} try { a.removeAttribute('src'); } catch(_) {} } } catch(_) {}
+                player.muted = false; player.volume = 1;
+                // Stop any audio that may be playing (avoid setting empty src)
+                try { const a = document.getElementById('player-audio'); if (a) { try { a.pause && a.pause(); } catch(_) {} try { a.onerror = null; } catch(_) {} try { a.removeAttribute('src'); } catch(_) {} } } catch(_) {}
                 player.src = url;
                 try { player.currentTime = 0; } catch(e) {}
                 player.onerror = function onVideoErr() {
                   try { player.onerror = null; } catch(_) {}
                   if (window.popupClose) { window.popupClose('popup-view'); }
+                  try { window.__mediaOpenState.opening = false; } catch(_) {}
                 };
+                player.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
                 if (window.popupToggle) {
                   window.popupToggle('popup-view');
                 }

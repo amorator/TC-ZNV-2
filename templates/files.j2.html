@@ -283,43 +283,9 @@
       <div class="popup__body" style="padding: 0;">
         <iframe
           id="rec-iframe"
-          src="{{ url_for('record', did=did, sdid=sdid) }}?embed=1"
+          data-src="{{ url_for('record', did=did, sdid=sdid) }}?embed=1"
           style="width: 100%; height: 70vh; border: 0; display: block;"
         ></iframe>
-        <script>
-          (function syncIframeThemeImmediately(){
-            try {
-              var iframe = document.getElementById('rec-iframe');
-              if (!iframe || !iframe.src) return;
-              function getTheme(){
-                try {
-                  var t = document.documentElement.getAttribute('data-theme')
-                    || (document.body && document.body.getAttribute('data-theme'));
-                  if (t) return t;
-                  var cls = document.documentElement.className || '';
-                  var m = cls.match(/theme-([\w-]+)/);
-                  if (m && m[1]) return m[1];
-                  try { return localStorage.getItem('selectedTheme') || localStorage.getItem('theme') || 'light'; } catch(_) { return 'light'; }
-                } catch(_) { return 'light'; }
-              }
-              var theme = getTheme();
-              try {
-                var u = new URL(iframe.src, window.location.origin);
-                u.searchParams.set('embed', '1');
-                u.searchParams.set('theme', theme);
-                var updated = u.toString();
-                if (updated !== iframe.src) iframe.src = updated;
-              } catch(_){
-                var join = iframe.src.indexOf('?') !== -1 ? '&' : '?';
-                if (iframe.src.indexOf('theme=') === -1) iframe.src = iframe.src + join + 'theme=' + encodeURIComponent(theme);
-              }
-              // Also forward theme to iframe after it loads
-              iframe.addEventListener('load', function(){
-                try { iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'theme', value: theme }, '*'); } catch(_) {}
-              }, { once: true });
-            } catch(_) {}
-          })();
-        </script>
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-rec');">Закрыть</button>
@@ -345,7 +311,7 @@
     <div class="popup">
       <h1 class="popup__title mb-4">Прослушивание аудио</h1>
       <div class="popup__body">
-        <audio id="player-audio" style="width: 100%; outline: none;" controls></audio>
+        <audio id="player-audio" style="width: 100%; outline: none;" controls preload="none"></audio>
       </div>
       <div class="popup__actions">
         <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-audio');">Закрыть</button>

@@ -1169,8 +1169,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Socket.IO live updates for files table (enabled by default)
-  try {
+  // Socket.IO live updates for files table (disabled per request to avoid background refreshes)
+  if (false) { try {
     if (window.io) {
       /**
        * @type {import('socket.io-client').Socket}
@@ -1321,7 +1321,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
-  }
+  } }
 
   // Helper: smooth table update without flickering
   function smoothUpdateTableBody(oldTbody, newTbody) {
@@ -1428,177 +1428,17 @@ document.addEventListener('DOMContentLoaded', function () {
   function isIdle(maxMs) {
     return (Date.now() - __filesLastActive) > maxMs;
   }
-  function softRefreshFilesTable() {
-    const now = Date.now();
-    if (now < __filesCooldownUntil) {
-      // Defer until cooldown ends
-      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
-      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, (__filesCooldownUntil - now) + 50);
-      return;
-    }
-    if (isRecorderOpen()) {
-      // Skip while recorder is open; retry shortly after
-      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
-      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 1500);
-      return;
-    }
-    if (now - __filesLastRefreshAt < __filesMinRefreshIntervalMs) {
-      // too soon, defer via debouncer
-      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
-      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, __filesMinRefreshIntervalMs - (now - __filesLastRefreshAt) + 50);
-      return;
-    }
-    // Suspend refreshes when idle > 90s
-    if (isIdle(90000) || document.hidden) {
-      __filesIdleSuspended = true;
-      return;
-    }
-    const table = document.getElementById('maintable');
-    if (!table) return;
-    const tbody = table.tBodies && table.tBodies[0];
-    if (!tbody) return;
-    // Skip if another refresh is in flight; hard reset if stuck > 8s
-    if (__filesRefreshBusy) {
-      if (Date.now() - __filesRefreshStartedAt > 8000) {
-        __filesRefreshBusy = false;
-      } else {
-        return;
-      }
-    }
-    __filesRefreshBusy = true;
-    __filesRefreshStartedAt = Date.now();
-
-    // Keep current search and page
-    const searchKey = 'files_search:' + location.pathname + location.search;
-    let savedSearch = '';
-    try { savedSearch = localStorage.getItem(searchKey) || ''; } catch(e) {}
-
-    const currentPage = (window.filesPager && typeof window.filesPager.readPage === 'function')
-      ? window.filesPager.readPage()
-      : 1;
-
-    // Use tableManager refresh then run page-specific rebinds
-    if (window.tableManager && window.tableManager.softRefreshTable) {
-      window.tableManager.softRefreshTable('maintable').then(function(){
-        const newTbody = document.querySelector('#maintable tbody');
-        if (!newTbody) return;
-
-        // Ensure context menu reflects new row states/actions after refresh
-        try { reinitializeContextMenu(); } catch(e) {}
-
-        // Rebind dblclick handlers for opening player
-        try { bindRowOpenHandlers(); } catch(e) {}
-        // Rebind copy handlers for names
-        try { bindCopyNameHandlers(); } catch(e) {}
-
-        // Restore missing file banners after table refresh
-        try {
-          const missingRows = document.querySelectorAll('tr[data-exists="0"]');
-          missingRows.forEach(row => {
-            const fileId = row.getAttribute('data-id');
-            if (fileId) {
-              // Use the global function if available, otherwise inline
-              if (window.markFileAsMissing) {
-                window.markFileAsMissing(fileId);
-              } else {
-                // Inline banner creation
-                const tds = row.querySelectorAll('td');
-                const notesTd = tds[tds.length - 1];
-                if (notesTd && !notesTd.querySelector('.file-missing-banner')) {
-                  const banner = document.createElement('div');
-                  banner.className = 'file-missing-banner';
-                  banner.style.color = 'var(--danger, #b00020)';
-                  banner.style.fontWeight = '600';
-                  banner.style.marginBottom = '4px';
-                  banner.textContent = 'Файл не найден';
-                  notesTd.prepend(banner);
-                }
-              }
-            }
-          });
-        } catch(e) {}
-
-        // Reapply sort (desc by date)
-        try { sortFilesTableByDateDesc(); } catch(e) {}
-
-        // Reinit pagination to bind to new rows
-        try { initFilesPagination(); } catch(e) {}
-
-        // Reapply search filter if any, otherwise show the same page
-        if (savedSearch && savedSearch.trim().length > 0) {
-          filesDoFilter(savedSearch);
-        } else if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
-          window.filesPager.renderPage(currentPage);
-        }
-
-        // Final safety: reinitialize context menu once more after all adjustments
-        try { reinitializeContextMenu(); } catch(e) {}
-      }).catch(function(){
-        try { window.forceRefreshFilesTable && window.forceRefreshFilesTable(); } catch(_) {}
-      }).finally(function(){ __filesRefreshBusy = false; __filesLastRefreshAt = Date.now(); });
-    }
-  }
+  function softRefreshFilesTable() { /* disabled */ }
 
   // Debounced public refresh to avoid storms from sockets/timers
-  window.softRefreshFilesTable = function() {
-    try {
-      if (__filesRefreshDebounceTimer) { clearTimeout(__filesRefreshDebounceTimer); }
-      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 600);
-    } catch(_) {}
-  };
+  window.softRefreshFilesTable = function() { /* disabled */ };
 
   // Debounced scheduler for socket-triggered refreshes with idle guard
   let __filesSocketEventTimer = null;
-  function scheduleFilesRefreshFromSocket() {
-    if (isIdle(90000) || document.hidden || isRecorderOpen()) { __filesIdleSuspended = true; return; }
-    const now = Date.now();
-    const delay = Math.max(800, (__filesCooldownUntil > now) ? (__filesCooldownUntil - now + 50) : 800);
-    try { if (__filesSocketEventTimer) clearTimeout(__filesSocketEventTimer); } catch(_) {}
-    __filesSocketEventTimer = setTimeout(function(){ try { window.softRefreshFilesTable(); } catch(_) {} }, delay);
-  }
+  function scheduleFilesRefreshFromSocket() { /* disabled */ }
 
-  // Strong fallback refresh: fetch current page and replace table when tableManager is unavailable
-  window.forceRefreshFilesTable = function() {
-    try {
-      const table = document.getElementById('maintable');
-      if (!table) return;
-      const tbody = table.tBodies && table.tBodies[0];
-      const searchKey = 'files_search:' + location.pathname + location.search;
-      let savedSearch = '';
-      try { savedSearch = localStorage.getItem(searchKey) || ''; } catch(e) {}
-      const currentPage = (window.filesPager && typeof window.filesPager.readPage === 'function')
-        ? window.filesPager.readPage()
-        : 1;
-      fetch(window.location.href, { credentials: 'include' })
-        .then(r => r.text())
-        .then(html => {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, 'text/html');
-          const newTable = doc.querySelector('#maintable');
-          if (newTable) {
-            const newTbody = newTable.querySelector('tbody');
-            if (newTbody && tbody) {
-              // Smoothly merge
-              try { smoothUpdateTableBody(tbody, newTbody); } catch(_) { table.innerHTML = newTable.innerHTML; }
-            } else {
-              table.innerHTML = newTable.innerHTML;
-            }
-            // Re-initialize bindings
-            try { reinitializeContextMenu(); } catch(_) {}
-            try { bindRowOpenHandlers(); } catch(_) {}
-            try { bindCopyNameHandlers(); } catch(_) {}
-            try { sortFilesTableByDateDesc(); } catch(_) {}
-            try { initFilesPagination(); } catch(_) {}
-            if (savedSearch && savedSearch.trim().length > 0) {
-              filesDoFilter(savedSearch);
-            } else if (window.filesPager && typeof window.filesPager.renderPage === 'function') {
-              window.filesPager.renderPage(currentPage);
-            }
-          }
-        })
-        .catch(() => {});
-    } catch(_) {}
-  };
+  // Strong fallback refresh (disabled)
+  window.forceRefreshFilesTable = function() {};
 
   // Periodic refresh while there are rows in processing state
   (function setupProcessingWatcher() {
@@ -1613,9 +1453,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const rows = Array.from(table.querySelectorAll('tbody tr.table__body_row'));
       const need = rows.some(tr => tr.getAttribute('data-is-ready') === '0') ||
                    Array.from(table.querySelectorAll('td.table__body_item')).some(td => (td.innerText || td.textContent || '').indexOf('Обрабатывается') !== -1);
-      if (need && window.__filesProcessTimer == null) {
-        window.__filesProcessTimer = setInterval(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 10000);
-      } else if (!need && window.__filesProcessTimer != null) {
+      if (window.__filesProcessTimer != null) {
         clearInterval(window.__filesProcessTimer);
         window.__filesProcessTimer = null;
       }
@@ -1632,34 +1470,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Also re-evaluate after each soft refresh, once
     if (!window.__filesSoftWrapped) {
       window.__filesSoftWrapped = true;
-      const origSoft = softRefreshFilesTable;
-      window.softRefreshFilesTable = function() {
-        try { origSoft(); } catch(_) {}
-        setTimeout(checkAndSchedule, 1000);
-      };
+      // disabled
     }
   })();
 
   // Global light fallback: periodic refresh every 20s to catch missed socket events
-  (function setupLightAutoRefresh(){
-    // Enabled by default; light periodic refresh with throttling/guards
-    try {
-      if (window.__filesLightTimer) return;
-      window.__filesLightTimer = setInterval(function(){
-        if (document.hidden) return;
-        try {
-          if (window.tableManager && window.tableManager.softRefreshTable) {
-            softRefreshFilesTable();
-          } else if (window.forceRefreshFilesTable) {
-            window.forceRefreshFilesTable();
-          }
-        } catch(_) {}
-      }, 20000);
-      // Clear on unload to avoid timers surviving navigation
-      try { window.addEventListener('beforeunload', function(){ try { clearInterval(window.__filesLightTimer); } catch(_) {} window.__filesLightTimer = null; }); } catch(_) {}
-      try { window.addEventListener('pagehide', function(){ try { clearInterval(window.__filesLightTimer); } catch(_) {} window.__filesLightTimer = null; }); } catch(_) {}
-    } catch(_) {}
-  })();
+  (function setupLightAutoRefresh(){ /* disabled */ })();
 
   // Cleanup on unload (hard reload, navigation) to avoid leaks across Ctrl+F5
   (function setupFilesCleanup(){
@@ -1681,6 +1497,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Initial bind for dblclick row open
   function bindRowOpenHandlers() {
+    if (!window.__mediaOpenState) { window.__mediaOpenState = { opening: false }; }
     try {
       const table = document.getElementById('maintable');
       if (!table) return;
@@ -1699,21 +1516,29 @@ document.addEventListener('DOMContentLoaded', function () {
               if (!url || exists === '0') return;
               const isAudio = (url || '').toLowerCase().endsWith('.m4a');
               if (isAudio) {
+                if (window.__mediaOpenState.opening) return;
+                window.__mediaOpenState.opening = true;
                 const audio = document.getElementById('player-audio');
                 if (audio) {
                   try { audio.pause(); } catch(e) {}
+                  audio.muted = false; audio.volume = 1;
                   audio.src = url;
                   try { audio.currentTime = 0; } catch(e) {}
-                  audio.onerror = function(){ try { popupClose('popup-audio'); } catch(_) {} };
+                  audio.onerror = function(){ try { audio.onerror = null; popupClose('popup-audio'); } catch(_) {} finally { try { window.__mediaOpenState.opening = false; } catch(_) {} } };
+                  audio.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
                 }
                 popupToggle('popup-audio');
               } else {
+                if (window.__mediaOpenState.opening) return;
+                window.__mediaOpenState.opening = true;
                 const player = document.getElementById('player-video');
                 if (player) {
                   try { player.pause(); } catch(e) {}
+                  player.muted = false; player.volume = 1;
                   player.src = url;
                   try { player.currentTime = 0; } catch(e) {}
-                  player.onerror = function(){ try { popupClose('popup-view'); } catch(_) {} };
+                  player.onerror = function(){ try { player.onerror = null; popupClose('popup-view'); } catch(_) {} finally { try { window.__mediaOpenState.opening = false; } catch(_) {} } };
+                  player.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
                 }
                 popupToggle('popup-view');
               }
@@ -1741,9 +1566,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (window.stopAllMedia) window.stopAllMedia();
           } catch(_) {}
           if (isAudio) {
+            if (window.__mediaOpenState.opening) return;
+            window.__mediaOpenState.opening = true;
             const audio = document.getElementById('player-audio');
             if (audio) {
               try { audio.pause(); } catch(e) {}
+              audio.muted = false; audio.volume = 1;
               audio.src = url;
               try { audio.currentTime = 0; } catch(e) {}
               // One-time error guard to avoid infinite loops when modal closes
@@ -1758,18 +1586,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (modal) {
                   popupClose('popup-audio');
                 }
+                try { window.__mediaOpenState.opening = false; } catch(_) {}
               };
+              audio.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
             }
-            // Ensure only one media plays: stop video element if open
+            // Ensure only one media plays: stop video element if open (avoid load() without src)
             try {
               const v = document.getElementById('player-video');
-              if (v) { v.pause && v.pause(); v.removeAttribute('src'); v.src=''; v.load && v.load(); }
+              if (v) {
+                try { v.pause && v.pause(); } catch(_) {}
+                try { v.onerror = null; } catch(_) {}
+                try { v.removeAttribute('src'); } catch(_) {}
+              }
             } catch(_) {}
             popupToggle('popup-audio');
           } else {
+            if (window.__mediaOpenState.opening) return;
+            window.__mediaOpenState.opening = true;
             const player = document.getElementById('player-video');
             if (player) {
               try { player.pause(); } catch(e) {}
+              player.muted = false; player.volume = 1;
               player.src = url;
               try { player.currentTime = 0; } catch(e) {}
               
@@ -1786,12 +1623,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (modal) {
                   popupClose('popup-view');
                 }
+                try { window.__mediaOpenState.opening = false; } catch(_) {}
               };
+              player.onloadeddata = function(){ try { window.__mediaOpenState.opening = false; } catch(_) {} };
             }
-            // Ensure only one media plays: stop audio element if open
+            // Ensure only one media plays: stop audio element if open (avoid load() without src)
             try {
               const a = document.getElementById('player-audio');
-              if (a) { a.pause && a.pause(); a.muted = true; a.volume = 0; a.removeAttribute('src'); a.src=''; a.load && a.load(); }
+              if (a) {
+                try { a.pause && a.pause(); } catch(_) {}
+                try { a.muted = true; a.volume = 0; } catch(_) {}
+                try { a.onerror = null; } catch(_) {}
+                try { a.removeAttribute('src'); } catch(_) {}
+              }
             } catch(_) {}
             popupToggle('popup-view');
           }

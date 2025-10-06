@@ -26,9 +26,9 @@ function popupToggle(popupId) {
             el.srcObject = null;
           }
         } catch(_) {}
+        try { el.onerror = null; } catch(_) {}
         try { el.removeAttribute('src'); } catch(_) {}
-        try { el.src = ''; } catch(_) {}
-        try { el.load && el.load(); } catch(_) {}
+        // do not set empty src or call load() here to avoid invalid URI logs
       });
     } catch(_) {}
     // Safety net: stop any other media on the page
@@ -47,6 +47,17 @@ function popupToggle(popupId) {
         firstInput.focus();
       }
     }, 100);
+
+    // Ensure media is unmuted on open
+    try {
+      if (popupId === 'popup-audio') {
+        const a = document.getElementById('player-audio');
+        if (a) { a.muted = false; a.volume = 1; }
+      } else if (popupId === 'popup-view') {
+        const v = document.getElementById('player-video');
+        if (v) { v.muted = false; v.volume = 1; }
+      }
+    } catch(_) {}
   }
 }
 
@@ -76,9 +87,9 @@ function popupClose(popupId) {
       } catch(_) {}
       try { el.muted = true; } catch(_) {}
       try { el.volume = 0; } catch(_) {}
+      try { el.onerror = null; } catch(_) {}
       try { el.removeAttribute('src'); } catch(_) {}
-      try { el.src = ''; } catch(_) {}
-      try { el.load && el.load(); } catch(_) {}
+      // Avoid calling load() when src is empty to prevent spurious URI errors
     });
   } catch(_) {}
   // Safety net: stop any other media on the page
@@ -102,9 +113,9 @@ function stopAllMedia() {
       } catch(_) {}
       try { el.muted = true; } catch(_) {}
       try { el.volume = 0; } catch(_) {}
+      try { el.onerror = null; } catch(_) {}
       try { el.removeAttribute('src'); } catch(_) {}
-      try { el.src = ''; } catch(_) {}
-      try { el.load && el.load(); } catch(_) {}
+      // Avoid calling load() when src is empty to prevent spurious URI errors
     });
   } catch(_) {}
 }
@@ -387,6 +398,37 @@ function popupToggle(x, id = 0) {
       try { form.reset(); } catch(e) {}
       try { popupValues(form, id); } catch(e) {}
     }
+    // Lazy-load recorder iframe src on first open
+    if (x === 'popup-rec') {
+      try {
+        const iframe = document.getElementById('rec-iframe');
+        if (iframe) {
+          if (!iframe.src || iframe.src === 'about:blank') {
+            const ds = iframe.getAttribute('data-src');
+            if (ds) {
+              // attach theme param
+              let urlStr = ds;
+              try {
+                const u = new URL(ds, window.location.origin);
+                const theme = (function(){
+                  try {
+                    return document.documentElement.getAttribute('data-theme')
+                      || (document.body && document.body.getAttribute('data-theme'))
+                      || localStorage.getItem('selectedTheme')
+                      || localStorage.getItem('theme')
+                      || 'light';
+                  } catch(_) { return 'light'; }
+                })();
+                u.searchParams.set('embed', '1');
+                if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
+                urlStr = u.toString();
+              } catch(_) {}
+              iframe.src = urlStr;
+            }
+          }
+        }
+      } catch(_) {}
+    }
     overlay.style.display = 'flex';
     overlay.classList.add('show');
     overlay.classList.add('visible');
@@ -408,6 +450,18 @@ function popupToggle(x, id = 0) {
     overlay.classList.remove('show');
     overlay.classList.remove('visible');
     overlay.style.display = 'none';
+    // Aggressively tear down recorder iframe to avoid background activity
+    if (x === 'popup-rec') {
+      try {
+        const iframe = document.getElementById('rec-iframe');
+        if (iframe) {
+          // clear src to abort any loads, then reset to blank
+          iframe.src = 'about:blank';
+          // also post a stop message to be safe
+          try { iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'rec:stop-all' }, '*'); } catch(_) {}
+        }
+      } catch(_) {}
+    }
     popup = null;
   }
   
@@ -689,6 +743,31 @@ document.addEventListener('keydown', function (event) {
   }
 });
 
+// Space to toggle play/pause when media modals are open
+document.addEventListener('keydown', function (event) {
+  try {
+    if (!popup) return;
+    // Ignore when typing in inputs or contenteditable
+    const active = document.activeElement;
+    const tag = active && active.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
+    if (event.code !== 'Space' && event.key !== ' ') return;
+    if (popup === 'popup-audio') {
+      const a = document.getElementById('player-audio');
+      if (a) {
+        event.preventDefault();
+        if (a.paused) { try { a.play(); } catch(_) {} } else { try { a.pause(); } catch(_) {} }
+      }
+    } else if (popup === 'popup-view') {
+      const v = document.getElementById('player-video');
+      if (v) {
+        event.preventDefault();
+        if (v.paused) { try { v.play(); } catch(_) {} } else { try { v.pause(); } catch(_) {} }
+      }
+    }
+  } catch(_) {}
+});
+
 // Click outside to close any open modal (unified)
 document.addEventListener('click', function (e) {
   try {
@@ -717,3 +796,12 @@ document.addEventListener('click', function (e) {
     }
   } catch (_) {}
 }, true);
+
+// Stop all media when tab becomes hidden (safety)
+document.addEventListener('visibilitychange', function(){
+  try {
+    if (document.hidden) {
+      if (typeof stopAllMedia === 'function') stopAllMedia();
+    }
+  } catch(_) {}
+});

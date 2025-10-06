@@ -337,7 +337,7 @@ def register(app, media_service, socketio=None) -> None:
 		if id <= 0:
 			app.flash_error('Invalid file ID')
 			return redirect(url_for('files', did=did, sdid=sdid))
-			
+
 		file = app._sql.file_by_id([id])
 		if not file:
 			app.flash_error('File not found')
@@ -350,7 +350,7 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_DELETE', current_user.name, f'deleted file {file.name} (id={id})', request.remote_addr)
 			# Remove converted file if exists
 			try:
-				remove(path.join(file.path, file.real_name))
+			remove(path.join(file.path, file.real_name))
 			except Exception:
 				pass
 			# Also remove original uploaded file if exists (e.g., pending .webm)
@@ -413,7 +413,7 @@ def register(app, media_service, socketio=None) -> None:
 			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), base + '.webm', as_attachment=True)
 		except Exception as e:
 			app.flash_error(e)
-			return redirect(url_for('files', did=did, sdid=sdid))
+		return redirect(url_for('files', did=did, sdid=sdid))
 
 	@app.route('/files' + '/view' + '/<int:id>' + '/<int:did>' + '/<int:sdid>', methods=['GET'])
 	@require_permissions(FILES_MARK_VIEWED)
