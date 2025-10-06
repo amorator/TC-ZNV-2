@@ -36,6 +36,71 @@ if (document.readyState === 'loading') {
 
 // Additional groups page functionality
 (function () {
+  // Persist and auto-apply search like files page
+  (function initGroupsSearchPersistence(){
+    try {
+      const input = document.getElementById('searchinp');
+      if (!input) return;
+      const key = 'groups:search';
+      const saved = (function(){ try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } })();
+      if (saved) {
+        input.value = saved;
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+        try { window.addEventListener('load', function(){ setTimeout(function(){ try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} }, 0); }); } catch(_) {}
+      }
+      input.addEventListener('input', function(e){
+        const v = (e.target.value || '').trim();
+        try {
+          if (v) localStorage.setItem(key, v); else localStorage.removeItem(key);
+        } catch(_) {}
+      });
+      // Provide clear handler for shared searchbar button
+      try { window.searchClean = function(){
+        const el = document.getElementById('searchinp');
+        if (el) { el.value = ''; try { el.focus(); } catch(_) {} }
+        try { localStorage.removeItem(key); } catch(_) {}
+        try {
+          if (typeof window.groupsDoFilter === 'function') {
+            window.groupsDoFilter('');
+          } else {
+            el && el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        } catch(_) {}
+      }; } catch(_) {}
+    } catch(_) {}
+  })();
+
+  // Bind search input early and resiliently (like users)
+  (function bindGroupsSearchEarly(){
+    const bind = function(){
+      try {
+        const input = document.getElementById('searchinp');
+        if (!input || input._groupsEarlyBound) return;
+        input._groupsEarlyBound = true;
+        const trigger = function(){
+          try {
+            const val = (input.value || '').trim();
+            if (window.groupsDoFilter) window.groupsDoFilter(val);
+          } catch(_) {}
+        };
+        input.addEventListener('input', trigger);
+        input.addEventListener('keyup', trigger);
+        input.addEventListener('change', trigger);
+        setTimeout(trigger, 0);
+      } catch(_) {}
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bind);
+    } else {
+      bind();
+    }
+    try { window.addEventListener('load', function(){ setTimeout(bind, 0); }); } catch(_) {}
+    try { document.addEventListener('table-updated', function(){ setTimeout(bind, 0); }); } catch(_) {}
+    try {
+      let attempts = 0;
+      const iv = setInterval(function(){ attempts += 1; bind(); if (attempts >= 10) clearInterval(iv); }, 200);
+    } catch(_) {}
+  })();
   /**
    * Return groups table element or null
    * @returns {HTMLTableElement|null}
@@ -95,38 +160,109 @@ if (document.readyState === 'loading') {
     if (!table) return;
     const canManage = table.dataset.canManage === '1';
 
-    // Search
+    // Initialize pagination (server-side, like files page)
+    (function initGroupsPagination(){
+      const pager = document.getElementById('groups-pagination');
+      const tbody = table.tBodies && table.tBodies[0];
+      if (!pager || !tbody) return;
+      const pageSize = 15;
+      function render(page){
+        const url = new URL(window.location.origin + '/groups/page');
+        url.searchParams.set('page', String(page));
+        url.searchParams.set('page_size', String(pageSize));
+        url.searchParams.set('t', String(Date.now()));
+        fetch(String(url), { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1 })
+          .then(j => {
+            if (!j || typeof j.html !== 'string') return;
+            const searchRow = tbody.querySelector('tr#search');
+            const temp = document.createElement('tbody');
+            temp.innerHTML = j.html;
+            Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+            Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
+            // build pager like files
+            const total = j.total || 0;
+            const pages = Math.max(1, Math.ceil(total / pageSize));
+            const pageCur = j.page || 1;
+            const btn = (label, targetPage, disabled = false, extraClass = '') =>
+              `<li class=\"page-item ${extraClass} ${disabled ? 'disabled' : ''}\"><a class=\"page-link\" href=\"#\" data-page=\"${targetPage}\">${label}</a></li>`;
+            const items = [];
+            items.push(btn('⏮', 1, pageCur === 1, 'first'));
+            items.push(btn('‹', Math.max(1, pageCur - 1), pageCur === 1, 'prev'));
+            items.push(`<li class=\"page-item ${pageCur === 1 ? 'active' : ''}\"><a class=\"page-link\" href=\"#\" data-page=\"1\">1</a></li>`);
+            const leftStart = Math.max(2, pageCur - 2);
+            const leftGap = leftStart - 2;
+            if (leftGap >= 1) items.push(`<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`);
+            const midStart = Math.max(2, pageCur - 2);
+            const midEnd = Math.min(pages - 1, pageCur + 2);
+            for (let p = midStart; p <= midEnd; p++) items.push(`<li class=\"page-item ${p === pageCur ? 'active' : ''}\"><a class=\"page-link\" href=\"#\" data-page=\"${p}\">${p}</a></li>`);
+            const rightEnd = Math.min(pages - 1, pageCur + 2);
+            const rightGap = (pages - 1) - rightEnd;
+            if (rightGap >= 1) items.push(`<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`);
+            if (pages > 1) items.push(`<li class=\"page-item ${pageCur === pages ? 'active' : ''}\"><a class=\"page-link\" href=\"#\" data-page=\"${pages}\">${pages}</a></li>`);
+            items.push(btn('›', Math.min(pages, pageCur + 1), pageCur === pages, 'next'));
+            items.push(btn('⏭', pages, pageCur === pages, 'last'));
+            pager.innerHTML = `<nav><ul class=\"pagination mb-0\">${items.join('')}</ul></nav>`;
+            if (!pager._clickBound) {
+              pager.addEventListener('click', function(e){
+                const a = e.target && e.target.closest('[data-page]');
+                if (!a) return;
+                e.preventDefault();
+                const p = parseInt(a.getAttribute('data-page'), 10) || 1;
+                render(p);
+              });
+              pager._clickBound = true;
+            }
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
+          })
+          .catch(function(){});
+      }
+      window.groupsPager = { renderPage: render, readPage: function(){ return 1; } };
+      render(1);
+    })();
+
+    // Search (modeled after filesDoFilter)
+    window.groupsDoFilter = function groupsDoFilter(query) {
+      const tableEl = document.getElementById('maintable');
+      if (!tableEl || !tableEl.tBodies || !tableEl.tBodies[0]) return Promise.resolve(false);
+      const tbodyEl = tableEl.tBodies[0];
+      const pager = document.getElementById('groups-pagination');
+      const q = (query || '').trim();
+      if (q.length > 0) {
+        if (pager) pager.classList.add('d-none');
+        const url = new URL(window.location.origin + '/groups/search');
+        url.searchParams.set('q', q);
+        url.searchParams.set('page', '1');
+        url.searchParams.set('page_size', '30');
+        url.searchParams.set('t', String(Date.now()));
+        return fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(r => r.ok ? r.json() : { html: '' })
+          .then(j => {
+            if (!j || !j.html) return false;
+            const searchRow = tbodyEl.querySelector('tr#search');
+            const temp = document.createElement('tbody');
+            temp.innerHTML = j.html;
+            Array.from(tbodyEl.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+            Array.from(temp.children).forEach(function(tr){ tbodyEl.appendChild(tr); });
+            try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
+            try { reinitializeContextMenu(); } catch(_) {}
+            return true;
+          })
+          .catch(function(){ return false; });
+      } else {
+        if (pager) pager.classList.remove('d-none');
+        if (window.groupsPager && typeof window.groupsPager.renderPage === 'function') {
+          window.groupsPager.renderPage(1);
+        }
+        return Promise.resolve(true);
+      }
+    };
+
     const search = document.getElementById('searchinp');
     if (search) {
-      const doServerSearch = debounce(function(q){
-        try {
-          const url = new URL(window.location.origin + '/groups/search');
-          url.searchParams.set('q', q || '');
-          url.searchParams.set('page', '1');
-          url.searchParams.set('page_size', '50');
-          fetch(String(url), { credentials: 'same-origin' })
-            .then(r => r.ok ? r.json() : { html: '' })
-            .then(j => {
-              if (!j || !j.html) return;
-              const table = document.getElementById('maintable');
-              if (!table) return;
-              const tbody = table.tBodies && table.tBodies[0];
-              if (!tbody) return;
-              // Preserve the search row (first row) and replace the rest
-              const searchRow = tbody.querySelector('tr#search');
-              const temp = document.createElement('tbody');
-              temp.innerHTML = j.html;
-              // Clear all except search row
-              Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
-              // Append new rows
-              Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
-              try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
-              try { reinitializeContextMenu(); } catch(_) {}
-            })
-            .catch(function(){});
-        } catch(_) {}
-      }, 350);
-      search.addEventListener('input', function () { doServerSearch(this.value.trim()); });
+      const debounced = debounce(function(q){ window.groupsDoFilter(q); }, 280);
+      search.addEventListener('input', function () { debounced(this.value); });
     }
 
     // Click-to-copy group name

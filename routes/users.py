@@ -30,9 +30,15 @@ def register(app):
 			if page < 1: page = 1
 			if page_size < 1: page_size = 15
 			users = app._sql.user_all() or []
-			# Sort users by display name ascending for stable alphabetical order
+			# Sort by first three columns alphabetically: Login, Name, Group
 			try:
-				users.sort(key=lambda u: (getattr(u, 'name', '') or '').upper())
+				group_map = app._sql.group_all() or {}
+				def sort_key(u):
+					login = (getattr(u, 'login', '') or '').upper()
+					name = (getattr(u, 'name', '') or '').upper()
+					groupname = (group_map.get(getattr(u, 'gid', None)) or '').upper()
+					return (login, name, groupname)
+				users.sort(key=sort_key)
 			except Exception:
 				pass
 			total = len(users)
@@ -59,24 +65,27 @@ def register(app):
 			if page < 1: page = 1
 			if page_size < 1: page_size = 30
 			users = app._sql.user_all() or []
-			# Sort users by name ascending before filtering/paging
+			# Sort by first three columns alphabetically: Login, Name, Group
 			try:
-				users.sort(key=lambda u: (getattr(u, 'name', '') or '').upper())
+				group_map = app._sql.group_all() or {}
+				def sort_key(u):
+					login = (getattr(u, 'login', '') or '').upper()
+					name = (getattr(u, 'name', '') or '').upper()
+					groupname = (group_map.get(getattr(u, 'gid', None)) or '').upper()
+					return (login, name, groupname)
+				users.sort(key=sort_key)
 			except Exception:
 				pass
 			if q:
+				# Search only by first three columns: Login, Name, Group
 				q_up = q.upper()
-				def row_text(u):
+				group_map_cached = app._sql.group_all() or {}
+				def row_text_first_three(u):
 					login = getattr(u, 'login', '') or ''
 					name = getattr(u, 'name', '') or ''
-					groupname = (app._sql.group_all() or {}).get(getattr(u, 'gid', None)) or ''
-					perm = getattr(u, 'permission_string', None)
-					try:
-						perm_str = (u.permission_string() if callable(perm) else str(perm or ''))
-					except Exception:
-						perm_str = ''
-					return (f"{login}\n{name}\n{groupname}\n{perm_str}").upper()
-				users = [u for u in users if q_up in row_text(u)]
+					groupname = (group_map_cached.get(getattr(u, 'gid', None)) or '')
+					return (f"{login}\n{name}\n{groupname}").upper()
+				users = [u for u in users if q_up in row_text_first_three(u)]
 			total = len(users)
 			start = (page - 1) * page_size
 			end = start + page_size

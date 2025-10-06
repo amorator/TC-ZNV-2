@@ -36,6 +36,33 @@ if (document.readyState === 'loading') {
 
 // Additional users page functionality
 (function () {
+  // Persist and auto-apply search like files page
+  (function initUsersSearchPersistence(){
+    try {
+      const input = document.getElementById('searchinp');
+      if (!input) return;
+      const key = 'users:search';
+      const saved = (function(){ try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } })();
+      if (saved) {
+        input.value = saved;
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+        try { window.addEventListener('load', function(){ setTimeout(function(){ try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} }, 0); }); } catch(_) {}
+      }
+      input.addEventListener('input', function(e){
+        const v = (e.target.value || '').trim();
+        try {
+          if (v) localStorage.setItem(key, v); else localStorage.removeItem(key);
+        } catch(_) {}
+      });
+      // Provide clear handler for shared searchbar button
+      try { window.searchClean = function(){
+        const el = document.getElementById('searchinp');
+        if (el) { el.value = ''; try { el.focus(); } catch(_) {} }
+        try { localStorage.removeItem(key); } catch(_) {}
+        try { el && el.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+      }; } catch(_) {}
+    } catch(_) {}
+  })();
   /**
    * Return users table element or null
    * @returns {HTMLTableElement|null}
@@ -192,45 +219,221 @@ if (document.readyState === 'loading') {
   try { window.syncPermFormFromRow = syncPermFormFromRow; } catch(_) {}
 
 
+  /**
+   * Global search function (modeled after filesDoFilter) — exposed early so
+   * other initializers can call it even if attachHandlers hasn't run yet.
+   */
+  if (!window.usersDoFilter) {
+    window.usersDoFilter = function usersDoFilter(query) {
+      try {
+        const tableEl = document.getElementById('maintable');
+        if (!tableEl || !tableEl.tBodies || !tableEl.tBodies[0]) return Promise.resolve(false);
+        const tbodyEl = tableEl.tBodies[0];
+        const pager = document.getElementById('users-pagination');
+        const q = (query || '').trim();
+        if (q.length > 0) {
+          if (pager) pager.classList.add('d-none');
+          const url = new URL(window.location.origin + '/users/search');
+          url.searchParams.set('q', q);
+          url.searchParams.set('page', '1');
+          url.searchParams.set('page_size', '30');
+          url.searchParams.set('t', String(Date.now()));
+          return fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.ok ? r.json() : { html: '' })
+            .then(j => {
+              if (!j || !j.html) return false;
+              const searchRow = tbodyEl.querySelector('tr#search');
+              const temp = document.createElement('tbody');
+              temp.innerHTML = j.html;
+              Array.from(tbodyEl.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+              Array.from(temp.children).forEach(function(tr){ tbodyEl.appendChild(tr); });
+              try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+              try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+              return true;
+            })
+            .catch(function(){ return false; });
+        } else {
+          if (pager) pager.classList.remove('d-none');
+          if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+            window.usersPager.renderPage(1);
+          }
+          return Promise.resolve(true);
+        }
+      } catch (_) {
+        return Promise.resolve(false);
+      }
+    };
+  }
+
+  // Bind search input early as well (independent of attachHandlers lifecycle)
+  (function bindUsersSearchEarly(){
+    const bind = function(){
+      try {
+        const input = document.getElementById('searchinp');
+        if (!input || input._usersEarlyBound) return;
+        input._usersEarlyBound = true;
+        const trigger = function(src){
+          try {
+            const val = (input.value || '').trim();
+            if (window.usersDoFilter) {
+              window.usersDoFilter(val);
+            }
+          } catch(_) {}
+        };
+        input.addEventListener('input', function(){ trigger('input'); });
+        input.addEventListener('keyup', function(){ trigger('keyup'); });
+        input.addEventListener('change', function(){ trigger('change'); });
+        // In case the input was prefilled from persistence, kick once after bind
+        setTimeout(function(){ try { trigger('kick'); } catch(_) {} }, 0);
+      } catch(_) {}
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bind);
+    } else {
+      bind();
+    }
+    // Also rebind on window load and after table updates
+    try { window.addEventListener('load', function(){ setTimeout(bind, 0); }); } catch(_) {}
+    try { document.addEventListener('table-updated', function(){ setTimeout(bind, 0); }); } catch(_) {}
+    // Safety: attempt a few times in case of slow DOM hydration
+    try {
+      let attempts = 0;
+      const iv = setInterval(function(){
+        attempts += 1;
+        bind();
+        if (attempts >= 10) clearInterval(iv);
+      }, 200);
+    } catch(_) {}
+  })();
+
   /** Bind page-level handlers for context menu, search, toggles, and copy. */
   function attachHandlers() {
     const table = getTable();
     if (!table) return;
     const canManage = table.dataset.canManage === '1';
 
+    // Initialize pagination (server-side, like files page)
+    (function initUsersPagination(){
+      const pager = document.getElementById('users-pagination');
+      const tbody = table.tBodies && table.tBodies[0];
+      if (!pager || !tbody) return;
+      const pageSize = 15;
+      function render(page){
+        const url = new URL(window.location.origin + '/users/page');
+        url.searchParams.set('page', String(page));
+        url.searchParams.set('page_size', String(pageSize));
+        url.searchParams.set('t', String(Date.now()));
+        fetch(String(url), { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1 })
+          .then(j => {
+            if (!j || typeof j.html !== 'string') return;
+            const searchRow = tbody.querySelector('tr#search');
+            const temp = document.createElement('tbody');
+            temp.innerHTML = j.html;
+            Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+            Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
+            // build pager like files (first/prev, window with ellipses, next/last)
+            const total = j.total || 0;
+            const pages = Math.max(1, Math.ceil(total / pageSize));
+            const page = j.page || 1;
+            const btn = (label, targetPage, disabled = false, extraClass = '') =>
+              `<li class="page-item ${extraClass} ${disabled ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${targetPage}">${label}</a></li>`;
+            const items = [];
+            items.push(btn('⏮', 1, page === 1, 'first'));
+            items.push(btn('‹', Math.max(1, page - 1), page === 1, 'prev'));
+            // Always include first page
+            items.push(`<li class="page-item ${page === 1 ? 'active' : ''}"><a class="page-link" href="#" data-page="1">1</a></li>`);
+            // Left ellipsis
+            const leftStart = Math.max(2, page - 2);
+            const leftGap = leftStart - 2;
+            if (leftGap >= 1) {
+              items.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+            }
+            // Middle window
+            const midStart = Math.max(2, page - 2);
+            const midEnd = Math.min(pages - 1, page + 2);
+            for (let p = midStart; p <= midEnd; p++) {
+              items.push(`<li class="page-item ${p === page ? 'active' : ''}"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`);
+            }
+            // Right ellipsis
+            const rightEnd = Math.min(pages - 1, page + 2);
+            const rightGap = (pages - 1) - rightEnd;
+            if (rightGap >= 1) {
+              items.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+            }
+            // Always include last page
+            if (pages > 1) {
+              items.push(`<li class="page-item ${page === pages ? 'active' : ''}"><a class="page-link" href="#" data-page="${pages}">${pages}</a></li>`);
+            }
+            items.push(btn('›', Math.min(pages, page + 1), page === pages, 'next'));
+            items.push(btn('⏭', pages, page === pages, 'last'));
+            pager.innerHTML = `<nav><ul class="pagination mb-0">${items.join('')}</ul></nav>`;
+            if (!pager._clickBound) {
+              const onPagerClick = (e) => {
+                const a = e.target && e.target.closest('[data-page]');
+                if (!a) return;
+                e.preventDefault();
+                const nextPage = parseInt(a.getAttribute('data-page'), 10) || 1;
+                render(nextPage);
+              };
+              pager.addEventListener('click', onPagerClick);
+              pager._clickBound = true;
+            }
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+          })
+          .catch(function(){});
+      }
+      // expose like filesPager
+      window.usersPager = {
+        renderPage: render,
+        readPage: function(){ return 1; }
+      };
+      render(1);
+    })();
 
-    // Search
+
+    // Search (modeled after filesDoFilter)
+    window.usersDoFilter = function usersDoFilter(query) {
+      const tableEl = document.getElementById('maintable');
+      if (!tableEl || !tableEl.tBodies || !tableEl.tBodies[0]) return Promise.resolve(false);
+      const tbodyEl = tableEl.tBodies[0];
+      const pager = document.getElementById('users-pagination');
+      const q = (query || '').trim();
+      if (q.length > 0) {
+        if (pager) pager.classList.add('d-none');
+        const url = new URL(window.location.origin + '/users/search');
+        url.searchParams.set('q', q);
+        url.searchParams.set('page', '1');
+        url.searchParams.set('page_size', '30');
+        url.searchParams.set('t', String(Date.now()));
+        return fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(r => r.ok ? r.json() : { html: '' })
+          .then(j => {
+            if (!j || !j.html) return false;
+            const searchRow = tbodyEl.querySelector('tr#search');
+            const temp = document.createElement('tbody');
+            temp.innerHTML = j.html;
+            Array.from(tbodyEl.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+            Array.from(temp.children).forEach(function(tr){ tbodyEl.appendChild(tr); });
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+            try { reinitializeContextMenu(); } catch(_) {}
+            return true;
+          })
+          .catch(function(){ return false; });
+      } else {
+        if (pager) pager.classList.remove('d-none');
+        if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+          window.usersPager.renderPage(1);
+        }
+        return Promise.resolve(true);
+      }
+    };
+
     const search = document.getElementById('searchinp');
     if (search) {
-      const doServerSearch = debounce(function(q){
-        try {
-          const url = new URL(window.location.origin + '/users/search');
-          url.searchParams.set('q', q || '');
-          url.searchParams.set('page', '1');
-          url.searchParams.set('page_size', '50');
-          fetch(String(url), { credentials: 'same-origin' })
-            .then(r => r.ok ? r.json() : { html: '' })
-            .then(j => {
-              if (!j || !j.html) return;
-              const table = document.getElementById('maintable');
-              if (!table) return;
-              const tbody = table.tBodies && table.tBodies[0];
-              if (!tbody) return;
-              // Preserve the search row (first row) and replace the rest
-              const searchRow = tbody.querySelector('tr#search');
-              const temp = document.createElement('tbody');
-              temp.innerHTML = j.html;
-              // Clear all except search row
-              Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
-              // Append new rows
-              Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
-              try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
-              try { reinitializeContextMenu(); } catch(_) {}
-            })
-            .catch(function(){});
-        } catch(_) {}
-      }, 350);
-      search.addEventListener('input', function () { doServerSearch(this.value.trim()); });
+      const debounced = debounce(function(q){ window.usersDoFilter(q); }, 280);
+      search.addEventListener('input', function () { debounced(this.value); });
     }
 
     // Inline toggle on click for non-admin users (mirrors context-menu toggle)

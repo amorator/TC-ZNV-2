@@ -24,9 +24,14 @@ def register(app):
         """Render groups management page."""
         try:
             groups = app._sql.group_get_all_objects()
-            # Sort groups by name ascending for predictable ordering
+            # Sort by first three columns alphabetically: Name, Description, Users count (as string)
             try:
-                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+                def sort_key(g):
+                    name = (getattr(g, 'name', '') or '').upper()
+                    desc = (getattr(g, 'description', '') or '').upper()
+                    users_cnt = str(getattr(g, 'user_count', 0) or 0).upper()
+                    return (name, desc, users_cnt)
+                groups.sort(key=sort_key)
             except Exception:
                 pass
             admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
@@ -60,9 +65,14 @@ def register(app):
             if page < 1: page = 1
             if page_size < 1: page_size = 15
             groups = app._sql.group_get_all_objects() or []
-            # Sort groups by name ascending before paging
+            # Sort by first three columns alphabetically: Name, Description, Users count (as string)
             try:
-                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+                def sort_key(g):
+                    name = (getattr(g, 'name', '') or '').upper()
+                    desc = (getattr(g, 'description', '') or '').upper()
+                    users_cnt = str(getattr(g, 'user_count', 0) or 0).upper()
+                    return (name, desc, users_cnt)
+                groups.sort(key=sort_key)
             except Exception:
                 pass
             # Pre-compute user counts per group
@@ -103,9 +113,14 @@ def register(app):
             if page < 1: page = 1
             if page_size < 1: page_size = 30
             groups = app._sql.group_get_all_objects() or []
-            # Sort groups by name ascending before filtering/paging
+            # Sort by first three columns alphabetically: Name, Description, Users count (as string)
             try:
-                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+                def sort_key(g):
+                    name = (getattr(g, 'name', '') or '').upper()
+                    desc = (getattr(g, 'description', '') or '').upper()
+                    users_cnt = str(getattr(g, 'user_count', 0) or 0).upper()
+                    return (name, desc, users_cnt)
+                groups.sort(key=sort_key)
             except Exception:
                 pass
             # Pre-compute counts
