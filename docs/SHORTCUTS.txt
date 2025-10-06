@@ -9,8 +9,9 @@ Files page (table):
 - DblClick on a data row: Open video in the player modal.
 
 Player modal (popup-view):
-- F (uses physical key, works in any keyboard layout): Toggle fullscreen for the video player.
-- M (uses physical key, works in any keyboard layout): Toggle mute for the video player.
+- F (physical key, works in any keyboard layout): Toggle fullscreen for the video player.
+- M (physical key, works in any keyboard layout): Toggle mute for the video player.
+- P or Space: Toggle play/pause for audio/video player (works when player modal is open).
 
 Recording modal (iframe):
 - Enter: If recording, stop then save; otherwise save (if data present).

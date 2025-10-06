@@ -812,28 +812,36 @@ document.addEventListener('keydown', function (event) {
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     if (event.code === 'Space' || event.key === ' ') {
       event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+    // Do NOT stopImmediatePropagation so our toggle handler can run next
+    // Keep bubbling stopped to avoid background page shortcuts
+    event.stopPropagation();
     }
   } catch(_) {}
 }, true);
 
-// Space to toggle play/pause when media modals are open
+  // "p" and Space to toggle play/pause when media modals are open
 document.addEventListener('keydown', function (event) {
   try {
-    if (!popup) return;
-    // Allow Space even when focus is outside players but not while typing
+    // Do not trigger while typing
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-    if (event.code !== 'Space' && event.key !== ' ') return;
+      const isP = (event.code === 'KeyP') || (event.key && (event.key.toLowerCase && event.key.toLowerCase() === 'p'));
+      const isSpace = (event.code === 'Space') || (event.key === ' ');
+      if (!isP && !isSpace) return;
+      // Determine which media modal is actually visible regardless of popup var
+    const audioOverlay = document.getElementById('popup-audio');
+    const videoOverlay = document.getElementById('popup-view');
+    const audioOpen = !!(audioOverlay && (audioOverlay.classList.contains('show') || audioOverlay.classList.contains('visible')));
+    const videoOpen = !!(videoOverlay && (videoOverlay.classList.contains('show') || videoOverlay.classList.contains('visible')));
+    if (!audioOpen && !videoOpen) return;
     // Prevent background page handlers and scrolling
     try { event.preventDefault(); event.stopPropagation(); } catch(_) {}
-    if (popup === 'popup-audio') {
+    if (audioOpen) {
       const a = document.getElementById('player-audio');
       if (a) {
         if (a.paused) { try { a.play(); } catch(_) {} } else { try { a.pause(); } catch(_) {} }
       }
-    } else if (popup === 'popup-view') {
+    } else if (videoOpen) {
       const v = document.getElementById('player-video');
       if (v) {
         if (v.paused) { try { v.play(); } catch(_) {} } else { try { v.pause(); } catch(_) {} }
