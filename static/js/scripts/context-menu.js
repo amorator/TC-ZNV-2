@@ -56,6 +56,10 @@
      * Setup event listeners for context menu
      */
     setupEventListeners() {
+      // Prevent multiple setups
+      if (this._listenersSetup) return;
+      this._listenersSetup = true;
+      
       // Context menu trigger
       document.addEventListener('contextmenu', (e) => {
         if (!this.isInitialized) return;
@@ -470,23 +474,38 @@
       switch (action) {
         case 'open':
           if (url) {
-            const player = document.getElementById('player-video');
-            if (player) {
-              try { player.pause(); } catch(e) {}
-              player.src = url;
-              try { player.currentTime = 0; } catch(e) {}
-              
-              player.onerror = function() {
-                console.error('Video load error for file:', id);
-                // Note: markFileAsMissing function not found
-                const modal = document.getElementById('popup-view');
-                if (modal && window.popupClose) {
-                  window.popupClose('popup-view');
+            const isAudio = (url || '').toLowerCase().endsWith('.m4a');
+            if (isAudio) {
+              const audio = document.getElementById('player-audio');
+              if (audio) {
+                try { audio.pause(); } catch(e) {}
+                // Stop any video that may be playing
+                try { const v = document.getElementById('player-video'); if (v) { v.pause && v.pause(); v.removeAttribute('src'); v.src=''; v.load && v.load(); } } catch(_) {}
+                audio.src = url;
+                try { audio.currentTime = 0; } catch(e) {}
+                audio.onerror = function onAudioErr() {
+                  try { audio.onerror = null; } catch(_) {}
+                  if (window.popupClose) { window.popupClose('popup-audio'); }
+                };
+                if (window.popupToggle) {
+                  window.popupToggle('popup-audio');
                 }
-              };
-              
-              if (window.popupToggle) {
-                window.popupToggle('popup-view');
+              }
+            } else {
+              const player = document.getElementById('player-video');
+              if (player) {
+                try { player.pause(); } catch(e) {}
+                // Stop any audio that may be playing
+                try { const a = document.getElementById('player-audio'); if (a) { a.pause && a.pause(); a.removeAttribute('src'); a.src=''; a.load && a.load(); } } catch(_) {}
+                player.src = url;
+                try { player.currentTime = 0; } catch(e) {}
+                player.onerror = function onVideoErr() {
+                  try { player.onerror = null; } catch(_) {}
+                  if (window.popupClose) { window.popupClose('popup-view'); }
+                };
+                if (window.popupToggle) {
+                  window.popupToggle('popup-view');
+                }
               }
             }
           }
@@ -547,15 +566,21 @@
 
         case 'refresh':
           if (id) {
-            const refreshUrl = `${window.location.origin}${window.location.pathname}/refresh/${id}`;
-            fetch(refreshUrl, { method: 'POST' })
+            const refreshUrl = `/files/refresh/${id}`;
+            fetch(refreshUrl, { method: 'POST', credentials: 'include' })
               .then(response => {
                 if (response.ok) {
-                  // Force context menu to work after table update
+                  // After server refresh, re-render current page or soft refresh
                   setTimeout(() => {
-                    // Reset current row to ensure menu works
                     this.currentRow = null;
                     this.isInitialized = true;
+                    try {
+                      if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
+                        window.filesPager.renderPage(window.filesPager.readPage());
+                      } else if (window.softRefreshFilesTable) {
+                        window.softRefreshFilesTable();
+                      }
+                    } catch (_) {}
                   }, 100);
                 }
               })
@@ -812,15 +837,44 @@
     reinitialize() {
       if (!this.isInitialized) { return; }
       
+      // Prevent multiple simultaneous reinitializations
+      if (this._reinitializing) { return; }
+      this._reinitializing = true;
+      
       try {
         // Reset state
         this.currentRow = null;
         this.hideMenu();
         
-        // Re-bind event listeners
-        this.setupEventListeners();
+        // Reset listeners setup flag to allow re-setup
+        this._listenersSetup = false;
+        
+        // Use requestIdleCallback for non-blocking reinitialization
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback(() => {
+            try {
+              this.setupEventListeners();
+            } catch (e) {
+              console.error('Context menu reinitialization failed:', e);
+            } finally {
+              this._reinitializing = false;
+            }
+          }, { timeout: 1000 });
+        } else {
+          // Fallback: use setTimeout with small delay
+          setTimeout(() => {
+            try {
+              this.setupEventListeners();
+            } catch (e) {
+              console.error('Context menu reinitialization failed:', e);
+            } finally {
+              this._reinitializing = false;
+            }
+          }, 10);
+        }
       } catch (e) {
         console.error('Context menu reinitialization failed:', e);
+        this._reinitializing = false;
       }
     }
 

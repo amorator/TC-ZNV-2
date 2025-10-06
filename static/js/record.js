@@ -141,14 +141,14 @@ const BYTES_IN_MB = 1048576;
       }
     } catch(_) {}
   }
-  try { document.addEventListener('DOMContentLoaded', syncOnce); } catch(_) {}
-  try { setInterval(syncOnce, 1000); } catch(_) {}
+  try { document.addEventListener('DOMContentLoaded', syncOnce, { once: true }); } catch(_) {}
+  // Avoid perpetual intervals; rely on event-driven sync only
   try {
     /**
      * Listen for theme change messages from parent.
      * @param {MessageEvent<{type:string,className?:string}>} ev - Message event from parent window
      */
-    window.addEventListener('message', function(ev){
+    function onThemeMessage(ev){
       if (!ev || !ev.data) return;
       if (ev.data && ev.data.type === 'theme:changed') {
         try {
@@ -167,7 +167,8 @@ const BYTES_IN_MB = 1048576;
           }
         } catch(_) { syncOnce(); }
       }
-    });
+    }
+    window.addEventListener('message', onThemeMessage);
   } catch(_) {}
 })();
 
@@ -269,15 +270,15 @@ disable(buttonStop);
 
 // Stop media and cleanup when iframe is being unloaded (modal closed or navigation)
 try {
-  window.addEventListener('beforeunload', function(){
+  function __recCleanup(){
     try { stopRecorder(); } catch(_) {}
     try { stopCameraStream(); } catch(_) {}
-    try { recState = { recording: false, paused: false, hasData: (recordedScreen.length>0)||(recordedCamera.length>0) }; postState(); } catch(_) {}
-  });
-  window.addEventListener('pagehide', function(){
-    try { stopRecorder(); } catch(_) {}
-    try { stopCameraStream(); } catch(_) {}
-  });
+    try { stopScreenStream && stopScreenStream(); } catch(_) {}
+    try { recState = { recording: false, paused: false, hasData: (recordedScreen.length>0)||(recordedCamera.length>0)||(recordedAudio&&recordedAudio.length>0) }; postState(); } catch(_) {}
+    try { if (window.__recSyncInterval) { clearInterval(window.__recSyncInterval); window.__recSyncInterval = null; } } catch(_) {}
+  }
+  window.addEventListener('beforeunload', __recCleanup);
+  window.addEventListener('pagehide', __recCleanup);
 } catch(_) {}
 
 // Pause/cleanup on tab/iframe hidden to avoid camera left on in background
@@ -763,6 +764,24 @@ async function onCameraClick() {
     if (!MediaRecorder.isTypeSupported(mime)) {
       mime = 'video/webm';
     }
+    
+    // Check if the MIME type supports audio tracks for both screen and camera
+    const hasScreenAudio = currentStreamScreen && currentStreamScreen.getAudioTracks().length > 0;
+    const hasCameraAudio = currentStreamCamera && currentStreamCamera.getAudioTracks().length > 0;
+    
+    if (hasScreenAudio || hasCameraAudio) {
+      // If any stream has audio, ensure the MIME type supports audio
+      if (!mime.includes('audio') && !MediaRecorder.isTypeSupported(mime)) {
+        // Try to find a MIME type that supports both video and audio
+        const videoAudioMime = 'video/webm';
+        if (MediaRecorder.isTypeSupported(videoAudioMime)) {
+          mime = videoAudioMime;
+        } else {
+          // Fallback to a more basic MIME type
+          mime = 'video/webm';
+        }
+      }
+    }
 
     // Clear previous recorders
     recorderScreen = null;
@@ -772,49 +791,96 @@ async function onCameraClick() {
       // Setup screen recorder
       if (currentStreamScreen) {
         try { currentStreamScreen.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch(e) {} }); } catch(e) {}
-        recorderScreen = new MediaRecorder(currentStreamScreen, {
-          mimeType: mime,
-          videoBitsPerSecond: 8000000,
-          audioBitsPerSecond: 192000
-        });
+        try {
+          recorderScreen = new MediaRecorder(currentStreamScreen, {
+            mimeType: mime,
+            videoBitsPerSecond: 8000000,
+            audioBitsPerSecond: 192000
+          });
+        } catch (error) {
+          console.error('Failed to create screen MediaRecorder:', error);
+          alert('Ошибка: браузер не поддерживает запись экрана. Попробуйте другой браузер.');
+          return;
+        }
       }
       
       // Setup camera recorder
       if (currentStreamCamera) {
         try { currentStreamCamera.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch(e) {} }); } catch(e) {}
-        recorderCamera = new MediaRecorder(currentStreamCamera, {
-          mimeType: mime,
-          videoBitsPerSecond: 5000000,
-          audioBitsPerSecond: 192000
-        });
+        try {
+          recorderCamera = new MediaRecorder(currentStreamCamera, {
+            mimeType: mime,
+            videoBitsPerSecond: 5000000,
+            audioBitsPerSecond: 192000
+          });
+        } catch (error) {
+          console.error('Failed to create camera MediaRecorder:', error);
+          alert('Ошибка: браузер не поддерживает запись с камеры. Попробуйте другой браузер.');
+          return;
+        }
       }
     } else if (isScreenRecording) {
       // Setup screen recorder only
       if (currentStreamScreen) {
         try { currentStreamScreen.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch(e) {} }); } catch(e) {}
-        recorderScreen = new MediaRecorder(currentStreamScreen, {
-          mimeType: mime,
-          videoBitsPerSecond: 8000000,
-          audioBitsPerSecond: 192000
-        });
+        try {
+          recorderScreen = new MediaRecorder(currentStreamScreen, {
+            mimeType: mime,
+            videoBitsPerSecond: 8000000,
+            audioBitsPerSecond: 192000
+          });
+        } catch (error) {
+          console.error('Failed to create screen MediaRecorder:', error);
+          alert('Ошибка: браузер не поддерживает запись экрана. Попробуйте другой браузер.');
+          return;
+        }
       }
     } else if (isAudioOnly) {
       // Setup audio recorder only
       if (currentStreamAudio) {
-        recorderAudio = new MediaRecorder(currentStreamAudio, {
-          mimeType: 'audio/webm;codecs=opus',
-          audioBitsPerSecond: 192000
-        });
+        // Check for supported audio MIME types
+        let audioMimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(audioMimeType)) {
+          audioMimeType = 'audio/webm';
+          if (!MediaRecorder.isTypeSupported(audioMimeType)) {
+            audioMimeType = 'audio/mp4';
+            if (!MediaRecorder.isTypeSupported(audioMimeType)) {
+              audioMimeType = 'audio/wav';
+              if (!MediaRecorder.isTypeSupported(audioMimeType)) {
+                audioMimeType = ''; // Let browser choose
+              }
+            }
+          }
+        }
+        
+        const audioOptions = { audioBitsPerSecond: 192000 };
+        if (audioMimeType) {
+          audioOptions.mimeType = audioMimeType;
+        }
+        
+        try {
+          recorderAudio = new MediaRecorder(currentStreamAudio, audioOptions);
+        } catch (error) {
+          console.error('Failed to create audio MediaRecorder:', error);
+          alert('Ошибка: браузер не поддерживает аудио-запись. Попробуйте другой браузер.');
+          return;
+        }
       }
     } else {
       // Setup camera recorder only
       if (currentStreamCamera) {
         try { currentStreamCamera.getVideoTracks().forEach(t => { try { t.contentHint = 'motion'; } catch(e) {} }); } catch(e) {}
-        recorderCamera = new MediaRecorder(currentStreamCamera, {
-          mimeType: mime,
-          videoBitsPerSecond: 5000000,
-          audioBitsPerSecond: 192000
-        });
+        try {
+          recorderCamera = new MediaRecorder(currentStreamCamera, {
+            mimeType: mime,
+            videoBitsPerSecond: 5000000,
+            audioBitsPerSecond: 192000
+          });
+        } catch (error) {
+          console.error('Failed to create camera MediaRecorder:', error);
+          alert('Ошибка: браузер не поддерживает запись с камеры. Попробуйте другой браузер.');
+          return;
+        }
       }
     }
 
@@ -1069,10 +1135,12 @@ async function saveFile() {
       // Create download link for screen
       const screenDownloadLink = document.createElement('a');
       screenDownloadLink.className = 'download-record-link btn btn-primary';
+      try { if (screenDownloadLink.href && screenDownloadLink.href.indexOf('blob:') === 0) { URL.revokeObjectURL(screenDownloadLink.href); } } catch(_) {}
       screenDownloadLink.href = URL.createObjectURL(screenBlob);
       screenDownloadLink.download = screenFileName;
       screenDownloadLink.textContent = 'Скачать запись экрана';
       downloadContainer.appendChild(screenDownloadLink);
+      try { screenDownloadLink.addEventListener('click', function(){ var href=screenDownloadLink.href; setTimeout(function(){ try { if (href && href.indexOf('blob:') === 0) URL.revokeObjectURL(href); } catch(_) {} }, 3000); }, { once: true }); } catch(_) {}
       
       // Upload screen recording
       const screenData = new FormData();
@@ -1089,15 +1157,28 @@ async function saveFile() {
     
   // Save audio recording if available (audio-only or from camera/screen if present)
   if (recordedAudio && recordedAudio.length > 0) {
-    const audioBlob = new Blob(recordedAudio, { type: 'audio/webm' });
-    const audioFileName = fileName.value + '_audio.webm';
-    // Create download link for audio
-    const audioDownloadLink = document.createElement('a');
-    audioDownloadLink.className = 'download-record-link btn btn-primary';
-    audioDownloadLink.href = URL.createObjectURL(audioBlob);
+    // Get the actual MIME type from the recorder
+    const audioMimeType = recorderAudio ? recorderAudio.mimeType : 'audio/webm';
+    const audioBlob = new Blob(recordedAudio, { type: audioMimeType });
+    
+    // Determine file extension based on MIME type
+    let audioExtension = 'webm';
+    if (audioMimeType.includes('mp4')) {
+      audioExtension = 'm4a';
+    } else if (audioMimeType.includes('wav')) {
+      audioExtension = 'wav';
+    }
+    
+    const audioFileName = fileName.value + '_audio.' + audioExtension;
+  // Create download link for audio
+  const audioDownloadLink = document.createElement('a');
+  audioDownloadLink.className = 'download-record-link btn btn-primary';
+  try { if (audioDownloadLink.href && audioDownloadLink.href.indexOf('blob:') === 0) { URL.revokeObjectURL(audioDownloadLink.href); } } catch(_) {}
+  audioDownloadLink.href = URL.createObjectURL(audioBlob);
     audioDownloadLink.download = audioFileName;
     audioDownloadLink.textContent = 'Скачать аудио';
     downloadContainer.appendChild(audioDownloadLink);
+  try { audioDownloadLink.addEventListener('click', function(){ var href=audioDownloadLink.href; setTimeout(function(){ try { if (href && href.indexOf('blob:') === 0) URL.revokeObjectURL(href); } catch(_) {} }, 3000); }, { once: true }); } catch(_) {}
     // Upload audio
     const audioData = new FormData();
     audioData.append(audioFileName, audioBlob);
@@ -1118,10 +1199,12 @@ async function saveFile() {
       // Create download link for camera
       const cameraDownloadLink = document.createElement('a');
       cameraDownloadLink.className = 'download-record-link btn btn-primary';
+      try { if (cameraDownloadLink.href && cameraDownloadLink.href.indexOf('blob:') === 0) { URL.revokeObjectURL(cameraDownloadLink.href); } } catch(_) {}
       cameraDownloadLink.href = URL.createObjectURL(cameraBlob);
       cameraDownloadLink.download = cameraFileName;
       cameraDownloadLink.textContent = 'Скачать запись камеры';
       downloadContainer.appendChild(cameraDownloadLink);
+      try { cameraDownloadLink.addEventListener('click', function(){ var href=cameraDownloadLink.href; setTimeout(function(){ try { if (href && href.indexOf('blob:') === 0) URL.revokeObjectURL(href); } catch(_) {} }, 3000); }, { once: true }); } catch(_) {}
       
       // Upload camera recording
       const cameraData = new FormData();

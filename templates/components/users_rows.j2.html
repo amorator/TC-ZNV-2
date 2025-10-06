@@ -1,0 +1,68 @@
+{# Renders <tr> rows for users table body (excluding search row). Expects: users, groups, current_user #}
+{% if users %}
+  {% for user in users %}
+    {% set is_admin = user.has('admin.any') %}
+    <tr id="{{ user.id }}" class="table__body_row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}" data-is-admin="{{ 1 if user.login|lower == 'admin' else 0 }}" data-full-access="{{ 1 if is_admin else 0 }}">
+      <td class="table__body_item">
+        <span class="users-page__login">{{ user.login }}</span>
+        {% if user.login|lower == 'admin' %}
+          <i class="bi bi-shield-fill-check text-danger ms-1" title="Администратор системы"></i>
+        {% endif %}
+      </td>
+      <td class="table__body_item"><span class="users-page__name" title="Клик — скопировать имя">{{ user.name }}</span></td>
+      <td class="table__body_item">{{ groups[user.gid] }}</td>
+      <td class="table__body_item perms-cell">
+        {% if is_admin %}
+          <div class="perms-cell__item">
+            <span class="perms-cell__cat">Админ</span>: <span class="perms-cell__rights">полный доступ</span>
+          </div>
+        {% else %}
+          {% set perm_labels = user.permission_labels() %}
+          {% set cats = namespace(items=[]) %}
+          {% for label in perm_labels %}
+            {% set parts = label.split(':', 1) %}
+            {% set cat = parts[0].strip() %}
+            {% if not cat.lower().startswith('администратор') %}
+              {% if cat and (cat not in cats.items) %}
+                {% set _ = cats.items.append(cat) %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {% for cat in cats.items %}
+            {% set rights_ns = namespace(list=[]) %}
+            {% for label in perm_labels %}
+              {% set parts = label.split(':', 1) %}
+              {% if parts and parts[0].strip() == cat and parts|length > 1 %}
+                {% set raw = parts[1].strip() %}
+                {% set raw = raw.replace(';', ',') %}
+                {% set raw = raw.replace('Загрузка/Запись', 'Загрузка') %}
+                {% set raw = raw|lower %}
+                {% for item in raw.split(',') %}
+                  {% set it = item.strip() %}
+                  {% if it and (it not in rights_ns.list) %}
+                    {% set _ = rights_ns.list.append(it) %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endfor %}
+            {% set final_ns = namespace(list=[]) %}
+            {% for r in rights_ns.list %}
+              {% if not (rights_ns.list|length > 1 and r == 'просмотр') %}
+                {% set _ = final_ns.list.append(r) %}
+              {% endif %}
+            {% endfor %}
+            <div class="perms-cell__item">
+              <span class="perms-cell__cat">{{ cat }}</span>: <span class="perms-cell__rights">{{ final_ns.list|join(', ') }}</span>
+            </div>
+          {% endfor %}
+        {% endif %}
+      </td>
+      <td class="table__body_item" data-enabled="{{ 1 if user.is_enabled() else 0 }}">
+        <i class="bi {{ 'bi-toggle-on' if user.is_enabled() else 'bi-toggle-off' }}"></i>
+      </td>
+    </tr>
+  {% endfor %}
+{% endif %}
+
+
+

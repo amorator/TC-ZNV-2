@@ -4,7 +4,7 @@ All routes enforce permissions via `require_permissions`. Admin user (`login == 
 is protected from modifications except password reset.
 """
 
-from flask import render_template, url_for, request, redirect
+from flask import render_template, url_for, request, redirect, jsonify, make_response
 from flask_login import login_user, logout_user, current_user
 from modules.logging import get_logger, log_action
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
@@ -19,6 +19,76 @@ def register(app):
 		"""Render users page with list and groups."""
 		min_password_length = int(app._sql.config.get('web', 'min_password_length', fallback='1'))
 		return render_template('users.j2.html', title='Пользователи — Заявки-Наряды-Файлы', id=4, users=app._sql.user_all(), groups=app._sql.group_all(), min_password_length=min_password_length)
+
+	@app.route('/users/page')
+	@require_permissions(USERS_VIEW_PAGE)
+	def users_page():
+		"""Return a page of users rows as HTML (tbody content) with pagination meta."""
+		try:
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 15))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 15
+			users = app._sql.user_all() or []
+			# Sort users by display name ascending for stable alphabetical order
+			try:
+				users.sort(key=lambda u: (getattr(u, 'name', '') or '').upper())
+			except Exception:
+				pass
+			total = len(users)
+			start = (page - 1) * page_size
+			end = start + page_size
+			users_slice = users[start:end]
+			html = render_template('components/users_rows.j2.html', users=users_slice, groups=app._sql.group_all())
+			resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			return jsonify({ 'error': str(e) }), 400
+
+	@app.route('/users/search')
+	@require_permissions(USERS_VIEW_PAGE)
+	def users_search():
+		"""Global search across users; server-paginated."""
+		try:
+			q = (request.args.get('q') or '').strip()
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 30))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 30
+			users = app._sql.user_all() or []
+			# Sort users by name ascending before filtering/paging
+			try:
+				users.sort(key=lambda u: (getattr(u, 'name', '') or '').upper())
+			except Exception:
+				pass
+			if q:
+				q_up = q.upper()
+				def row_text(u):
+					login = getattr(u, 'login', '') or ''
+					name = getattr(u, 'name', '') or ''
+					groupname = (app._sql.group_all() or {}).get(getattr(u, 'gid', None)) or ''
+					perm = getattr(u, 'permission_string', None)
+					try:
+						perm_str = (u.permission_string() if callable(perm) else str(perm or ''))
+					except Exception:
+						perm_str = ''
+					return (f"{login}\n{name}\n{groupname}\n{perm_str}").upper()
+				users = [u for u in users if q_up in row_text(u)]
+			total = len(users)
+			start = (page - 1) * page_size
+			end = start + page_size
+			users_slice = users[start:end]
+			html = render_template('components/users_rows.j2.html', users=users_slice, groups=app._sql.group_all())
+			resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			return jsonify({ 'error': str(e) }), 400
 
 	@app.route('/users/add', methods=['POST'])
 	@require_permissions(USERS_MANAGE)

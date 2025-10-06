@@ -2,7 +2,7 @@
 Groups management routes
 """
 
-from flask import render_template, request, redirect, url_for, flash
+from flask import render_template, request, redirect, url_for, flash, jsonify, make_response
 from flask_login import current_user
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
 from modules.logging import get_logger, log_action
@@ -24,6 +24,11 @@ def register(app):
         """Render groups management page."""
         try:
             groups = app._sql.group_get_all_objects()
+            # Sort groups by name ascending for predictable ordering
+            try:
+                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+            except Exception:
+                pass
             admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
             # Pre-compute user counts per group in one query
             try:
@@ -44,6 +49,99 @@ def register(app):
             app.flash_error(e)
             _log.error(f"Groups page error: {e}")
             return render_template('groups.j2.html', title='Группы — Заявки-Наряды-Файлы', groups=[], admin_group_name='Программисты')
+
+    @app.route('/groups/page', methods=['GET'])
+    @require_permissions(USERS_VIEW_PAGE)
+    def groups_page():
+        """Return a page of groups rows as HTML (tbody content) with pagination meta."""
+        try:
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('page_size', 15))
+            if page < 1: page = 1
+            if page_size < 1: page_size = 15
+            groups = app._sql.group_get_all_objects() or []
+            # Sort groups by name ascending before paging
+            try:
+                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+            except Exception:
+                pass
+            # Pre-compute user counts per group
+            try:
+                prefix = app._sql.config['db']['prefix']
+                rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
+                gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+            except Exception:
+                gid_to_count = {}
+            admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
+            for group in groups:
+                group._admin_group_name = admin_group_name
+                try:
+                    group.user_count = int(gid_to_count.get(group.id, 0))
+                except Exception:
+                    group.user_count = 0
+            total = len(groups)
+            start = (page - 1) * page_size
+            end = start + page_size
+            groups_slice = groups[start:end]
+            html = render_template('components/groups_rows.j2.html', groups=groups_slice, admin_group_name=admin_group_name)
+            resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
+        except Exception as e:
+            return jsonify({ 'error': str(e) }), 400
+
+    @app.route('/groups/search', methods=['GET'])
+    @require_permissions(USERS_VIEW_PAGE)
+    def groups_search():
+        """Global search across groups; server-paginated."""
+        try:
+            q = (request.args.get('q') or '').strip()
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('page_size', 30))
+            if page < 1: page = 1
+            if page_size < 1: page_size = 30
+            groups = app._sql.group_get_all_objects() or []
+            # Sort groups by name ascending before filtering/paging
+            try:
+                groups.sort(key=lambda g: (getattr(g, 'name', '') or '').upper())
+            except Exception:
+                pass
+            # Pre-compute counts
+            try:
+                prefix = app._sql.config['db']['prefix']
+                rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
+                gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
+            except Exception:
+                gid_to_count = {}
+            admin_group_name = app._sql.config.get('admin', 'group', fallback='Программисты')
+            for group in groups:
+                group._admin_group_name = admin_group_name
+                try:
+                    group.user_count = int(gid_to_count.get(group.id, 0))
+                except Exception:
+                    group.user_count = 0
+            if q:
+                q_up = q.upper()
+                def row_text(g):
+                    name = getattr(g, 'name', '') or ''
+                    desc = getattr(g, 'description', '') or ''
+                    users_cnt = str(getattr(g, 'user_count', 0))
+                    return (f"{name}\n{desc}\n{users_cnt}").upper()
+                groups = [g for g in groups if q_up in row_text(g)]
+            total = len(groups)
+            start = (page - 1) * page_size
+            end = start + page_size
+            groups_slice = groups[start:end]
+            html = render_template('components/groups_rows.j2.html', groups=groups_slice, admin_group_name=admin_group_name)
+            resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
+        except Exception as e:
+            return jsonify({ 'error': str(e) }), 400
     
     @app.route('/groups/add', methods=['POST'])
     @require_permissions(USERS_MANAGE)

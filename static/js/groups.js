@@ -98,13 +98,35 @@ if (document.readyState === 'loading') {
     // Search
     const search = document.getElementById('searchinp');
     if (search) {
-      search.addEventListener('input', function () {
-        const q = this.value.trim().toLowerCase();
-        document.querySelectorAll('#maintable tbody tr.table__body_row').forEach(row => {
-          const text = row.innerText.toLowerCase();
-          row.style.display = text.includes(q) ? '' : 'none';
-        });
-      });
+      const doServerSearch = debounce(function(q){
+        try {
+          const url = new URL(window.location.origin + '/groups/search');
+          url.searchParams.set('q', q || '');
+          url.searchParams.set('page', '1');
+          url.searchParams.set('page_size', '50');
+          fetch(String(url), { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : { html: '' })
+            .then(j => {
+              if (!j || !j.html) return;
+              const table = document.getElementById('maintable');
+              if (!table) return;
+              const tbody = table.tBodies && table.tBodies[0];
+              if (!tbody) return;
+              // Preserve the search row (first row) and replace the rest
+              const searchRow = tbody.querySelector('tr#search');
+              const temp = document.createElement('tbody');
+              temp.innerHTML = j.html;
+              // Clear all except search row
+              Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+              // Append new rows
+              Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
+              try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
+              try { reinitializeContextMenu(); } catch(_) {}
+            })
+            .catch(function(){});
+        } catch(_) {}
+      }, 350);
+      search.addEventListener('input', function () { doServerSearch(this.value.trim()); });
     }
 
     // Click-to-copy group name
@@ -565,21 +587,54 @@ if (document.readyState === 'loading') {
    * Reinitialize context menu after table update
    */
   function reinitializeContextMenu() {
+    // Prevent frequent reinitializations that can cause timeouts
+    const now = Date.now();
+    if (window._lastContextMenuReinit && (now - window._lastContextMenuReinit) < 500) {
+      return; // Skip if called less than 500ms ago
+    }
+    window._lastContextMenuReinit = now;
+    
     try {
-      // Trigger a custom event to reinitialize context menu
-      // The existing IIFE will handle the reinitialization
-      const event = new CustomEvent('context-menu-reinit', {
-        detail: { timestamp: Date.now() }
-      });
-      document.dispatchEvent(event);
-      
-      // Also trigger table update event for any other listeners
-      document.dispatchEvent(new Event('table-updated'));
-      
+      // Use requestIdleCallback for non-blocking reinitialization
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => {
+          try {
+            // Trigger a custom event to reinitialize context menu
+            const event = new CustomEvent('context-menu-reinit', {
+              detail: { timestamp: Date.now() }
+            });
+            document.dispatchEvent(event);
+            
+            // Also trigger table update event for any other listeners
+            document.dispatchEvent(new Event('table-updated'));
+          } catch(e) {
+            console.error('Context menu reinit failed:', e);
+          }
+        }, { timeout: 1000 });
+      } else {
+        // Fallback: use setTimeout with small delay
+        setTimeout(() => {
+          try {
+            // Trigger a custom event to reinitialize context menu
+            const event = new CustomEvent('context-menu-reinit', {
+              detail: { timestamp: Date.now() }
+            });
+            document.dispatchEvent(event);
+            
+            // Also trigger table update event for any other listeners
+            document.dispatchEvent(new Event('table-updated'));
+          } catch(e) {
+            console.error('Context menu reinit failed:', e);
+          }
+        }, 10);
+      }
     } catch(e) {
-      // Silent fail
+      console.error('Context menu reinit failed:', e);
     }
   }
+
+  // Simple debounce helper
+  function debounce(fn, ms){ let t; return function(){ clearTimeout(t); const args = arguments; t = setTimeout(()=>fn.apply(null,args), ms); } }
 
   document.addEventListener('DOMContentLoaded', attachHandlers);
 

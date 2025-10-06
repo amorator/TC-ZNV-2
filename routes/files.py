@@ -1,4 +1,4 @@
-from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort, request
+from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort, request, jsonify, make_response
 from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
@@ -113,19 +113,37 @@ def register(app, media_service, socketio=None) -> None:
 		_dirs = dirs_by_permission(app, id, 'f')
 		# Guard: no available directories for this user
 		if not _dirs or len(_dirs) == 0:
-			return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb)
+			from flask import make_response
+			resp = make_response(render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=0, sdid=0, max_file_size_mb=max_file_size_mb))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
 
 		did, sdid = validate_directory_params(did, sdid, _dirs)
 		dirs = list(_dirs[did].keys()) if (did is not None and did < len(_dirs)) else []
 		# Guard: if no subdirectories present, render with empty file list
 		if not dirs or len(dirs) <= 1:
-			return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb)
+			from flask import make_response
+			resp = make_response(render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=None, did=did, sdid=0, max_file_size_mb=max_file_size_mb))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
 
 		# Safe access to subdir index
 		files = None
 		if 1 <= sdid < len(dirs):
 			files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
-		return render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb)
+			# Sort files by date descending (newest first)
+			if files:
+				files.sort(key=lambda f: f.date, reverse=True)
+		from flask import make_response
+		resp = make_response(render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb))
+		resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+		resp.headers['Pragma'] = 'no-cache'
+		resp.headers['Expires'] = '0'
+		return resp
 
 	@app.route('/files' + '/add' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
@@ -742,4 +760,117 @@ def register(app, media_service, socketio=None) -> None:
 				pass
 			return {421: 'Can not process data'}
 
+	@app.route('/files/page/<int:did>/<int:sdid>')
+	@require_permissions(FILES_VIEW_PAGE)
+	def files_page(did: int = 0, sdid: int = 1):
+		"""Return a page of files rows as HTML (tbody content) with pagination meta."""
+		try:
+			# Redirect direct HTML requests to the full Files page to avoid landing on JSON after login
+			accept = (request.headers.get('Accept') or '')
+			is_ajax = (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+			if ('text/html' in accept) and (not is_ajax):
+				return redirect(url_for('files', did=did, sdid=sdid))
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 15))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 15
+			dirs = dirs_by_permission(app, 3, 'f')
+			if not dirs or len(dirs) == 0:
+				# Return empty successful response so UI degrades gracefully
+				html = render_template('components/files_rows.j2.html', files=[], did=did, sdid=sdid, dirs=[])
+				resp = make_response(jsonify({ 'html': html, 'total': 0, 'page': page, 'page_size': page_size }))
+				resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+				resp.headers['Pragma'] = 'no-cache'
+				resp.headers['Expires'] = '0'
+				return resp
+			did, sdid = validate_directory_params(did, sdid, dirs)
+			dirs_list = list(dirs[did].keys()) if (did is not None and did < len(dirs)) else []
+			if not dirs_list or len(dirs_list) <= 1 or not (1 <= sdid < len(dirs_list)):
+				# Return empty successful page
+				html = render_template('components/files_rows.j2.html', files=[], did=did, sdid=sdid, dirs=dirs)
+				resp = make_response(jsonify({ 'html': html, 'total': 0, 'page': page, 'page_size': page_size }))
+				resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+				resp.headers['Pragma'] = 'no-cache'
+				resp.headers['Expires'] = '0'
+				return resp
+			fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
+			# Sort files by date descending (newest first)
+			if fs:
+				fs.sort(key=lambda f: f.date, reverse=True)
+			total = len(fs or [])
+			start = (page - 1) * page_size
+			end = start + page_size
+			files_slice = fs[start:end] if fs else []
+			html = render_template('components/files_rows.j2.html', files=files_slice, did=did, sdid=sdid, dirs=dirs)
+			resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			_log.error(f"Files page error: {e}")
+			return jsonify({ 'error': str(e) }), 400
 
+	@app.route('/files/search/<int:did>/<int:sdid>')
+	@require_permissions(FILES_VIEW_PAGE)
+	def files_search(did: int = 0, sdid: int = 1):
+		"""Global search across all files in the selected category/subcategory; server-paginated."""
+		try:
+			# Redirect direct HTML requests to the full Files page to avoid landing on JSON after login
+			accept = (request.headers.get('Accept') or '')
+			is_ajax = (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+			if ('text/html' in accept) and (not is_ajax):
+				return redirect(url_for('files', did=did, sdid=sdid))
+			q = (request.args.get('q') or '').strip()
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 30))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 30
+			dirs = dirs_by_permission(app, 3, 'f')
+			if not dirs or len(dirs) == 0:
+				# Return empty successful response for better UX
+				html = render_template('components/files_rows.j2.html', files=[], did=did, sdid=sdid, dirs=[])
+				resp = make_response(jsonify({ 'html': html, 'total': 0, 'page': page, 'page_size': page_size }))
+				resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+				resp.headers['Pragma'] = 'no-cache'
+				resp.headers['Expires'] = '0'
+				return resp
+			did, sdid = validate_directory_params(did, sdid, dirs)
+			dirs_list = list(dirs[did].keys()) if (did is not None and did < len(dirs)) else []
+			if not dirs_list or len(dirs_list) <= 1 or not (1 <= sdid < len(dirs_list)):
+				# Return empty page for search gracefully
+				html = render_template('components/files_rows.j2.html', files=[], did=did, sdid=sdid, dirs=dirs)
+				resp = make_response(jsonify({ 'html': html, 'total': 0, 'page': page, 'page_size': page_size }))
+				resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+				resp.headers['Pragma'] = 'no-cache'
+				resp.headers['Expires'] = '0'
+				return resp
+			fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])]) or []
+			if q:
+				q_up = q.upper()
+				def row_text(file):
+					name = (getattr(file, 'display_name', '') or getattr(file, 'real_name', '') or '')
+					desc = getattr(file, 'description', '') or ''
+					owner = getattr(file, 'owner', '') or ''
+					date = getattr(file, 'date', '') or ''
+					length = getattr(file, 'length_human', '') or ''
+					size = getattr(file, 'size_human', '') or ''
+					viewed = getattr(file, 'viewed', '') or ''
+					return (f"{name}\n{desc}\n{owner}\n{date}\n{length}\n{size}\n{viewed}").upper()
+				fs = [f for f in fs if q_up in row_text(f)]
+			# Sort files by date descending (newest first)
+			if fs:
+				fs.sort(key=lambda f: f.date, reverse=True)
+			total = len(fs)
+			start = (page - 1) * page_size
+			end = start + page_size
+			files_slice = fs[start:end]
+			html = render_template('components/files_rows.j2.html', files=files_slice, did=did, sdid=sdid, dirs=dirs)
+			resp = make_response(jsonify({ 'html': html, 'total': total, 'page': page, 'page_size': page_size }))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			_log.error(f"Files search error: {e}")
+			return jsonify({ 'error': str(e) }), 400

@@ -10,7 +10,7 @@
 {% block main %}
 
   <section class="groups-page container-fluid py-3">
-    <table class="groups-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-manage="{{ 1 if current_user.has('users.manage') else 0 }}">
+    <table class="groups-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-manage="{{ 1 if current_user.has('users.manage') else 0 }}" data-server-paging="1">
       <thead class="table__head">
         <tr class="table__head_row">
           <th class="table__head_item">Название</th>

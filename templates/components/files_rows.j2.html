@@ -1,0 +1,80 @@
+{# Renders <tr> rows for files table body. Expects: files, did, sdid, dirs, current_user #}
+{% if files %}
+  {% for file in files %}
+    {% if file.ready %}
+      <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
+        data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
+        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
+        data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
+        data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.has('files.mark_viewed') else '' }}"
+        data-viewed="{{ 1 if file.viewed else 0 }}"
+        data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
+        data-others-viewed="{% if file.viewed %}{% set fv = file.viewed %}{% if (current_user.name not in fv) %}1{% elif (fv|replace(current_user.name, '')|replace(',', '')|replace(' ', '')) %}1{% else %}0{% endif %}{% else %}0{% endif %}"
+        data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
+        data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
+        data-note="{{ file.note if file.note else '' }}"
+        data-exists="{{ 1 if file.exists else 0 }}"
+      >
+        <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
+        <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+        <td class="table__body_item">{{ file.owner }}</td>
+        <td class="table__body_item">{{ file.date }}</td>
+        <td class="table__body_item">{{ file.length_human }}</td>
+        <td class="table__body_item">{{ file.size_human }}</td>
+        <td class="table__body_item">
+          <div class="file-viewers">
+            <strong>Просмотревшие:</strong>
+            <span>{{ file.viewed if file.viewed else '—' }}</span>
+          </div>
+          <div class="mt-1">
+            {% if current_user.has('files.mark_viewed') %}
+              {% set already_viewed = (file.viewed and (current_user.name in file.viewed)) %}
+              {% if not already_viewed %}
+                <span onclick="window.markViewedAjax({{ file.id }});">Отметить просмотренным</span>
+              {% endif %}
+            {% endif %}
+          </div>
+          <div class="mt-1">
+            {% if current_user.has('files.notes') %}
+              <span class="note-badge{{ ' note-badge--has' if file.note }}" onclick="popupValues(document.getElementById('note'), {{ file.id }}); popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+            {% else %}
+              <span class="note-badge{{ ' note-badge--has' if file.note }}">{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% else %}
+      <tr class="table__body_row" id="{{ file.id }}"
+        data-id="{{ file.id }}"
+        data-url="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
+        data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
+        data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
+        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
+        data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
+        data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
+        data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
+        data-is-ready="0"
+        data-exists="{{ 1 if file.exists else 0 }}"
+      >
+        <td class="table__body_item">{{ file.display_name }}</td>
+        <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+        <td class="table__body_item">{{ file.owner }}</td>
+        <td class="table__body_item">{{ file.date }}</td>
+        <td class="table__body_item">{{ file.length_human }}</td>
+        <td class="table__body_item">{{ file.size_human }}</td>
+        <td class="table__body_item">
+          Обрабатывается...
+          <div class="d-inline-flex gap-2 ms-2 align-items-center">
+            <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
+            {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
+              <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+
+

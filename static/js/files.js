@@ -873,13 +873,41 @@ function initFilesPagination() {
   function renderPage(page) {
     const pages = getPageCount();
     page = clamp(page, 1, pages);
-    rows.forEach((tr, idx) => {
-      const start = (page - 1) * pageSize;
-      const end = start + pageSize;
-      tr.style.display = idx >= start && idx < end ? 'table-row' : 'none';
-    });
-    writePage(page);
-    renderControls(page, pages);
+    // Switch to server-side paging fetch
+    try {
+      const table = document.getElementById('maintable');
+      const did = window.currentDid != null ? window.currentDid : (function(){ try { return parseInt((location.pathname.split('/')[2])||'0',10)||0; } catch(_) { return 0; } })();
+      const sdid = window.currentSdid != null ? window.currentSdid : (function(){ try { return parseInt((location.pathname.split('/')[3])||'1',10)||1; } catch(_) { return 1; } })();
+      const tbody = table && table.tBodies && table.tBodies[0];
+      const url = `/files/page/${did}/${sdid}?page=${page}&page_size=${pageSize}`;
+      fetch(url, { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.html != null && tbody) {
+            // Preserve the search row while updating table body
+            const searchRow = tbody.querySelector('tr#search');
+            const temp = document.createElement('tbody');
+            temp.innerHTML = data.html;
+            // Remove all rows except the search row
+            Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+            // Append new rows after search row if present, else directly
+            const rows = Array.from(temp.children);
+            if (searchRow) {
+              const parent = searchRow.parentNode;
+              rows.forEach(function(tr){ parent.insertBefore(tr, searchRow.nextSibling); });
+            } else {
+              rows.forEach(function(tr){ tbody.appendChild(tr); });
+            }
+            // Rebind interactions for the new rows
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { bindRowOpenHandlers(); } catch(_) {}
+            try { bindCopyNameHandlers(); } catch(_) {}
+            writePage(data.page || page);
+            renderControls(Math.max(1, data.page || page), Math.max(1, Math.ceil((data.total||0)/pageSize)));
+          }
+        })
+        .catch(() => {});
+    } catch(_) {}
   }
 
   function renderControls(page, pages) {
@@ -924,19 +952,26 @@ function initFilesPagination() {
 
     pager.innerHTML = `<nav><ul class="pagination mb-0">${items.join('')}</ul></nav>`;
     
-    // Add event delegation for better performance
-    pager.addEventListener('click', (e) => {
-      const target = e.target.closest('[data-page]');
-      if (!target) return;
-      
-      e.preventDefault();
-      const p = parseInt(target.getAttribute('data-page') || '1', 10);
-      renderPage(p);
-      const table = document.getElementById('maintable');
-      if (table) {
-        table.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    });
+    // Add event delegation once to avoid accumulating handlers across renders
+    if (!pager._clickBound) {
+    const onPagerClick = (e) => {
+        const target = e.target.closest('[data-page]');
+        if (!target) return;
+        
+        e.preventDefault();
+        const p = parseInt(target.getAttribute('data-page') || '1', 10);
+        renderPage(p);
+        const table = document.getElementById('maintable');
+        if (table) {
+          table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
+    if (!pager._clickBound) {
+      pager.addEventListener('click', onPagerClick);
+      pager._clickBound = true;
+    }
+      pager._clickBound = true;
+    }
   }
 
   renderPage(readPage());
@@ -959,38 +994,55 @@ function filesDoFilter(query) {
   if (!table || !table.tBodies || !table.tBodies[0]) return;
   const tbody = table.tBodies[0];
   const pager = document.getElementById('files-pagination');
-  // Include both ready rows and processing rows; exclude only the actions/search row
-  const rows = Array.from(tbody.querySelectorAll('tr:not(.table__body_actions)'));
-
-  const q = (query || '').trim().toUpperCase();
-  const active = q.length > 0;
-
-  if (active) {
-    let shown = 0;
-    const maxResults = 30;
-    rows.forEach((row) => {
-      let match = false;
-      Array.from(row.children).forEach((cell) => {
-        if ((cell.innerText || cell.textContent || '').toUpperCase().includes(q)) match = true;
-      });
-      if (match && shown < maxResults) {
-        row.style.display = 'table-row';
-        shown++;
-      } else {
-        row.style.display = 'none';
-      }
-    });
-    if (pager) {
-      pager.classList.add('d-none');
-    }
+  const did = window.currentDid != null ? window.currentDid : (function(){ try { return parseInt((location.pathname.split('/')[2])||'0',10)||0; } catch(_) { return 0; } })();
+  const sdid = window.currentSdid != null ? window.currentSdid : (function(){ try { return parseInt((location.pathname.split('/')[3])||'1',10)||1; } catch(_) { return 1; } })();
+  const q = (query || '').trim();
+  if (q.length > 0) {
+    if (pager) pager.classList.add('d-none');
+    const url = `/files/search/${did}/${sdid}?q=${encodeURIComponent(q)}&page=1&page_size=30`;
+    fetch(url, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.html != null) {
+          // Preserve the search row
+          const searchRow = tbody.querySelector('tr#search');
+          const temp = document.createElement('tbody');
+          temp.innerHTML = data.html;
+          // Clear all except search row
+          Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
+          // Append new rows after the search row (if present) else into tbody
+          const rows = Array.from(temp.children);
+          if (searchRow) {
+            const parent = searchRow.parentNode;
+            rows.forEach(function(tr){ parent.insertBefore(tr, searchRow.nextSibling); });
+          } else {
+            rows.forEach(function(tr){ tbody.appendChild(tr); });
+          }
+          // If no rows returned, show an explicit 'no results' row
+          if (rows.length === 0) {
+            const empty = document.createElement('tr');
+            empty.className = 'table__body_row no-results';
+            const td = document.createElement('td');
+            td.className = 'table__body_item';
+            td.colSpan = (table.tHead && table.tHead.rows[0] && table.tHead.rows[0].cells.length) ? table.tHead.rows[0].cells.length : 7;
+            td.textContent = 'Нет результатов';
+            empty.appendChild(td);
+            if (searchRow && searchRow.parentNode) {
+              searchRow.parentNode.insertBefore(empty, searchRow.nextSibling);
+            } else {
+              tbody.appendChild(empty);
+            }
+          }
+          try { reinitializeContextMenu(); } catch(_) {}
+          try { bindRowOpenHandlers(); } catch(_) {}
+          try { bindCopyNameHandlers(); } catch(_) {}
+        }
+      })
+      .catch(() => {});
   } else {
-    if (pager) {
-      pager.classList.remove('d-none');
-    }
+    if (pager) pager.classList.remove('d-none');
     if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
       window.filesPager.renderPage(window.filesPager.readPage());
-    } else {
-      rows.forEach((row) => (row.style.display = 'table-row'));
     }
   }
 }
@@ -1117,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Socket.IO live updates for files table
+  // Socket.IO live updates for files table (enabled by default)
   try {
     if (window.io) {
       /**
@@ -1139,7 +1191,7 @@ document.addEventListener('DOMContentLoaded', function () {
           });
       
       // Preserve existing global socket; only set if absent
-      if (!window.socket || window.socket !== socket) {
+      if (!window.socket) {
         window.socket = socket;
       }
       
@@ -1148,9 +1200,7 @@ document.addEventListener('DOMContentLoaded', function () {
        */
       if (!socket._filesBound) {
         socket._filesBound = true;
-        socket.on('connect', function() {
-          softRefreshFilesTable();
-        });
+        socket.on('connect', function() { scheduleFilesRefreshFromSocket(); });
       
       /**
        * Handle disconnection - Socket.IO will attempt automatic reconnection
@@ -1172,9 +1222,7 @@ document.addEventListener('DOMContentLoaded', function () {
        * Handle successful reconnection - refresh table to get latest data
        * @param {number} attemptNumber - Number of reconnection attempts
        */
-        socket.on('reconnect', function(attemptNumber) {
-          softRefreshFilesTable();
-        });
+        socket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket(); });
       
       /**
        * Handle reconnection errors - Socket.IO will continue trying
@@ -1206,41 +1254,22 @@ document.addEventListener('DOMContentLoaded', function () {
               timeout: 20000
             });
             
-            // Copy event handlers to new socket
-              newSocket.on('connect', function() {
-                softRefreshFilesTable();
-              });
-            
-              newSocket.on('disconnect', function(reason) {
-                // Connection lost, will attempt reconnection
-              });
-            
-              newSocket.on('connect_error', function(err) {
-                // Connection error, Socket.IO will handle reconnection automatically
-              });
-            
-              newSocket.on('reconnect', function(attemptNumber) {
-                softRefreshFilesTable();
-              });
-            
-              newSocket.on('reconnect_error', function(error) {
-                // Reconnection error, will continue trying
-              });
-            
-            newSocket.on('reconnect_failed', function() {
-              // Will create another new connection
-            });
-            
-            newSocket.on('files:changed', function(evt) {
-              softRefreshFilesTable();
-            });
-            
-            newSocket.on('/files:changed', function(evt) {
-              softRefreshFilesTable();
-            });
+            // Copy event handlers to new socket (bind once)
+            if (!newSocket._filesBound) {
+              newSocket._filesBound = true;
+              newSocket.on('connect', function() { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('disconnect', function(reason) {});
+              newSocket.on('connect_error', function(err) {});
+              newSocket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('reconnect_error', function(error) {});
+              newSocket.on('reconnect_failed', function() {});
+              newSocket.on('files:changed', function(evt) { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('/files:changed', function(evt) { scheduleFilesRefreshFromSocket(); });
+            }
             
             // Replace the old socket
-              socket.disconnect();
+              try { socket.off && socket.off(); } catch(_) {}
+              try { socket.disconnect(); } catch(_) {}
               window.socket = newSocket;
           } catch (e) {
             // Error creating new socket, will retry on next reconnect_failed
@@ -1262,7 +1291,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
           }
           if (window.tableManager && window.tableManager.softRefreshTable) {
-            softRefreshFilesTable();
+            scheduleFilesRefreshFromSocket();
           } else {
             // Stronger fallback to ensure UI updates
             window.forceRefreshFilesTable && window.forceRefreshFilesTable();
@@ -1283,7 +1312,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
           }
           if (window.tableManager && window.tableManager.softRefreshTable) {
-            softRefreshFilesTable();
+            scheduleFilesRefreshFromSocket();
           } else {
             window.forceRefreshFilesTable && window.forceRefreshFilesTable();
           }
@@ -1358,7 +1387,72 @@ document.addEventListener('DOMContentLoaded', function () {
   // Prevent overlapping refreshes and recover from errors
   let __filesRefreshBusy = false;
   let __filesRefreshStartedAt = 0;
+  let __filesRefreshDebounceTimer = null;
+  let __filesLastRefreshAt = 0;
+  const __filesMinRefreshIntervalMs = 10000; // hard throttle (10s)
+  let __filesLastActive = Date.now();
+  let __filesCooldownUntil = 0; // timestamp to defer refresh work during bursts
+  let __filesIdleSuspended = false;
+  function isRecorderOpen() {
+    try {
+      const el = document.getElementById('popup-rec');
+      return !!(el && el.classList && el.classList.contains('show'));
+    } catch(_) { return false; }
+  }
+
+  function markActive() {
+    const now = Date.now();
+    // Throttle updates to at most ~4x per second to avoid hot paths on mousemove
+    if (now - __filesLastActive < 250) return;
+    __filesLastActive = now;
+    if (__filesIdleSuspended) {
+      __filesIdleSuspended = false;
+      // resume timers as needed
+      try { if (typeof checkAndSchedule === 'function') checkAndSchedule(); } catch(_) {}
+    }
+  }
+  try { document.addEventListener('mousemove', markActive, { passive: true }); } catch(_) {}
+  // Do not capture keydown globally; keep it light
+  try { document.addEventListener('keydown', markActive); } catch(_) {}
+  try { document.addEventListener('wheel', markActive, { passive: true }); } catch(_) {}
+  try { document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) {
+      // After returning to tab, defer heavy work briefly to let the page settle
+      __filesCooldownUntil = Date.now() + 1500;
+      markActive();
+    }
+  }); } catch(_) {}
+  // Consider OS app switching: window focus can occur while tab stayed visible
+  try { window.addEventListener('focus', function(){ __filesCooldownUntil = Date.now() + 1500; markActive(); }); } catch(_) {}
+
+  function isIdle(maxMs) {
+    return (Date.now() - __filesLastActive) > maxMs;
+  }
   function softRefreshFilesTable() {
+    const now = Date.now();
+    if (now < __filesCooldownUntil) {
+      // Defer until cooldown ends
+      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
+      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, (__filesCooldownUntil - now) + 50);
+      return;
+    }
+    if (isRecorderOpen()) {
+      // Skip while recorder is open; retry shortly after
+      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
+      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 1500);
+      return;
+    }
+    if (now - __filesLastRefreshAt < __filesMinRefreshIntervalMs) {
+      // too soon, defer via debouncer
+      if (__filesRefreshDebounceTimer) { try { clearTimeout(__filesRefreshDebounceTimer); } catch(_) {} }
+      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, __filesMinRefreshIntervalMs - (now - __filesLastRefreshAt) + 50);
+      return;
+    }
+    // Suspend refreshes when idle > 90s
+    if (isIdle(90000) || document.hidden) {
+      __filesIdleSuspended = true;
+      return;
+    }
     const table = document.getElementById('maintable');
     if (!table) return;
     const tbody = table.tBodies && table.tBodies[0];
@@ -1441,8 +1535,26 @@ document.addEventListener('DOMContentLoaded', function () {
         try { reinitializeContextMenu(); } catch(e) {}
       }).catch(function(){
         try { window.forceRefreshFilesTable && window.forceRefreshFilesTable(); } catch(_) {}
-      }).finally(function(){ __filesRefreshBusy = false; });
+      }).finally(function(){ __filesRefreshBusy = false; __filesLastRefreshAt = Date.now(); });
     }
+  }
+
+  // Debounced public refresh to avoid storms from sockets/timers
+  window.softRefreshFilesTable = function() {
+    try {
+      if (__filesRefreshDebounceTimer) { clearTimeout(__filesRefreshDebounceTimer); }
+      __filesRefreshDebounceTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 600);
+    } catch(_) {}
+  };
+
+  // Debounced scheduler for socket-triggered refreshes with idle guard
+  let __filesSocketEventTimer = null;
+  function scheduleFilesRefreshFromSocket() {
+    if (isIdle(90000) || document.hidden || isRecorderOpen()) { __filesIdleSuspended = true; return; }
+    const now = Date.now();
+    const delay = Math.max(800, (__filesCooldownUntil > now) ? (__filesCooldownUntil - now + 50) : 800);
+    try { if (__filesSocketEventTimer) clearTimeout(__filesSocketEventTimer); } catch(_) {}
+    __filesSocketEventTimer = setTimeout(function(){ try { window.softRefreshFilesTable(); } catch(_) {} }, delay);
   }
 
   // Strong fallback refresh: fetch current page and replace table when tableManager is unavailable
@@ -1511,7 +1623,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initial and on visibility change
     checkAndSchedule();
     document.addEventListener('visibilitychange', function() {
-      if (!document.hidden) {
+      if (document.hidden) {
+        if (window.__filesProcessTimer != null) { try { clearInterval(window.__filesProcessTimer); } catch(_) {} window.__filesProcessTimer = null; }
+      } else {
         checkAndSchedule();
       }
     });
@@ -1528,6 +1642,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Global light fallback: periodic refresh every 20s to catch missed socket events
   (function setupLightAutoRefresh(){
+    // Enabled by default; light periodic refresh with throttling/guards
     try {
       if (window.__filesLightTimer) return;
       window.__filesLightTimer = setInterval(function(){
@@ -1540,7 +1655,28 @@ document.addEventListener('DOMContentLoaded', function () {
           }
         } catch(_) {}
       }, 20000);
+      // Clear on unload to avoid timers surviving navigation
+      try { window.addEventListener('beforeunload', function(){ try { clearInterval(window.__filesLightTimer); } catch(_) {} window.__filesLightTimer = null; }); } catch(_) {}
+      try { window.addEventListener('pagehide', function(){ try { clearInterval(window.__filesLightTimer); } catch(_) {} window.__filesLightTimer = null; }); } catch(_) {}
     } catch(_) {}
+  })();
+
+  // Cleanup on unload (hard reload, navigation) to avoid leaks across Ctrl+F5
+  (function setupFilesCleanup(){
+    function cleanupFilesPage(){
+      try { if (window.__filesLightTimer) { clearInterval(window.__filesLightTimer); window.__filesLightTimer = null; } } catch(_) {}
+      try { if (window.__filesProcessTimer) { clearInterval(window.__filesProcessTimer); window.__filesProcessTimer = null; } } catch(_) {}
+      try { if (typeof __filesSocketEventTimer !== 'undefined' && __filesSocketEventTimer) { clearTimeout(__filesSocketEventTimer); __filesSocketEventTimer = null; } } catch(_) {}
+      try { if (typeof __filesRefreshDebounceTimer !== 'undefined' && __filesRefreshDebounceTimer) { clearTimeout(__filesRefreshDebounceTimer); __filesRefreshDebounceTimer = null; } } catch(_) {}
+      try {
+        if (window.socket && (window.socket.connected || window.socket.connecting)) {
+          try { window.socket.off && window.socket.off(); } catch(_) {}
+          try { window.socket.disconnect && window.socket.disconnect(); } catch(_) {}
+        }
+      } catch(_) {}
+    }
+    try { window.addEventListener('beforeunload', cleanupFilesPage); } catch(_) {}
+    try { window.addEventListener('pagehide', cleanupFilesPage); } catch(_) {}
   })();
 
   // Initial bind for dblclick row open
@@ -1548,8 +1684,47 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       const table = document.getElementById('maintable');
       if (!table) return;
+      // Delegated handler (once) to ensure dblclick works for dynamically inserted rows
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody && !tbody._dblDelegateBound) {
+        tbody._dblDelegateBound = true;
+        tbody.addEventListener('dblclick', function(e){
+          const tr = e.target && e.target.closest && e.target.closest('tr.table__body_row');
+          if (!tr) return;
+          // If a row-level handler exists, let it run. Otherwise, handle here.
+          if (!tr._dblBound) {
+            try {
+              const url = tr.getAttribute('data-url');
+              const exists = tr.getAttribute('data-exists');
+              if (!url || exists === '0') return;
+              const isAudio = (url || '').toLowerCase().endsWith('.m4a');
+              if (isAudio) {
+                const audio = document.getElementById('player-audio');
+                if (audio) {
+                  try { audio.pause(); } catch(e) {}
+                  audio.src = url;
+                  try { audio.currentTime = 0; } catch(e) {}
+                  audio.onerror = function(){ try { popupClose('popup-audio'); } catch(_) {} };
+                }
+                popupToggle('popup-audio');
+              } else {
+                const player = document.getElementById('player-video');
+                if (player) {
+                  try { player.pause(); } catch(e) {}
+                  player.src = url;
+                  try { player.currentTime = 0; } catch(e) {}
+                  player.onerror = function(){ try { popupClose('popup-view'); } catch(_) {} };
+                }
+                popupToggle('popup-view');
+              }
+            } catch(_) {}
+          }
+        });
+      }
       const rows = table.querySelectorAll('tbody tr.table__body_row');
       rows.forEach(tr => {
+        if (tr._dblBound) return;
+        tr._dblBound = true;
         tr.addEventListener('dblclick', function() {
           const url = tr.getAttribute('data-url');
           const exists = tr.getAttribute('data-exists');
@@ -1561,13 +1736,19 @@ document.addEventListener('DOMContentLoaded', function () {
           }
           
           const isAudio = (url || '').toLowerCase().endsWith('.m4a');
+          // Always stop any existing media before opening a new one
+          try {
+            if (window.stopAllMedia) window.stopAllMedia();
+          } catch(_) {}
           if (isAudio) {
             const audio = document.getElementById('player-audio');
             if (audio) {
               try { audio.pause(); } catch(e) {}
               audio.src = url;
               try { audio.currentTime = 0; } catch(e) {}
-              audio.onerror = function() {
+              // One-time error guard to avoid infinite loops when modal closes
+              audio.onerror = function onAudioError() {
+                try { audio.onerror = null; } catch(_) {}
                 const fileId = tr.getAttribute('data-id');
                 console.error('Audio load error for file:', fileId);
                 if (fileId) {
@@ -1579,6 +1760,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
               };
             }
+            // Ensure only one media plays: stop video element if open
+            try {
+              const v = document.getElementById('player-video');
+              if (v) { v.pause && v.pause(); v.removeAttribute('src'); v.src=''; v.load && v.load(); }
+            } catch(_) {}
             popupToggle('popup-audio');
           } else {
             const player = document.getElementById('player-video');
@@ -1588,7 +1774,8 @@ document.addEventListener('DOMContentLoaded', function () {
               try { player.currentTime = 0; } catch(e) {}
               
               // Add error handler for missing files
-              player.onerror = function() {
+              player.onerror = function onVideoError() {
+                try { player.onerror = null; } catch(_) {}
                 const fileId = tr.getAttribute('data-id');
                 console.error('Video load error for file:', fileId);
                 if (fileId) {
@@ -1601,6 +1788,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
               };
             }
+            // Ensure only one media plays: stop audio element if open
+            try {
+              const a = document.getElementById('player-audio');
+              if (a) { a.pause && a.pause(); a.muted = true; a.volume = 0; a.removeAttribute('src'); a.src=''; a.load && a.load(); }
+            } catch(_) {}
             popupToggle('popup-view');
           }
         });
@@ -1804,11 +1996,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initFilesContextMenu);
-  } else {
-    initFilesContextMenu();
+  // Initialize when DOM is ready (ensure single init)
+  if (!window.__filesCtxMenuInit) {
+    window.__filesCtxMenuInit = true;
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFilesContextMenu, { once: true });
+    } else {
+      initFilesContextMenu();
+    }
   }
 
   // Function to refresh the files page after actions
@@ -1923,6 +2118,8 @@ document.addEventListener('DOMContentLoaded', function () {
       link.style.cursor = 'pointer';
       
       // Add click handler
+      if (link._navBound) return;
+      link._navBound = true;
       link.addEventListener('click', function(e) {
         
         e.preventDefault();
@@ -1948,6 +2145,8 @@ document.addEventListener('DOMContentLoaded', function () {
       link.style.cursor = 'pointer';
       
       // Add click handler
+      if (link._navBound) return;
+      link._navBound = true;
       link.addEventListener('click', function(e) {
         
         e.preventDefault();
@@ -1965,19 +2164,49 @@ document.addEventListener('DOMContentLoaded', function () {
    * Reinitialize context menu after table update
    */
   function reinitializeContextMenu() {
+    // Prevent frequent reinitializations that can cause timeouts
+    const now = Date.now();
+    if (window._lastContextMenuReinit && (now - window._lastContextMenuReinit) < 500) {
+      return; // Skip if called less than 500ms ago
+    }
+    window._lastContextMenuReinit = now;
+    
     try {
-      // Trigger a custom event to reinitialize context menu
-      // The existing IIFE will handle the reinitialization
-      const event = new CustomEvent('context-menu-reinit', {
-        detail: { timestamp: Date.now() }
-      });
-      document.dispatchEvent(event);
-      
-      // Also trigger table update event for any other listeners
-      document.dispatchEvent(new Event('table-updated'));
-      
+      // Use requestIdleCallback for non-blocking reinitialization
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => {
+          try {
+            // Trigger a custom event to reinitialize context menu
+            const event = new CustomEvent('context-menu-reinit', {
+              detail: { timestamp: Date.now() }
+            });
+            document.dispatchEvent(event);
+            
+            // Also trigger table update event for any other listeners
+            document.dispatchEvent(new Event('table-updated'));
+          } catch(e) {
+            console.error('Context menu reinit failed:', e);
+          }
+        }, { timeout: 1000 });
+      } else {
+        // Fallback: use setTimeout with small delay
+        setTimeout(() => {
+          try {
+            // Trigger a custom event to reinitialize context menu
+            const event = new CustomEvent('context-menu-reinit', {
+              detail: { timestamp: Date.now() }
+            });
+            document.dispatchEvent(event);
+            
+            // Also trigger table update event for any other listeners
+            document.dispatchEvent(new Event('table-updated'));
+          } catch(e) {
+            console.error('Context menu reinit failed:', e);
+          }
+        }, 10);
+      }
     } catch(e) {
-      // Silent fail
+      console.error('Context menu reinit failed:', e);
     }
   }
 
@@ -2049,7 +2278,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.addEventListener('DOMContentLoaded', function() {
     // Get current did/sdid from URL or page data
     const urlParts = window.location.pathname.split('/');
-    if (urlParts[1] === 'fls') {
+    if (urlParts[1] === 'files') {
       window.currentDid = parseInt(urlParts[2]) || 0;
       window.currentSdid = parseInt(urlParts[3]) || 1;
     }
@@ -2210,21 +2439,7 @@ document.addEventListener('DOMContentLoaded', function () {
    * Local function removed to avoid recursion - use window.refreshFilesPage directly
    */
   
-  /**
-   * Soft refresh files table without page reload
-   */
-  window.softRefreshFilesTable = function() {
-    try {
-      if (window.tableManager && typeof window.tableManager.softRefreshTable === 'function') {
-        // Lightweight in-place refresh to avoid full navigation and rebind storms
-        return window.tableManager.softRefreshTable('maintable');
-      }
-      // Fallback to forceRefresh if table manager is unavailable
-      if (typeof window.forceRefreshFilesTable === 'function') {
-        return window.forceRefreshFilesTable();
-      }
-    } catch(_) {}
-  };
+  
   
   // Function to submit file forms via AJAX
   window.submitFileFormAjax = function(form) {
@@ -2365,11 +2580,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initFilesContextMenu);
-  } else {
-    initFilesContextMenu();
+  // Initialize when DOM is ready (ensure single init)
+  if (!window.__filesCtxMenuInit2) {
+    window.__filesCtxMenuInit2 = true;
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFilesContextMenu, { once: true });
+    } else {
+      initFilesContextMenu();
+    }
   }
 });
 

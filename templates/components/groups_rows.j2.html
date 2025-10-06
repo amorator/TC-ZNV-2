@@ -1,0 +1,21 @@
+{# Renders <tr> rows for groups table body (excluding search row). Expects: groups, admin_group_name #}
+{% if groups %}
+  {% for group in groups %}
+    <tr id="{{ group.id }}" class="table__body_row" data-id="{{ group.id }}" data-name="{{ group.name }}" data-description="{{ group.description }}" data-is-system="{{ 1 if group.is_system_group(admin_group_name) else 0 }}">
+      <td class="table__body_item">
+        <span class="groups-page__name">{{ group.name }}</span>
+        {% if group.is_system_group(admin_group_name) %}
+          <i class="bi bi-shield-fill-check text-danger ms-1" title="Системная группа"></i>
+        {% endif %}
+      </td>
+      <td class="table__body_item">{{ group.description or '—' }}</td>
+      <td class="table__body_item">
+        <span class="groups-page__user-count">{{ group.user_count if group.user_count is defined else 0 }}</span>
+      </td>
+      <td class="table__body_item">{{ group.created_at.strftime('%Y-%m-%d %H:%M') if group.created_at else '—' }}</td>
+    </tr>
+  {% endfor %}
+{% endif %}
+
+
+

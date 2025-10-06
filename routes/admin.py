@@ -1,4 +1,4 @@
-from flask import render_template, request, jsonify, Response, abort, send_file
+from flask import render_template, request, jsonify, Response, abort, send_file, make_response
 from flask_login import current_user
 from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
 from modules.logging import get_logger, log_action
@@ -23,6 +23,84 @@ def register(app, socketio=None):
 		except Exception:
 			pass
 		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Файлы', groups=groups)
+
+	# --- Logs table server-side pagination & search (HTML tbody fragment) ---
+	@app.route('/admin/logs/page', methods=['GET'])
+	@require_permissions(ADMIN_VIEW_PAGE)
+	def admin_logs_page():
+		"""Return paginated logs table rows as HTML fragment and meta."""
+		try:
+			import os
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 20))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 20
+			logs_dir = os.path.join(app.root_path, 'logs')
+			items = []
+			if os.path.isdir(logs_dir):
+				for name in os.listdir(logs_dir):
+					if name.startswith('.'): continue
+					full = os.path.join(logs_dir, name)
+					if not os.path.isfile(full): continue
+					st = os.stat(full)
+					items.append({'name': name, 'size': int(st.st_size), 'mtime': int(st.st_mtime)})
+			items.sort(key=lambda x: x.get('mtime', 0), reverse=True)
+			total = len(items)
+			start = (page - 1) * page_size
+			end = start + page_size
+			slice_items = items[start:end]
+			# Render minimal rows HTML to match admin logs table structure
+			html_rows = []
+			for it in slice_items:
+				size_kb = f"{round(it['size']/1024, 1)} KB" if it['size'] < 1024*1024 else f"{round(it['size']/1024/1024, 1)} MB"
+				html_rows.append(f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>")
+			html = ''.join(html_rows)
+			resp = make_response(jsonify({'html': html, 'total': total, 'page': page, 'page_size': page_size}))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			return jsonify({'error': str(e)}), 400
+
+	@app.route('/admin/logs/search', methods=['GET'])
+	@require_permissions(ADMIN_VIEW_PAGE)
+	def admin_logs_search():
+		"""Search logs by filename; returns HTML rows and meta."""
+		try:
+			import os
+			q = (request.args.get('q') or '').strip()
+			page = int(request.args.get('page', 1))
+			page_size = int(request.args.get('page_size', 50))
+			if page < 1: page = 1
+			if page_size < 1: page_size = 50
+			logs_dir = os.path.join(app.root_path, 'logs')
+			items = []
+			if os.path.isdir(logs_dir):
+				for name in os.listdir(logs_dir):
+					if name.startswith('.'): continue
+					if q and (q.lower() not in name.lower()): continue
+					full = os.path.join(logs_dir, name)
+					if not os.path.isfile(full): continue
+					st = os.stat(full)
+					items.append({'name': name, 'size': int(st.st_size), 'mtime': int(st.st_mtime)})
+			items.sort(key=lambda x: x.get('mtime', 0), reverse=True)
+			total = len(items)
+			start = (page - 1) * page_size
+			end = start + page_size
+			slice_items = items[start:end]
+			html_rows = []
+			for it in slice_items:
+				size_kb = f"{round(it['size']/1024, 1)} KB" if it['size'] < 1024*1024 else f"{round(it['size']/1024/1024, 1)} MB"
+				html_rows.append(f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>")
+			html = ''.join(html_rows)
+			resp = make_response(jsonify({'html': html, 'total': total, 'page': page, 'page_size': page_size}))
+			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp.headers['Pragma'] = 'no-cache'
+			resp.headers['Expires'] = '0'
+			return resp
+		except Exception as e:
+			return jsonify({'error': str(e)}), 400
 
 	# --- Presence: list active sessions ---
 	@app.route('/admin/presence', methods=['GET'])

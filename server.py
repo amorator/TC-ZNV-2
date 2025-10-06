@@ -16,12 +16,12 @@ except Exception:
 
 import signal
 from os import path, listdir
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 import urllib.request as http
 from bs4 import BeautifulSoup as bs
 from modules.logging import init_logging, get_logger, log_action
 
-from flask import render_template, url_for, request, redirect, session, Response
+from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
 from flask_login import login_user, logout_user, current_user
 from flask_socketio import SocketIO
 
@@ -214,6 +214,31 @@ def theme():
     else:
         session['theme'] = 1
     return redirect(request.referrer)
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    """Serve static files with aggressive caching for offline functionality."""
+    try:
+        response = send_from_directory('static', filename)
+        return response # TODO: remove this for production
+        # Set aggressive caching headers for JavaScript and CSS files
+        if filename.endswith(('.js', '.css')):
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
+            # Set Expires to 1 year from now
+            expires_date = dt.utcnow() + timedelta(days=365)
+            response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
+            response.headers['ETag'] = f'"{hash(filename)}"'
+        else:
+            # Moderate caching for other static files
+            response.headers['Cache-Control'] = 'public, max-age=86400'  # 1 day
+            # Set Expires to 1 day from now
+            expires_date = dt.utcnow() + timedelta(days=1)
+            response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
+        
+        return response
+    except Exception as e:
+        _log.error(f"Failed to serve static file {filename}: {e}")
+        return Response('File not found', status=404)
 
 @app.route('/proxy' + '/<string:url>', methods=['GET'])
 def proxy(url: str) -> str:
