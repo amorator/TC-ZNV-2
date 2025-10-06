@@ -1490,8 +1490,10 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       const fromSelf = evt && evt.originClientId && window.__filesClientId && (evt.originClientId === window.__filesClientId);
       const serverReasons = ['conversion-complete','processing-complete','server-update'];
-      const force = (evt && (evt.force === true || (evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1)));
-      if (fromSelf && !force) return;
+      const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
+      const force = !!(evt && evt.force === true);
+      // Always refresh on server reasons (e.g., conversion completed), even for the initiator
+      if (fromSelf && !force && !isServerReason) return;
       if (__filesSocketEventTimer) { clearTimeout(__filesSocketEventTimer); __filesSocketEventTimer = null; }
       __filesSocketEventTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 300);
     } catch(_) {}
