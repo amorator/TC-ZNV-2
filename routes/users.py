@@ -137,7 +137,7 @@ def register(app):
 			# notify sockets for soft refresh
 			try:
 				if hasattr(app, 'socketio') and app.socketio:
-					app.socketio.emit('users:changed', {'reason': 'created'}, broadcast=True)
+					app.socketio.emit('users:changed', {'reason': 'created'})
 			except Exception:
 				pass
 			# Return JSON for AJAX requests, redirect for traditional forms
@@ -205,7 +205,7 @@ def register(app):
 		finally:
 			try:
 				if hasattr(app, 'socketio') and app.socketio:
-					app.socketio.emit('users:changed', {'reason': 'edited', 'id': id}, broadcast=True)
+					app.socketio.emit('users:changed', {'reason': 'edited', 'id': id})
 			except Exception:
 				pass
 			# Return JSON for AJAX requests, redirect for traditional forms
@@ -246,7 +246,7 @@ def register(app):
 		finally:
 			try:
 				if hasattr(app, 'socketio') and app.socketio:
-					app.socketio.emit('users:changed', {'reason': 'reset', 'id': id}, broadcast=True)
+					app.socketio.emit('users:changed', {'reason': 'reset', 'id': id})
 			except Exception:
 				pass
 			# Return JSON for AJAX requests, redirect for traditional forms
@@ -281,7 +281,7 @@ def register(app):
 		finally:
 			try:
 				if hasattr(app, 'socketio') and app.socketio:
-					app.socketio.emit('users:changed', {'reason': 'toggled', 'id': id}, broadcast=True)
+					app.socketio.emit('users:changed', {'reason': 'toggled', 'id': id})
 			except Exception:
 				pass
 			# Return JSON for AJAX requests, redirect for traditional forms
@@ -313,7 +313,7 @@ def register(app):
 		finally:
 			try:
 				if hasattr(app, 'socketio') and app.socketio:
-					app.socketio.emit('users:changed', {'reason': 'deleted', 'id': id}, broadcast=True)
+					app.socketio.emit('users:changed', {'reason': 'deleted', 'id': id})
 			except Exception:
 				pass
 			# Return JSON for AJAX requests, redirect for traditional forms

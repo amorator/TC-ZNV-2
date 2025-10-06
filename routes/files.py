@@ -194,7 +194,7 @@ def register(app, media_service, socketio=None) -> None:
 				app._sql.file_update_metadata([length_seconds, size_mb, id])
 				if socketio:
 					try:
-						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+								socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}})
 					except Exception:
 						pass
 			except Exception:
@@ -203,7 +203,7 @@ def register(app, media_service, socketio=None) -> None:
 			# notify all clients about new pending file
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'added', 'id': id}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'added', 'id': id})
 				except Exception:
 					pass
 			
@@ -243,7 +243,7 @@ def register(app, media_service, socketio=None) -> None:
 			fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'init', 'id': fid}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'init', 'id': fid})
 				except Exception:
 					pass
 			log_action('FILE_UPLOAD_INIT_END', current_user.name, f'init created id={fid} real={real_name}', request.remote_addr)
@@ -285,7 +285,7 @@ def register(app, media_service, socketio=None) -> None:
 				app._sql.file_update_metadata([length_seconds, size_mb, id])
 				if socketio:
 					try:
-						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}}, broadcast=True)
+								socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}})
 					except Exception:
 						pass
 			except Exception:
@@ -295,7 +295,7 @@ def register(app, media_service, socketio=None) -> None:
 			media_service.convert_async(base + '.webm', base + ('.m4a' if target_ext == '.m4a' else '.mp4'), ('file', id))
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'uploaded', 'id': id}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'uploaded', 'id': id})
 				except Exception:
 					pass
 			log_action('FILE_UPLOAD_BIN_END', current_user.name, f'uploaded binary for id={id} size_mb={size_mb}', request.remote_addr)
@@ -318,7 +318,7 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_EDIT', current_user.name, f'edited file {file.name} (id={id})', request.remote_addr)
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'edited', 'id': id}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'edited', 'id': id})
 				except Exception:
 					pass
 		except Exception as e:
@@ -363,7 +363,8 @@ def register(app, media_service, socketio=None) -> None:
 				pass
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'deleted', 'id': id}, broadcast=True)
+					# server-originated event, no originClientId so all clients refresh
+					socketio.emit('files:changed', {'reason': 'deleted', 'id': id})
 				except Exception:
 					pass
 		except Exception as e:
@@ -508,7 +509,7 @@ def register(app, media_service, socketio=None) -> None:
 			# Notify clients
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'moved', 'id': id, 'file_exists': file.exists}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'moved', 'id': id, 'file_exists': file.exists})
 				except Exception:
 					pass
 		except Exception as e:
@@ -546,7 +547,7 @@ def register(app, media_service, socketio=None) -> None:
 			# Notify clients about note update
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'note', 'id': id}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'note', 'id': id})
 				except Exception:
 					pass
 		except Exception as e:
@@ -575,7 +576,7 @@ def register(app, media_service, socketio=None) -> None:
 				# Notify clients that file is missing
 				if socketio:
 					try:
-						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'file_exists': False}, broadcast=True)
+								socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'file_exists': False})
 					except Exception:
 						pass
 				# Return 200 so UI can update gracefully even when file is missing
@@ -652,7 +653,7 @@ def register(app, media_service, socketio=None) -> None:
 			# Notify clients
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}, 'file_exists': file_rec.exists}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'metadata', 'id': id, 'meta': {'length': length_seconds, 'size': size_mb}, 'file_exists': file_rec.exists})
 				except Exception:
 					pass
 			# Return JSON for AJAX requests, simple response for traditional requests
@@ -748,7 +749,7 @@ def register(app, media_service, socketio=None) -> None:
 			# Notify clients about new file
 			if socketio:
 				try:
-					socketio.emit('files:changed', {'reason': 'recorded', 'id': id}, broadcast=True)
+						socketio.emit('files:changed', {'reason': 'recorded', 'id': id})
 				except Exception:
 					pass
 			return {200: 'OK'}

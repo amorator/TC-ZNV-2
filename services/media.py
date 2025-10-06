@@ -117,14 +117,14 @@ class MediaService:
             # Notify clients about conversion completion
             if self.socketio:
                 try:
-                    payload = {'reason': 'converted', 'id': entity_id, 'meta': {'length': length_seconds, 'size': size_mb}}
+                    payload = {'reason': 'processing-complete', 'id': entity_id, 'meta': {'length': length_seconds, 'size': size_mb}}
                     # event emitted; avoid verbose logs
                     # Default namespace emit
-                    self.socketio.emit('files:changed', payload, broadcast=True)
+                    self.socketio.emit('files:changed', payload)
                     self.socketio.sleep(0)
                     # Also emit with explicit namespace for some clients
                     try:
-                        self.socketio.emit('files:changed', payload, namespace='/', broadcast=True)
+                        self.socketio.emit('files:changed', payload, namespace='/')
                     except Exception:
                         pass
                     self.socketio.sleep(0)

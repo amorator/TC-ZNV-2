@@ -342,11 +342,11 @@ function startUploadWithProgress(form) {
     } catch(_) {}
   }
 
-  // Ensure recorder iframe inherits current theme
+  // Ensure recorder iframe inherits current theme (update data-src lazily)
   (function ensureRecorderIframeTheme() {
     try {
       const iframe = document.getElementById('rec-iframe');
-      if (!iframe || !iframe.src) return;
+      if (!iframe) return;
       const getTheme = () => (
         document.documentElement.getAttribute('data-theme')
         || (document.body && document.body.getAttribute('data-theme'))
@@ -361,17 +361,23 @@ function startUploadWithProgress(form) {
         || 'light'
       );
       const themeAttr = getTheme();
+      // Prefer updating data-src to avoid triggering a load during navigation
       try {
-        const u = new URL(iframe.src, window.location.origin);
-        u.searchParams.set('embed', '1');
-        u.searchParams.set('theme', themeAttr);
-        const updated = u.toString();
-        if (updated !== iframe.src) iframe.src = updated;
-      } catch(_) {
-        // Fallback: naive append
-        const join = iframe.src.includes('?') ? '&' : '?';
-        if (!iframe.src.includes('theme=')) iframe.src = iframe.src + join + 'theme=' + encodeURIComponent(themeAttr);
-      }
+        const ds = iframe.getAttribute('data-src');
+        if (ds) {
+          try {
+            const u = new URL(ds, window.location.origin);
+            u.searchParams.set('embed', '1');
+            if (!u.searchParams.has('theme')) u.searchParams.set('theme', themeAttr);
+            iframe.setAttribute('data-src', u.toString());
+          } catch(_) {
+            if (ds.indexOf('theme=') === -1) {
+              const join = ds.indexOf('?') !== -1 ? '&' : '?';
+              iframe.setAttribute('data-src', ds + join + 'theme=' + encodeURIComponent(themeAttr));
+            }
+          }
+        }
+      } catch(_) {}
       // Also send theme via postMessage after iframe loads
       const sendTheme = () => {
         try {
@@ -487,11 +493,11 @@ function startUploadWithProgress(form) {
           // Reset form after successful upload
           try { resetAfterUpload(); } catch(e) {}
           // Use AJAX refresh instead of page reload
-          try { window.refreshFilesPage(); } catch(e) {}
+          try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
           // Emit socket event for other users
           try { 
             if (window.socket && window.socket.emit) {
-              window.socket.emit('files:changed', { reason: 'upload-complete' });
+              window.socket.emit('files:changed', { reason: 'upload-complete', originClientId: window.__filesClientId });
             }
           } catch(e) {}
         }, 1000);
@@ -511,11 +517,11 @@ function startUploadWithProgress(form) {
         popupToggle('popup-add'); 
         // Reset form after successful upload
         try { resetAfterUpload(); } catch(e) {}
-        try { window.refreshFilesPage(); } catch(e) {}
+        try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
         // Emit socket event for other users
         try { 
           if (window.socket && window.socket.emit) {
-            window.socket.emit('files:changed', { reason: 'upload-complete' });
+            window.socket.emit('files:changed', { reason: 'upload-complete', originClientId: window.__filesClientId });
           }
         } catch(e) {}
       }, 1000);
@@ -1198,8 +1204,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Socket.IO live updates for files table (disabled per request to avoid background refreshes)
-  if (false) { try {
+  // Socket.IO live updates for files table
+  try {
     if (window.io) {
       /**
        * @type {import('socket.io-client').Socket}
@@ -1229,7 +1235,7 @@ document.addEventListener('DOMContentLoaded', function () {
        */
       if (!socket._filesBound) {
         socket._filesBound = true;
-        socket.on('connect', function() { scheduleFilesRefreshFromSocket(); });
+        socket.on('connect', function() { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
       
       /**
        * Handle disconnection - Socket.IO will attempt automatic reconnection
@@ -1251,7 +1257,7 @@ document.addEventListener('DOMContentLoaded', function () {
        * Handle successful reconnection - refresh table to get latest data
        * @param {number} attemptNumber - Number of reconnection attempts
        */
-        socket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket(); });
+        socket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
       
       /**
        * Handle reconnection errors - Socket.IO will continue trying
@@ -1286,14 +1292,14 @@ document.addEventListener('DOMContentLoaded', function () {
             // Copy event handlers to new socket (bind once)
             if (!newSocket._filesBound) {
               newSocket._filesBound = true;
-              newSocket.on('connect', function() { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('connect', function() { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
               newSocket.on('disconnect', function(reason) {});
               newSocket.on('connect_error', function(err) {});
-              newSocket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
               newSocket.on('reconnect_error', function(error) {});
               newSocket.on('reconnect_failed', function() {});
-              newSocket.on('files:changed', function(evt) { scheduleFilesRefreshFromSocket(); });
-              newSocket.on('/files:changed', function(evt) { scheduleFilesRefreshFromSocket(); });
+              newSocket.on('files:changed', function(evt) { scheduleFilesRefreshFromSocket(evt); });
+              newSocket.on('/files:changed', function(evt) { scheduleFilesRefreshFromSocket(evt); });
             }
             
             // Replace the old socket
@@ -1319,11 +1325,11 @@ document.addEventListener('DOMContentLoaded', function () {
               window.markFileAsMissing(evt.id);
             }
           }
-          if (window.tableManager && window.tableManager.softRefreshTable) {
-            scheduleFilesRefreshFromSocket();
+          // Treat events without originClientId as server-originated → always refresh
+          if (!evt || !evt.originClientId) {
+            scheduleFilesRefreshFromSocket({ reason: 'processing-complete', force: true });
           } else {
-            // Stronger fallback to ensure UI updates
-            window.forceRefreshFilesTable && window.forceRefreshFilesTable();
+            scheduleFilesRefreshFromSocket(evt);
           }
         });
       
@@ -1340,17 +1346,17 @@ document.addEventListener('DOMContentLoaded', function () {
               window.markFileAsMissing(evt.id);
             }
           }
-          if (window.tableManager && window.tableManager.softRefreshTable) {
-            scheduleFilesRefreshFromSocket();
+          if (!evt || !evt.originClientId) {
+            scheduleFilesRefreshFromSocket({ reason: 'processing-complete', force: true });
           } else {
-            window.forceRefreshFilesTable && window.forceRefreshFilesTable();
+            scheduleFilesRefreshFromSocket(evt);
           }
         });
       }
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
-  } }
+  }
 
   // Helper: smooth table update without flickering
   function smoothUpdateTableBody(oldTbody, newTbody) {
@@ -1413,6 +1419,8 @@ document.addEventListener('DOMContentLoaded', function () {
   // Register with TableManager and unify soft refresh.
   // Preserves search/pagination and rebinds page-specific handlers after refresh.
   try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'files', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
+  // Per-tab client id to mark our own socket emissions
+  try { if (!window.__filesClientId) window.__filesClientId = (Math.random().toString(36).slice(2) + Date.now()); } catch(_) {}
   // Prevent overlapping refreshes and recover from errors
   let __filesRefreshBusy = false;
   let __filesRefreshStartedAt = 0;
@@ -1457,17 +1465,66 @@ document.addEventListener('DOMContentLoaded', function () {
   function isIdle(maxMs) {
     return (Date.now() - __filesLastActive) > maxMs;
   }
-  function softRefreshFilesTable() { /* disabled */ }
+  // Soft refresh: re-fetch current page or active search and rebind handlers
+  function softRefreshFilesTable() {
+    try {
+      const input = document.getElementById('searchinp');
+      const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+      if (q && typeof window.filesDoFilter === 'function') {
+        return window.filesDoFilter(q).then(function(){ try { afterRefresh(); } catch(_) {} }).catch(function(){ try { afterRefresh(); } catch(_) {} });
+      }
+      if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
+        window.filesPager.renderPage(window.filesPager.readPage());
+        try { afterRefresh(); } catch(_) {}
+        return;
+      }
+    } catch(_) {}
+  }
 
   // Debounced public refresh to avoid storms from sockets/timers
-  window.softRefreshFilesTable = function() { /* disabled */ };
+  window.softRefreshFilesTable = function() { try { softRefreshFilesTable(); } catch(_) {} };
 
   // Debounced scheduler for socket-triggered refreshes with idle guard
   let __filesSocketEventTimer = null;
-  function scheduleFilesRefreshFromSocket() { /* disabled */ }
+  function scheduleFilesRefreshFromSocket(evt) {
+    try {
+      const fromSelf = evt && evt.originClientId && window.__filesClientId && (evt.originClientId === window.__filesClientId);
+      const serverReasons = ['conversion-complete','processing-complete','server-update'];
+      const force = (evt && (evt.force === true || (evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1)));
+      if (fromSelf && !force) return;
+      if (__filesSocketEventTimer) { clearTimeout(__filesSocketEventTimer); __filesSocketEventTimer = null; }
+      __filesSocketEventTimer = setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 300);
+    } catch(_) {}
+  }
 
-  // Strong fallback refresh (disabled)
-  window.forceRefreshFilesTable = function() {};
+  // Strong fallback refresh invokes the same logic immediately
+  window.forceRefreshFilesTable = function() { try { softRefreshFilesTable(); } catch(_) {} };
+
+  // After-refresh hook: if there are processing rows, poll a few times
+  function afterRefresh() {
+    try {
+      const table = document.getElementById('maintable');
+      if (!table) return;
+      const processing = Array.from(table.querySelectorAll('tbody tr.table__body_row')).some(function(tr){
+        return tr.getAttribute('data-is-ready') === '0' || Array.from(tr.querySelectorAll('td.table__body_item')).some(function(td){
+          const t = (td.innerText || td.textContent || '').toLowerCase();
+          return t.indexOf('обрабатывается') !== -1;
+        });
+      });
+      if (processing) {
+        // schedule a couple of follow-up refreshes to catch conversion completion
+        try { if (window.__filesFollowUps == null) window.__filesFollowUps = 0; } catch(_) {}
+        if (window.__filesFollowUps < 6) { // up to ~6 polls
+          window.__filesFollowUps++;
+          setTimeout(function(){ try { softRefreshFilesTable(); } catch(_) {} }, 5000);
+        } else {
+          try { window.__filesFollowUps = 0; } catch(_) {}
+        }
+      } else {
+        try { window.__filesFollowUps = 0; } catch(_) {}
+      }
+    } catch(_) {}
+  }
 
   // Periodic refresh while there are rows in processing state
   (function setupProcessingWatcher() {
@@ -2359,7 +2416,7 @@ document.addEventListener('DOMContentLoaded', function () {
               description: form.querySelector('textarea[name="description"]')?.value?.trim()
             });
           } else {
-            window.refreshFilesPage(); // Fallback
+            if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
           }
         } else if (form.id === 'note') {
           // Update note locally to avoid refresh delay
@@ -2396,24 +2453,24 @@ document.addEventListener('DOMContentLoaded', function () {
           if (fileId) {
             removeFileRowLocally(fileId);
           } else {
-            window.refreshFilesPage(); // Fallback
+            if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
           }
         } else if (form.id === 'move') {
           // After move, soft refresh current category/subcategory
-          window.refreshFilesPage();
+          if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
         } else {
           // Other forms - soft refresh
-          window.refreshFilesPage();
+          if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
         }
       } catch (e) {
         console.error('Error updating table locally:', e);
-        window.refreshFilesPage(); // Fallback to soft refresh
+        if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
       }
       
       // Emit socket event for other users
       try { 
         if (window.socket && window.socket.emit) {
-          window.socket.emit('files:changed', { reason: 'form-submit', formId: form.id });
+          window.socket.emit('files:changed', { reason: 'form-submit', formId: form.id, originClientId: window.__filesClientId });
         }
       } catch(e) {}
     })
@@ -2520,7 +2577,7 @@ window.markViewedAjax = function(fileId) {
         // Notify others and optionally soft refresh
         try {
           if (window.socket && window.socket.emit) {
-            window.socket.emit('files:changed', { reason: 'mark-viewed', id: fileId });
+            window.socket.emit('files:changed', { reason: 'mark-viewed', id: fileId, originClientId: window.__filesClientId });
           }
         } catch(_) {}
         try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(_) {}

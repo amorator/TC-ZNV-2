@@ -483,7 +483,7 @@ def register(app, socketio=None):
 				}
 				# Notify all listeners that presence changed
 				try:
-					socketio.emit('presence:changed', {'sid': request.sid, 'user': user}, broadcast=True)
+					socketio.emit('presence:changed', {'sid': request.sid, 'user': user})
 				except Exception:
 					pass
 			except Exception:
@@ -500,7 +500,7 @@ def register(app, socketio=None):
 						app._presence.pop(sid, None)
 					app._presence.pop(request.sid, None)
 					try:
-						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'disconnect'}, broadcast=True)
+						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'disconnect'})
 					except Exception:
 						pass
 			except Exception:

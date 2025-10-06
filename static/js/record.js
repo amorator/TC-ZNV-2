@@ -522,7 +522,7 @@ function updateButtonStates() {
     
     // Hide save button on initialization
     if (buttonSave) {
-      buttonSave.disabled = true;
+buttonSave.disabled = true;
       try { buttonSave.style.display = 'none'; } catch(e) {}
     }
   } catch (e) {
@@ -643,9 +643,9 @@ function onSourceChange() {
     // Stop current streams if any
     stopCameraStream();
     // Reset UI state
-disable(buttonStart);
-disable(buttonPause);
-disable(buttonStop);
+      disable(buttonStart);
+      disable(buttonPause);
+      disable(buttonStop);
     if (buttonSave) { 
 buttonSave.disabled = true;
       try { buttonSave.style.display = 'none'; } catch(e) {} 
@@ -836,7 +836,7 @@ async function onCameraClick() {
             videoCamera.style.borderColor = 'green';
           }
           
-          buttonCamera.textContent = 'Выключить камеру';
+      buttonCamera.textContent = 'Выключить камеру';
           isScreenRecording = false;
           try { updateButtonStates(); } catch(_) {}
           

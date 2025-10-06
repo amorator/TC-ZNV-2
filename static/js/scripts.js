@@ -407,8 +407,24 @@ function popupToggle(x, id = 0) {
     // Ensure recorder iframe loads fresh content on open (bypass cache)
     if (x === 'popup-rec') {
       try {
-        const iframe = document.getElementById('rec-iframe');
+        let iframe = document.getElementById('rec-iframe');
         if (iframe) {
+          // Replace with a fresh iframe to avoid browser keeping a stalled loader
+          try {
+            const parent = iframe.parentNode;
+            const old = iframe;
+            const fresh = document.createElement('iframe');
+            fresh.id = 'rec-iframe';
+            try { fresh.setAttribute('allow', old.getAttribute('allow') || 'camera; microphone; display-capture'); } catch(_) {}
+            // copy style
+            try { fresh.style.cssText = old.style.cssText; } catch(_) {}
+            // preserve data-src
+            try { fresh.setAttribute('data-src', old.getAttribute('data-src') || ''); } catch(_) {}
+            // Start blank
+            fresh.src = 'about:blank';
+            parent.replaceChild(fresh, old);
+            iframe = fresh;
+          } catch(_) {}
           let ds = iframe.getAttribute('data-src');
           // Fallback if data-src missing
           if (!ds || ds === 'about:blank') {
@@ -418,6 +434,25 @@ function popupToggle(x, id = 0) {
               const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
               ds = `/files/rec/${did}/${sdid}?embed=1`;
             } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+          } else {
+            // If data-src exists but points to a different did/sdid, rebuild it
+            try {
+              const parts = (location.pathname || '/').split('/');
+              const didNow = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
+              const sdidNow = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+              let shouldRebuild = false;
+              try {
+                const ucheck = new URL(ds, window.location.origin);
+                const seg = (ucheck.pathname || '').split('/');
+                const dOld = parseInt(seg[3]||'0',10)||0;
+                const sdOld = parseInt(seg[4]||'1',10)||1;
+                if (dOld !== didNow || sdOld !== sdidNow) shouldRebuild = true;
+              } catch(_) { shouldRebuild = true; }
+              if (shouldRebuild) {
+                ds = `/files/rec/${didNow}/${sdidNow}?embed=1`;
+                try { iframe.setAttribute('data-src', ds); } catch(_) {}
+              }
+            } catch(_) {}
           }
           let urlStr = ds;
           try {
@@ -435,6 +470,7 @@ function popupToggle(x, id = 0) {
             if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
             u.searchParams.set('t', String(Date.now()));
             urlStr = u.toString();
+            try { iframe.setAttribute('data-src', urlStr); } catch(_) {}
           } catch(_) {}
           iframe.src = urlStr;
           // Retry setting src if the browser didn't kick off a request yet
@@ -451,12 +487,64 @@ function popupToggle(x, id = 0) {
             };
             setTimeout(ensureSrc, 0);
           } catch(_) {}
+          // Attach load/error watchdog: if not loaded within 1200ms, force reload with fresh t
+          try {
+            let loaded = false;
+            const onLoad = function(){ loaded = true; try { iframe.removeEventListener('load', onLoad); } catch(_) {} };
+            const onError = function(){
+              try { iframe.removeEventListener('error', onError); } catch(_) {}
+              if (loaded) return;
+              try {
+                const u = new URL(urlStr, window.location.origin);
+                u.searchParams.set('t', String(Date.now()));
+                iframe.src = u.toString();
+              } catch(_) { iframe.src = urlStr; }
+            };
+            iframe.addEventListener('load', onLoad, { once: true });
+            iframe.addEventListener('error', onError, { once: true });
+            setTimeout(function(){ if (!loaded) { onError(); } }, 1200);
+          } catch(_) {}
         }
       } catch(_) {}
     }
     overlay.style.display = 'flex';
     overlay.classList.add('show');
     overlay.classList.add('visible');
+    // After becoming visible, ensure src is set if still blank
+    if (x === 'popup-rec') {
+      try {
+        setTimeout(function(){
+          try {
+            const iframe = document.getElementById('rec-iframe');
+            if (!iframe) return;
+            if (!iframe.src || iframe.src === 'about:blank') {
+              let ds = iframe.getAttribute('data-src') || '';
+              if (!ds) return;
+              try {
+                const u = new URL(ds, window.location.origin);
+                const theme = (function(){
+                  try {
+                    return document.documentElement.getAttribute('data-theme')
+                      || (document.body && document.body.getAttribute('data-theme'))
+                      || localStorage.getItem('selectedTheme')
+                      || localStorage.getItem('theme')
+                      || 'light';
+                  } catch(_) { return 'light'; }
+                })();
+                if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
+                if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
+                u.searchParams.set('t', String(Date.now()));
+                const built = u.toString();
+                try { iframe.setAttribute('data-src', built); } catch(_) {}
+                iframe.src = built;
+              } catch(_) {
+                iframe.src = ds;
+              }
+            }
+          } catch(_) {}
+        }, 0);
+      } catch(_) {}
+    }
     try { if (!window.__mediaOpenState) { window.__mediaOpenState = { opening: false }; } else { window.__mediaOpenState.opening = false; } } catch(_) {}
     
     // Restore z-index for modal and overlay
@@ -613,6 +701,64 @@ window.addEventListener('message', function(ev) {
     try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
   }
 });
+
+// Ensure recorder iframe src is set when modal becomes visible (robust watchdog)
+(function setupRecIframeSrcWatcher(){
+  if (window.__recSrcWatcherInit) return; window.__recSrcWatcherInit = true;
+  function buildRecUrlFromDataSrc(ds) {
+    try {
+      const u = new URL(ds, window.location.origin);
+      const theme = (function(){
+        try {
+          return document.documentElement.getAttribute('data-theme')
+            || (document.body && document.body.getAttribute('data-theme'))
+            || localStorage.getItem('selectedTheme')
+            || localStorage.getItem('theme')
+            || 'light';
+        } catch(_) { return 'light'; }
+      })();
+      if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
+      if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
+      u.searchParams.set('t', String(Date.now()));
+      return u.toString();
+    } catch(_) { return ds; }
+  }
+  function ensure() {
+    try {
+      const overlay = document.getElementById('popup-rec');
+      const iframe = document.getElementById('rec-iframe');
+      if (!overlay || !iframe) return;
+      const isVisible = overlay.classList && (overlay.classList.contains('show') || overlay.classList.contains('visible'));
+      if (!isVisible) return;
+      if (!iframe.src || iframe.src === 'about:blank') {
+        let ds = iframe.getAttribute('data-src') || '';
+        if (!ds) {
+          try {
+            const parts = (location.pathname || '/').split('/');
+            const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
+            const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+            ds = `/files/rec/${did}/${sdid}?embed=1`;
+          } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+        }
+        const url = buildRecUrlFromDataSrc(ds);
+        try { iframe.setAttribute('data-src', url); } catch(_) {}
+        iframe.src = url;
+      }
+    } catch(_) {}
+  }
+  try {
+    const obs = new MutationObserver(function(muts){
+      for (const m of muts) {
+        if (m.type === 'attributes') { ensure(); }
+      }
+    });
+    const overlay = document.getElementById('popup-rec');
+    if (overlay) obs.observe(overlay, { attributes: true, attributeFilter: ['class', 'style'] });
+  } catch(_) {}
+  try { document.addEventListener('visibilitychange', ensure); } catch(_) {}
+  try { window.addEventListener('focus', ensure); } catch(_) {}
+  try { setInterval(ensure, 500); } catch(_) {}
+})();
 
 /**
  * Show a confirmation dialog to save/discard recorder data on close.
