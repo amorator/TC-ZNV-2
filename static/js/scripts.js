@@ -41,6 +41,10 @@ function popupToggle(popupId) {
     document.body.style.overflow = 'hidden'; // Prevent background scrolling
     window.popup = popupId;
     try { if (!window.__mediaOpenState) window.__mediaOpenState = { opening: false }; else window.__mediaOpenState.opening = false; } catch(_) {}
+    // Reset recorder saved flag on open
+    if (popupId === 'popup-rec') {
+      try { window.__recHasSaved = false; } catch(_) {}
+    }
     
     // Focus first input if available
     setTimeout(() => {
@@ -537,6 +541,24 @@ function popupToggle(x, id = 0) {
 window.addEventListener('message', function(ev) {
   const data = ev.data || {};
   if (!data || typeof data !== 'object') return;
+  // no height negotiation
+  if (data.type === 'rec:esc') {
+    try {
+      const iframe = document.getElementById('rec-iframe');
+      if (iframe && iframe.contentWindow) {
+        window.__recCloseRequested = true;
+        try { window.__recCloseReason = 'esc'; } catch(_) {}
+        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+        iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+        window.__recStateTimer = setTimeout(function() {
+          try { window.__recCloseRequested = false; } catch(_) {}
+          try { window.__recCloseReason = null; } catch(_) {}
+          try { window.__recStateTimer = null; } catch(_) {}
+        }, 300);
+      }
+    } catch(_) {}
+    return;
+  }
   if (data.type === 'rec:state' && window.__recCloseRequested) {
     window.__recCloseRequested = false;
     try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
@@ -547,12 +569,22 @@ window.addEventListener('message', function(ev) {
     if (isRecording) {
       // do not allow close while recording
       alert('Остановите запись перед закрытием окна.');
+      try { window.__recCloseReason = null; } catch(_) {}
       return;
     }
-    if (!window.__recSaving && (hasData || isPaused)) {
-      // show confirm modal with Yes/No/Cancel
-      showRecConfirmDialog();
-      return;
+    if (window.__recCloseReason === 'esc') {
+      try { window.__recCloseReason = null; } catch(_) {}
+      if (hasData && !window.__recHasSaved) {
+        // ignore ESC when data exists but not saved
+        return;
+      }
+      // safe to close
+    } else {
+      if (!window.__recSaving && (hasData || isPaused) && !window.__recHasSaved) {
+        // show confirm modal with Yes/No/Cancel for non-ESC close
+        showRecConfirmDialog();
+        return;
+      }
     }
     // Safe to close: instruct iframe to cleanup then hide modal
     try {
@@ -577,6 +609,7 @@ window.addEventListener('message', function(ev) {
     window.__recSaving = false;
   } else if (data.type === 'rec:saved') {
     window.__recSaving = false;
+    try { window.__recHasSaved = true; } catch(_) {}
     try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
   }
 });
@@ -751,11 +784,13 @@ document.addEventListener('keydown', function (event) {
           const iframe = document.getElementById('rec-iframe');
           if (iframe && iframe.contentWindow) {
             window.__recCloseRequested = true;
+            try { window.__recCloseReason = 'esc'; } catch(_) {}
             try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
             iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
             // Do not auto-confirm via fallback on ESC; if no response, just ignore
             window.__recStateTimer = setTimeout(function() {
               try { window.__recCloseRequested = false; } catch(_) {}
+              try { window.__recCloseReason = null; } catch(_) {}
               try { window.__recStateTimer = null; } catch(_) {}
             }, 300);
             return;
@@ -765,6 +800,22 @@ document.addEventListener('keydown', function (event) {
     }
     try { popupClose(popup); } catch(e) {}
   }
+}, true);
+
+// Global capture guard: block Space when any visible overlay present even if popup state desynced
+document.addEventListener('keydown', function (event) {
+  try {
+    // Any visible overlay?
+    var overlay = document.querySelector('.overlay-container.show, .overlay-container.visible');
+    if (!overlay) return;
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    if (event.code === 'Space' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+    }
+  } catch(_) {}
 }, true);
 
 // Space to toggle play/pause when media modals are open
@@ -804,10 +855,12 @@ document.addEventListener('click', function (e) {
           const iframe = document.getElementById('rec-iframe');
           if (iframe && iframe.contentWindow) {
             window.__recCloseRequested = true;
+            try { window.__recCloseReason = 'esc'; } catch(_) {}
             try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
             iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
             window.__recStateTimer = setTimeout(function() {
               try { window.__recCloseRequested = false; } catch(_) {}
+              try { window.__recCloseReason = null; } catch(_) {}
               try { window.__recStateTimer = null; } catch(_) {}
             }, 300);
             return;

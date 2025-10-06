@@ -106,6 +106,74 @@ const BYTES_IN_MB = 1048576;
 /** @type {boolean} */ let isDualRecording = false;
 /** @type {boolean} */ let isAudioOnly = false;
 
+/**
+ * Determine if any capture streams are currently active (live tracks).
+ * @returns {boolean}
+ */
+function areAnyStreamsActive() {
+  try {
+    const hasLive = (stream) => !!(stream && stream.getTracks && stream.getTracks().some(t => t.readyState === 'live'));
+    return hasLive(currentStreamScreen) || hasLive(currentStreamCamera) || hasLive(currentStreamAudio);
+  } catch(_) { return false; }
+}
+
+/**
+ * Enable/disable source selection radio controls.
+ * @param {boolean} enabled
+ */
+function setSourceControlsEnabled(enabled) {
+  try { if (sourceCamera) sourceCamera.disabled = !enabled; } catch(_) {}
+  try { if (sourceScreen) sourceScreen.disabled = !enabled; } catch(_) {}
+  try { if (sourceBoth) sourceBoth.disabled = !enabled; } catch(_) {}
+  try { if (sourceAudio) sourceAudio.disabled = !enabled; } catch(_) {}
+}
+
+/**
+ * Attach onended listeners to all tracks of given stream with a reason message.
+ * @param {MediaStream|null} stream
+ * @param {string} reason
+ */
+function attachOnEnded(stream, reason) {
+  try {
+    if (!stream || !stream.getTracks) return;
+    const notify = function() { handleCaptureRevoked(reason); };
+    stream.getTracks().forEach(function(t){ try { t.onended = notify; } catch(_) {} });
+  } catch(_) {}
+}
+
+/**
+ * Handle revoked capture or inactive stream. Stops recording, allows save, disables source controls, notifies.
+ * @param {string} message
+ */
+function handleCaptureRevoked(message) {
+  try {
+    if (window.__recNotifiedRevoked) return;
+    window.__recNotifiedRevoked = true;
+  } catch(_) {}
+  try {
+    // If recording, transition to stopped UI and allow saving available data
+    try { if (recorderScreen && recorderScreen.state === 'recording') recorderScreen.pause(); } catch(_) {}
+    try { if (recorderCamera && recorderCamera.state === 'recording') recorderCamera.pause(); } catch(_) {}
+    try { if (recorderAudio && recorderAudio.state === 'recording') { try { recorderAudio.pause && recorderAudio.pause(); } catch(e) {} } } catch(_) {}
+    try { if (recorderScreen && recorderScreen.state !== 'inactive') recorderScreen.stop(); } catch(_) {}
+    try { if (recorderCamera && recorderCamera.state !== 'inactive') recorderCamera.stop(); } catch(_) {}
+    try { if (recorderAudio && recorderAudio.state !== 'inactive') recorderAudio.stop(); } catch(_) {}
+    // Update state flags
+    recState.recording = false;
+    recState.paused = false;
+    // Reflect UI and enable save if any data was collected
+    setStoppedUI();
+    updateSaveButtonVisibility();
+    // Stop streams to free devices
+    stopCameraStream();
+    // Disable source switches until user re-enables manually
+    setSourceControlsEnabled(false);
+  } catch(_) {}
+  try { alert(message || 'Источник захвата был отключён или отозваны разрешения. Данные можно сохранить, если они есть.'); } catch(_) {}
+  // allow further notifications after short cooldown
+  try { setTimeout(function(){ window.__recNotifiedRevoked = false; }, 1000); } catch(_) {}
+}
+
 /** @typedef {{recording: boolean, paused: boolean, hasData: boolean}} RecState */
 /** @type {RecState} */ let recState = { recording: false, paused: false, hasData: false };
 /** @type {BlobPart[]} */ let recordedAudio = [];
@@ -239,6 +307,10 @@ disable(buttonStop);
   updateButtonStates();
   
   postState();
+  // Recompute scrollbar on resize
+  try {
+    window.addEventListener('resize', function(){ try { updateVideoVisibility(); } catch(_) {} });
+  } catch(_) {}
   // Ensure correct initial background/app state in parent
   // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
   /**
@@ -258,9 +330,9 @@ disable(buttonStop);
         }
       } catch(e) {}
     } else if (event.key === 'Escape') {
-      // Do not perform any actions on ESC inside recorder; parent handles guarded close
-      event.preventDefault();
-      event.stopPropagation();
+      // Delegate ESC to parent for guarded close logic
+      try { event.preventDefault(); } catch(_) {}
+      try { window.parent && window.parent.postMessage({ type: 'rec:esc' }, '*'); } catch(_) {}
       return;
     }
   };
@@ -344,6 +416,8 @@ function resetAfterSave() {
   
   // Update button states after reset
   updateButtonStates();
+  // Re-enable source controls after save/reset
+  try { setSourceControlsEnabled(true); } catch(_) {}
   
   // Reinitialize button handlers to ensure they work
   if (buttonCamera) buttonCamera.onclick = onCameraClick;
@@ -412,6 +486,8 @@ function stopCameraStream() {
   isScreenRecording = false;
   isDualRecording = false;
   isAudioOnly = false;
+  // If no streams left and not recording/paused, re-enable source controls
+  try { if (!areAnyStreamsActive() && !recState.recording && !recState.paused) setSourceControlsEnabled(true); } catch(_) {}
 }
 
 /**
@@ -490,6 +566,12 @@ function updateVideoVisibility() {
         label.style.display = isAudioMode ? 'block' : 'none';
       }
     });
+
+    // Single inner scrollbar on body; keep html hidden to avoid double bars
+    try {
+      document.documentElement.style.setProperty('overflow-y', 'hidden', 'important');
+      document.body.style.setProperty('overflow-y', 'auto', 'important');
+    } catch(_) {}
   } catch(e) {}
 }
 
@@ -520,6 +602,13 @@ buttonSave.disabled = true;
  * @returns {void}
  */
 function onSourceChange() {
+  // Block changing source while any stream active or during/paused recording
+  try {
+    if (areAnyStreamsActive() || recState.recording || recState.paused) {
+      setSourceControlsEnabled(false);
+      return;
+    }
+  } catch(_) {}
   try {
     if (sourceBoth && sourceBoth.checked) {
       isDualRecording = true;
@@ -596,6 +685,8 @@ async function onCameraClick() {
       clearInterval(timerInterval);
       return;
     } else {
+      // Disable source toggles once capture is about to start
+      try { setSourceControlsEnabled(false); } catch(_) {}
       // Check current source selection
       const isScreenMode = sourceScreen && sourceScreen.checked;
       const isBothMode = sourceBoth && sourceBoth.checked;
@@ -618,6 +709,7 @@ async function onCameraClick() {
               sampleRate: 48000
             }
           });
+          attachOnEnded(currentStreamScreen, 'Захват экрана был остановлен. Вы можете сохранить уже записанное.');
           
           // Get camera stream
           currentStreamCamera = await navigator.mediaDevices.getUserMedia({
@@ -635,6 +727,7 @@ async function onCameraClick() {
               sampleSize: 16
             }
           });
+          attachOnEnded(currentStreamCamera, 'Камера была отключена. Вы можете сохранить уже записанное.');
           
           // Setup video elements
           if (videoScreen) {
@@ -674,6 +767,7 @@ async function onCameraClick() {
               sampleRate: 48000
             }
           });
+          attachOnEnded(currentStreamScreen, 'Захват экрана был остановлен. Вы можете сохранить уже записанное.');
           
           if (videoScreen) {
             videoScreen.srcObject = currentStreamScreen;
@@ -703,6 +797,7 @@ async function onCameraClick() {
               sampleSize: 16
             }
           });
+          attachOnEnded(currentStreamAudio, 'Микрофон был отключён. Вы можете сохранить уже записанное.');
           if (audioIndicator) {
             audioIndicator.style.borderColor = 'green';
             audioIndicator.textContent = 'Микрофон включен';
@@ -732,6 +827,7 @@ async function onCameraClick() {
               sampleSize: 16
             }
           });
+          attachOnEnded(currentStreamCamera, 'Камера была отключена. Вы можете сохранить уже записанное.');
           
           if (videoCamera) {
             videoCamera.srcObject = currentStreamCamera;
@@ -757,31 +853,27 @@ async function onCameraClick() {
       return;
     }
 
-    let mime = 'video/webm;codecs=vp8';
-    if (!MediaRecorder.isTypeSupported(mime)) {
-      mime = 'video/webm;codecs=vp9';
-    }
-    if (!MediaRecorder.isTypeSupported(mime)) {
-      mime = 'video/webm';
-    }
-    
-    // Check if the MIME type supports audio tracks for both screen and camera
+    // Prefer audio-capable MIME types when audio tracks present; fallback robustly
     const hasScreenAudio = currentStreamScreen && currentStreamScreen.getAudioTracks().length > 0;
     const hasCameraAudio = currentStreamCamera && currentStreamCamera.getAudioTracks().length > 0;
-    
-    if (hasScreenAudio || hasCameraAudio) {
-      // If any stream has audio, ensure the MIME type supports audio
-      if (!mime.includes('audio') && !MediaRecorder.isTypeSupported(mime)) {
-        // Try to find a MIME type that supports both video and audio
-        const videoAudioMime = 'video/webm';
-        if (MediaRecorder.isTypeSupported(videoAudioMime)) {
-          mime = videoAudioMime;
-        } else {
-          // Fallback to a more basic MIME type
-          mime = 'video/webm';
-        }
-      }
+    const needsAudio = !!(hasScreenAudio || hasCameraAudio);
+    let candidates = [];
+    if (needsAudio) {
+      candidates = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+    } else {
+      candidates = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
     }
+    let mime = candidates.find(function(m){ try { return MediaRecorder.isTypeSupported(m); } catch(_) { return false; } }) || 'video/webm';
 
     // Clear previous recorders
     recorderScreen = null;
@@ -895,7 +987,6 @@ async function onCameraClick() {
           updateSaveButtonVisibility();
         }
       });
-      
       recorderScreen.addEventListener('stop', function () {
         // Update UI when recording is actually stopped
         updateSaveButtonVisibility();
@@ -912,7 +1003,6 @@ async function onCameraClick() {
           updateSaveButtonVisibility();
         }
       });
-      
       recorderCamera.addEventListener('stop', function () {
         // Update UI when recording is actually stopped
         updateSaveButtonVisibility();
@@ -943,6 +1033,8 @@ async function onCameraClick() {
     disable(buttonStop);
     recState = { recording: false, paused: false, hasData: false };
     postState();
+    // Re-enable source controls when idle and no active streams
+    try { if (!areAnyStreamsActive()) setSourceControlsEnabled(true); } catch(_) {}
   } catch (error) {
     alert('Ошибка при настройке записи!');
   }
@@ -954,9 +1046,10 @@ async function onCameraClick() {
 function onStartClick() {
   if (buttonStart.textContent == 'Начать запись') {
     // Start recording
-    if (recorderScreen) recorderScreen.start();
-    if (recorderCamera) recorderCamera.start();
-    if (recorderAudio) recorderAudio.start();
+    try { if (recorderScreen) recorderScreen.start(); } catch(e) { handleCaptureRevoked('Невозможно начать запись: источник экрана недоступен.'); return; }
+    try { if (recorderCamera) recorderCamera.start(); } catch(e) { handleCaptureRevoked('Невозможно начать запись: камера недоступна.'); return; }
+    try { if (recorderAudio) recorderAudio.start(); } catch(e) { handleCaptureRevoked('Невозможно начать запись: микрофон недоступен.'); return; }
+    try { setSourceControlsEnabled(false); } catch(_) {}
     buttonStart.textContent = 'Продолжить';
     try { if (!timerInterval) { timerInterval = setInterval(timer, 1000); } } catch(e) {}
   } else {
@@ -1001,6 +1094,7 @@ function onPauseClick() {
   recState.recording = false;
   recState.paused = true;
   postState();
+  try { setSourceControlsEnabled(false); } catch(_) {}
 }
 
 /**
@@ -1030,6 +1124,7 @@ function onStopClick() {
   // Show save after stop if there is data
   updateSaveButtonVisibility();
   postState();
+  // Allow changing source only after full cleanup happens elsewhere
 }
 
 /**
