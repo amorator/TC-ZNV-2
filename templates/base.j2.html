@@ -39,6 +39,22 @@
       }
     })();
   </script>
+  <script>
+    // Bootstrap tooltip init for all elements declaring data-bs-toggle="tooltip"
+    (function(){
+      function initTooltips(){
+        try {
+          var elms = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+          elms.forEach(function(el){ try { new bootstrap.Tooltip(el, { container: 'body' }); } catch(_) {} });
+        } catch(_) {}
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTooltips);
+      } else {
+        initTooltips();
+      }
+    })();
+  </script>
   
   <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
   <!-- Service Worker disabled during development to avoid caching interference -->
@@ -119,33 +135,33 @@
       <header class="app-topbar px-3">
         <div class="app-topbar__row">
           <div class="app-topbar__group">
-            <a class="topbtn{{ ' active' if request.path == url_for('index') else '' }}" href="{{ url_for('index') }}"><i class="bi bi-slash-circle"></i></a>
+            <a class="topbtn{{ ' active' if request.path == url_for('index') else '' }}" href="{{ url_for('index') }}" title="Главная" aria-label="Главная" data-bs-toggle="tooltip"><i class="bi bi-slash-circle"></i></a>
             {% if current_user.has('requests.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}">Заявки</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}" title="Заявки" aria-label="Заявки" data-bs-toggle="tooltip">Заявки</a>
             {% endif %}
             {% if current_user.has('orders.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}">Наряды-допуски</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}" title="Наряды-допуски" aria-label="Наряды-допуски" data-bs-toggle="tooltip">Наряды-допуски</a>
             {% endif %}
             {% if current_user.has('files.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}">Файлы</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}" title="Файлы" aria-label="Файлы" data-bs-toggle="tooltip">Файлы</a>
             {% endif %}
           </div>
           <div class="app-topbar__group">
             {% if current_user.has('users.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}"><i class="bi bi-person-fill"></i></a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('users')) else '' }}" href="{{ url_for('users') }}" title="Пользователи" aria-label="Пользователи" data-bs-toggle="tooltip"><i class="bi bi-person-fill"></i></a>
             {% endif %}
             {% if current_user.has('users.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('groups')) else '' }}" href="{{ url_for('groups') }}"><i class="bi bi-people-fill"></i></a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('groups')) else '' }}" href="{{ url_for('groups') }}" title="Группы" aria-label="Группы" data-bs-toggle="tooltip"><i class="bi bi-people-fill"></i></a>
             {% endif %}
             {% if current_user.has('admin.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('admin')) else '' }}" href="{{ url_for('admin') }}" title="Администрирование" aria-label="Администрирование"><i class="bi bi-shield-lock-fill"></i></a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('admin')) else '' }}" href="{{ url_for('admin') }}" title="Администрирование" aria-label="Администрирование" data-bs-toggle="tooltip"><i class="bi bi-shield-lock-fill"></i></a>
             {% endif %}
-            <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
+            <button id="btntheme" class="topbtn d-inline-flex align-items-center" title="Сменить тему" aria-label="Сменить тему" data-bs-toggle="tooltip"><i class="bi bi-sun"></i></button>
             <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
-            <button id="btn-dev-refresh-static" class="topbtn d-inline-flex align-items-center" title="Перезагрузить статику"><i class="bi bi-arrow-repeat"></i></button>
-            <button id="btn-dev-reset-socket" class="topbtn d-inline-flex align-items-center" title="Сбросить сокет"><i class="bi bi-plug"></i></button>
+            <button id="btn-dev-refresh-static" class="topbtn d-inline-flex align-items-center" title="Перезагрузить статику" aria-label="Перезагрузить статику" data-bs-toggle="tooltip"><i class="bi bi-arrow-repeat"></i></button>
+            <button id="btn-dev-reset-socket" class="topbtn d-inline-flex align-items-center" title="Сбросить сокет" aria-label="Сбросить сокет" data-bs-toggle="tooltip"><i class="bi bi-plug"></i></button>
             <!-- ==== DEV-ONLY END ======================================================== -->
-            <a class="topbtn text-nowrap" href="{{ url_for('logout') }}">Выход ({{ current_user.name }})</a>
+            <a class="topbtn text-nowrap" href="{{ url_for('logout') }}" title="Выход" aria-label="Выход" data-bs-toggle="tooltip">Выход ({{ current_user.name }})</a>
           </div>
         </div>
       </header>

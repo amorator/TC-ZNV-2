@@ -4,6 +4,16 @@
     border: none;
 }
 
+/* Sticky headers for main tables (users, groups, files) */
+.files-page__table thead th,
+.users-page__table thead th,
+.groups-page__table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    /* above body cells */
+}
+
 /* Prevent column width shifts during updates */
 .files-page__table,
 .users-page__table,
@@ -192,7 +202,16 @@
     background: #ffe08a;
 }
 
+/* Ensure sticky header cells keep visible background when stuck */
+.table-colored thead th {
+    background: #ffe08a;
+}
+
 .theme-dark .table-colored thead {
+    background: rgba(255, 255, 255, .08);
+}
+
+.theme-dark .table-colored thead th {
     background: rgba(255, 255, 255, .08);
 }
 
@@ -200,6 +219,10 @@
     background: #000;
     color: var(--brand-green, #00ff00);
     border-bottom: 1px solid var(--brand-green, #00ff00);
+}
+
+.theme-dark-hc .table-colored thead th {
+    background: #000;
 }
 
 .table-colored tbody tr:first-child>th,
