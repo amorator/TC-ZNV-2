@@ -5,6 +5,7 @@
     var forced = false; // stop emission after forced logout
     var presenceTimer = null;
     var heartbeatTimer = null;
+    var left = false; // prevent duplicate leave signals
     // Reuse a single app-wide socket if available
     var sock = window.socket;
     if (!sock) {
@@ -13,8 +14,21 @@
     }
 
     function emitPresence(){
-      if (forced) return;
+      if (forced || left) return;
       try { sock.emit('presence:update', { page: location.pathname + location.search + location.hash }); } catch(_) {}
+    }
+
+    function sendLeave(){
+      if (left) return; left = true;
+      try { sock.emit && sock.emit('presence:leave'); } catch(_) {}
+      try {
+        if (navigator.sendBeacon) {
+          var data = new Blob([JSON.stringify({ page: location.pathname + location.search + location.hash })], { type: 'application/json' });
+          navigator.sendBeacon('/presence/leave', data);
+        } else {
+          fetch('/presence/leave', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page: location.pathname + location.search + location.hash }) }).catch(function(){});
+        }
+      } catch(_) {}
     }
 
     sock.on && sock.on('connect', function(){ emitPresence(); });
@@ -30,7 +44,7 @@
     window.addEventListener('focus', emitPresence);
     window.addEventListener('hashchange', emitPresence);
     window.addEventListener('popstate', emitPresence);
-    presenceTimer = setInterval(emitPresence, 5000);
+    presenceTimer = setInterval(emitPresence, 3000);
 
     // HTTP heartbeat for idle tabs (covers cases when socket events are throttled)
     function httpHeartbeat(){
@@ -54,7 +68,22 @@
         }).catch(function(){});
       } catch(_) {}
     }
-    heartbeatTimer = setInterval(httpHeartbeat, 5000);
+    heartbeatTimer = setInterval(httpHeartbeat, 3000);
+
+    // Best-effort leave on explicit logout click
+    try {
+      var logoutLinks = document.querySelectorAll('a[href="/logout"], form[action="/logout"] button, #btnLogout');
+      logoutLinks.forEach(function(el){
+        el.addEventListener('click', function(){
+          try { sendLeave(); } catch(_) {}
+        }, { capture: true });
+      });
+    } catch(_) {}
+
+    // Best-effort leave on unload
+    window.addEventListener('beforeunload', function(){
+      try { sendLeave(); } catch(_) {}
+    });
 
     // Initial
     if (document.readyState === 'loading') {

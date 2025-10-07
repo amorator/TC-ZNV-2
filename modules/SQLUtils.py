@@ -1,6 +1,7 @@
 """Database access layer with connection pooling and simple helpers."""
 
 import mysql.connector as mysql
+from mysql.connector import errors as mysql_errors
 
 from classes.user import User
 from classes.request import Request
@@ -11,6 +12,7 @@ from modules.core import Config
 import base64
 import secrets
 from .logging import get_logger
+import time
 
 _log = get_logger(__name__)
 
@@ -147,7 +149,20 @@ class SQL(Config):
                     collation="utf8mb4_general_ci",
                     connection_timeout=int(self.config['db'].get('connect_timeout', 10)),
                 )
-            self.conn = self._pool.get_connection()
+            # Retry acquire to avoid immediate PoolError: pool exhausted under burst load
+            retries = int(self.config['db'].get('pool_acquire_retries', 50))
+            delay_ms = int(self.config['db'].get('pool_acquire_delay_ms', 200))
+            last_err = None
+            for _ in range(max(1, retries)):
+                try:
+                    self.conn = self._pool.get_connection()
+                    break
+                except mysql_errors.PoolError as e:
+                    last_err = e
+                    time.sleep(max(0, delay_ms) / 1000.0)
+            else:
+                # Exhausted retries
+                raise last_err or mysql_errors.PoolError("Failed getting connection; pool exhausted")
             # Ensure connection is alive; reconnect if needed
             try:
                 self.conn.ping(reconnect=True, attempts=1, delay=0)
@@ -193,6 +208,78 @@ class SQLUtils(SQL):
         # Common SQL query fragments for optimization
         self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb"
         self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
+
+        # Ensure push subscriptions table exists with required columns and indexes
+        try:
+            prefix = self.config['db']['prefix']
+            dbname = self.config['db']['name']
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_push_sub (
+	id INTEGER UNIQUE AUTO_INCREMENT,
+                    user_id INT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    p256dh TEXT NOT NULL,
+                    auth TEXT NOT NULL,
+                    user_agent TEXT DEFAULT '',
+                    last_success_at DATETIME NULL,
+                    last_error_at DATETIME NULL,
+                    last_checked_at DATETIME NULL,
+                    error_code VARCHAR(32) DEFAULT NULL,
+                    invalidated_at DATETIME NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+	PRIMARY KEY(id)
+                );
+            """)
+            # Lower lock wait timeouts to avoid startup hangs when DDL locks are present
+            try:
+                self.execute_non_query("SET SESSION lock_wait_timeout = 3;")
+            except Exception:
+                pass
+            try:
+                self.execute_non_query("SET SESSION innodb_lock_wait_timeout = 3;")
+            except Exception:
+                pass
+            # Add indexes and columns if missing (best-effort)
+            try:
+                self.execute_non_query(f"CREATE UNIQUE INDEX ux_{prefix}_push_sub_endpoint ON {prefix}_push_sub (endpoint(255));")
+            except Exception:
+                pass
+            try:
+                self.execute_non_query(f"CREATE INDEX ix_{prefix}_push_sub_user ON {prefix}_push_sub (user_id);")
+            except Exception:
+                pass
+            # Columns that might be missing in older installs (check via INFORMATION_SCHEMA)
+            for col, ddl in [
+                ('user_agent', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT ''"),
+                ('last_success_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_success_at DATETIME NULL"),
+                ('last_error_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_error_at DATETIME NULL"),
+                ('last_checked_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_checked_at DATETIME NULL"),
+                ('error_code', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS error_code VARCHAR(32) NULL"),
+                ('invalidated_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS invalidated_at DATETIME NULL"),
+            ]:
+                try:
+                    exists = self.execute_scalar(
+                        """
+                        SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                        LIMIT 1;
+                        """,
+                        [dbname, f"{prefix}_push_sub", col]
+                    )
+                    if not exists or int(exists[0]) == 0:
+                        try:
+                            self.execute_non_query(ddl)
+                        except Exception:
+                            # Fallback for servers without IF NOT EXISTS support
+                            try:
+                                self.execute_non_query(ddl.replace(" IF NOT EXISTS", ""))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def permission_length(self):
         """Get the length of permission string from first user.
@@ -714,12 +801,12 @@ class SQLUtils(SQL):
         )
         if existing:
             return self.execute_non_query(
-                f"UPDATE {self.config['db']['prefix']}_push_sub SET user_id = %s, p256dh = %s, auth = %s WHERE id = %s;",
-                [user_id, p256dh, auth, existing[0]]
+                f"UPDATE {self.config['db']['prefix']}_push_sub SET user_id = %s, p256dh = %s, auth = %s, user_agent = %s, last_checked_at = NOW(), last_error_at = NULL, error_code = NULL, invalidated_at = NULL WHERE id = %s;",
+                [user_id, p256dh, auth, (self.config.get('user_agent') or ''), existing[0]]
             )
         return self.execute_insert(
-            f"INSERT INTO {self.config['db']['prefix']}_push_sub (user_id, endpoint, p256dh, auth) VALUES (%s, %s, %s, %s);",
-            [user_id, endpoint, p256dh, auth]
+            f"INSERT INTO {self.config['db']['prefix']}_push_sub (user_id, endpoint, p256dh, auth, user_agent, last_checked_at) VALUES (%s, %s, %s, %s, %s, NOW());",
+            [user_id, endpoint, p256dh, auth, (self.config.get('user_agent') or '')]
         )
 
     def push_remove_subscription(self, endpoint: str):
@@ -735,6 +822,24 @@ class SQLUtils(SQL):
             f"SELECT id, endpoint, p256dh, auth, created_at FROM {self.config['db']['prefix']}_push_sub WHERE user_id = %s;",
             [user_id]
         )
+
+    def push_mark_success(self, endpoint: str):
+        try:
+            return self.execute_non_query(
+                f"UPDATE {self.config['db']['prefix']}_push_sub SET last_success_at = NOW(), last_checked_at = NOW(), last_error_at = NULL, error_code = NULL WHERE endpoint = %s;",
+                [endpoint]
+            )
+        except Exception:
+            return None
+
+    def push_mark_error(self, endpoint: str, code: str = None):
+        try:
+            return self.execute_non_query(
+                f"UPDATE {self.config['db']['prefix']}_push_sub SET last_error_at = NOW(), last_checked_at = NOW(), error_code = %s WHERE endpoint = %s;",
+                [str(code) if code else None, endpoint]
+            )
+        except Exception:
+            return None
 
     # --- App settings (VAPID keys storage) ---
     def setting_get(self, name: str):

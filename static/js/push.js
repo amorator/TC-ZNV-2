@@ -46,7 +46,7 @@
         }
 	}
 
-    async function init(opts) {
+	async function init(opts) {
         opts = opts || {};
         try {
 			const reg = await registerSW();
@@ -55,6 +55,15 @@
 			if (!existing) {
                 await subscribe(reg, opts);
 			}
+			// Если разрешения отозваны — попытаться отписаться на сервере для чистоты
+			try {
+				if (('Notification' in window) && Notification.permission === 'denied' && existing) {
+					fetch('/push/unsubscribe', {
+						method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+						body: JSON.stringify({ endpoint: existing.endpoint })
+					}).catch(function(){});
+				}
+			} catch(__) {}
 		} catch(e) {}
 	}
 

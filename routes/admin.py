@@ -14,7 +14,21 @@ def register(app, socketio=None):
 	def admin():
 		"""Administration page: active users table and actions log panel."""
 		try:
-			groups = app._sql.group_all() if hasattr(app._sql, 'group_all') else []
+			# Provide plain id/name dicts for client-side JSON consumption
+			groups = []
+			try:
+				rows = app._sql.execute_query(
+					f"SELECT id, name FROM {app._sql.config['db']['prefix']}_group ORDER BY name;",
+					[]
+				)
+				groups = [{'id': r[0], 'name': r[1]} for r in (rows or []) if r]
+			except Exception:
+				# Fallback to group_all() if available and map objects to dict
+				try:
+					objs = app._sql.group_all()
+					groups = [{'id': getattr(o, 'id', None), 'name': getattr(o, 'name', '')} for o in (objs or [])]
+				except Exception:
+					groups = []
 		except Exception:
 			groups = []
 		# Log page view in actions log
@@ -23,6 +37,86 @@ def register(app, socketio=None):
 		except Exception:
 			pass
 		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Файлы', groups=groups)
+
+	# --- Обслуживание таблицы подписок на уведомления (ручной запуск, с блокировкой на 23ч) ---
+	@app.route('/admin/push_maintain', methods=['POST'])
+	@require_permissions(ADMIN_MANAGE)
+	def admin_push_maintain():
+		"""Ручное обслуживание web push подписок: чистка ошибок и проверка неактивных.
+
+		Ограничение: не чаще 1 раза в 23 часа (глобальная блокировка).
+		"""
+		try:
+			# Глобальный троттлинг по времени
+			from datetime import datetime, timedelta
+			now = datetime.utcnow()
+			last_run = getattr(app, '_last_push_maintain', None)
+			if last_run and (now - last_run) < timedelta(hours=23):
+				return jsonify({'status': 'error', 'message': 'Операция уже выполнялась недавно. Повторите позже.'}), 429
+			app._last_push_maintain = now
+			# Порог для “старых ошибок” (N дней), берем из конфигурации либо 7 по умолчанию
+			try:
+				N = int(app._sql.config.get('web', {}).get('push_error_ttl_days', 7))
+			except Exception:
+				N = 7
+			# 1) Удалить записи с last_success_at IS NULL и last_error_at < NOW()-N дней
+			deleted = 0
+			try:
+				res = app._sql.execute_non_query(
+					f"DELETE FROM {app._sql.config['db']['prefix']}_push_sub WHERE last_success_at IS NULL AND last_error_at IS NOT NULL AND last_error_at < (NOW() - INTERVAL %s DAY);",
+					[N]
+				)
+				deleted = deleted + (res or 0)
+			except Exception:
+				pass
+			# 2) Протестировать неактивные >30 дней: один легкий пуш на пользователя (ограниченно)
+			tested = 0
+			removed = 0
+			try:
+				from pywebpush import webpush, WebPushException
+				vapid_public = (app._sql.push_get_vapid_public() or '')
+				vapid_private = (app._sql.push_get_vapid_private() or '')
+				vapid_subject = (app._sql.push_get_vapid_subject() or 'mailto:admin@example.com')
+				if vapid_public and vapid_private:
+					rows = app._sql.execute_query(
+						f"SELECT s.user_id, s.endpoint, s.p256dh, s.auth FROM {app._sql.config['db']['prefix']}_push_sub s WHERE (s.last_success_at IS NULL OR s.last_success_at < (NOW() - INTERVAL 30 DAY)) GROUP BY s.user_id ORDER BY s.user_id;",
+						[]
+					)
+					payload = {'title': 'Проверка подписки', 'body': 'Сервисная проверка', 'icon': '/static/images/notification-icon.png'}
+					for r in rows or []:
+						uid, endpoint, p256dh, auth = r[0], r[1], r[2], r[3]
+						if not endpoint: continue
+						try:
+							webpush(
+								subscription_info={'endpoint': endpoint, 'keys': {'p256dh': p256dh, 'auth': auth}},
+								data=jsonify_payload(payload),
+								vapid_private_key=vapid_private,
+								vapid_claims={'sub': vapid_subject}
+							)
+							tested += 1
+							try: app._sql.push_mark_success(endpoint)
+							except Exception: pass
+						except WebPushException as we:
+							code = getattr(getattr(we, 'response', None), 'status_code', None)
+							if code == 410:
+								try:
+									app._sql.push_remove_subscription(endpoint)
+									removed += 1
+								except Exception:
+									pass
+							try: app._sql.push_mark_error(endpoint, str(code or '410'))
+							except Exception: pass
+							continue
+			except Exception:
+				pass
+			try:
+				log_action('ADMIN_PUSH_MAINTAIN', current_user.name, f'deleted={deleted} tested={tested} removed={removed}', request.remote_addr)
+			except Exception:
+				pass
+			return jsonify({'status': 'success', 'deleted': deleted, 'tested': tested, 'removed': removed})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
 
 	# --- Logs table server-side pagination & search (HTML tbody fragment) ---
 	@app.route('/admin/logs/page', methods=['GET'])
@@ -108,25 +202,19 @@ def register(app, socketio=None):
 	def admin_presence():
 		"""Return JSON with currently connected users (Socket.IO sessions)."""
 		try:
-			# Throttle presence log to avoid spam from auto-refresh (once per 60s per user)
-			try:
-				now_ts = int(datetime.utcnow().timestamp())
-				key = f"presence:{getattr(current_user, 'id', 0)}"
-				store = getattr(app, '_presence_log_at', None)
-				if store is None:
-					app._presence_log_at = {}
-					store = app._presence_log_at
-				last = store.get(key)
-				if last is None or (now_ts - int(last)) >= 60:
-					log_action('ADMIN_PRESENCE', current_user.name, 'list', request.remote_addr)
-					store[key] = now_ts
-			except Exception:
-				pass
+			# Do not log periodic presence refreshes to avoid log spam
 			# Minimal in-memory presence stores on app (socket + heartbeat)
 			presence = getattr(app, '_presence', {}) or {}
 			presence_hb = getattr(app, '_presence_hb', {}) or {}
+			now_ts = int(datetime.utcnow().timestamp())
+			stale_cutoff = 8  # seconds
 			rows = []
 			for sid, info in presence.items():
+				try:
+					if (now_ts - int(info.get('updated_at') or 0)) > stale_cutoff:
+						continue
+				except Exception:
+					pass
 				rows.append({
 					'sid': sid,
 					'user_id': info.get('user_id'),
@@ -138,6 +226,11 @@ def register(app, socketio=None):
 				})
 			# Merge heartbeat-based entries
 			for key, info in presence_hb.items():
+				try:
+					if (now_ts - int(info.get('updated_at') or 0)) > stale_cutoff:
+						continue
+				except Exception:
+					pass
 				rows.append({
 					'sid': key,
 					'user_id': info.get('user_id'),
@@ -200,6 +293,44 @@ def register(app, socketio=None):
 				'ua': ua,
 				'updated_at': int(datetime.utcnow().timestamp())
 			}
+			return jsonify({'status': 'success'})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
+
+	# --- Explicit leave endpoint to drop presence immediately ---
+	@app.route('/presence/leave', methods=['POST'])
+	def presence_leave():
+		"""Immediately remove current user's presence entries (socket+heartbeat)."""
+		try:
+			# Auth check similar to heartbeat
+			is_auth_attr = getattr(current_user, 'is_authenticated', False)
+			try:
+				is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+			except Exception:
+				is_authenticated = False
+			if not is_authenticated:
+				return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+			uid = getattr(current_user, 'id', None)
+			ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+			ua = request.headers.get('User-Agent', '')
+			# Remove all socket-based presence entries for this user
+			try:
+				presence = getattr(app, '_presence', {}) or {}
+				for psid, info in list(presence.items()):
+					if int(info.get('user_id') or -1) == int(uid or -2):
+						app._presence.pop(psid, None)
+			except Exception:
+				pass
+			# Remove heartbeat entry for this user/ip/ua key
+			try:
+				presence_hb = getattr(app, '_presence_hb', {}) or {}
+				key_prefix = f"hb:{uid}:{ip}:"
+				for k in list(presence_hb.keys()):
+					if k.startswith(key_prefix):
+						app._presence_hb.pop(k, None)
+			except Exception:
+				pass
 			return jsonify({'status': 'success'})
 		except Exception as e:
 			app.flash_error(e)
@@ -501,6 +632,19 @@ def register(app, socketio=None):
 					app._presence.pop(request.sid, None)
 					try:
 						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'disconnect'})
+					except Exception:
+						pass
+			except Exception:
+				pass
+
+		@socketio.on('presence:leave')
+		def presence_leave_socket():
+			"""Drop presence for this socket id immediately (e.g., on logout)."""
+			try:
+				if hasattr(app, '_presence'):
+					app._presence.pop(request.sid, None)
+					try:
+						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'leave'})
 					except Exception:
 						pass
 			except Exception:

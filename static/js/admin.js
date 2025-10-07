@@ -28,7 +28,7 @@
             if (!k) continue;
             freshMap[k] = it;
           }
-          // Merge with cache: keep recently seen entries even if temporarily missing (<=15s)
+          // Merge with cache: keep recently seen entries even if temporarily missing (<=3s)
           const mergedMap = { ...freshMap };
           const keys = Object.keys(presenceCache);
           for (let i = 0; i < keys.length; i++) {
@@ -37,7 +37,7 @@
             const cached = presenceCache[k];
             if (!cached) continue;
             const lastSeen = cached.lastSeen || 0;
-            if ((now - lastSeen) <= 15000) {
+            if ((now - lastSeen) <= 3000) {
               mergedMap[k] = cached.item;
             }
           }
@@ -90,7 +90,7 @@
     }
     // If new list is empty, keep current table for a short grace period to avoid blinking
     if (presenceItems.length === 0) {
-      if (lastPresenceNonEmptyAt && (Date.now() - lastPresenceNonEmptyAt) < 15000) {
+      if (lastPresenceNonEmptyAt && (Date.now() - lastPresenceNonEmptyAt) < 3000) {
         return; // skip swapping to empty state
       }
     } else {
@@ -124,10 +124,38 @@
       if (!modalEl) return;
       // reset
       var textEl = document.getElementById('notifyTextM'); if (textEl) textEl.value = '';
-      var all = document.getElementById('notifyScopeAllM'); if (all) all.checked = true;
-      var wrap = document.getElementById('notifyComboWrapM'); if (wrap) wrap.classList.add('d-none');
+      var all = document.getElementById('notifyScopeAllM');
+      var userR = document.getElementById('notifyScopeUserM');
+      var groupR = document.getElementById('notifyScopeGroupM');
+      var wrap = document.getElementById('notifyComboWrapM');
+      var combo = document.getElementById('notifyComboM');
+      if (all) all.checked = true;
+      if (wrap) wrap.classList.add('d-none');
       modalEl.dataset.target = target || 'all';
       var m = new bootstrap.Modal(modalEl);
+      // If target was preselected from context menu, set proper scope and preload options
+      if (target && typeof target === 'string') {
+        if (target.startsWith('user:')) {
+          if (userR) userR.checked = true;
+          if (wrap) wrap.classList.remove('d-none');
+          if (combo) {
+            combo.disabled = false;
+            var uid = target.split(':',1)[1] || target.replace('user:','');
+            loadUsersIntoCombo(combo);
+            // apply value slightly later to allow options to load
+            setTimeout(function(){ try { combo.value = uid; } catch(_) {} }, 200);
+          }
+        } else if (target.startsWith('group:')) {
+          if (groupR) groupR.checked = true;
+          if (wrap) wrap.classList.remove('d-none');
+          if (combo) {
+            combo.disabled = false;
+            var gid = target.split(':',1)[1] || target.replace('group:','');
+            loadGroupsIntoCombo(combo);
+            setTimeout(function(){ try { combo.value = gid; } catch(_) {} }, 0);
+          }
+        }
+      }
       m.show();
     } catch(_) {}
   }
@@ -265,6 +293,24 @@
     const btnOpenNotifyModal = document.getElementById('btnOpenNotifyModal');
     if (btnOpenNotifyModal) safeOn(btnOpenNotifyModal, 'click', function(){ openNotifyModalFor('all'); });
 
+    const btnPushMaintain = document.getElementById('btnPushMaintain');
+    if (btnPushMaintain) safeOn(btnPushMaintain, 'click', function(){
+      try { btnPushMaintain.disabled = true; } catch(_) {}
+      fetch('/admin/push_maintain', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, data: j }; }); })
+        .then(function(res){
+          if (res.ok && res.data && res.data.status === 'success') {
+            var m = res.data;
+            window.showToast && window.showToast('Готово. Удалено: '+(m.deleted||0)+', проверено: '+(m.tested||0)+', очищено при проверке: '+(m.removed||0), 'success');
+          } else {
+            var msg = (res.data && res.data.message) ? res.data.message : 'Ошибка обслуживания';
+            window.showToast && window.showToast(msg, 'error');
+          }
+        })
+        .catch(function(){ window.showToast && window.showToast('Ошибка сети', 'error'); })
+        .finally(function(){ try { btnPushMaintain.disabled = false; } catch(_) {} });
+    });
+
     const btnNotifyTest = document.getElementById('btnNotifyTest');
     if (btnNotifyTest) safeOn(btnNotifyTest, 'click', function(){
       try { btnNotifyTest.disabled = true; } catch(_) {}
@@ -337,7 +383,14 @@
     radiosM.forEach(function(r){ safeOn(r, 'change', onScopeChangeModal); });
 
     const search = document.getElementById('logSearch');
-    if (search) safeOn(search, 'input', debounce(loadLogs, 300));
+    if (search) safeOn(search, 'input', debounce(function(){ selectedUser = null; loadLogs(); }, 300));
+
+    const btnLogsClear = document.getElementById('btnLogsClear');
+    if (btnLogsClear) safeOn(btnLogsClear, 'click', function(){
+      try { selectedUser = null; } catch(_) {}
+      try { const s = document.getElementById('logSearch'); if (s) { s.value = ''; s.focus(); } } catch(_) {}
+      loadLogs();
+    });
 
     // Global Enter handling for open modal: submit default action
     safeOn(document, 'keydown', function(e){
@@ -571,17 +624,18 @@
   }
 
   function loadUsersIntoCombo(select){
-    fetch('/admin/users_list', { credentials: 'same-origin' })
+    return fetch('/admin/users_list', { credentials: 'same-origin' })
       .then(function(r){ return r.json(); })
       .then(function(j){
-        if (!j || j.status !== 'success') return;
+        if (!j || j.status !== 'success') return [];
         select.innerHTML = '';
         (j.items || []).forEach(function(it){
           var opt = document.createElement('option');
           opt.value = it.id; opt.textContent = it.name; select.appendChild(opt);
         });
+        return j.items || [];
       })
-      .catch(function(){});
+      .catch(function(){ return []; });
   }
 
   function loadGroupsIntoCombo(select){

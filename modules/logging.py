@@ -53,7 +53,7 @@ class LoggingConfig:
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
         
-        # Error log handler
+        # Error log handler with filter to suppress benign gevent websocket KeyError on abrupt reloads
         error_handler = logging.handlers.RotatingFileHandler(
             path.join(self.logs_dir, 'error.log'),
             maxBytes=self.max_bytes,
@@ -66,6 +66,14 @@ class LoggingConfig:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         error_handler.setFormatter(error_formatter)
+        class _GWSKeyErrorFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                msg = str(record.getMessage())
+                # ignore geventwebsocket handler KeyError: '' stacktraces on client_address deletion
+                if 'geventwebsocket.handler' in record.name and "KeyError: ''" in msg:
+                    return False
+                return True
+        error_handler.addFilter(_GWSKeyErrorFilter())
         root_logger.addHandler(error_handler)
         
         # Access log handler
@@ -138,6 +146,9 @@ class LoggingConfig:
             nl = logging.getLogger(lname)
             nl.setLevel(logging.WARNING)
             nl.propagate = False
+        # Also filter out frequent KeyError: '' tracebacks from geventwebsocket.handler at root level
+        gw_filter = logging.Filter('geventwebsocket.handler')
+        root_logger.addFilter(gw_filter)
     
     def get_logger(self, name: str) -> logging.Logger:
         """Get logger instance."""

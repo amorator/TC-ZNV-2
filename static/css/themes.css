@@ -29,7 +29,7 @@
     --button-text: #0f1724;
     --button-border: #000000;
     /* modal header/footer */
-    --modal-header-bg: #dbe7f3;
+    --modal-header-bg: #fff06d;
     --modal-header-text: #111827;
     --overlay-text: #ffffff;
     /* modal halo uses body background tinted by this opacity */
@@ -418,9 +418,9 @@ table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(even)
 
 .modal-header,
 .modal-footer {
-    background-color: var(--modal-header-bg);
-    color: var(--modal-header-text);
-    border-bottom: 1px solid var(--modal-border);
+    background-color: var(--modal-header-bg) !important;
+    color: var(--modal-header-text) !important;
+    border-bottom: 1px solid var(--modal-border) !important;
 }
 
 [data-bs-toggle="tooltip"] {

@@ -1,32 +1,37 @@
 .logs-view {
-    background: var(--surface, #fff);
-    color: var(--text, #212529);
+    background: var(--modal-bg, var(--body-bg, #fff));
+    color: var(--body-text, #212529);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 12px;
     line-height: 1.4;
     max-height: 60vh;
     overflow: auto;
-    border-top: 1px solid var(--border, rgba(0, 0, 0, .1));
+    border-top: 1px solid var(--modal-border, var(--border, rgba(0, 0, 0, .1)));
     border-radius: 6px;
 }
 
-/* Card headers theming for both tables and logs */
+/* Cards use theme variables */
+.presence-card,
+.notify-card,
+.logs-card {
+    background: var(--modal-bg, var(--surface, #fff)) !important;
+    color: var(--body-text, var(--text, #212529)) !important;
+    border: 1px solid var(--modal-border, var(--border, rgba(0, 0, 0, .1))) !important;
+}
+
+.notify-card .card-body,
+.presence-card .card-body,
+.logs-card .card-body {
+    background: var(--modal-bg, var(--surface, #fff));
+    color: var(--body-text, var(--text, #212529));
+}
+
+/* Card headers should follow global modal header theme vars */
 .card>.card-header {
-    background: var(--surface-2, #f8f9fa);
-    color: var(--text, #212529);
-    border-bottom: 1px solid var(--border, rgba(0, 0, 0, .1));
-}
-
-.theme-dark .card>.card-header {
-    background: #232323;
-    color: #e6e6e6;
-    border-color: #333;
-}
-
-.theme-dark-hc .card>.card-header {
-    background: #000;
-    color: var(--brand-green, #00ff00);
-    border-color: var(--brand-green, #00ff00);
+    /* Use the same tokens as modal header */
+    background: var(--modal-header-bg, var(--surface-2, #f8f9fa)) !important;
+    color: var(--text-primary, var(--modal-header-text, #333333)) !important;
+    border-bottom: 1px solid var(--modal-border, var(--border-color, #dee2e6)) !important;
 }
 
 /* Section-specific accents to match other pages */
@@ -197,6 +202,38 @@
     border-color: var(--brand-green, #00ff00);
 }
 
+/* Align admin notify modal visuals with app modals */
+#adminNotifyModal .modal-content {
+    background: var(--modal-bg);
+    color: var(--body-text);
+    border: 1px solid var(--modal-border);
+    border-radius: 10px;
+}
+
+#adminNotifyModal .modal-header,
+#adminNotifyModal .modal-footer {
+    background: var(--modal-header-bg);
+    color: var(--modal-header-text);
+    border-color: var(--modal-border);
+}
+
+#adminNotifyModal .modal-body {
+    background: var(--modal-bg);
+    color: var(--body-text);
+}
+
+#adminNotifyModal .btn {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border-color: var(--button-border);
+}
+
+#adminNotifyModal .btn.btn-primary {
+    background-color: var(--btn-focus);
+    border-color: var(--btn-focus);
+    color: #000000;
+}
+
 /* Buttons/inputs alignment with theme variables */
 .btn-outline-secondary {
     color: var(--text, #212529);
@@ -238,6 +275,19 @@
 .logs-card .border-top {
     background: var(--modal-bg, var(--surface-2, #f8f9fa));
     border-top-color: var(--border, rgba(0, 0, 0, .1));
+}
+
+/* Journal search input should blend with searchbar background (no white box/border) */
+.logs-card .searchbar .searchbar__input {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.logs-card .searchbar .searchbar__input:focus {
+    background: transparent;
+    border: 0;
+    box-shadow: 0 0 0 2px var(--btn-focus);
 }
 
 .theme-dark .logs-card .border-top {

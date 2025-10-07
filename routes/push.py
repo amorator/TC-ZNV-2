@@ -44,6 +44,12 @@ def register(app):
 			auth = (keys.get('auth') or '').strip()
 			if not endpoint:
 				return jsonify({'status': 'error', 'message': 'Invalid subscription'}), 400
+			# Capture user agent for diagnostics
+			try:
+				ua = request.headers.get('User-Agent') or ''
+				setattr(app._sql, 'config', { **getattr(app._sql, 'config', {}), 'user_agent': ua })
+			except Exception:
+				pass
 			app._sql.push_add_subscription(current_user.id, endpoint, p256dh, auth)
 			try:
 				log_action('PUSH_SUBSCRIBE', current_user.name, f'subscribed endpoint={endpoint[:32]}...', request.remote_addr)
@@ -115,6 +121,8 @@ def register(app):
 						vapid_claims={"sub": vapid_subject}
 					)
 					sent += 1
+					try: app._sql.push_mark_success(endpoint)
+					except Exception: pass
 				except WebPushException as we:
 					# Remove expired/invalid subscriptions (410 Gone / No such subscription)
 					code = None
@@ -130,6 +138,10 @@ def register(app):
 							removed += 1
 						except Exception:
 							pass
+					try:
+						app._sql.push_mark_error(endpoint, str(code or '410'))
+					except Exception:
+						pass
 					_log.error(f"Push send failed: {we}")
 					continue
 			try:
