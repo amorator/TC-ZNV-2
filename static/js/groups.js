@@ -187,8 +187,8 @@ if (document.readyState === 'loading') {
         url.searchParams.set('page', String(page));
         url.searchParams.set('page_size', String(pageSize));
         url.searchParams.set('t', String(Date.now()));
-        fetch(String(url), { credentials: 'same-origin' })
-          .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1 })
+        fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+          .then(r => r.ok ? r.json() : Promise.resolve({ html: '', total: 0, page: 1 }))
           .then(j => {
             if (!j || typeof j.html !== 'string') return;
             const searchRow = tbody.querySelector('tr#search');
@@ -196,6 +196,10 @@ if (document.readyState === 'loading') {
             temp.innerHTML = j.html;
             Array.from(tbody.querySelectorAll('tr')).forEach(function(tr){ if (!searchRow || tr !== searchRow) tr.remove(); });
             Array.from(temp.children).forEach(function(tr){ tbody.appendChild(tr); });
+            // Fallback: if empty, attempt a background refresh of current page
+            if (!temp.children.length) {
+              try { if (typeof backgroundImmediateGroupsRefresh === 'function') backgroundImmediateGroupsRefresh(); } catch(_) {}
+            }
             // build pager like files
             const total = j.total || 0;
             const pages = Math.max(1, Math.ceil(total / pageSize));

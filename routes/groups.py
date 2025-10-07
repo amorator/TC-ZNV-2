@@ -91,7 +91,9 @@ def register(app):
                     rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
                     gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
                 except Exception:
-                    rows = app._sql.execute_query(f"SELECT \"group\", COUNT(*) as cnt FROM {prefix}_user GROUP BY \"group\";")
+                    # Fallback for schemas where the column is named `group` (reserved keyword in MySQL)
+                    # Use backticks to quote the identifier safely
+                    rows = app._sql.execute_query(f"SELECT `group`, COUNT(*) as cnt FROM {prefix}_user GROUP BY `group`;")
                     gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
             except Exception:
                 gid_to_count = {}
@@ -144,7 +146,8 @@ def register(app):
                     rows = app._sql.execute_query(f"SELECT gid, COUNT(*) as cnt FROM {prefix}_user GROUP BY gid;")
                     gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
                 except Exception:
-                    rows = app._sql.execute_query(f"SELECT \"group\", COUNT(*) as cnt FROM {prefix}_user GROUP BY \"group\";")
+                    # Fallback for schemas where the column is named `group` (reserved keyword in MySQL)
+                    rows = app._sql.execute_query(f"SELECT `group`, COUNT(*) as cnt FROM {prefix}_user GROUP BY `group`;")
                     gid_to_count = {row[0]: row[1] for row in rows} if rows else {}
             except Exception:
                 gid_to_count = {}
