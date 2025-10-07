@@ -1365,9 +1365,15 @@ document.addEventListener('DOMContentLoaded', function () {
             const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
             if (isServerReason) {
               console.log('Triggering immediate refresh for reason:', evt.reason);
-              triggerImmediateFilesRefresh();
-              scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
-              setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+              // If tab is hidden, run immediate refresh without debounce to keep background up-to-date
+              if (document.hidden) {
+                try { window.__filesHadBackgroundEvent = true; } catch(_) {}
+                try { triggerImmediateFilesRefresh(); } catch(_) {}
+              } else {
+                triggerImmediateFilesRefresh();
+                scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+                setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+              }
             }
           });
           scheduleFilesRefreshFromSocket({ reason: 'server-update' }); 
@@ -1407,9 +1413,14 @@ document.addEventListener('DOMContentLoaded', function () {
             const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
             if (isServerReason) {
               console.log('Triggering immediate refresh for reason:', evt.reason);
-              triggerImmediateFilesRefresh();
-              scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
-              setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+              if (document.hidden) {
+                try { window.__filesHadBackgroundEvent = true; } catch(_) {}
+                try { triggerImmediateFilesRefresh(); } catch(_) {}
+              } else {
+                triggerImmediateFilesRefresh();
+                scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+                setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+              }
             }
           });
           scheduleFilesRefreshFromSocket({ reason: 'server-update' }); 
@@ -1466,15 +1477,18 @@ document.addEventListener('DOMContentLoaded', function () {
           if (isServerReason) {
             console.log('Triggering immediate refresh for reason:', evt.reason, 'id:', evt.id);
             try {
-              // Debounce multiple rapid events
-              if (refreshTimeout) {
-                clearTimeout(refreshTimeout);
-              }
-              refreshTimeout = setTimeout(function() {
+              if (document.hidden) {
+                try { window.__filesHadBackgroundEvent = true; } catch(_) {}
                 triggerImmediateFilesRefresh();
-                scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
-                refreshTimeout = null;
-              }, 200);
+              } else {
+                // Debounce multiple rapid events
+                if (refreshTimeout) { clearTimeout(refreshTimeout); }
+                refreshTimeout = setTimeout(function() {
+                  triggerImmediateFilesRefresh();
+                  scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+                  refreshTimeout = null;
+                }, 200);
+              }
             } catch (e) {
               console.error('Error in files:changed handler:', e);
             }
@@ -2636,7 +2650,16 @@ document.addEventListener('DOMContentLoaded', function () {
       if (cells.length >= 3) {
         // Update name (column 0)
         if (fileData.name !== undefined) {
-          cells[0].textContent = fileData.name;
+          const linkSpan = cells[0].querySelector('.files-page__link');
+          if (linkSpan) {
+            linkSpan.textContent = fileData.name;
+          } else {
+            const span = document.createElement('span');
+            span.className = 'files-page__link';
+            span.textContent = fileData.name;
+            while (cells[0].firstChild) cells[0].removeChild(cells[0].firstChild);
+            cells[0].appendChild(span);
+          }
         }
         
         // Update description (column 1)
@@ -2710,7 +2733,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const newRow = document.createElement('tr');
       newRow.setAttribute('data-id', fileData.id);
       newRow.innerHTML = `
-        <td>${fileData.name || ''}</td>
+        <td><span class="files-page__link">${fileData.name || ''}</span></td>
         <td>${fileData.description || ''}</td>
         <td>${fileData.owner || ''}</td>
         <td>${fileData.date || ''}</td>

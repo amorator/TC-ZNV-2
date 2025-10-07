@@ -627,7 +627,13 @@ if (document.readyState === 'loading') {
           const fromSelf = !!(evt && evt.originClientId && window.__usersClientId && evt.originClientId === window.__usersClientId);
           if (fromSelf) return;
         } catch(_) {}
-        try { softRefreshUsersTable(); } catch(_) {} 
+        // If tab hidden, refresh immediately to keep background up-to-date
+        if (document.hidden) {
+          try { window.__usersHadBackgroundEvent = true; } catch(_) {}
+          try { softRefreshUsersTable(); } catch(_) {}
+        } else {
+          try { softRefreshUsersTable(); } catch(_) {}
+        }
       });
       window.usersSocket = socket;
     } catch (e) {}

@@ -738,7 +738,12 @@ if (document.readyState === 'loading') {
             const fromSelf = !!(evt && evt.originClientId && window.__groupsClientId && evt.originClientId === window.__groupsClientId);
             if (fromSelf) return;
           } catch(_) {}
-          try { softRefreshGroupsTable(); } catch(_) {} 
+          if (document.hidden) {
+            try { window.__groupsHadBackgroundEvent = true; } catch(_) {}
+            try { softRefreshGroupsTable(); } catch(_) {}
+          } else {
+            try { softRefreshGroupsTable(); } catch(_) {}
+          }
         });
         window.groupsSocket = socket;
       }
