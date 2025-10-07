@@ -23,89 +23,6 @@
     white-space: nowrap;
 }
 
-/* Users table fixed widths: Login, Name, Group, Permissions, Active */
-.users-page__table thead th:nth-child(1),
-.users-page__table tbody td:nth-child(1) {
-    width: 20%;
-}
-
-.users-page__table thead th:nth-child(2),
-.users-page__table tbody td:nth-child(2) {
-    width: 25%;
-}
-
-.users-page__table thead th:nth-child(3),
-.users-page__table tbody td:nth-child(3) {
-    width: 20%;
-}
-
-.users-page__table thead th:nth-child(4),
-.users-page__table tbody td:nth-child(4) {
-    width: 25%;
-}
-
-.users-page__table thead th:nth-child(5),
-.users-page__table tbody td:nth-child(5) {
-    width: 10%;
-}
-
-/* Groups table fixed widths: Name, Description, Users count, Created */
-.groups-page__table thead th:nth-child(1),
-.groups-page__table tbody td:nth-child(1) {
-    width: 25%;
-}
-
-.groups-page__table thead th:nth-child(2),
-.groups-page__table tbody td:nth-child(2) {
-    width: 45%;
-}
-
-.groups-page__table thead th:nth-child(3),
-.groups-page__table tbody td:nth-child(3) {
-    width: 15%;
-}
-
-.groups-page__table thead th:nth-child(4),
-.groups-page__table tbody td:nth-child(4) {
-    width: 15%;
-}
-
-/* Files table fixed widths: Name, Description, Owner, Created, Length, Size, Notes */
-.files-page__table thead th:nth-child(1),
-.files-page__table tbody td:nth-child(1) {
-    width: 32%;
-}
-
-.files-page__table thead th:nth-child(2),
-.files-page__table tbody td:nth-child(2) {
-    width: 28%;
-}
-
-.files-page__table thead th:nth-child(3),
-.files-page__table tbody td:nth-child(3) {
-    width: 12%;
-}
-
-.files-page__table thead th:nth-child(4),
-.files-page__table tbody td:nth-child(4) {
-    width: 12%;
-}
-
-.files-page__table thead th:nth-child(5),
-.files-page__table tbody td:nth-child(5) {
-    width: 6%;
-}
-
-.files-page__table thead th:nth-child(6),
-.files-page__table tbody td:nth-child(6) {
-    width: 6%;
-}
-
-.files-page__table thead th:nth-child(7),
-.files-page__table tbody td:nth-child(7) {
-    width: 4%;
-}
-
 .table__head_item {
     font-weight: 600;
     text-align: left;
@@ -163,7 +80,92 @@
     border-radius: 0;
 }
 
-/* Files (video) page specific adjustments */
+/* Hover styles are handled in themes.css to unify across all tables */
+
+/* --- Ensure Users/Groups/Files widths override on shared tables --- */
+/* Users: Login 13%, Name 13%, Group 13%, Permissions 51%, Active 10% */
+.users-page__table.users-page__table thead th:nth-child(1),
+.users-page__table.users-page__table tbody td:nth-child(1) {
+    width: 13% !important;
+}
+
+.users-page__table.users-page__table thead th:nth-child(2),
+.users-page__table.users-page__table tbody td:nth-child(2) {
+    width: 13% !important;
+}
+
+.users-page__table.users-page__table thead th:nth-child(3),
+.users-page__table.users-page__table tbody td:nth-child(3) {
+    width: 13% !important;
+}
+
+.users-page__table.users-page__table thead th:nth-child(4),
+.users-page__table.users-page__table tbody td:nth-child(4) {
+    width: 51% !important;
+}
+
+.users-page__table.users-page__table thead th:nth-child(5),
+.users-page__table.users-page__table tbody td:nth-child(5) {
+    width: 10% !important;
+}
+
+/* Groups: Name 25%, Description 45%, Users 15%, Created 15% */
+.groups-page__table.groups-page__table thead th:nth-child(1),
+.groups-page__table.groups-page__table tbody td:nth-child(1) {
+    width: 25% !important;
+}
+
+.groups-page__table.groups-page__table thead th:nth-child(2),
+.groups-page__table.groups-page__table tbody td:nth-child(2) {
+    width: 45% !important;
+}
+
+.groups-page__table.groups-page__table thead th:nth-child(3),
+.groups-page__table.groups-page__table tbody td:nth-child(3) {
+    width: 15% !important;
+}
+
+.groups-page__table.groups-page__table thead th:nth-child(4),
+.groups-page__table.groups-page__table tbody td:nth-child(4) {
+    width: 15% !important;
+}
+
+/* Files (video): Name 25%, Description 45%, Owner 15%, Date 13%, Length 5%, Size 7%, Viewed 15% */
+.files-page__table thead th:nth-child(1),
+.files-page__table tbody td:nth-child(1) {
+    width: 15% !important;
+}
+
+.files-page__table thead th:nth-child(2),
+.files-page__table tbody td:nth-child(2) {
+    width: 25% !important;
+}
+
+.files-page__table thead th:nth-child(3),
+.files-page__table tbody td:nth-child(3) {
+    width: 20% !important;
+}
+
+.files-page__table thead th:nth-child(4),
+.files-page__table tbody td:nth-child(4) {
+    width: 13% !important;
+}
+
+.files-page__table thead th:nth-child(5),
+.files-page__table tbody td:nth-child(5) {
+    width: 5% !important;
+}
+
+.files-page__table thead th:nth-child(6),
+.files-page__table tbody td:nth-child(6) {
+    width: 7% !important;
+}
+
+.files-page__table thead th:nth-child(7),
+.files-page__table tbody td:nth-child(7) {
+    width: 15% !important;
+}
+
 .files-page__table tbody tr:not(:first-child)>th,
 .files-page__table tbody tr:not(:first-child)>td {
     font-size: 0.8em;
@@ -209,5 +211,3 @@
 .theme-dark .table-colored tbody tr:first-child>td {
     background: rgba(255, 255, 255, .08);
 }
-
-/* Hover styles are handled in themes.css to unify across all tables */
