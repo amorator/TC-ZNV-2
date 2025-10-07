@@ -406,7 +406,16 @@ if (document.readyState === 'loading') {
       if (cells.length >= 4) {
         // Update name (column 0)
         if (groupData.name !== undefined) {
-          cells[0].textContent = groupData.name;
+          const nameSpan = cells[0].querySelector('.groups-page__name');
+          if (nameSpan) {
+            nameSpan.textContent = groupData.name;
+          } else {
+            const span = document.createElement('span');
+            span.className = 'groups-page__name';
+            span.textContent = groupData.name;
+            while (cells[0].firstChild) cells[0].removeChild(cells[0].firstChild);
+            cells[0].appendChild(span);
+          }
           row.dataset.name = groupData.name;
         }
         
@@ -437,9 +446,7 @@ if (document.readyState === 'loading') {
       newRow.setAttribute('data-id', groupData.id);
       newRow.className = 'table__body_row';
       newRow.innerHTML = `
-        <td class="table__body_item">
-          <span class="groups-page__name">${groupData.name || ''}</span>
-        </td>
+        <td class="table__body_item"><span class="groups-page__name">${groupData.name || ''}</span></td>
         <td class="table__body_item">${groupData.description || '—'}</td>
         <td class="table__body_item">
           <span class="groups-page__user-count">0</span>

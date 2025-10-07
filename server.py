@@ -329,40 +329,7 @@ except Exception:
     # In some environments (e.g., when managed by another server), signals may be handled externally
     pass
 
-# Test Socket.IO handler for debugging
-@socketio.on('test-files-changed')
-def handle_test_files_changed(data):
-    print(f"DEBUG: Received test-files-changed event: {data}")
-    # Echo back to all clients
-    socketio.emit('files:changed', data)
-    socketio.emit('files:changed', data, namespace='/')
-
-# Test handler to manually emit files:changed events
-@socketio.on('emit-test-event')
-def handle_emit_test_event(data):
-    print(f"DEBUG: Manually emitting files:changed event: {data}")
-    try:
-        socketio.emit('files:changed', data)
-        socketio.emit('files:changed', data, namespace='/')
-        # broadcast=True is not supported in this version
-        print(f"DEBUG: Test event emitted successfully")
-    except Exception as e:
-        print(f"DEBUG: Error emitting test event: {e}")
-
-# ==== DEV-ONLY START (TODO: remove in production) =========================
-# Re-broadcast client-emitted files:changed events to all clients
-@socketio.on('files:changed')
-def handle_client_files_changed(data):
-    try:
-        print(f"DEBUG: Re-broadcasting client files:changed: {data}")
-        socketio.emit('files:changed', data)
-        try:
-            socketio.emit('files:changed', data, namespace='/')
-        except Exception:
-            pass
-    except Exception as e:
-        print(f"DEBUG: Error re-broadcasting files:changed: {e}")
-# ==== DEV-ONLY END ========================================================
+# Removed DEV-only Socket.IO debug and rebroadcast handlers
 if __name__ == '__main__':
     try:
         # Development only

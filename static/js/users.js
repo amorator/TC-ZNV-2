@@ -600,13 +600,14 @@ if (document.readyState === 'loading') {
       try { if (!window.__usersClientId) window.__usersClientId = (Math.random().toString(36).slice(2) + Date.now()); } catch(_) {}
       // Reuse global socket if available (like files page), else create robust connection
       /** @type {import('socket.io-client').Socket} */
-      const socket = (window.socket && (window.socket.connected || window.socket.connecting) && typeof window.socket.on === 'function')
-        ? window.socket
+      // Initialize a dedicated socket for Users page to avoid cross-page interference
+      let socket = (window.usersSocket && (window.usersSocket.connected || window.usersSocket.connecting) && typeof window.usersSocket.on === 'function')
+        ? window.usersSocket
         : window.io(window.location.origin, {
-            // Prefer polling first to avoid FF WSS error spam behind strict proxies, then upgrade
-            transports: ['polling', 'websocket'],
-            upgrade: true,
-            path: '/socket.io/',
+            // Try WebSocket-only first to avoid 400 on polling behind some proxies
+            transports: ['websocket'],
+            upgrade: false,
+            path: '/socket.io',
             withCredentials: true,
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -637,6 +638,58 @@ if (document.readyState === 'loading') {
       });
       window.usersSocket = socket;
     } catch (e) {}
+
+    // Transport fallback: if initial connection errors persist, retry once with polling-only
+    try {
+      if (window.usersSocket && !window.__usersTransportFallbackBound) {
+        window.__usersTransportFallbackBound = true;
+        let attemptedFallback = false;
+        const bindFallback = function(sock){
+          const onError = function(err){
+            try {
+              const code = (err && (err.code || err.status)) || 0;
+              const msg = String(err && (err.message || err)) || '';
+              const isEarlyWsClose = /WebSocket is closed before the connection is established/i.test(msg);
+              if (!attemptedFallback && (code === 400 || isEarlyWsClose || !code)) {
+                attemptedFallback = true;
+                try { sock.off && sock.off('connect_error', onError); } catch(_) {}
+                try { sock.off && sock.off('error', onError); } catch(_) {}
+                try { sock.disconnect && sock.disconnect(); } catch(_) {}
+                // Recreate with polling-only and no upgrade
+                const fallback = window.io(window.location.origin, {
+                  transports: ['polling'],
+                  upgrade: false,
+                  forceNew: true,
+                  path: '/socket.io',
+                  withCredentials: true,
+                  query: { ts: String(Date.now()) },
+                  reconnection: true,
+                  reconnectionAttempts: Infinity,
+                  reconnectionDelay: 1000,
+                  reconnectionDelayMax: 5000,
+                  timeout: 20000
+                });
+                window.usersSocket = fallback;
+                // Rebind page handlers to the new socket instance
+                try { fallback.off && fallback.off('users:changed'); } catch(_) {}
+                try { fallback.on('connect', function(){ try { softRefreshUsersTable(); } catch(_) {} }); } catch(_) {}
+                try { fallback.on('users:changed', function(evt){ 
+                  try {
+                    const fromSelf = !!(evt && evt.originClientId && window.__usersClientId && evt.originClientId === window.__usersClientId);
+                    if (fromSelf) return;
+                  } catch(_) {}
+                  try { softRefreshUsersTable(); } catch(_) {}
+                }); } catch(_) {}
+              }
+            } catch(_) {}
+          };
+          try { sock.on('connect_error', onError); } catch(_) {}
+          try { sock.on('error', onError); } catch(_) {}
+          try { sock.on('reconnect_error', onError); } catch(_) {}
+        };
+        bindFallback(window.usersSocket);
+      }
+    } catch(_) {}
 
     // Focus/visibility: force reconnect and one soft refresh when tab returns
     try {
@@ -909,12 +962,30 @@ if (document.readyState === 'loading') {
       if (cells.length >= 6) {
         // Update name (column 0)
         if (userData.name !== undefined) {
-          cells[0].textContent = userData.name;
+          const nameSpan = cells[0].querySelector('.users-page__name');
+          if (nameSpan) {
+            nameSpan.textContent = userData.name;
+          } else {
+            const span = document.createElement('span');
+            span.className = 'users-page__name';
+            span.textContent = userData.name;
+            while (cells[0].firstChild) cells[0].removeChild(cells[0].firstChild);
+            cells[0].appendChild(span);
+          }
         }
         
         // Update login (column 1) 
         if (userData.login !== undefined) {
-          cells[1].textContent = userData.login;
+          const loginSpan = cells[1].querySelector('.users-page__login');
+          if (loginSpan) {
+            loginSpan.textContent = userData.login;
+          } else {
+            const span = document.createElement('span');
+            span.className = 'users-page__login';
+            span.textContent = userData.login;
+            while (cells[1].firstChild) cells[1].removeChild(cells[1].firstChild);
+            cells[1].appendChild(span);
+          }
         }
         
         // Update group (column 2)
@@ -959,8 +1030,8 @@ if (document.readyState === 'loading') {
       const newRow = document.createElement('tr');
       newRow.setAttribute('data-id', userData.id);
       newRow.innerHTML = `
-        <td>${userData.name || ''}</td>
-        <td>${userData.login || ''}</td>
+        <td><span class="users-page__name">${userData.name || ''}</span></td>
+        <td><span class="users-page__login">${userData.login || ''}</span></td>
         <td>${userData.group || ''}</td>
         <td>
           <div class="form-check form-switch">
@@ -1064,17 +1135,26 @@ if (document.readyState === 'loading') {
       if (form.action) {
         try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
+      // Update reset confirmation text to show login
+      try {
+        const p = form.parentElement && form.parentElement.querySelector('p');
+        if (p) {
+          p.innerHTML = `Установить новый пароль для <b>${login}</b>`;
+        }
+      } catch(_) {}
     } else if (form.id === 'delete') {
       // Update form action URL with correct ID
       if (form.action) {
         try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
       
-      // Update delete confirmation text
-      const confirmText = form.querySelector('p');
-      if (confirmText) {
-        confirmText.innerHTML = `Вы действительно хотите удалить пользователя <b>${name}</b>?`;
-      }
+      // Update delete confirmation text (show login). The <p> is a sibling outside the form
+      try {
+        const confirmText = form.parentElement && form.parentElement.querySelector('p');
+        if (confirmText) {
+          confirmText.innerHTML = `Вы действительно хотите удалить пользователя <b>${login}</b>?`;
+        }
+      } catch(_) {}
       // Ensure we store rowId for submit handler paths
       try { form.dataset.rowId = rowId; } catch(_) {}
     }

@@ -1180,67 +1180,9 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch(_) {}
   })();
 
-  // ==== DEV-ONLY START (TODO: remove in production) =========================
-  try {
-    var btnRefresh = document.getElementById('btn-dev-refresh-static');
-    if (btnRefresh && !btnRefresh._bound) {
-      btnRefresh._bound = true;
-      btnRefresh.addEventListener('click', function(){
-        try {
-          if (window.caches && caches.keys) {
-            caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k).catch(function(){}); }); }).catch(function(){});
-          }
-        } catch(_) {}
-        try {
-          var url = new URL(window.location.href);
-          url.searchParams.set('_cb', Date.now());
-          window.location.replace(url.toString());
-        } catch(_) {
-          window.location.reload(true);
-        }
-      });
-    }
-  } catch(_) {}
+  
 
-  try {
-    var btnReset = document.getElementById('btn-dev-reset-socket');
-    if (btnReset && !btnReset._bound) {
-      btnReset._bound = true;
-      btnReset.addEventListener('click', function(){
-        try {
-          if (window.socket) {
-            try { window.socket.off('files:changed'); } catch(_) {}
-            try { window.socket.off('/files:changed'); } catch(_) {}
-            try { window.socket.disconnect(); } catch(_) {}
-            setTimeout(function(){
-              try { window.socket.connect(); } catch(_) {}
-              try { if (typeof window.registerFilesSocketHandlers === 'function') window.registerFilesSocketHandlers(window.socket); } catch(_) {}
-            }, 200);
-          }
-        } catch(_) {}
-        try { if (window.showToast) window.showToast('Сокет перезапущен', 'success'); } catch(_) {}
-      });
-    }
-  } catch(_) {}
-  // ==== DEV-ONLY END ========================================================
-
-  // ==== DEV-ONLY START (TODO: remove in production) =========================
-  // Watchdog: ensure socket listeners are bound after hard refreshes
-  try {
-    if (!window.__filesSocketWatchdog) {
-      window.__filesSocketWatchdog = setInterval(function(){
-        try {
-          if (window.socket && window.socket.connected) {
-            // Re-register handlers if missing
-            if (typeof window.registerFilesSocketHandlers === 'function' && !window.__filesHandlersBound) {
-              try { window.registerFilesSocketHandlers(window.socket); } catch(_) {}
-            }
-          }
-        } catch(_) {}
-      }, 3000);
-    }
-  } catch(_) {}
-  // ==== DEV-ONLY END ========================================================
+  
   // Initialize missing file banners for files that don't exist
   const rows = document.querySelectorAll('tr[data-exists="0"]');
   rows.forEach(row => {
@@ -1496,58 +1438,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
       }
       
-      // Add test function to manually trigger files:changed event
-      window.testFilesChanged = function() {
-        console.log('Testing files:changed event...');
-        // Simulate receiving the event directly (like from server)
-        const testEvent = {reason: 'note', id: 1};
-        console.log('Simulating files:changed event:', testEvent);
-        
-        // Trigger the event handler directly
-        const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
-        const isServerReason = !!(testEvent && testEvent.reason && serverReasons.indexOf(String(testEvent.reason)) !== -1);
-        if (isServerReason) {
-          console.log('Triggering immediate refresh for test reason:', testEvent.reason);
-          triggerImmediateFilesRefresh();
-          scheduleFilesRefreshFromSocket(testEvent || { reason: 'server-update' });
-          setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
-        }
-      };
       
-      // Add function to test real server events
-      window.testServerEvent = function() {
-        console.log('Testing server event emission...');
-        socket.emit('test-files-changed', {reason: 'note', id: 1});
-      };
-      
-      // Add function to test manual event emission from server
-      window.testManualEvent = function() {
-        console.log('Testing manual event emission from server...');
-        socket.emit('emit-test-event', {reason: 'note', id: 999});
-      };
-      
-      // Add function to force refresh table
-      window.forceRefreshTable = function() {
-        console.log('Force refreshing table...');
-        triggerImmediateFilesRefresh();
-      };
-      
-      // Add function to force page reload as last resort
-      window.forcePageReload = function() {
-        console.log('Force reloading page...');
-        window.location.reload();
-      };
-      
-      // Add function to check socket status
-      window.checkSocketStatus = function() {
-        console.log('Socket status:', {
-          connected: socket.connected,
-          id: socket.id,
-          transport: socket.io.engine.transport.name,
-          readyState: socket.io.engine.readyState
-        });
-        return socket.connected;
-      };
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
