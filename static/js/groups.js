@@ -738,6 +738,7 @@ if (document.readyState === 'loading') {
         // Always (re)bind listeners for the current socket instance
         try { socket.off && socket.off('groups:changed'); } catch(_) {}
         try { socket.off && socket.off('/groups:changed'); } catch(_) {}
+        try { socket.off && socket.off('users:changed'); } catch(_) {}
         socket.on('connect', function(){ try { softRefreshGroupsTable(); } catch(_) {} });
         socket.on('disconnect', function(){ /* no-op */ });
         socket.on('groups:changed', function(evt){ 
@@ -751,6 +752,42 @@ if (document.readyState === 'loading') {
           } else {
             try { softRefreshGroupsTable(); } catch(_) {}
           }
+        });
+        // Reflect users changes into group user counters
+        socket.on('users:changed', function(evt){
+          try {
+            const fromSelf = !!(evt && evt.originClientId && window.__groupsClientId && evt.originClientId === window.__groupsClientId);
+            if (fromSelf) return;
+          } catch(_) {}
+          try {
+            if (!evt || !evt.reason) return;
+            // Helper to adjust count by delta for a group id
+            function adjust(gid, delta){
+              if (!gid) return;
+              const row = document.querySelector(`tr[data-id="${gid}"]`) || document.getElementById(String(gid));
+              if (!row) return;
+              const cell = row.querySelector('.groups-page__user-count');
+              if (!cell) return;
+              const cur = parseInt((cell.textContent || '0').trim(), 10) || 0;
+              const next = Math.max(0, cur + delta);
+              cell.textContent = String(next);
+            }
+            if (evt.reason === 'user-added') {
+              adjust(String(evt.gid || ''), +1);
+            } else if (evt.reason === 'user-deleted') {
+              adjust(String(evt.gid || ''), -1);
+            } else if (evt.reason === 'user-moved') {
+              adjust(String(evt.prevGid || ''), -1);
+              adjust(String(evt.newGid || ''), +1);
+            } else {
+              // For other reasons, prefer soft refresh when visible; immediate if hidden
+              if (document.hidden) {
+                try { softRefreshGroupsTable(); } catch(_) {}
+              } else {
+                try { softRefreshGroupsTable(); } catch(_) {}
+              }
+            }
+          } catch(_) {}
         });
         window.groupsSocket = socket;
       }

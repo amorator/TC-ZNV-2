@@ -1341,6 +1341,14 @@ if (document.readyState === 'loading') {
           if (form.id === 'add') {
             // Soft refresh table to reflect new user
             try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
+            // Emit users:changed with group for groups counter update
+            try {
+              const groupSelect = form.querySelector('select[name="group"]');
+              const gid = groupSelect ? String(groupSelect.value) : undefined;
+              if (window.socket && window.socket.emit) {
+                window.socket.emit('users:changed', { reason: 'user-added', gid: gid, originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) });
+              }
+            } catch(_) {}
           } else if (form.id === 'edit') {
             // Update existing row locally and dataset to reflect latest changes
             const userId = form.dataset.rowId;
@@ -1378,6 +1386,14 @@ if (document.readyState === 'loading') {
               } catch(_) {}
               // Ensure table is refreshed (sorting/pagination) after edit
               try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
+              // Emit detailed users:changed if group changed to update groups counters
+              try {
+                if (groupSelect && String(form.dataset.origGid || '') !== String(groupSelect.value || '')) {
+                  if (window.socket && window.socket.emit) {
+                    window.socket.emit('users:changed', { reason: 'user-moved', prevGid: String(form.dataset.origGid || ''), newGid: String(groupSelect.value || ''), originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) });
+                  }
+                }
+              } catch(_) {}
             }
           } else if (form.id === 'perm') {
             // Soft refresh to update computed labels
@@ -1388,7 +1404,19 @@ if (document.readyState === 'loading') {
             // Remove the user row from table locally
             const userId = form.dataset.rowId || form.action.match(/\/(\d+)$/)?.[1];
             if (userId) {
+              // Read gid before row removal to notify groups counters
+              let gidForDelete;
+              try {
+                const row = document.querySelector(`tr[data-id="${userId}"]`) || document.getElementById(String(userId));
+                gidForDelete = row ? String(row.dataset.gid || '') : undefined;
+              } catch(_) {}
               removeUserRowLocally(userId);
+              // Emit users:changed with gid for groups counter update
+              try {
+                if (window.socket && window.socket.emit) {
+                  window.socket.emit('users:changed', { reason: 'user-deleted', gid: gidForDelete, originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) });
+                }
+              } catch(_) {}
             } else {
               try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
             }
@@ -1401,7 +1429,7 @@ if (document.readyState === 'loading') {
           try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
         }
         
-        // Emit socket event for other users
+        // Generic emit for other cases (perm etc.)
         try { 
           if (window.socket && window.socket.emit) {
             window.socket.emit('users:changed', { reason: 'form-submit', formId: form.id, originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) });
