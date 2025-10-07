@@ -29,6 +29,16 @@
   <script src="{{ url_for('static', filename='js/push.js') }}" defer="defer"></script>
   
   {% block js %}{% endblock %}
+  <script>
+    // Expose passive polling interval from server config with fallback to 20s
+    (function(){
+      try {
+        window.PASSIVE_POLL_SECONDS = parseInt('{{ (config['web'].get('passive_poll_seconds') if config and config.get('web') else 20) }}') || 20;
+      } catch(_) {
+        window.PASSIVE_POLL_SECONDS = 20;
+      }
+    })();
+  </script>
   
   <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
   <!-- Service Worker disabled during development to avoid caching interference -->
@@ -182,7 +192,7 @@
           var btn = document.getElementById('btnAllowPush');
           if (btn) {
             btn.onclick = function(){
-              try { window.pushInit && window.pushInit(); } catch(_) {}
+              try { window.pushInit && window.pushInit({ silent: true }); } catch(_) {}
               m.hide();
             };
           }
@@ -202,6 +212,24 @@
     
     {% endif %}
     {% if current_user.is_authenticated %}
+    <script>
+      // Auto-initialize push on load if permission already granted (re-sync after server restart)
+      (function(){
+        try {
+          function tryInit(){
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'granted') {
+              try { window.pushInit && window.pushInit({ silent: true }); } catch(_) {}
+            }
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', tryInit);
+          } else {
+            tryInit();
+          }
+        } catch(_) {}
+      })();
+    </script>
     <script>
       // Show a helpful hint to disable ad blockers / tracking protection if realtime updates fail
       (function(){

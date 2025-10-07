@@ -185,14 +185,67 @@
   }
 
   function sendMessage(target, message){
-    return fetch('/admin/send_message', {
+    return fetchWithAutoPush('/admin/send_message', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: target, message: message })
-    }).then(r => r.json()).then(j => {
-      if (j.status === 'success') { window.showToast && window.showToast('Сообщение отправлено', 'success'); }
-      else { window.showToast && window.showToast(j.message||'Ошибка', 'error'); }
+    }).then(function(res){
+      const j = res && res.data ? res.data : { status: 'error' };
+      if (res && res.ok && j.status === 'success') { window.showToast && window.showToast('Сообщение отправлено', 'success'); }
+      else { window.showToast && window.showToast((j && j.message) || 'Ошибка', 'error'); }
       return j;
     }).catch(()=>{ window.showToast && window.showToast('Ошибка сети', 'error'); });
+  }
+
+  // Helper: auto-enable push silently on 400 No subscriptions, then retry original request
+  function fetchWithAutoPush(input, init){
+    init = init || {};
+    function doFetch(){
+      return fetch(input, init).then(function(r){
+        return r.json().then(function(j){ return { ok: r.ok, status: r.status, data: j }; }).catch(function(){
+          return { ok: r.ok, status: r.status, data: null };
+        });
+      });
+    }
+    return doFetch().then(function(res){
+      var msg = (res && res.data && res.data.message) ? String(res.data.message) : '';
+      var shouldAutoEnable = (res.status === 400) && /no subscriptions/i.test(msg);
+      if (!shouldAutoEnable) return res;
+      // Silently enable push and retry once
+      return new Promise(function(resolve){
+        try {
+          if (window.pushInit) {
+            Promise.resolve(window.pushInit({ silent: true })).then(function(){
+              setTimeout(function(){ doFetch().then(resolve).catch(function(){ resolve(res); }); }, 800);
+            }).catch(function(){ resolve(res); });
+          } else {
+            resolve(res);
+          }
+        } catch(_) { resolve(res); }
+      });
+    });
+  }
+
+  // Ensure a push subscription exists before sending; silent and best-effort
+  function ensurePushSubscribed(){
+    function withTimeout(p, ms){
+      return new Promise(function(resolve){
+        var done = false;
+        function finish(){ if (done) return; done = true; resolve(); }
+        setTimeout(finish, ms);
+        Promise.resolve(p).then(finish).catch(finish);
+      });
+    }
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Promise.resolve();
+      if (!('Notification' in window) || Notification.permission !== 'granted') return Promise.resolve();
+      var readyP = navigator.serviceWorker.ready.then(function(reg){
+        return reg && reg.pushManager ? reg.pushManager.getSubscription() : null;
+      }).then(function(sub){
+        if (sub) return;
+        try { if (window.pushInit) return window.pushInit({ silent: true }); } catch(_) {}
+      }).catch(function(){ /* ignore */ });
+      return withTimeout(readyP, 800);
+    } catch(_) { return Promise.resolve(); }
   }
 
   function bindHandlers(){
@@ -215,18 +268,44 @@
     const btnNotifyTest = document.getElementById('btnNotifyTest');
     if (btnNotifyTest) safeOn(btnNotifyTest, 'click', function(){
       try { btnNotifyTest.disabled = true; } catch(_) {}
-      fetch('/push/test', { method: 'POST', credentials: 'same-origin' })
-        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+      var unlockTimer = setTimeout(function(){ try { btnNotifyTest.disabled = false; } catch(_) {} }, 6000);
+      ensurePushSubscribed()
+        .then(function(){ return fetchWithAutoPush('/push/test', { method: 'POST', credentials: 'same-origin' }); })
         .then(function(res){
-          if (res.ok && res.data && res.data.status === 'success') {
+          if (res.ok && res.data && res.data.status === 'success' && Number(res.data.sent||0) > 0) {
             window.showToast && window.showToast('Тестовое уведомление отправлено', 'success');
-          } else {
-            var msg = (res.data && res.data.message) ? res.data.message : 'Ошибка отправки уведомления';
-            window.showToast && window.showToast(msg, 'error');
+            return;
           }
+          if (res.ok && res.data && res.data.status === 'success' && Number(res.data.sent||0) === 0) {
+            // Likely race right after subscription; retry once after a short delay
+            return new Promise(function(resolve){
+              setTimeout(function(){
+                fetchWithAutoPush('/push/test', { method: 'POST', credentials: 'same-origin' })
+                  .then(function(res2){
+                    if (res2.ok && res2.data && res2.data.status === 'success' && Number(res2.data.sent||0) > 0) {
+                      window.showToast && window.showToast('Тестовое уведомление отправлено', 'success');
+                    } else {
+                      var serverMsg2 = (res2.data && res2.data.message) ? String(res2.data.message) : '';
+                      var msg2 = serverMsg2 || 'Ошибка отправки уведомления';
+                      window.showToast && window.showToast(msg2, 'error');
+                    }
+                    resolve();
+                  })
+                  .catch(function(){ window.showToast && window.showToast('Ошибка сети при отправке уведомления', 'error'); resolve(); });
+              }, 800);
+            });
+          }
+          var serverMsg = (res.data && res.data.message) ? String(res.data.message) : '';
+          // Silent auto-subscribe already attempted inside fetchWithAutoPush
+          if (res.status === 400 && /VAPID/i.test(serverMsg)) {
+            window.showToast && window.showToast('VAPID ключи не настроены на сервере', 'error');
+            return;
+          }
+          var msg = serverMsg || 'Ошибка отправки уведомления';
+          window.showToast && window.showToast(msg, 'error');
         })
         .catch(function(){ window.showToast && window.showToast('Ошибка сети при отправке уведомления', 'error'); })
-        .finally(function(){ try { btnNotifyTest.disabled = false; } catch(_) {} });
+        .finally(function(){ try { clearTimeout(unlockTimer); } catch(_) {} try { btnNotifyTest.disabled = false; } catch(_) {} });
     });
 
     const btnSendNotifyM = document.getElementById('btnSendNotifyM');

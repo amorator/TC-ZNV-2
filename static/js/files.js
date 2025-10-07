@@ -218,8 +218,12 @@ function validateForm(element) {
       if (window.showToast) { window.showToast('Выберите файл(ы)!', 'error'); } else { alert('Выберите файл(ы)!'); }
       return false;
     }
-    if (len > 5) {
-      if (window.showToast) { window.showToast('Можно выбрать максимум 5 файлов', 'error'); } else { alert('Можно выбрать максимум 5 файлов'); }
+    var maxUploadEl = document.getElementById('max-upload-files');
+    var maxUpload = 5;
+    try { maxUpload = parseInt(maxUploadEl && maxUploadEl.value ? maxUploadEl.value : '5') || 5; } catch(_) {}
+    if (len > maxUpload) {
+      var msg = 'Можно выбрать максимум ' + maxUpload + ' файлов';
+      if (window.showToast) { window.showToast(msg, 'error'); } else { alert(msg); }
       return false;
     }
     // Client-side file validation for each file
@@ -1259,7 +1263,7 @@ document.addEventListener('DOMContentLoaded', function () {
         : window.io(window.location.origin, {
             transports: ['websocket', 'polling'],
             upgrade: true,
-            path: '/socket.io/',
+            path: '/socket.io',
             withCredentials: true,
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -1283,9 +1287,57 @@ document.addEventListener('DOMContentLoaded', function () {
             try { socket.connect(); } catch(_) {}
           }
         });
-        socket.on('connect_error', function(){
-          try { socket.connect(); } catch(_) {}
-        });
+        // Hard teardown and recreate socket on 400/invalid session or early WS close
+        (function bindFilesReconnectHardening(sock){
+          if (sock._filesHardeningBound) return; sock._filesHardeningBound = true;
+          let attemptedFallback = false;
+          const recreate = function(options){
+            try { sock.off && sock.off('connect_error', onErr); } catch(_) {}
+            try { sock.off && sock.off('error', onErr); } catch(_) {}
+            try { sock.off && sock.off('reconnect_error', onErr); } catch(_) {}
+            try { sock.disconnect && sock.disconnect(); } catch(_) {}
+            const next = window.io(window.location.origin, Object.assign({
+              forceNew: true,
+              path: '/socket.io',
+              withCredentials: true,
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 1000,
+              reconnectionDelayMax: 5000,
+              timeout: 20000,
+              query: { ts: String(Date.now()) }
+            }, options || { transports: ['websocket'], upgrade: false }));
+            window.socket = next;
+            // Minimal rebinds; existing code below will also set up listeners on current socket
+            try { next.off && next.off('files:changed'); } catch(_) {}
+            try { next.on && next.on('connect', function(){ try { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); } catch(_) {} }); } catch(_) {}
+            // Rebind hardening to the new instance
+            bindFilesReconnectHardening(next);
+          };
+          function onErr(err){
+            try {
+              const code = (err && (err.code || err.status)) || 0;
+              const msg = String(err && (err.message || err)) || '';
+              const isEarlyWsClose = /WebSocket is closed before the connection is established/i.test(msg);
+              if (!attemptedFallback && (code === 400 || isEarlyWsClose || !code)) {
+                attemptedFallback = true;
+                // First recreate with WebSocket-only; if that fails, fallback to polling-only
+                recreate({ transports: ['websocket'], upgrade: false, forceNew: true });
+              }
+            } catch(_) {}
+          }
+          try { sock.on('connect_error', onErr); } catch(_) {}
+          try { sock.on('error', onErr); } catch(_) {}
+          try { sock.on('reconnect_error', onErr); } catch(_) {}
+          // If the WS-only recreate also errors, switch to polling-only once
+          try {
+            sock.on('close', function(){
+              if (!attemptedFallback) return;
+              // Second stage: polling-only
+              recreate({ transports: ['polling'], upgrade: false, forceNew: true });
+            });
+          } catch(_) {}
+        })(socket);
       } catch(_) {}
       
       /**
@@ -1294,11 +1346,9 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!socket._filesBound) {
         socket._filesBound = true;
         socket.on('connect', function() { 
-          console.log('Socket connected, re-registering files:changed events');
           // Re-register files:changed events on reconnect
           socket.off('files:changed');
           socket.on('files:changed', function(evt) {
-            console.log('files:changed event received:', evt);
             try {
               const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
               if (fromSelf) { return; }
@@ -1306,7 +1356,6 @@ document.addEventListener('DOMContentLoaded', function () {
             const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
             const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
             if (isServerReason) {
-              console.log('Triggering immediate refresh for reason:', evt.reason);
               // If tab is hidden, run immediate refresh without debounce to keep background up-to-date
               if (document.hidden) {
                 try { window.__filesHadBackgroundEvent = true; } catch(_) {}
@@ -1342,11 +1391,9 @@ document.addEventListener('DOMContentLoaded', function () {
        * @param {number} attemptNumber - Number of reconnection attempts
        */
         socket.on('reconnect', function(attemptNumber) { 
-          console.log('Socket reconnected, re-registering files:changed events');
           // Re-register files:changed events on reconnect
           socket.off('files:changed');
           socket.on('files:changed', function(evt) {
-            console.log('files:changed event received:', evt);
             try {
               const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
               if (fromSelf) { return; }
@@ -1354,7 +1401,6 @@ document.addEventListener('DOMContentLoaded', function () {
             const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
             const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
             if (isServerReason) {
-              console.log('Triggering immediate refresh for reason:', evt.reason);
               if (document.hidden) {
                 try { window.__filesHadBackgroundEvent = true; } catch(_) {}
                 try { triggerImmediateFilesRefresh(); } catch(_) {}
@@ -1391,15 +1437,13 @@ document.addEventListener('DOMContentLoaded', function () {
       // Remove existing listeners to prevent duplicates
       socket.off('files:changed');
       
-      console.log('Registering files:changed events, socket connected:', socket.connected);
+      
       
       // Force register events even if socket is already connected
       if (socket.connected) {
-        console.log('Socket already connected, registering events immediately');
       }
       
       socket.on('files:changed', function(evt) {
-          console.log('files:changed event received:', evt, 'timestamp:', new Date().toISOString(), 'from namespace: default', 'socket connected:', socket.connected);
           try {
             const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
             if (fromSelf) { return; }
@@ -1415,9 +1459,7 @@ document.addEventListener('DOMContentLoaded', function () {
           // Always refresh for note/edited events (server-originated)
           const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
           const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
-          console.log('isServerReason:', isServerReason, 'reason:', evt.reason);
           if (isServerReason) {
-            console.log('Triggering immediate refresh for reason:', evt.reason, 'id:', evt.id);
             try {
               if (document.hidden) {
                 try { window.__filesHadBackgroundEvent = true; } catch(_) {}

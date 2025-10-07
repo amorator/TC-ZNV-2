@@ -60,6 +60,11 @@ def register(app):
     def groups_page():
         """Return a page of groups rows as HTML (tbody content) with pagination meta."""
         try:
+            # Redirect direct HTML requests to full page to avoid JSON blob after login
+            accept = (request.headers.get('Accept') or '')
+            is_ajax = (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+            if ('text/html' in accept) and (not is_ajax):
+                return redirect(url_for('groups'))
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 15))
             if page < 1: page = 1

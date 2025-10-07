@@ -100,6 +100,7 @@ def register(app):
 				return jsonify({'status': 'error', 'message': 'VAPID keys not configured'}), 400
 			payload = {'title': 'Тест', 'body': 'Тестовое уведомление', 'icon': '/static/images/notification-icon.png'}
 			sent = 0
+			removed = 0
 			for row in rows:
 				endpoint, p256dh, auth = row[1], row[2], row[3]
 				sub_info = {
@@ -115,13 +116,27 @@ def register(app):
 					)
 					sent += 1
 				except WebPushException as we:
+					# Remove expired/invalid subscriptions (410 Gone / No such subscription)
+					code = None
+					body_text = ''
+					try:
+						code = we.response.status_code if getattr(we, 'response', None) is not None else None
+						body_text = we.response.text if getattr(we, 'response', None) is not None else str(we)
+					except Exception:
+						body_text = str(we)
+					if code == 410 or 'No such subscription' in body_text or 'Gone' in body_text:
+						try:
+							app._sql.push_remove_subscription(endpoint)
+							removed += 1
+						except Exception:
+							pass
 					_log.error(f"Push send failed: {we}")
 					continue
 			try:
-				log_action('PUSH_TEST', current_user.name, f'sent test to {sent} subs', request.remote_addr)
+				log_action('PUSH_TEST', current_user.name, f'sent test to {sent} subs, removed {removed}', request.remote_addr)
 			except Exception:
 				pass
-			return jsonify({'status': 'success', 'sent': sent}), 200
+			return jsonify({'status': 'success', 'sent': sent, 'removed': removed}), 200
 		except Exception as e:
 			app.flash_error(e)
 			try:

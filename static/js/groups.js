@@ -724,7 +724,7 @@ if (document.readyState === 'loading') {
         try {
           socket = window.io(window.location.origin, {
             transports: ['websocket','polling'],
-            path: '/socket.io/',
+            path: '/socket.io',
             withCredentials: true,
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -741,6 +741,53 @@ if (document.readyState === 'loading') {
         try { socket.off && socket.off('users:changed'); } catch(_) {}
         socket.on('connect', function(){ try { softRefreshGroupsTable(); } catch(_) {} });
         socket.on('disconnect', function(){ /* no-op */ });
+        // Hardening: recreate socket on 400/invalid session or early WS close
+        (function bindGroupsReconnectHardening(sock){
+          if (sock._groupsHardeningBound) return; sock._groupsHardeningBound = true;
+          let attemptedFallback = false;
+          const recreate = function(options){
+            try { sock.off && sock.off('connect_error', onErr); } catch(_) {}
+            try { sock.off && sock.off('error', onErr); } catch(_) {}
+            try { sock.off && sock.off('reconnect_error', onErr); } catch(_) {}
+            try { sock.disconnect && sock.disconnect(); } catch(_) {}
+            const next = window.io(window.location.origin, Object.assign({
+              forceNew: true,
+              path: '/socket.io',
+              withCredentials: true,
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 1000,
+              reconnectionDelayMax: 5000,
+              timeout: 20000,
+              query: { ts: String(Date.now()) }
+            }, options || { transports: ['websocket'], upgrade: false }));
+            window.socket = next;
+            window.groupsSocket = next;
+            try { next.off && next.off('groups:changed'); } catch(_) {}
+            try { next.on && next.on('connect', function(){ try { softRefreshGroupsTable(); } catch(_) {} }); } catch(_) {}
+            bindGroupsReconnectHardening(next);
+          };
+          function onErr(err){
+            try {
+              const code = (err && (err.code || err.status)) || 0;
+              const msg = String(err && (err.message || err)) || '';
+              const isEarlyWsClose = /WebSocket is closed before the connection is established/i.test(msg);
+              if (!attemptedFallback && (code === 400 || isEarlyWsClose || !code)) {
+                attemptedFallback = true;
+                recreate({ transports: ['websocket'], upgrade: false, forceNew: true });
+              }
+            } catch(_) {}
+          }
+          try { sock.on('connect_error', onErr); } catch(_) {}
+          try { sock.on('error', onErr); } catch(_) {}
+          try { sock.on('reconnect_error', onErr); } catch(_) {}
+          try {
+            sock.on('close', function(){
+              if (!attemptedFallback) return;
+              recreate({ transports: ['polling'], upgrade: false, forceNew: true });
+            });
+          } catch(_) {}
+        })(socket);
         socket.on('groups:changed', function(evt){ 
           try {
             const fromSelf = !!(evt && evt.originClientId && window.__groupsClientId && evt.originClientId === window.__groupsClientId);
@@ -748,7 +795,7 @@ if (document.readyState === 'loading') {
           } catch(_) {}
           if (document.hidden) {
             try { window.__groupsHadBackgroundEvent = true; } catch(_) {}
-            try { softRefreshGroupsTable(); } catch(_) {}
+            try { backgroundImmediateGroupsRefresh(); } catch(_) {}
           } else {
             try { softRefreshGroupsTable(); } catch(_) {}
           }
@@ -823,6 +870,64 @@ if (document.readyState === 'loading') {
       } catch(_) {}
     }
     try { window.softRefreshGroupsTable = softRefreshGroupsTable; } catch(_) {}
+    
+    // Background-safe immediate refresh: fetch current page and replace tbody
+    function backgroundImmediateGroupsRefresh() {
+      try {
+        const table = document.getElementById('maintable');
+        if (!table || !table.tBodies || !table.tBodies[0]) return;
+        const tbodyEl = table.tBodies[0];
+        const url = window.location.pathname + window.location.search;
+        fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' } })
+          .then(function(r){ return r.text(); })
+          .then(function(html){
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newTbody = doc.querySelector('#maintable tbody') || doc.querySelector('table tbody') || doc.querySelector('tbody');
+            if (newTbody) {
+              const searchRow = tbodyEl.querySelector('tr#search');
+              tbodyEl.innerHTML = newTbody.innerHTML;
+              if (searchRow && !tbodyEl.querySelector('tr#search')) {
+                tbodyEl.insertBefore(searchRow, tbodyEl.firstChild);
+              }
+              try { reinitializeContextMenu(); } catch(_) {}
+              try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
+            }
+          })
+          .catch(function(){});
+      } catch(_) {}
+    }
+
+    // Passive polling when backgrounded (hidden or not-focused): refresh periodically
+    (function setupGroupsPassivePolling(){
+      try {
+        if (window.__groupsPassivePollInit) return; window.__groupsPassivePollInit = true;
+        let pollTimer = null;
+        function start(){
+          if (pollTimer) return;
+          pollTimer = setInterval(function(){
+            try { backgroundImmediateGroupsRefresh(); } catch(_) {}
+          }, (window.PASSIVE_POLL_SECONDS ? (Number(window.PASSIVE_POLL_SECONDS) * 1000) : 20000));
+        }
+        function stop(){
+          if (!pollTimer) return;
+          try { clearInterval(pollTimer); } catch(_) {}
+          pollTimer = null;
+        }
+        function shouldPoll(){
+          try { return document.hidden || !document.hasFocus(); } catch(_) { return document.hidden; }
+        }
+        function handle(){
+          if (shouldPoll()) start(); else stop();
+        }
+        document.addEventListener('visibilitychange', handle);
+        window.addEventListener('blur', handle);
+        window.addEventListener('focus', handle);
+        window.addEventListener('pagehide', stop);
+        window.addEventListener('beforeunload', stop);
+        handle();
+      } catch(_) {}
+    })();
   })();
 
   // Focus/visibility: reconnect and one soft refresh on return

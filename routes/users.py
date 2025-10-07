@@ -25,6 +25,12 @@ def register(app):
 	def users_page():
 		"""Return a page of users rows as HTML (tbody content) with pagination meta."""
 		try:
+			# If a direct browser navigation lands here (e.g., after login redirect),
+			# serve the full page instead of JSON snippet.
+			accept = (request.headers.get('Accept') or '')
+			is_ajax = (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+			if ('text/html' in accept) and (not is_ajax):
+				return redirect(url_for('users'))
 			page = int(request.args.get('page', 1))
 			page_size = int(request.args.get('page_size', 15))
 			if page < 1: page = 1

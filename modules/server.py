@@ -40,6 +40,14 @@ class Server(Flask):
         self.login_manager.login_message = 'Please log in to access this page.'
         self.login_manager.refresh_view = 'reauth'
         self._sql = SQLUtils()
+        # Load Flask secret key from DB (create if missing) unless provided via env
+        try:
+            if getenv('SECRET_KEY') is None:
+                sk = self._sql.get_or_create_secret_key()
+                if sk and isinstance(sk, str) and len(sk) >= 32:
+                    self.config['SECRET_KEY'] = sk
+        except Exception:
+            pass
 
     def get_dirs(self) -> None:
         """Build directories structure from configuration."""

@@ -16,44 +16,15 @@ const STATIC_CACHE_URLS = [
 ];
 
 // Install event - cache static assets
-self.addEventListener('install', event => {
-  console.log('Service Worker installing...');
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Caching static assets...');
-        return cache.addAll(STATIC_CACHE_URLS);
-      })
-      .then(() => {
-        console.log('Static assets cached successfully');
-        return self.skipWaiting();
-      })
-      .catch(error => {
-        console.error('Failed to cache static assets:', error);
-      })
-  );
+self.addEventListener('install', (event) => {
+	self.skipWaiting();
 });
 
 // Activate event - clean up old caches
-self.addEventListener('activate', event => {
-  console.log('Service Worker activating...');
-  event.waitUntil(
-    caches.keys()
-      .then(cacheNames => {
-        return Promise.all(
-          cacheNames
-            .filter(cacheName => cacheName !== CACHE_NAME)
-            .map(cacheName => {
-              console.log('Deleting old cache:', cacheName);
-              return caches.delete(cacheName);
-            })
-        );
-      })
-      .then(() => {
-        console.log('Service Worker activated');
-        return self.clients.claim();
-      })
-  );
+self.addEventListener('activate', (event) => {
+	event.waitUntil((async () => {
+		try { await self.clients.claim(); } catch (e) { /* ignore */ }
+	})());
 });
 
 // Fetch event - serve from cache, fallback to network
@@ -74,12 +45,10 @@ self.addEventListener('fetch', event => {
     caches.match(event.request)
       .then(response => {
         if (response) {
-          console.log('Serving from cache:', event.request.url);
           return response;
         }
 
         // If not in cache, fetch from network
-        console.log('Fetching from network:', event.request.url);
         return fetch(event.request)
           .then(response => {
             // Don't cache if not a valid response
@@ -112,4 +81,31 @@ self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+});
+
+self.addEventListener('push', (event) => {
+	try {
+		const data = event.data ? event.data.json() : {};
+		const title = data.title || 'Сообщение';
+		const body = data.body || '';
+		const icon = data.icon || '/static/images/notification-icon.png';
+		event.waitUntil(self.registration.showNotification(title, { body, icon, data }));
+	} catch (e) {
+		// Fallback for non-JSON payloads
+		const text = event.data ? event.data.text() : '';
+		event.waitUntil(self.registration.showNotification('Сообщение', { body: text }));
+	}
+});
+
+self.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+	const url = (event.notification && event.notification.data && event.notification.data.url) || '/';
+	event.waitUntil(
+		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+			for (const client of clientList) {
+				if ('focus' in client) return client.focus();
+			}
+			if (self.clients.openWindow) return self.clients.openWindow(url);
+		})
+	);
 });

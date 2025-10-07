@@ -628,10 +628,10 @@ if (document.readyState === 'loading') {
           const fromSelf = !!(evt && evt.originClientId && window.__usersClientId && evt.originClientId === window.__usersClientId);
           if (fromSelf) return;
         } catch(_) {}
-        // If tab hidden, refresh immediately to keep background up-to-date
+        // If tab hidden, perform immediate network refresh to bypass throttling
         if (document.hidden) {
           try { window.__usersHadBackgroundEvent = true; } catch(_) {}
-          try { softRefreshUsersTable(); } catch(_) {}
+          try { backgroundImmediateUsersRefresh(); } catch(_) {}
         } else {
           try { softRefreshUsersTable(); } catch(_) {}
         }
@@ -942,6 +942,66 @@ if (document.readyState === 'loading') {
     // Use soft refresh instead of full reload to avoid navigation logs
     try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
   };
+
+  // Background-safe immediate refresh: fetch current page and replace tbody
+  function backgroundImmediateUsersRefresh() {
+    try {
+      const table = document.getElementById('maintable');
+      if (!table || !table.tBodies || !table.tBodies[0]) return;
+      const tbodyEl = table.tBodies[0];
+      const url = window.location.pathname + window.location.search;
+      fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Cache-Control': 'no-cache' } })
+        .then(function(r){ return r.text(); })
+        .then(function(html){
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const newTbody = doc.querySelector('#maintable tbody') || doc.querySelector('table tbody') || doc.querySelector('tbody');
+          if (newTbody) {
+            // Preserve search row if present
+            const searchRow = tbodyEl.querySelector('tr#search');
+            tbodyEl.innerHTML = newTbody.innerHTML;
+            if (searchRow && !tbodyEl.querySelector('tr#search')) {
+              tbodyEl.insertBefore(searchRow, tbodyEl.firstChild);
+            }
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+            try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+          }
+        })
+        .catch(function(){});
+    } catch(_) {}
+  }
+
+  // Passive polling when backgrounded (hidden or not-focused): refresh periodically
+  (function setupUsersPassivePolling(){
+    try {
+      if (window.__usersPassivePollInit) return; window.__usersPassivePollInit = true;
+      let pollTimer = null;
+      function start(){
+        if (pollTimer) return;
+        pollTimer = setInterval(function(){
+          try { backgroundImmediateUsersRefresh(); } catch(_) {}
+        }, (window.PASSIVE_POLL_SECONDS ? (Number(window.PASSIVE_POLL_SECONDS) * 1000) : 20000));
+      }
+      function stop(){
+        if (!pollTimer) return;
+        try { clearInterval(pollTimer); } catch(_) {}
+        pollTimer = null;
+      }
+      function shouldPoll(){
+        try { return document.hidden || !document.hasFocus(); } catch(_) { return document.hidden; }
+      }
+      function handle(){
+        if (shouldPoll()) start(); else stop();
+      }
+      document.addEventListener('visibilitychange', handle);
+      window.addEventListener('blur', handle);
+      window.addEventListener('focus', handle);
+      window.addEventListener('pagehide', stop);
+      window.addEventListener('beforeunload', stop);
+      // Initialize state
+      handle();
+    } catch(_) {}
+  })();
 
   /**
    * Update user row in table locally without page refresh

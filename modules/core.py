@@ -46,7 +46,9 @@ class Config:
             self.config['db']['pool_size'] = getenv('DB_POOL_SIZE', self.config['db'].get('pool_size', '5'))
         if 'files' in self.config:
             self.config['files']['root'] = getenv('FILES_ROOT', self.config['files'].get('root', '/mnt/files'))
+            self.config['files']['max_upload_files'] = getenv('FILES_MAX_UPLOAD_FILES', self.config['files'].get('max_upload_files', '5'))
         if 'videos' in self.config:
             self.config['videos']['max_threads'] = getenv('VIDEOS_MAX_THREADS', self.config['videos'].get('max_threads', '2'))
         if 'web' in self.config:
             self.config['web']['session_lifetime'] = getenv('WEB_SESSION_LIFETIME', self.config['web'].get('session_lifetime', '86400'))
+            self.config['web']['passive_poll_seconds'] = getenv('WEB_PASSIVE_POLL_SECONDS', self.config['web'].get('passive_poll_seconds', '20'))

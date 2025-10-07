@@ -187,12 +187,13 @@
         </div>
         <div class="popup__form-control form-control">
 
-          <label class="form-control__label" for="file">Выбрать файлы (до 5 шт.):</label>
+          <label class="form-control__label" for="file">Выбрать файлы (до {{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }} шт.):</label>
           <div class="d-flex flex-wrap gap-2 align-items-center">
             <input class="form-control__control" type="file" name="file" id="file" multiple autocomplete="off"
               accept="video/*,audio/*,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus">
           </div>
-          <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: 5. При множественной загрузке используются реальные имена файлов.</small>
+          <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: {{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}. При множественной загрузке используются реальные имена файлов.</small>
+          <input type="hidden" id="max-upload-files" value="{{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}" autocomplete="off">
           <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}" autocomplete="off">
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы видео: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V; аудио: MP3, WAV, FLAC, AAC, M4A, OGG/OPUS, WMA</small>
         </div>

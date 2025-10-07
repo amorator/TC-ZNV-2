@@ -111,6 +111,16 @@ class SQL(Config):
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY(id)
 );""")
+
+        # Create settings table for app-wide key/value storage (e.g., secret_key)
+        self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_settings (
+    id INTEGER UNIQUE AUTO_INCREMENT,
+    skey VARCHAR(255) NOT NULL UNIQUE,
+    svalue TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY(id)
+);""")
         
         # Insert default admin group and user
         permission_length = int(self.config['db'].get('permission_length', 5))
@@ -192,6 +202,35 @@ class SQLUtils(SQL):
         """
         data = self.execute_scalar(f"SELECT permission FROM {self.config['db']['prefix']}_user LIMIT 1;")
         return len(data[0].split(','))
+
+    def get_or_create_secret_key(self) -> str:
+        """Fetch application Flask secret key from DB; create if missing.
+
+        Returns:
+            str: secret key value
+        """
+        try:
+            prefix = self.config['db']['prefix']
+            # Ensure settings table exists (idempotent)
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_settings (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    skey VARCHAR(255) NOT NULL UNIQUE,
+                    svalue TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """)
+            row = self.execute_scalar(f"SELECT svalue FROM {prefix}_settings WHERE skey = %s LIMIT 1;", ['secret_key'])
+            if row and row[0]:
+                return str(row[0])
+            # Create a new strong secret key
+            key = secrets.token_urlsafe(48)
+            self.execute_non_query(f"INSERT INTO {prefix}_settings (skey, svalue) VALUES (%s, %s);", ['secret_key', key])
+            return key
+        except Exception:
+            # As a last resort, generate a volatile key (process lifetime only)
+            return secrets.token_urlsafe(48)
 
     def group_name_by_id(self, args):
         """Get group name by ID.

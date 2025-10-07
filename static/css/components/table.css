@@ -4,6 +4,108 @@
     border: none;
 }
 
+/* Prevent column width shifts during updates */
+.files-page__table,
+.users-page__table,
+.groups-page__table {
+    table-layout: fixed;
+}
+
+/* Truncate overflowing cell content gracefully */
+.files-page__table th,
+.files-page__table td,
+.users-page__table th,
+.users-page__table td,
+.groups-page__table th,
+.groups-page__table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Users table fixed widths: Login, Name, Group, Permissions, Active */
+.users-page__table thead th:nth-child(1),
+.users-page__table tbody td:nth-child(1) {
+    width: 20%;
+}
+
+.users-page__table thead th:nth-child(2),
+.users-page__table tbody td:nth-child(2) {
+    width: 25%;
+}
+
+.users-page__table thead th:nth-child(3),
+.users-page__table tbody td:nth-child(3) {
+    width: 20%;
+}
+
+.users-page__table thead th:nth-child(4),
+.users-page__table tbody td:nth-child(4) {
+    width: 25%;
+}
+
+.users-page__table thead th:nth-child(5),
+.users-page__table tbody td:nth-child(5) {
+    width: 10%;
+}
+
+/* Groups table fixed widths: Name, Description, Users count, Created */
+.groups-page__table thead th:nth-child(1),
+.groups-page__table tbody td:nth-child(1) {
+    width: 25%;
+}
+
+.groups-page__table thead th:nth-child(2),
+.groups-page__table tbody td:nth-child(2) {
+    width: 45%;
+}
+
+.groups-page__table thead th:nth-child(3),
+.groups-page__table tbody td:nth-child(3) {
+    width: 15%;
+}
+
+.groups-page__table thead th:nth-child(4),
+.groups-page__table tbody td:nth-child(4) {
+    width: 15%;
+}
+
+/* Files table fixed widths: Name, Description, Owner, Created, Length, Size, Notes */
+.files-page__table thead th:nth-child(1),
+.files-page__table tbody td:nth-child(1) {
+    width: 32%;
+}
+
+.files-page__table thead th:nth-child(2),
+.files-page__table tbody td:nth-child(2) {
+    width: 28%;
+}
+
+.files-page__table thead th:nth-child(3),
+.files-page__table tbody td:nth-child(3) {
+    width: 12%;
+}
+
+.files-page__table thead th:nth-child(4),
+.files-page__table tbody td:nth-child(4) {
+    width: 12%;
+}
+
+.files-page__table thead th:nth-child(5),
+.files-page__table tbody td:nth-child(5) {
+    width: 6%;
+}
+
+.files-page__table thead th:nth-child(6),
+.files-page__table tbody td:nth-child(6) {
+    width: 6%;
+}
+
+.files-page__table thead th:nth-child(7),
+.files-page__table tbody td:nth-child(7) {
+    width: 4%;
+}
+
 .table__head_item {
     font-weight: 600;
     text-align: left;

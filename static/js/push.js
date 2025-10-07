@@ -26,8 +26,9 @@
 		return reg;
 	}
 
-	async function subscribe(reg) {
-		try {
+    async function subscribe(reg, opts) {
+        opts = opts || {};
+        try {
 			const publicKey = await getVapidPublicKey();
 			const sub = await reg.pushManager.subscribe({
 				userVisibleOnly: true,
@@ -39,19 +40,20 @@
 				credentials: 'same-origin',
 				body: JSON.stringify(sub)
 			});
-			if (window.showToast) showToast('Уведомления включены', 'success');
-		} catch (e) {
-			if (window.showToast) showToast('Не удалось включить уведомления', 'error');
-		}
+            if (!opts.silent && window.showToast) showToast('Уведомления включены', 'success');
+        } catch (e) {
+            if (!opts.silent && window.showToast) showToast('Не удалось включить уведомления', 'error');
+        }
 	}
 
-	async function init() {
-		try {
+    async function init(opts) {
+        opts = opts || {};
+        try {
 			const reg = await registerSW();
 			if (!reg) return;
 			const existing = await reg.pushManager.getSubscription();
 			if (!existing) {
-				await subscribe(reg);
+                await subscribe(reg, opts);
 			}
 		} catch(e) {}
 	}
