@@ -66,18 +66,35 @@ socketio = SocketIO(
     cors_allowed_origins='*',
     logger=False,
     engineio_logger=False,
-    ping_interval=25,
-    ping_timeout=60,
+    ping_interval=20,
+    ping_timeout=120,
     allow_upgrades=True,
     transports=['websocket', 'polling'],
     **_socketio_kwargs,
 )
+# Expose Socket.IO on app for route modules that look up app.socketio
+try:
+    setattr(app, 'socketio', socketio)
+except Exception:
+    pass
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)
 register_all(app, tp, media_service, socketio)
 
 make_dir(app._sql.config['files']['root'], 'video')
 make_dir(app._sql.config['files']['root'], 'req')
+
+# ==== DEV-ONLY START (TODO: remove in production) ============================
+@app.after_request
+def _dev_disable_cache(resp):
+    try:
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+    except Exception:
+        pass
+    return resp
+# ==== DEV-ONLY END ===========================================================
 
 @app.errorhandler(401)
 def unautorized(e):
@@ -220,8 +237,31 @@ def static_files(filename):
     """Serve static files with aggressive caching for offline functionality."""
     try:
         response = send_from_directory('static', filename)
-        return response # TODO: remove this for production
-        # Set aggressive caching headers for JavaScript and CSS files
+        # ==== DEV-ONLY START (TODO: remove in production) ============================
+        # During development, force-disable caching of static files to ensure the
+        # recorder iframe (/files/rec) always loads fresh assets and avoids SW races.
+        try:
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        except Exception:
+            pass
+        return response
+        # ==== DEV-ONLY END ===========================================================
+        # --- PROD: uncomment the block below to re-enable aggressive caching ---
+        # if filename.endswith(('.js', '.css')):
+        #     response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
+        #     # Set Expires to 1 year from now
+        #     expires_date = dt.utcnow() + timedelta(days=365)
+        #     response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
+        #     response.headers['ETag'] = f'"{hash(filename)}"'
+        # else:
+        #     # Moderate caching for other static files
+        #     response.headers['Cache-Control'] = 'public, max-age=86400'  # 1 day
+        #     # Set Expires to 1 day from now
+        #     expires_date = dt.utcnow() + timedelta(days=1)
+        #     response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
+        # return response
         if filename.endswith(('.js', '.css')):
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
             # Set Expires to 1 year from now
@@ -289,6 +329,40 @@ except Exception:
     # In some environments (e.g., when managed by another server), signals may be handled externally
     pass
 
+# Test Socket.IO handler for debugging
+@socketio.on('test-files-changed')
+def handle_test_files_changed(data):
+    print(f"DEBUG: Received test-files-changed event: {data}")
+    # Echo back to all clients
+    socketio.emit('files:changed', data)
+    socketio.emit('files:changed', data, namespace='/')
+
+# Test handler to manually emit files:changed events
+@socketio.on('emit-test-event')
+def handle_emit_test_event(data):
+    print(f"DEBUG: Manually emitting files:changed event: {data}")
+    try:
+        socketio.emit('files:changed', data)
+        socketio.emit('files:changed', data, namespace='/')
+        # broadcast=True is not supported in this version
+        print(f"DEBUG: Test event emitted successfully")
+    except Exception as e:
+        print(f"DEBUG: Error emitting test event: {e}")
+
+# ==== DEV-ONLY START (TODO: remove in production) =========================
+# Re-broadcast client-emitted files:changed events to all clients
+@socketio.on('files:changed')
+def handle_client_files_changed(data):
+    try:
+        print(f"DEBUG: Re-broadcasting client files:changed: {data}")
+        socketio.emit('files:changed', data)
+        try:
+            socketio.emit('files:changed', data, namespace='/')
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"DEBUG: Error re-broadcasting files:changed: {e}")
+# ==== DEV-ONLY END ========================================================
 if __name__ == '__main__':
     try:
         # Development only

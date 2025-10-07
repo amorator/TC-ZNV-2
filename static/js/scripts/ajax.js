@@ -21,6 +21,7 @@
     const submitBtn = form.querySelector('button[type="submit"], button.btn-primary');
     const originalText = submitBtn ? submitBtn.textContent : '';
     if (submitBtn) {
+      try { submitBtn.dataset.originalText = originalText; } catch(_) {}
       submitBtn.disabled = true;
       submitBtn.textContent = 'Отправка...';
     }
@@ -52,7 +53,8 @@
     .finally(() => {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        const restored = (submitBtn.dataset && submitBtn.dataset.originalText) ? submitBtn.dataset.originalText : originalText;
+        submitBtn.textContent = restored;
       }
       if (typeof opts.onFinally === 'function') {
         try { opts.onFinally(); } catch(_) {}

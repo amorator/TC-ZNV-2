@@ -70,6 +70,13 @@ function popupValues(form, id) {
   if (form.id == "edit") {
     const nameVal = (values[0].innerText || '').trim();
     let descVal = (values[1].innerText || '').trim();
+    // Strip media markers like "Видео", "Аудио", brackets and separators at the start
+    try {
+      descVal = descVal
+        .replace(/^\s*[\[(]?(видео|аудио)[)\]]?\s*[:\-–—]?\s*/i, '')
+        .replace(/^\s*[–—\-]\s*/i, '')
+        .trim();
+    } catch(_) {}
     
     // Don't show "Нет описания..." in edit form - show empty field instead
     if (descVal === 'Нет описания...') {
@@ -85,6 +92,22 @@ function popupValues(form, id) {
       form.dataset.origDesc = descVal; // Already cleaned from "Нет описания..."
     } catch (_) {}
     let select = form.getElementsByTagName("select")[0];
+    // Reset modal primary button label to default when opening
+    try {
+      const modal = form.closest('.overlay-container, .popup, .modal');
+      if (modal) {
+        const btn = modal.querySelector('.btn.btn-primary');
+        if (btn) {
+          const current = btn.textContent || '';
+          if (!btn.dataset.defaultText && current && current.trim() && current.trim() !== 'Отправка...') {
+            btn.dataset.defaultText = current.trim();
+          }
+          const restored = btn.dataset.defaultText || btn.dataset.originalText || current || 'Отправить';
+          btn.textContent = restored;
+          btn.disabled = false;
+        }
+      }
+    } catch(_) {}
   } else if (form.id == "move") {
     // Ensure action URL targets the selected file id (replace any trailing /digits)
     if (form.action) {
@@ -108,7 +131,24 @@ function popupValues(form, id) {
       form.dataset.origNote = note || '';
     } catch (_) {}
   }
-  form.action = form.action.replace(new RegExp("0$"), id);
+  // Ensure action ends with the correct file id (replace any trailing digits or 0)
+  // Rebuild action to ensure correct trailing id for edit/note/delete forms
+  try {
+    if (form.action) {
+      // Match base like /files/(edit|note|delete)/did/sdid
+      var m = form.action.match(/^(.*\/(edit|note|delete)\/\d+\/\d+)(?:\/\d+)?(?:[?#].*)?$/);
+      if (m && m[1]) {
+        form.action = m[1] + '/' + id;
+    } else {
+        // Fallback: replace any trailing /digits or /0
+        if (/\/\d+$/.test(form.action)) {
+          form.action = form.action.replace(/\/\d+$/, '/' + id);
+        } else if (/\/0$/.test(form.action)) {
+          form.action = form.action.replace(/\/0$/, '/' + id);
+        }
+      }
+    }
+  } catch(_) {}
 }
 
 /**
@@ -1139,6 +1179,68 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     } catch(_) {}
   })();
+
+  // ==== DEV-ONLY START (TODO: remove in production) =========================
+  try {
+    var btnRefresh = document.getElementById('btn-dev-refresh-static');
+    if (btnRefresh && !btnRefresh._bound) {
+      btnRefresh._bound = true;
+      btnRefresh.addEventListener('click', function(){
+        try {
+          if (window.caches && caches.keys) {
+            caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k).catch(function(){}); }); }).catch(function(){});
+          }
+        } catch(_) {}
+        try {
+          var url = new URL(window.location.href);
+          url.searchParams.set('_cb', Date.now());
+          window.location.replace(url.toString());
+        } catch(_) {
+          window.location.reload(true);
+        }
+      });
+    }
+  } catch(_) {}
+
+  try {
+    var btnReset = document.getElementById('btn-dev-reset-socket');
+    if (btnReset && !btnReset._bound) {
+      btnReset._bound = true;
+      btnReset.addEventListener('click', function(){
+        try {
+          if (window.socket) {
+            try { window.socket.off('files:changed'); } catch(_) {}
+            try { window.socket.off('/files:changed'); } catch(_) {}
+            try { window.socket.disconnect(); } catch(_) {}
+            setTimeout(function(){
+              try { window.socket.connect(); } catch(_) {}
+              try { if (typeof window.registerFilesSocketHandlers === 'function') window.registerFilesSocketHandlers(window.socket); } catch(_) {}
+            }, 200);
+          }
+        } catch(_) {}
+        try { if (window.showToast) window.showToast('Сокет перезапущен', 'success'); } catch(_) {}
+      });
+    }
+  } catch(_) {}
+  // ==== DEV-ONLY END ========================================================
+
+  // ==== DEV-ONLY START (TODO: remove in production) =========================
+  // Watchdog: ensure socket listeners are bound after hard refreshes
+  try {
+    if (!window.__filesSocketWatchdog) {
+      window.__filesSocketWatchdog = setInterval(function(){
+        try {
+          if (window.socket && window.socket.connected) {
+            // Re-register handlers if missing
+            if (typeof window.registerFilesSocketHandlers === 'function' && !window.__filesHandlersBound) {
+              try { window.registerFilesSocketHandlers(window.socket); } catch(_) {}
+            }
+          }
+        } catch(_) {}
+      }, 3000);
+    }
+  } catch(_) {}
+  // ==== DEV-ONLY END ========================================================
   // Initialize missing file banners for files that don't exist
   const rows = document.querySelectorAll('tr[data-exists="0"]');
   rows.forEach(row => {
@@ -1210,14 +1312,13 @@ document.addEventListener('DOMContentLoaded', function () {
       /**
        * @type {import('socket.io-client').Socket}
        */
-      const socket = (window.socket && typeof window.socket.on === 'function')
+      const socket = (window.socket && (window.socket.connected || window.socket.connecting) && typeof window.socket.on === 'function')
         ? window.socket
         : window.io(window.location.origin, {
             transports: ['websocket', 'polling'],
             upgrade: true,
             path: '/socket.io/',
             withCredentials: true,
-            forceNew: true,
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
@@ -1229,13 +1330,48 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!window.socket) {
         window.socket = socket;
       }
+
+      // Robust reconnect handlers to survive idle time
+      try {
+        socket.on('reconnect', function(){
+          try { if (typeof window.registerFilesSocketHandlers === 'function') window.registerFilesSocketHandlers(socket); } catch(_) {}
+        });
+        socket.on('disconnect', function(reason){
+          if (reason !== 'io client disconnect') {
+            try { socket.connect(); } catch(_) {}
+          }
+        });
+        socket.on('connect_error', function(){
+          try { socket.connect(); } catch(_) {}
+        });
+      } catch(_) {}
       
       /**
        * Handle successful connection - refresh table to get latest data
        */
       if (!socket._filesBound) {
         socket._filesBound = true;
-        socket.on('connect', function() { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
+        socket.on('connect', function() { 
+          console.log('Socket connected, re-registering files:changed events');
+          // Re-register files:changed events on reconnect
+          socket.off('files:changed');
+          socket.on('files:changed', function(evt) {
+            console.log('files:changed event received:', evt);
+            try {
+              const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
+              if (fromSelf) { return; }
+            } catch(_) {}
+            const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
+            const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
+            if (isServerReason) {
+              console.log('Triggering immediate refresh for reason:', evt.reason);
+              triggerImmediateFilesRefresh();
+              scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+              setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+            }
+          });
+          scheduleFilesRefreshFromSocket({ reason: 'server-update' }); 
+        });
       
       /**
        * Handle disconnection - Socket.IO will attempt automatic reconnection
@@ -1257,7 +1393,27 @@ document.addEventListener('DOMContentLoaded', function () {
        * Handle successful reconnection - refresh table to get latest data
        * @param {number} attemptNumber - Number of reconnection attempts
        */
-        socket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
+        socket.on('reconnect', function(attemptNumber) { 
+          console.log('Socket reconnected, re-registering files:changed events');
+          // Re-register files:changed events on reconnect
+          socket.off('files:changed');
+          socket.on('files:changed', function(evt) {
+            console.log('files:changed event received:', evt);
+            try {
+              const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
+              if (fromSelf) { return; }
+            } catch(_) {}
+            const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
+            const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
+            if (isServerReason) {
+              console.log('Triggering immediate refresh for reason:', evt.reason);
+              triggerImmediateFilesRefresh();
+              scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+              setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+            }
+          });
+          scheduleFilesRefreshFromSocket({ reason: 'server-update' }); 
+        });
       
       /**
        * Handle reconnection errors - Socket.IO will continue trying
@@ -1271,73 +1427,30 @@ document.addEventListener('DOMContentLoaded', function () {
        * Handle reconnection failure - create a completely new socket connection
        */
         socket.on('reconnect_failed', function() {
-          setTimeout(() => {
-          try {
-            /**
-             * @type {import('socket.io-client').Socket}
-             */
-              const newSocket = window.io(window.location.origin, {
-              transports: ['websocket', 'polling'],
-              upgrade: true,
-              path: '/socket.io/',
-              withCredentials: true,
-              forceNew: true,
-              reconnection: true,
-              reconnectionAttempts: Infinity,
-              reconnectionDelay: 1000,
-              reconnectionDelayMax: 5000,
-              timeout: 20000
-            });
-            
-            // Copy event handlers to new socket (bind once)
-            if (!newSocket._filesBound) {
-              newSocket._filesBound = true;
-              newSocket.on('connect', function() { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
-              newSocket.on('disconnect', function(reason) {});
-              newSocket.on('connect_error', function(err) {});
-              newSocket.on('reconnect', function(attemptNumber) { scheduleFilesRefreshFromSocket({ reason: 'server-update' }); });
-              newSocket.on('reconnect_error', function(error) {});
-              newSocket.on('reconnect_failed', function() {});
-              newSocket.on('files:changed', function(evt) { scheduleFilesRefreshFromSocket(evt); });
-              newSocket.on('/files:changed', function(evt) { scheduleFilesRefreshFromSocket(evt); });
-            }
-            
-            // Replace the old socket
-              try { socket.off && socket.off(); } catch(_) {}
-              try { socket.disconnect(); } catch(_) {}
-              window.socket = newSocket;
-          } catch (e) {
-            // Error creating new socket, will retry on next reconnect_failed
-          }
-          }, 2000);
+          // Avoid replacing global socket to preserve other modules' listeners (e.g., users page)
+          // Let Socket.IO keep trying based on reconnection options.
         });
       
       /**
        * Handle files changed event - refresh table to show updates
        * @param {Object} evt - Event data
        */
-        socket.on('files:changed', function(evt) {
-          // Handle file missing status updates
-          if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
-            if (evt.file_exists) {
-              window.clearFileMissingStatus(evt.id);
-            } else {
-              window.markFileAsMissing(evt.id);
-            }
-          }
-          // Treat events without originClientId as server-originated → always refresh
-          if (!evt || !evt.originClientId) {
-            scheduleFilesRefreshFromSocket({ reason: 'processing-complete', force: true });
-          } else {
-            scheduleFilesRefreshFromSocket(evt);
-          }
-        });
+      // Remove existing listeners to prevent duplicates
+      socket.off('files:changed');
       
-      /**
-       * Handle files changed event on default namespace - refresh table to show updates
-       * @param {Object} evt - Event data
-       */
-        socket.on('/files:changed', function(evt) {
+      console.log('Registering files:changed events, socket connected:', socket.connected);
+      
+      // Force register events even if socket is already connected
+      if (socket.connected) {
+        console.log('Socket already connected, registering events immediately');
+      }
+      
+      socket.on('files:changed', function(evt) {
+          console.log('files:changed event received:', evt, 'timestamp:', new Date().toISOString(), 'from namespace: default', 'socket connected:', socket.connected);
+          try {
+            const fromSelf = !!(evt && evt.originClientId && window.__filesClientId && evt.originClientId === window.__filesClientId);
+            if (fromSelf) { return; }
+          } catch(_) {}
           // Handle file missing status updates
           if ((evt.reason === 'metadata' || evt.reason === 'moved') && evt.id && evt.file_exists !== undefined) {
             if (evt.file_exists) {
@@ -1346,13 +1459,81 @@ document.addEventListener('DOMContentLoaded', function () {
               window.markFileAsMissing(evt.id);
             }
           }
-          if (!evt || !evt.originClientId) {
-            scheduleFilesRefreshFromSocket({ reason: 'processing-complete', force: true });
-          } else {
-            scheduleFilesRefreshFromSocket(evt);
+          // Always refresh for note/edited events (server-originated)
+          const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
+          const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
+          console.log('isServerReason:', isServerReason, 'reason:', evt.reason);
+          if (isServerReason) {
+            console.log('Triggering immediate refresh for reason:', evt.reason, 'id:', evt.id);
+            try {
+              // Debounce multiple rapid events
+              if (refreshTimeout) {
+                clearTimeout(refreshTimeout);
+              }
+              refreshTimeout = setTimeout(function() {
+                triggerImmediateFilesRefresh();
+                scheduleFilesRefreshFromSocket(evt || { reason: 'server-update' });
+                refreshTimeout = null;
+              }, 200);
+            } catch (e) {
+              console.error('Error in files:changed handler:', e);
+            }
           }
         });
       }
+      
+      // Add test function to manually trigger files:changed event
+      window.testFilesChanged = function() {
+        console.log('Testing files:changed event...');
+        // Simulate receiving the event directly (like from server)
+        const testEvent = {reason: 'note', id: 1};
+        console.log('Simulating files:changed event:', testEvent);
+        
+        // Trigger the event handler directly
+        const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
+        const isServerReason = !!(testEvent && testEvent.reason && serverReasons.indexOf(String(testEvent.reason)) !== -1);
+        if (isServerReason) {
+          console.log('Triggering immediate refresh for test reason:', testEvent.reason);
+          triggerImmediateFilesRefresh();
+          scheduleFilesRefreshFromSocket(testEvent || { reason: 'server-update' });
+          setTimeout(function(){ try { triggerImmediateFilesRefresh(); } catch(_) {} }, 250);
+        }
+      };
+      
+      // Add function to test real server events
+      window.testServerEvent = function() {
+        console.log('Testing server event emission...');
+        socket.emit('test-files-changed', {reason: 'note', id: 1});
+      };
+      
+      // Add function to test manual event emission from server
+      window.testManualEvent = function() {
+        console.log('Testing manual event emission from server...');
+        socket.emit('emit-test-event', {reason: 'note', id: 999});
+      };
+      
+      // Add function to force refresh table
+      window.forceRefreshTable = function() {
+        console.log('Force refreshing table...');
+        triggerImmediateFilesRefresh();
+      };
+      
+      // Add function to force page reload as last resort
+      window.forcePageReload = function() {
+        console.log('Force reloading page...');
+        window.location.reload();
+      };
+      
+      // Add function to check socket status
+      window.checkSocketStatus = function() {
+        console.log('Socket status:', {
+          connected: socket.connected,
+          id: socket.id,
+          transport: socket.io.engine.transport.name,
+          readyState: socket.io.engine.readyState
+        });
+        return socket.connected;
+      };
     }
   } catch (e) {
     // Socket.IO initialization failed, table will work without live updates
@@ -1457,10 +1638,29 @@ document.addEventListener('DOMContentLoaded', function () {
       // After returning to tab, defer heavy work briefly to let the page settle
       __filesCooldownUntil = Date.now() + 1500;
       markActive();
+      try {
+        if (window.socket && !window.socket.connected) {
+          try { window.socket.connect(); } catch(_) {}
+        }
+        // Re-register handlers in case socket instance changed
+        try { if (typeof window.registerFilesSocketHandlers === 'function') window.registerFilesSocketHandlers(window.socket); } catch(_) {}
+        // Trigger one soft refresh to resync
+        try { softRefreshFilesTable(); } catch(_) {}
+      } catch(_) {}
     }
   }); } catch(_) {}
   // Consider OS app switching: window focus can occur while tab stayed visible
-  try { window.addEventListener('focus', function(){ __filesCooldownUntil = Date.now() + 1500; markActive(); }); } catch(_) {}
+  try { window.addEventListener('focus', function(){
+    __filesCooldownUntil = Date.now() + 1500; 
+    markActive();
+    try {
+      if (window.socket && !window.socket.connected) {
+        try { window.socket.connect(); } catch(_) {}
+      }
+      try { if (typeof window.registerFilesSocketHandlers === 'function') window.registerFilesSocketHandlers(window.socket); } catch(_) {}
+      try { softRefreshFilesTable(); } catch(_) {}
+    } catch(_) {}
+  }); } catch(_) {}
 
   function isIdle(maxMs) {
     return (Date.now() - __filesLastActive) > maxMs;
@@ -1478,18 +1678,215 @@ document.addEventListener('DOMContentLoaded', function () {
         try { afterRefresh(); } catch(_) {}
         return;
       }
+      // Fallback to TableManager if pager not available
+      if (window.tableManager && window.tableManager.softRefreshTable) {
+        return window.tableManager.softRefreshTable('maintable').then(function(){ try { afterRefresh(); } catch(_) {} });
+      }
     } catch(_) {}
   }
 
+  // Immediate refresh that bypasses debouncing and wrappers, with fallback
+  let isRefreshing = false;
+  let refreshTimeout = null;
+  function triggerImmediateFilesRefresh() {
+    if (isRefreshing) {
+      console.log('triggerImmediateFilesRefresh already in progress, skipping');
+      return;
+    }
+    
+    // Clear any pending refresh
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+      refreshTimeout = null;
+    }
+    
+    isRefreshing = true;
+    console.log('triggerImmediateFilesRefresh called');
+    try {
+      const input = document.getElementById('searchinp');
+      const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+      console.log('Search query:', q);
+      if (q && typeof window.filesDoFilter === 'function') {
+        console.log('Using filesDoFilter for search');
+        window.filesDoFilter(q).then(function(){ 
+          try { afterRefresh(); } catch(_) {} 
+          isRefreshing = false;
+          console.log('triggerImmediateFilesRefresh completed (filesDoFilter)');
+        }).catch(function(){ 
+          try { afterRefresh(); } catch(_) {} 
+          isRefreshing = false;
+          console.log('triggerImmediateFilesRefresh completed (filesDoFilter error)');
+        });
+        return;
+      }
+      if (window.filesPager && typeof window.filesPager.readPage === 'function' && typeof window.filesPager.renderPage === 'function') {
+        console.log('Using filesPager.renderPage');
+        try { 
+          // Force reload page data from server instead of using cached data
+          if (typeof window.filesPager.loadPage === 'function') {
+            console.log('Forcing filesPager.loadPage to get fresh data');
+            window.filesPager.loadPage(window.filesPager.readPage()).then(function(pageData) {
+              console.log('Fresh page data loaded:', pageData);
+              window.filesPager.renderPage(pageData);
+              console.log('filesPager.renderPage completed with fresh data');
+              try { afterRefresh(); } catch(e) { console.error('Error in afterRefresh:', e); }
+              isRefreshing = false;
+              console.log('triggerImmediateFilesRefresh completed (loadPage)');
+            }).catch(function(e) {
+              console.error('Error loading fresh page data:', e);
+              // Fallback to cached data
+              const currentPage = window.filesPager.readPage();
+              console.log('Fallback to cached page data:', currentPage);
+              window.filesPager.renderPage(currentPage);
+              console.log('filesPager.renderPage completed with cached data');
+              try { afterRefresh(); } catch(e) { console.error('Error in afterRefresh:', e); }
+              isRefreshing = false;
+              console.log('triggerImmediateFilesRefresh completed (loadPage fallback)');
+            });
+          } else {
+            // No loadPage method, force AJAX refresh instead of using cached data
+            console.log('No loadPage method, forcing AJAX refresh');
+            const url = window.location.pathname + window.location.search;
+            fetch(url, {
+              method: 'GET',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Cache-Control': 'no-cache'
+              }
+            }).then(response => response.text())
+            .then(html => {
+              console.log('AJAX refresh response received, length:', html.length);
+              // Parse and update table
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              
+              // Try different selectors for the table
+              const selectors = [
+                '#files-table tbody',
+                'table tbody',
+                '.table tbody',
+                'tbody'
+              ];
+              
+              let newTable = null;
+              let currentTable = null;
+              
+              for (const selector of selectors) {
+                newTable = doc.querySelector(selector);
+                currentTable = document.querySelector(selector);
+                if (newTable && currentTable) {
+                  console.log('Found table elements with selector:', selector);
+                  break;
+                }
+              }
+              
+              if (newTable && currentTable) {
+                // Force replace on socket-triggered refreshes to avoid FF diff glitches
+                currentTable.innerHTML = newTable.innerHTML;
+                console.log('Table updated via AJAX (forced replace)');
+                try { afterRefresh(); } catch(e) { console.error('Error in afterRefresh:', e); }
+              } else {
+                console.error('Could not find table elements for update. Tried selectors:', selectors);
+                console.log('Available elements in response:', doc.querySelectorAll('table, tbody, .table'));
+                console.log('Available elements in current page:', document.querySelectorAll('table, tbody, .table'));
+                
+                // Fallback: try to update the entire page content
+                console.log('Trying fallback: updating entire page content');
+                const newBody = doc.querySelector('body');
+                if (newBody) {
+                  // Find the main content area and update it
+                  const newContent = newBody.querySelector('.container, main, #content, .content');
+                  const currentContent = document.querySelector('.container, main, #content, .content');
+                  if (newContent && currentContent) {
+                    currentContent.innerHTML = newContent.innerHTML;
+                    console.log('Page content updated via fallback');
+                  } else {
+                    console.log('Could not find content areas for fallback update');
+                  }
+                }
+              }
+              isRefreshing = false;
+              console.log('triggerImmediateFilesRefresh completed (AJAX)');
+            }).catch(e => {
+              console.error('AJAX refresh failed:', e);
+              // Ultimate fallback to cached data
+              const currentPage = window.filesPager.readPage();
+              console.log('Ultimate fallback to cached page data:', currentPage);
+              window.filesPager.renderPage(currentPage); 
+              console.log('filesPager.renderPage completed with cached data');
+              try { afterRefresh(); } catch(e) { console.error('Error in afterRefresh:', e); }
+              isRefreshing = false;
+              console.log('triggerImmediateFilesRefresh completed (AJAX fallback)');
+            });
+          }
+        } catch(e) { 
+          console.error('Error in filesPager.renderPage:', e);
+        }
+        return;
+      }
+      console.log('Fallback: using softRefreshFilesTable');
+      try { softRefreshFilesTable(); } catch(e) { console.error('Error in softRefreshFilesTable fallback:', e); }
+      
+      // Ultimate fallback: force AJAX refresh
+      console.log('Ultimate fallback: forcing AJAX refresh');
+      try {
+        const url = window.location.pathname + window.location.search;
+        fetch(url, {
+          method: 'GET',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Cache-Control': 'no-cache'
+          }
+        }).then(response => response.text())
+        .then(html => {
+          console.log('AJAX refresh response received, length:', html.length);
+          // Parse and update table
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const newTable = doc.querySelector('#files-table tbody');
+          const currentTable = document.querySelector('#files-table tbody');
+          if (newTable && currentTable) {
+            currentTable.innerHTML = newTable.innerHTML;
+            console.log('Table updated via AJAX fallback');
+          }
+        }).catch(e => console.error('AJAX fallback failed:', e));
+      } catch(e) { console.error('Error in AJAX fallback:', e); }
+    } catch(e) { console.error('Error in triggerImmediateFilesRefresh:', e); }
+    finally {
+      isRefreshing = false;
+      console.log('triggerImmediateFilesRefresh completed');
+    }
+  }
+
+  // ==== DEV-ONLY START (TODO: remove in production) ==========================
   // Debounced public refresh to avoid storms from sockets/timers
-  window.softRefreshFilesTable = function() { try { softRefreshFilesTable(); } catch(_) {} };
+  // TODO: remove in production — force strong refresh during development to defeat caches
+  window.softRefreshFilesTable = function() {
+    try {
+      if (typeof softRefreshFilesTable === 'function') {
+        softRefreshFilesTable();
+        // As a safety, append cache-busting parameter to any AJAX endpoints used by TableManager
+        try { if (window.tableManager && window.tableManager.refreshEndpoint) { window.tableManager.refreshEndpoint += (window.tableManager.refreshEndpoint.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now(); } } catch(_) {}
+      }
+    } catch(_) {}
+  };
+  // --- PROD: uncomment this version to disable cache-busting in production ---
+  // window.softRefreshFilesTable = function() {
+  //   try {
+  //     if (typeof softRefreshFilesTable === 'function') {
+  //       softRefreshFilesTable();
+  //     }
+  //   } catch(_) {}
+  // };
+  // ==== DEV-ONLY END =========================================================
 
   // Debounced scheduler for socket-triggered refreshes with idle guard
   let __filesSocketEventTimer = null;
   function scheduleFilesRefreshFromSocket(evt) {
     try {
       const fromSelf = evt && evt.originClientId && window.__filesClientId && (evt.originClientId === window.__filesClientId);
-      const serverReasons = ['conversion-complete','processing-complete','server-update'];
+      // Treat these reasons as authoritative server/state changes that always warrant a refresh
+      const serverReasons = ['conversion-complete','processing-complete','server-update','note','edited'];
       const isServerReason = !!(evt && evt.reason && serverReasons.indexOf(String(evt.reason)) !== -1);
       const force = !!(evt && evt.force === true);
       // Always refresh on server reasons (e.g., conversion completed), even for the initiator
@@ -1561,6 +1958,8 @@ document.addEventListener('DOMContentLoaded', function () {
       // disabled
     }
   })();
+
+  // removed debug fallback refresh
 
   // Global light fallback: periodic refresh every 20s to catch missed socket events
   (function setupLightAutoRefresh(){ /* disabled */ })();
@@ -2373,8 +2772,63 @@ document.addEventListener('DOMContentLoaded', function () {
   
   
   
+  // Local AJAX submit helper (mirrors users.js) to ensure consistent UX
+  function submitFormAjaxLocal(form){
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"], button.btn-primary');
+    const originalText = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) { 
+      try { submitBtn.dataset.originalText = originalText; } catch(_) {}
+      submitBtn.disabled = true; 
+      submitBtn.textContent = 'Отправка...'; 
+    }
+    return fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(async (response) => {
+      const contentType = response.headers.get('Content-Type') || '';
+      let data = null;
+      if (contentType.includes('application/json')) {
+        try { data = await response.json(); } catch(_) {}
+      }
+      if (!response.ok || (data && data.status === 'error')) {
+        const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
+        throw new Error(msg);
+      }
+      return data;
+    })
+    .catch((err) => {
+      try { if (window.showToast) window.showToast(String(err && err.message || err || 'Ошибка отправки'), 'error'); } catch(_) {}
+      return Promise.reject(err);
+    })
+    .finally(() => {
+      if (submitBtn) { 
+        submitBtn.disabled = false; 
+        const restored = (submitBtn.dataset && submitBtn.dataset.originalText) ? submitBtn.dataset.originalText : originalText;
+        submitBtn.textContent = restored;
+      }
+    });
+  }
+
   // Function to submit file forms via AJAX
   window.submitFileFormAjax = function(form) {
+    // Ensure action URL carries the current rowId before any request
+    try {
+      const rowId = form && form.dataset ? form.dataset.rowId : '';
+      if (rowId && form.action) {
+        if (/\/\d+$/.test(form.action)) {
+          form.action = form.action.replace(/\/\d+$/, '/' + rowId);
+        } else if (/\/0$/.test(form.action)) {
+          form.action = form.action.replace(/\/0$/, '/' + rowId);
+        }
+      }
+    } catch(_) {}
+
+    // Prefer local helper (restores button reliably and surfaces errors), fallback to global
+    const submitter = (typeof submitFormAjaxLocal === 'function') ? submitFormAjaxLocal : window.submitFormAjax;
     // Check if there are changes for edit form
     if (form.id === 'edit') {
       try {
@@ -2396,7 +2850,7 @@ document.addEventListener('DOMContentLoaded', function () {
       } catch (e) {}
     }
     
-    submitFormAjax(form)
+    submitter(form)
     .then(() => {
       // Close modal first
       const modal = form.closest('.overlay-container');
@@ -2417,38 +2871,22 @@ document.addEventListener('DOMContentLoaded', function () {
               name: form.querySelector('input[name="name"]')?.value?.trim(),
               description: form.querySelector('textarea[name="description"]')?.value?.trim()
             });
+            // Sync form dataset originals to new values for consecutive edits
+            try {
+              const row = document.getElementById(String(fileId));
+              if (row) {
+                const nameNow = form.querySelector('input[name="name"]').value.trim();
+                const descNow = form.querySelector('textarea[name="description"]').value.trim();
+                form.dataset.origName = nameNow;
+                form.dataset.origDesc = descNow;
+              }
+            } catch(_) {}
           } else {
             if (window.softRefreshFilesTable) { window.softRefreshFilesTable(); }
           }
         } else if (form.id === 'note') {
-          // Update note locally to avoid refresh delay
-          try {
-            const fileId = form.dataset.rowId || (form.action.match(/\/(\d+)$/) || [])[1];
-            const newNote = (form.querySelector('textarea[name="note"]').value || '').trim();
-            if (fileId) {
-              const row = document.getElementById(String(fileId));
-              if (row) {
-                // Update dataset
-                row.setAttribute('data-note', newNote);
-                // Update note text in the notes column (last column)
-                const tds = row.querySelectorAll('td');
-                const notesTd = tds[tds.length - 1];
-                if (notesTd) {
-                  const mt1s = notesTd.querySelectorAll('.mt-1');
-                  const noteContainer = mt1s[mt1s.length - 1] || notesTd; // fallback
-                  const span = noteContainer.querySelector('span') || noteContainer;
-                  const display = newNote ? ('Примечание: ' + newNote) : '<оставить примечание>';
-                  if (span) {
-                    if (display === '<оставить примечание>') {
-                      span.textContent = '<оставить примечание>';
-                    } else {
-                      span.textContent = display;
-                    }
-                  }
-                }
-              }
-            }
-          } catch (_) {}
+          // Avoid local DOM update to prevent mismatches; trigger immediate refresh
+          try { if (typeof triggerImmediateFilesRefresh === 'function') triggerImmediateFilesRefresh(); } catch(_) {}
         } else if (form.id === 'delete') {
           // File delete - remove row locally
           const fileId = form.action.match(/\/(\d+)$/)?.[1];
@@ -2472,11 +2910,19 @@ document.addEventListener('DOMContentLoaded', function () {
       // Emit socket event for other users
       try { 
         if (window.socket && window.socket.emit) {
-          window.socket.emit('files:changed', { reason: 'form-submit', formId: form.id, originClientId: window.__filesClientId });
+          const fileId = form.dataset.rowId || form.action.match(/\/(\d+)$/)?.[1];
+          const reason = (form.id === 'edit') ? 'edited' : (form.id === 'note' ? 'note' : 'form-submit');
+          const payload = { reason: reason, originClientId: window.__filesClientId };
+          if (fileId) payload.id = fileId;
+          console.log('Emitting files:changed event from client:', payload);
+          window.socket.emit('files:changed', payload);
         }
-      } catch(e) {}
+      } catch(e) { console.error('Error emitting files:changed from client:', e); }
     })
-    .catch(() => {});
+    .catch((err) => {
+      // Keep modal open to allow user to fix inputs; ensure no local updates applied
+      try { if (window.showToast) window.showToast(String(err && err.message || 'Ошибка отправки'), 'error'); } catch(_) {}
+    });
   };
 
   // Initialize context menu for files page

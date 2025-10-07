@@ -133,6 +133,22 @@ if (document.readyState === 'loading') {
     if (rowId && formId === 'edit' && form) {
       setTimeout(function(){ try { popupValues(form, rowId); } catch(_) {} }, 0);
     }
+    // Reset modal primary button label to default on open
+    try {
+      const modal = document.getElementById('popup-' + modalId);
+      if (modal) {
+        const btn = modal.querySelector('.btn.btn-primary');
+        if (btn) {
+          const current = btn.textContent || '';
+          if (!btn.dataset.defaultText && current && current.trim() && current.trim() !== 'Отправка...') {
+            btn.dataset.defaultText = current.trim();
+          }
+          const restored = btn.dataset.defaultText || btn.dataset.originalText || current || 'Отправить';
+          btn.textContent = restored;
+          btn.disabled = false;
+        }
+      }
+    } catch(_) {}
   }
 
   /**
@@ -543,12 +559,13 @@ if (document.readyState === 'loading') {
 
   // Legacy function removed - using new validateForm below
   
-  // NOTE: keep name different to avoid shadowing global window.submitFormAjax
+  // NOTE: keep name different to avoid shadowing global window.submitFormAjaxAjax
   function submitFormAjaxLocal(form) {
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalText = submitBtn ? submitBtn.textContent : '';
     if (submitBtn) {
+      try { submitBtn.dataset.originalText = originalText; } catch(_) {}
       submitBtn.disabled = true;
       submitBtn.textContent = 'Отправка...';
     }
@@ -566,7 +583,8 @@ if (document.readyState === 'loading') {
     .finally(() => {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        const restored = (submitBtn.dataset && submitBtn.dataset.originalText) ? submitBtn.dataset.originalText : originalText;
+        submitBtn.textContent = restored;
       }
     });
   }
@@ -578,16 +596,57 @@ if (document.readyState === 'loading') {
   (function initUsersLiveUpdates() {
     try {
       if (!window.io) return;
-      const socket = window.io(window.location.origin, {
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        path: '/socket.io/',
-        withCredentials: true
+      // Ensure a stable per-tab client id for deduplicating our own events
+      try { if (!window.__usersClientId) window.__usersClientId = (Math.random().toString(36).slice(2) + Date.now()); } catch(_) {}
+      // Reuse global socket if available (like files page), else create robust connection
+      /** @type {import('socket.io-client').Socket} */
+      const socket = (window.socket && (window.socket.connected || window.socket.connecting) && typeof window.socket.on === 'function')
+        ? window.socket
+        : window.io(window.location.origin, {
+            // Prefer polling first to avoid FF WSS error spam behind strict proxies, then upgrade
+            transports: ['polling', 'websocket'],
+            upgrade: true,
+            path: '/socket.io/',
+            withCredentials: true,
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 20000
+          });
+      if (!window.socket) {
+        window.socket = socket;
+      }
+      // Always (re)bind to current socket instance
+      try { socket.off && socket.off('users:changed'); } catch(_) {}
+      try { socket.off && socket.off('/users:changed'); } catch(_) {}
+      socket.on('connect', function(){ try { softRefreshUsersTable(); } catch(_) {} });
+      socket.on('disconnect', function(reason){ /* no-op */ });
+      socket.on('users:changed', function(evt){ 
+        try {
+          const fromSelf = !!(evt && evt.originClientId && window.__usersClientId && evt.originClientId === window.__usersClientId);
+          if (fromSelf) return;
+        } catch(_) {}
+        try { softRefreshUsersTable(); } catch(_) {} 
       });
-      socket.on('connect', function(){ softRefreshUsersTable(); });
-      socket.on('users:changed', function(){ softRefreshUsersTable(); });
       window.usersSocket = socket;
     } catch (e) {}
+
+    // Focus/visibility: force reconnect and one soft refresh when tab returns
+    try {
+      document.addEventListener('visibilitychange', function(){
+        if (!document.hidden) {
+          try { if (window.socket && !window.socket.connected) window.socket.connect(); } catch(_) {}
+          try { softRefreshUsersTable(); } catch(_) {}
+        }
+      });
+    } catch(_) {}
+    try {
+      window.addEventListener('focus', function(){
+        try { if (window.socket && !window.socket.connected) window.socket.connect(); } catch(_) {}
+        try { softRefreshUsersTable(); } catch(_) {}
+      });
+    } catch(_) {}
 
     // Helper: smooth table update without flickering
     function smoothUpdateUsersTableBody(oldTbody, newTbody) {
@@ -651,15 +710,35 @@ if (document.readyState === 'loading') {
     // Rebinds context menu and per-row handlers after DOM replacement.
     try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'users', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
     function softRefreshUsersTable() {
-      if (window.tableManager && window.tableManager.softRefreshTable) {
-        window.tableManager.softRefreshTable('maintable').then(function(){
+      try {
+        const input = document.getElementById('searchinp');
+        const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+        if (q && typeof window.usersDoFilter === 'function') {
+          return window.usersDoFilter(q).then(function(){
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+          }).catch(function(){
+            try { reinitializeContextMenu(); } catch(_) {}
+          });
+        }
+        if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+          window.usersPager.renderPage(1);
           try { reinitializeContextMenu(); } catch(_) {}
           try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
-          try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
-        });
-      }
+          return;
+        }
+        if (window.tableManager && window.tableManager.softRefreshTable) {
+          window.tableManager.softRefreshTable('maintable').then(function(){
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+            try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
+          });
+        }
+      } catch(_) {}
     }
     try { window.softRefreshUsersTable = softRefreshUsersTable; } catch(_) {}
+
+    // removed debug fallback refresh
   })();
 
   /**
@@ -792,6 +871,8 @@ if (document.readyState === 'loading') {
             }
           } catch(_) {}
           submitUserFormAjax(permForm);
+          // Notify others explicitly (mirror files page pattern)
+          try { if (window.socket && window.socket.emit) { window.socket.emit('users:changed', { reason: 'perm', originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) }); } } catch(_) {}
         });
       }
     });
@@ -961,26 +1042,26 @@ if (document.readyState === 'loading') {
       if (groupSelect) groupSelect.value = gid;
       if (enabledInput) enabledInput.checked = (enabled === '1');
       
-      // Update form action URL with correct ID
-      if (form.action && form.action.includes('/0')) {
-        form.action = form.action.replace('/0', '/' + rowId);
+      // Update form action URL with correct ID (always replace trailing /<id>)
+      if (form.action) {
+        try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
       try { form.dataset.rowId = rowId; } catch(_) {}
     } else if (form.id === 'perm') {
       // Ensure action URL targets selected user id
-      if (form.action && form.action.includes('/0')) {
-        form.action = form.action.replace('/0', '/' + rowId);
+      if (form.action) {
+        try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
       try { form.dataset.rowId = rowId; } catch(_) {}
     } else if (form.id === 'reset') {
       // Update form action URL with correct ID
-      if (form.action && form.action.includes('/0')) {
-        form.action = form.action.replace('/0', '/' + rowId);
+      if (form.action) {
+        try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
     } else if (form.id === 'delete') {
       // Update form action URL with correct ID
-      if (form.action && form.action.includes('/0')) {
-        form.action = form.action.replace('/0', '/' + rowId);
+      if (form.action) {
+        try { form.action = form.action.replace(/\/(\d+)$|\/0$/, '/' + rowId); } catch(_) {}
       }
       
       // Update delete confirmation text
@@ -988,6 +1069,8 @@ if (document.readyState === 'loading') {
       if (confirmText) {
         confirmText.innerHTML = `Вы действительно хотите удалить пользователя <b>${name}</b>?`;
       }
+      // Ensure we store rowId for submit handler paths
+      try { form.dataset.rowId = rowId; } catch(_) {}
     }
   };
   
@@ -1009,13 +1092,26 @@ if (document.readyState === 'loading') {
       return false;
     }
     
-    // For edit form, check if there are changes
-    if (form.id === 'edit') {
-      if (!window.isEditChanged(form)) {
-        try { popupClose('popup-edit'); } catch(_) {}
-        return false;
-      }
-    } else if (form.id === 'perm') {
+      // For edit form, check if there are changes; force re-read original values from row
+      if (form.id === 'edit') {
+        try {
+          if (form.dataset.rowId) {
+            // Refresh original values to allow consecutive edits
+            const row = document.getElementById(String(form.dataset.rowId));
+            if (row) {
+              form.dataset.origLogin = (row && row.dataset && row.dataset.login) ? row.dataset.login : '';
+              form.dataset.origName = (row && row.dataset && row.dataset.name) ? row.dataset.name : '';
+              form.dataset.origGid = (row && row.dataset && row.dataset.gid) ? row.dataset.gid : '';
+              const enabled = (row && row.dataset && row.dataset.enabled) ? row.dataset.enabled : '';
+              form.dataset.origEnabled = enabled;
+            }
+          }
+        } catch(_) {}
+        if (!window.isEditChanged(form)) {
+          try { popupClose('popup-edit'); } catch(_) {}
+          return false;
+        }
+      } else if (form.id === 'perm') {
       // For permissions form, avoid submit if nothing changed
       if (!window.isPermChanged(form)) {
         try { popupClose('popup-perm'); } catch(_) {}
@@ -1136,12 +1232,14 @@ if (document.readyState === 'loading') {
   
   // Function to submit user forms via AJAX
   window.submitUserFormAjax = function(form) {
-    if (!window.submitFormAjax) {
-      console.error('submitFormAjax helper not found');
+    // Use local helper that manages button disable/restore and throws on non-OK
+    const submitter = (typeof submitFormAjaxLocal === 'function') ? submitFormAjaxLocal : window.submitFormAjax;
+    if (typeof submitter !== 'function') {
+      console.error('No AJAX submit helper available');
       if (window.showToast) { window.showToast('Внутренняя ошибка: нет AJAX помощника', 'error'); }
       return false;
     }
-    window.submitFormAjax(form)
+    submitter(form)
     .then(() => {
         // Close modal first
         const modal = form.closest('.overlay-container');
@@ -1158,7 +1256,7 @@ if (document.readyState === 'loading') {
             // Soft refresh table to reflect new user
             try { window.softRefreshUsersTable && window.softRefreshUsersTable(); } catch(_) {}
           } else if (form.id === 'edit') {
-            // Update existing row locally
+            // Update existing row locally and dataset to reflect latest changes
             const userId = form.dataset.rowId;
             if (userId) {
               const loginInput = form.querySelector('input[name="login"]');
@@ -1183,6 +1281,13 @@ if (document.readyState === 'loading') {
                   if (groupSelect) row.dataset.groupname = groupSelect.options[groupSelect.selectedIndex].text;
                   if (groupSelect) row.dataset.gid = groupSelect.value;
                   if (userData.enabled !== undefined) row.dataset.enabled = userData.enabled ? '1' : '0';
+                  // Also update orig* to enable immediate subsequent edits without reopening
+                  try {
+                    form.dataset.origLogin = row.dataset.login || '';
+                    form.dataset.origName = row.dataset.name || '';
+                    form.dataset.origGid = row.dataset.gid || '';
+                    form.dataset.origEnabled = row.dataset.enabled || '';
+                  } catch(_) {}
                 }
               } catch(_) {}
               // Ensure table is refreshed (sorting/pagination) after edit
@@ -1213,11 +1318,16 @@ if (document.readyState === 'loading') {
         // Emit socket event for other users
         try { 
           if (window.socket && window.socket.emit) {
-            window.socket.emit('users:changed', { reason: 'form-submit', formId: form.id });
+            window.socket.emit('users:changed', { reason: 'form-submit', formId: form.id, originClientId: (window.__usersClientId || (window.__usersClientId = Math.random().toString(36).slice(2) + Date.now())) });
           }
         } catch(e) {}
     })
-    .catch(() => {});
+    .catch((err) => {
+      try {
+        const msg = (err && err.message) ? err.message : 'Не удалось выполнить запрос';
+        if (window.showToast) { window.showToast(msg, 'error'); } else { alert(msg); }
+      } catch(_) {}
+    });
   };
 
   // Initialize context menu for users page

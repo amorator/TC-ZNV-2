@@ -30,14 +30,38 @@
   
   {% block js %}{% endblock %}
   
-  <!-- Service Worker for offline functionality -->
+  <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
+  <!-- Service Worker disabled during development to avoid caching interference -->
   <script>
+    // Intentionally not registering Service Worker in development
+    // --- PROD: uncomment below to re-enable SW registration ---
+    // if ('serviceWorker' in navigator) {
+    //   window.addEventListener('load', function() {
+    //     navigator.serviceWorker.register('/sw.js').catch(function(){});
+    //   });
+    // }
+    // Additionally, actively unregister any already-installed SW to avoid stale caches
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/sw.js').catch(function(){});
+        try {
+          navigator.serviceWorker.getRegistrations().then(function(regs){
+            try { regs.forEach(function(r){ r.unregister().catch(function(){}); }); } catch(_) {}
+          }).catch(function(){});
+        } catch (_) {}
+      });
+    }
+    // Also clear CacheStorage to purge any cached assets from old SW versions
+    if (window.caches && caches.keys) {
+      window.addEventListener('load', function(){
+        try {
+          caches.keys().then(function(keys){
+            try { keys.forEach(function(k){ caches.delete(k).catch(function(){}); }); } catch(_) {}
+          }).catch(function(){});
+        } catch(_) {}
       });
     }
   </script>
+  <!-- ==== DEV-ONLY END ======================================================== -->
 </head>
 
   <body>
@@ -107,6 +131,10 @@
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('admin')) else '' }}" href="{{ url_for('admin') }}" title="Администрирование" aria-label="Администрирование"><i class="bi bi-shield-lock-fill"></i></a>
             {% endif %}
             <button id="btntheme" class="topbtn d-inline-flex align-items-center"><i class="bi bi-sun"></i></button>
+            <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
+            <button id="btn-dev-refresh-static" class="topbtn d-inline-flex align-items-center" title="Перезагрузить статику"><i class="bi bi-arrow-repeat"></i></button>
+            <button id="btn-dev-reset-socket" class="topbtn d-inline-flex align-items-center" title="Сбросить сокет"><i class="bi bi-plug"></i></button>
+            <!-- ==== DEV-ONLY END ======================================================== -->
             <a class="topbtn text-nowrap" href="{{ url_for('logout') }}">Выход ({{ current_user.name }})</a>
           </div>
         </div>
@@ -172,6 +200,50 @@
       })();
     </script>
     
+    {% endif %}
+    {% if current_user.is_authenticated %}
+    <script>
+      // Show a helpful hint to disable ad blockers / tracking protection if realtime updates fail
+      (function(){
+        try {
+          var hintShown = false;
+          function showHint(){
+            if (hintShown) return; hintShown = true;
+            try {
+              window.showToast('Если обновления не приходят — отключите блокировку рекламы и защиту от отслеживания для этого сайта (например, в Firefox добавьте исключение для отслеживания).', 'warning');
+            } catch(_) {}
+          }
+          function bindSocketHints(){
+            try {
+              var s = window.socket;
+              if (!s) return false;
+              try { s.on && s.on('connect_error', showHint); } catch(_) {}
+              try { s.io && s.io.on && s.io.on('error', showHint); } catch(_) {}
+              try { s.on && s.on('reconnect_error', showHint); } catch(_) {}
+              try { s.on && s.on('disconnect', function(reason){ if (reason !== 'io client disconnect') showHint(); }); } catch(_) {}
+              return true;
+            } catch(_) { return false; }
+          }
+          // Try a few times to bind after pages load (socket may be created later by page script)
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function(){
+              var tries = 0; var timer = setInterval(function(){
+                tries++;
+                if (bindSocketHints() || tries > 6) { clearInterval(timer); }
+              }, 1000);
+              // Also, if no socket connection within 5s — show hint once
+              setTimeout(function(){ try { if (!(window.socket && window.socket.connected)) showHint(); } catch(_) {} }, 5000);
+            });
+          } else {
+            var tries2 = 0; var timer2 = setInterval(function(){
+              tries2++;
+              if (bindSocketHints() || tries2 > 6) { clearInterval(timer2); }
+            }, 1000);
+            setTimeout(function(){ try { if (!(window.socket && window.socket.connected)) showHint(); } catch(_) {} }, 5000);
+          }
+        } catch(_) {}
+      })();
+    </script>
     {% endif %}
   </body>
 

@@ -350,7 +350,7 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_DELETE', current_user.name, f'deleted file {file.name} (id={id})', request.remote_addr)
 			# Remove converted file if exists
 			try:
-				remove(path.join(file.path, file.real_name))
+				os.remove(path.join(file.path, file.real_name))
 			except Exception:
 				pass
 			# Also remove original uploaded file if exists (e.g., pending .webm)
@@ -536,24 +536,59 @@ def register(app, media_service, socketio=None) -> None:
 	@require_permissions(FILES_NOTES)
 	def files_note(did: int = 0, sdid: int = 1, id: int = 1):
 		"""Save or update a note for the file."""
+		print(f"DEBUG: files_note called with did={did}, sdid={sdid}, id={id}")
+		print(f"DEBUG: Request method: {request.method}")
+		print(f"DEBUG: Request headers: {dict(request.headers)}")
+		print(f"DEBUG: Request form data: {dict(request.form)}")
+		
 		if id <= 0:
 			app.flash_error('Invalid file ID')
 			return redirect(url_for('files', did=did, sdid=sdid))
 			
 		note = request.form.get('note', '').strip()
+		print(f"DEBUG: Note to save: '{note[:100]}...'")
 		try:
 			app._sql.file_note([note, id])
 			log_action('FILE_NOTE', current_user.name, f'updated note for file (id={id})', request.remote_addr)
+			print(f"DEBUG: Note saved successfully for file {id}, note: '{note[:50]}...'")
 			# Notify clients about note update
 			if socketio:
 				try:
-						socketio.emit('files:changed', {'reason': 'note', 'id': id})
-				except Exception:
+					payload = {'reason': 'note', 'id': id}
+					print(f"DEBUG: Emitting files:changed event: {payload}")
+					print(f"DEBUG: SocketIO instance: {socketio}")
+					print(f"DEBUG: SocketIO connected clients: {len(socketio.server.manager.rooms)}")
+					
+					# Emit to default namespace
+					socketio.emit('files:changed', payload)
+					print(f"DEBUG: files:changed event emitted successfully to default namespace")
+					
+					# Also emit on explicit namespace for some clients
+					try:
+						print(f"DEBUG: Emitting files:changed event on namespace /: {payload}")
+						socketio.emit('files:changed', payload, namespace='/')
+						print(f"DEBUG: files:changed event emitted on namespace / successfully")
+					except Exception as e:
+						print(f"DEBUG: Error emitting on namespace /: {e}")
+						pass
+						
+					# Try to emit to all connected clients (broadcast is not supported in this version)
+					# socketio.emit('files:changed', payload, broadcast=True)  # Not supported
+						
+				except Exception as e:
+					print(f"DEBUG: Error emitting files:changed: {e}")
 					pass
+			else:
+				print("DEBUG: socketio is None, cannot emit events")
 		except Exception as e:
 			app.flash_error(e)
 			log_action('FILE_NOTE', current_user.name, f'failed to update note for file (id={id}): {str(e)}', request.remote_addr, success=False)
-		# Return JSON for AJAX requests, redirect for traditional forms
+			# AJAX: return error to client
+			if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+				return {'status': 'error', 'message': str(e)}, 400
+			# Traditional form: redirect back
+			return redirect(url_for('files', did=did, sdid=sdid))
+		# Success responses
 		if request.headers.get('Content-Type') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
 			return {'status': 'success', 'message': 'Note updated successfully'}, 200
 		return redirect(url_for('files', did=did, sdid=sdid))

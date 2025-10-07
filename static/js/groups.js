@@ -152,6 +152,22 @@ if (document.readyState === 'loading') {
     if (rowId && formId === 'edit' && form) {
       setTimeout(function(){ try { popupValues(form, rowId); } catch(_) {} }, 0);
     }
+    // Reset modal primary button label to default on open
+    try {
+      const modal = document.getElementById('popup-' + modalId);
+      if (modal) {
+        const btn = modal.querySelector('.btn.btn-primary');
+        if (btn) {
+          const current = btn.textContent || '';
+          if (!btn.dataset.defaultText && current && current.trim() && current.trim() !== 'Отправка...') {
+            btn.dataset.defaultText = current.trim();
+          }
+          const restored = btn.dataset.defaultText || btn.dataset.originalText || current || 'Отправить';
+          btn.textContent = restored;
+          btn.disabled = false;
+        }
+      }
+    } catch(_) {}
   }
 
   /** Bind page-level handlers for context menu, search, and copy. */
@@ -673,7 +689,7 @@ if (document.readyState === 'loading') {
         // Emit socket event for other users
         try { 
           if (window.socket && window.socket.emit) {
-            window.socket.emit('groups:changed', { reason: 'form-submit', formId: form.id });
+            window.socket.emit('groups:changed', { reason: 'form-submit', formId: form.id, originClientId: (window.__groupsClientId || (window.__groupsClientId = Math.random().toString(36).slice(2) + Date.now())) });
           }
         } catch(e) {}
     })
@@ -691,33 +707,90 @@ if (document.readyState === 'loading') {
 
   // Live soft refresh via Socket.IO
   (function initGroupsLiveUpdates() {
+    // Reuse global socket (like files/users) to avoid breaking other listeners
     try {
       if (!window.io) return;
-      const socket = window.io(window.location.origin, {
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        path: '/socket.io/',
-        withCredentials: true
-      });
-      socket.on('connect', function(){ softRefreshGroupsTable(); });
-      socket.on('groups:changed', function(){ softRefreshGroupsTable(); });
-      window.groupsSocket = socket;
+      // Ensure a stable per-tab client id for deduplicating our own events
+      try { if (!window.__groupsClientId) window.__groupsClientId = (Math.random().toString(36).slice(2) + Date.now()); } catch(_) {}
+      let socket = window.socket;
+      if (!(socket && (socket.connected || socket.connecting))) {
+        try {
+          socket = window.io(window.location.origin, {
+            transports: ['websocket','polling'],
+            path: '/socket.io/',
+            withCredentials: true,
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+          });
+          window.socket = socket;
+        } catch(__) {}
+      }
+      if (socket) {
+        // Always (re)bind listeners for the current socket instance
+        try { socket.off && socket.off('groups:changed'); } catch(_) {}
+        try { socket.off && socket.off('/groups:changed'); } catch(_) {}
+        socket.on('connect', function(){ try { softRefreshGroupsTable(); } catch(_) {} });
+        socket.on('disconnect', function(){ /* no-op */ });
+        socket.on('groups:changed', function(evt){ 
+          try {
+            const fromSelf = !!(evt && evt.originClientId && window.__groupsClientId && evt.originClientId === window.__groupsClientId);
+            if (fromSelf) return;
+          } catch(_) {}
+          try { softRefreshGroupsTable(); } catch(_) {} 
+        });
+        window.groupsSocket = socket;
+      }
     } catch (e) {}
 
     // Register and unify soft refresh using TableManager.
     // Rebinds context menu and per-row handlers after DOM replacement.
     try { window.tableManager && window.tableManager.registerTable('maintable', { pageType: 'groups', refreshEndpoint: window.location.href, smoothUpdate: true }); } catch(_) {}
+
     function softRefreshGroupsTable() {
-      if (window.tableManager && window.tableManager.softRefreshTable) {
-        window.tableManager.softRefreshTable('maintable').then(function(){
-          try { reinitializeContextMenu(); } catch(_) {}
-          try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
-          try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
-        });
-      }
+      try {
+        // If a search is active, re-run it; otherwise, re-render current page
+        const input = document.getElementById('searchinp');
+        const q = (input && typeof input.value === 'string') ? input.value.trim() : '';
+        if (q) {
+          if (typeof window.groupsDoFilter === 'function') {
+            window.groupsDoFilter(q);
+            return;
+          }
+        }
+        // No search: use pager if available
+        if (window.groupsPager && typeof window.groupsPager.renderPage === 'function' && typeof window.groupsPager.readPage === 'function') {
+          try { return void window.groupsPager.renderPage(window.groupsPager.readPage()); } catch(_) {}
+        }
+        // Fallback to TableManager soft refresh
+        if (window.tableManager && window.tableManager.softRefreshTable) {
+          window.tableManager.softRefreshTable('maintable').then(function(){
+            try { reinitializeContextMenu(); } catch(_) {}
+            try { if (window.rebindGroupsTable) window.rebindGroupsTable(); } catch(_) {}
+            try { setTimeout(reinitializeContextMenu, 0); } catch(_) {}
+          });
+        }
+      } catch(_) {}
     }
     try { window.softRefreshGroupsTable = softRefreshGroupsTable; } catch(_) {}
   })();
+
+  // Focus/visibility: reconnect and one soft refresh on return
+  try {
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden) {
+        try { if (window.socket && !window.socket.connected) window.socket.connect(); } catch(_) {}
+        try { window.softRefreshGroupsTable && window.softRefreshGroupsTable(); } catch(_) {}
+      }
+    });
+  } catch(_) {}
+  try {
+    window.addEventListener('focus', function(){
+      try { if (window.socket && !window.socket.connected) window.socket.connect(); } catch(_) {}
+      try { window.softRefreshGroupsTable && window.softRefreshGroupsTable(); } catch(_) {}
+    });
+  } catch(_) {}
 
   /**
    * Reinitialize context menu after table update
