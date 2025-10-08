@@ -45,19 +45,19 @@
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица файлов" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
         <thead class="table__head">
-          <tr class="table__head_row">
-            <th class="table__head_item">Название</th>
-            <th class="table__head_item">Описание</th>
-            <th class="table__head_item">Создатель</th>
-            <th class="table__head_item">Дата создания</th>
-            <th class="table__head_item">Длина</th>
-            <th class="table__head_item">Размер</th>
-            <th class="table__head_item">Примечания</th>
+          <tr class="table__head_row" role="row">
+            <th class="table__head_item" scope="col">Название</th>
+            <th class="table__head_item" scope="col">Описание</th>
+            <th class="table__head_item" scope="col">Создатель</th>
+            <th class="table__head_item" scope="col">Дата создания</th>
+            <th class="table__head_item" scope="col">Длина</th>
+            <th class="table__head_item" scope="col">Размер</th>
+            <th class="table__head_item" scope="col">Примечания</th>
           </tr>
         </thead>
-        <tbody class="table__body">
+        <tbody class="table__body" role="rowgroup">
           <tr id="search" class="table__body_actions">
             <td class="table__body_action" colspan="7">
               {% include 'components/searchbar.html' %}
@@ -73,7 +73,7 @@
           {% if files %}
             {% for file in files %}
               {% if file.ready %}
-                <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
+                <tr class="table__body_row" role="row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
                   data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
@@ -86,13 +86,13 @@
                   data-note="{{ file.note if file.note else '' }}"
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
-                  <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
-                  <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
-                  <td class="table__body_item">{{ file.owner }}</td>
-                  <td class="table__body_item">{{ file.date }}</td>
-                  <td class="table__body_item">{{ file.length_human }}</td>
-                  <td class="table__body_item">{{ file.size_human }}</td>
-                  <td class="table__body_item">
+                  <td class="table__body_item" role="cell"><span class="files-page__link">{{ file.display_name }}</span></td>
+                  <td class="table__body_item" role="cell"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+                  <td class="table__body_item" role="cell">{{ file.owner }}</td>
+                  <td class="table__body_item" role="cell">{{ file.date }}</td>
+                  <td class="table__body_item" role="cell">{{ file.length_human }}</td>
+                  <td class="table__body_item" role="cell">{{ file.size_human }}</td>
+                  <td class="table__body_item" role="cell">
                     <div class="file-viewers">
                       <strong>Просмотревшие:</strong>
                       <span>{{ file.viewed if file.viewed else '—' }}</span>
@@ -115,7 +115,7 @@
                   </td>
                 </tr>
               {% else %}
-                <tr class="table__body_row" id="{{ file.id }}"
+                <tr class="table__body_row" role="row" id="{{ file.id }}"
                   data-id="{{ file.id }}"
                   data-url="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
                   data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
@@ -127,13 +127,13 @@
                   data-is-ready="0"
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
-                  <td class="table__body_item">{{ file.display_name }}</td>
-                  <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
-                  <td class="table__body_item">{{ file.owner }}</td>
-                  <td class="table__body_item">{{ file.date }}</td>
-                  <td class="table__body_item">{{ file.length_human }}</td>
-                  <td class="table__body_item">{{ file.size_human }}</td>
-                  <td class="table__body_item">
+                  <td class="table__body_item" role="cell">{{ file.display_name }}</td>
+                  <td class="table__body_item" role="cell"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+                  <td class="table__body_item" role="cell">{{ file.owner }}</td>
+                  <td class="table__body_item" role="cell">{{ file.date }}</td>
+                  <td class="table__body_item" role="cell">{{ file.length_human }}</td>
+                  <td class="table__body_item" role="cell">{{ file.size_human }}</td>
+                  <td class="table__body_item" role="cell">
                     Обрабатывается...
                     <div class="d-inline-flex gap-2 ms-2 align-items-center">
                       <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
@@ -172,8 +172,8 @@
   </section>
 
   <div id="popup-add" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Добавление файлов</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-add-title">
+      <h1 class="popup__title mb-4" id="popup-add-title">Добавление файлов</h1>
       <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
@@ -216,8 +216,8 @@
   </div>
 
   <div id="popup-edit" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Редактирование файла</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-edit-title">
+      <h1 class="popup__title mb-4" id="popup-edit-title">Редактирование файла</h1>
       <div class="popup__body">
 
         <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
@@ -242,8 +242,8 @@
   </div>
 
   <div id="popup-delete" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Удалить файл</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-delete-title">
+      <h1 class="popup__title mb-4" id="popup-delete-title">Удалить файл</h1>
       <div class="popup__body">
 
         <p>Вы действительно хотите удалить файл <b>vname</b>?</p>
@@ -258,8 +258,8 @@
   </div>
 
   <div id="popup-note" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Примечание</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-note-title">
+      <h1 class="popup__title mb-4" id="popup-note-title">Примечание</h1>
       <div class="popup__body">
 
         <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
@@ -279,8 +279,8 @@
 
   <!-- Recording modal -->
   <div id="popup-rec" class="overlay-container">
-    <div class="popup popup--wide">
-      <h1 class="popup__title mb-4">Запись файлов</h1>
+    <div class="popup popup--wide" role="dialog" aria-modal="true" aria-labelledby="popup-rec-title">
+      <h1 class="popup__title mb-4" id="popup-rec-title">Запись файлов</h1>
       <div class="popup__body" style="padding: 0; overflow: hidden;">
         <iframe
           id="rec-iframe"
@@ -330,8 +330,8 @@
 
   <!-- Video player modal -->
   <div id="popup-view" class="overlay-container">
-    <div class="popup popup--wide">
-      <h1 class="popup__title mb-4">Просмотр файла</h1>
+    <div class="popup popup--wide" role="dialog" aria-modal="true" aria-labelledby="popup-view-title">
+      <h1 class="popup__title mb-4" id="popup-view-title">Просмотр файла</h1>
       <div class="popup__body">
         <video id="player-video" style="width: 100%; height: auto; outline: none;" controls playsinline></video>
       </div>
@@ -343,8 +343,8 @@
 
   <!-- Audio player modal -->
   <div id="popup-audio" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Прослушивание аудио</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-audio-title">
+      <h1 class="popup__title mb-4" id="popup-audio-title">Прослушивание аудио</h1>
       <div class="popup__body">
         <audio id="player-audio" style="width: 100%; outline: none;" controls preload="none"></audio>
       </div>
@@ -356,8 +356,8 @@
 
   <!-- Move file modal -->
   <div id="popup-move" class="overlay-container">
-    <div class="popup">
-      <h1 class="popup__title mb-4">Переместить файл</h1>
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-move-title">
+      <h1 class="popup__title mb-4" id="popup-move-title">Переместить файл</h1>
       <div class="popup__body">
         <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
@@ -394,3 +394,46 @@
   </div>
 
 {% endblock %}
+<script>
+// Фокус-ловушка для модальных окон файловой страницы (кастомные попапы)
+(function setupFilesFocusTrap(){
+  try {
+    function applyTrap(popupEl){
+      if (!popupEl) return;
+      function onKeyDown(e){
+        if (e.key !== 'Tab') return;
+        const scope = popupEl;
+        const focusables = scope.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])');
+        if (!focusables.length) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      // attach once
+      if (!popupEl._trapBound) {
+        popupEl.addEventListener('keydown', onKeyDown);
+        popupEl._trapBound = true;
+      }
+      // focus first control
+      const firstInput = popupEl.querySelector('input, select, textarea, button.btn-primary');
+      if (firstInput) { try { firstInput.focus(); } catch(_) {} }
+    }
+    const overlays = document.querySelectorAll('.overlay-container .popup');
+    overlays.forEach(p => applyTrap(p));
+    // Наблюдаем за изменениями видимости, чтобы активировать фокус при открытии
+    const mo = new MutationObserver((list)=>{
+      list.forEach(m => {
+        if (m.type === 'attributes' && (m.attributeName === 'style' || m.attributeName === 'class')){
+          const popup = m.target.querySelector && m.target.querySelector('.popup');
+          const cs = window.getComputedStyle(m.target);
+          if (cs && cs.display !== 'none' && popup) applyTrap(popup);
+        }
+      });
+    });
+    document.querySelectorAll('.overlay-container').forEach(oc => {
+      mo.observe(oc, { attributes: true, attributeFilter: ['style','class'] });
+    });
+  } catch(_) {}
+})();
+</script>

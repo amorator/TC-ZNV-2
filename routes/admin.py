@@ -3,11 +3,33 @@ from flask_login import current_user
 from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
 from modules.logging import get_logger, log_action
 from datetime import datetime
+import time
+from functools import wraps
 
 _log = get_logger(__name__)
 
 
 def register(app, socketio=None):
+	# Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
+	_RATE_BUCKET = {}
+	def rate_limit(max_calls: int = 60, window_sec: int = 60):
+		def decorator(fn):
+			@wraps(fn)
+			def wrapper(*args, **kwargs):
+				try:
+					key = (request.remote_addr or 'unknown', fn.__name__)
+					now = time.time()
+					bucket = _RATE_BUCKET.get(key, [])
+					bucket = [t for t in bucket if now - t < window_sec]
+					if len(bucket) >= max_calls:
+						return jsonify({'status': 'error', 'message': 'Слишком много запросов, попробуйте позже'}), 429
+					bucket.append(now)
+					_RATE_BUCKET[key] = bucket
+				except Exception:
+					pass
+				return fn(*args, **kwargs)
+			return wrapper
+		return decorator
 
 	@app.route('/admin', methods=['GET'])
 	@require_permissions(ADMIN_VIEW_PAGE)
@@ -41,6 +63,7 @@ def register(app, socketio=None):
 	# --- Обслуживание таблицы подписок на уведомления (ручной запуск, с блокировкой на 23ч) ---
 	@app.route('/admin/push_maintain', methods=['POST'])
 	@require_permissions(ADMIN_MANAGE)
+	@rate_limit(5, 60)
 	def admin_push_maintain():
 		"""Ручное обслуживание web push подписок: чистка ошибок и проверка неактивных.
 
@@ -339,6 +362,7 @@ def register(app, socketio=None):
 	# --- Force logout ---
 	@app.route('/admin/force_logout', methods=['POST'])
 	@require_permissions(ADMIN_MANAGE)
+	@rate_limit(30, 60)
 	def admin_force_logout():
 		"""Force logout a specific Socket.IO session id."""
 		try:
@@ -388,6 +412,7 @@ def register(app, socketio=None):
 	# --- Send message via push ---
 	@app.route('/admin/send_message', methods=['POST'])
 	@require_permissions(ADMIN_MANAGE)
+	@rate_limit(60, 60)
 	def admin_send_message():
 		"""Send a browser notification to a user, group, or everyone."""
 		try:

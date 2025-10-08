@@ -8,11 +8,34 @@ from flask import render_template, url_for, request, redirect, jsonify, make_res
 from flask_login import login_user, logout_user, current_user
 from modules.logging import get_logger, log_action
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
+import time
+from functools import wraps
 
 _log = get_logger(__name__)
 
 
 def register(app):
+	# Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
+	_RATE_BUCKET = {}
+	def rate_limit(max_calls: int = 60, window_sec: int = 60):
+		def decorator(fn):
+			@wraps(fn)
+			def wrapper(*args, **kwargs):
+				try:
+					key = (request.remote_addr or 'unknown', fn.__name__)
+					now = time.time()
+					bucket = _RATE_BUCKET.get(key, [])
+					bucket = [t for t in bucket if now - t < window_sec]
+					if len(bucket) >= max_calls:
+						return jsonify({'error': 'Слишком много запросов, попробуйте позже'}), 429
+					bucket.append(now)
+					_RATE_BUCKET[key] = bucket
+				except Exception:
+					pass
+				return fn(*args, **kwargs)
+			return wrapper
+		return decorator
+
 	@app.route('/users', methods=['GET'])
 	@require_permissions(USERS_VIEW_PAGE)
 	def users():
@@ -107,6 +130,7 @@ def register(app):
 
 	@app.route('/users/add', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
+	@rate_limit(30, 60)
 	def users_add():
 		"""Create a new user. Login uniqueness is case-insensitive.
 
@@ -169,6 +193,7 @@ def register(app):
 
 	@app.route('/users/edit/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
+	@rate_limit(60, 60)
 	def users_edit(id):
 		"""Edit user fields and permissions (except admin restrictions)."""
 		# Disallow editing admin except password reset
@@ -241,6 +266,7 @@ def register(app):
 
 	@app.route('/users/reset/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
+	@rate_limit(30, 60)
 	def users_reset(id):
 		"""Reset user password."""
 		ok = True
@@ -286,6 +312,7 @@ def register(app):
 
 	@app.route('/users/toggle/<id>', methods=['GET'])
 	@require_permissions(USERS_MANAGE)
+	@rate_limit(60, 60)
 	def users_toggle(id):
 		"""Toggle user active flag; admin cannot be disabled."""
 		ok = True
@@ -325,6 +352,7 @@ def register(app):
 
 	@app.route('/users/delete/<id>', methods=['POST'])
 	@require_permissions(USERS_MANAGE)
+	@rate_limit(30, 60)
 	def users_delete(id):
 		"""Delete a user; admin deletion is forbidden."""
 		ok = True

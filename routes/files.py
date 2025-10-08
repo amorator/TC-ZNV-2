@@ -7,6 +7,8 @@ from utils.dir_utils import validate_directory_params
 from services.permissions import dirs_by_permission
 from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
+import time
+from functools import wraps
 import os
 from typing import Any, Dict, Tuple, Optional, List
 from random import randint
@@ -15,7 +17,7 @@ _log = get_logger(__name__)
 
 
 def register(app, media_service, socketio=None) -> None:
-	"""Register all `/files` routes on the provided Flask app.
+	"""Регистрация всех маршрутов `/files`.
 
 	Args:
 		app: The application object providing `route`, `permission_required`, `_sql`, and helpers.
@@ -29,7 +31,28 @@ def register(app, media_service, socketio=None) -> None:
 	- serving converted and original files
 	- recorder modal endpoints
 	"""
-	# validate_directory_params is now imported from utils.dir_utils
+	# validate_directory_params импортирован из utils.dir_utils
+
+	# Простой rate limiter (IP+эндпоинт, скользящее окно)
+	_RATE_BUCKET = {}
+	def rate_limit(max_calls: int = 60, window_sec: int = 60):
+		def decorator(fn):
+			@wraps(fn)
+			def wrapper(*args, **kwargs):
+				try:
+					key = (request.remote_addr or 'unknown', fn.__name__)
+					now = time.time()
+					bucket = _RATE_BUCKET.get(key, [])
+					bucket = [t for t in bucket if now - t < window_sec]
+					if len(bucket) >= max_calls:
+						return jsonify({'error': 'Слишком много запросов, попробуйте позже'}), 429
+					bucket.append(now)
+					_RATE_BUCKET[key] = bucket
+				except Exception:
+					pass
+				return fn(*args, **kwargs)
+			return wrapper
+		return decorator
 
 	def validate_uploaded_file(file, app):
 		"""Validate uploaded file type and size.
@@ -147,6 +170,7 @@ def register(app, media_service, socketio=None) -> None:
 
 	@app.route('/files' + '/add' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(40, 60)
 	def files_add(did: int = 0, sdid: int = 1):
 		"""Single-phase upload: save original, create DB record (ready=0), start conversion."""
 		try:
@@ -222,6 +246,7 @@ def register(app, media_service, socketio=None) -> None:
 	# Phase 1: init record (for large uploads to appear immediately)
 	@app.route('/files' + '/add/init' + '/<int:did>' + '/<int:sdid>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(60, 60)
 	def files_add_init(did: int = 0, sdid: int = 1):
 		"""Two-phase upload (init): create DB record before uploading large files.
 
@@ -255,6 +280,7 @@ def register(app, media_service, socketio=None) -> None:
 	# Phase 2: upload binary and start conversion
 	@app.route('/files' + '/upload' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(120, 60)
 	def files_upload(id: int, did: int = 0, sdid: int = 1):
 		"""Two-phase upload (upload): receive binary, save original, start conversion."""
 		try:
@@ -306,6 +332,7 @@ def register(app, media_service, socketio=None) -> None:
 
 	@app.route('/files' + '/edit' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(80, 60)
 	def files_edit(id: int, did: int = 0, sdid: int = 1):
 		"""Edit file metadata (name, description). Only owner or privileged users."""
 		file = app._sql.file_by_id([id])
@@ -332,6 +359,7 @@ def register(app, media_service, socketio=None) -> None:
 
 	@app.route('/files' + '/delete' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(40, 60)
 	def files_delete(id: int, did: int = 0, sdid: int = 1):
 		"""Delete file: remove DB record and any existing media files (.mp4, .webm)."""
 		if id <= 0:
@@ -458,6 +486,7 @@ def register(app, media_service, socketio=None) -> None:
 
 	@app.route('/files' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_UPLOAD)
+	@rate_limit(60, 60)
 	def files_move(id: int, did: int = 0, sdid: int = 1):
 		"""Move file to another allowed directory and update DB path."""
 		# Only owner or users with edit rights can move
@@ -534,52 +563,29 @@ def register(app, media_service, socketio=None) -> None:
 
 	@app.route('/files' + '/note' + '/<int:did>' + '/<int:sdid>' + '/<int:id>' , methods=['POST'])
 	@require_permissions(FILES_NOTES)
+	@rate_limit(60, 60)
 	def files_note(did: int = 0, sdid: int = 1, id: int = 1):
-		"""Save or update a note for the file."""
-		print(f"DEBUG: files_note called with did={did}, sdid={sdid}, id={id}")
-		print(f"DEBUG: Request method: {request.method}")
-		print(f"DEBUG: Request headers: {dict(request.headers)}")
-		print(f"DEBUG: Request form data: {dict(request.form)}")
+		"""Save or update a note for the file (AJAX-aware)."""
 		
 		if id <= 0:
 			app.flash_error('Invalid file ID')
 			return redirect(url_for('files', did=did, sdid=sdid))
 			
 		note = request.form.get('note', '').strip()
-		print(f"DEBUG: Note to save: '{note[:100]}...'")
 		try:
 			app._sql.file_note([note, id])
 			log_action('FILE_NOTE', current_user.name, f'updated note for file (id={id})', request.remote_addr)
-			print(f"DEBUG: Note saved successfully for file {id}, note: '{note[:50]}...'")
 			# Notify clients about note update
 			if socketio:
 				try:
 					payload = {'reason': 'note', 'id': id}
-					print(f"DEBUG: Emitting files:changed event: {payload}")
-					print(f"DEBUG: SocketIO instance: {socketio}")
-					print(f"DEBUG: SocketIO connected clients: {len(socketio.server.manager.rooms)}")
-					
-					# Emit to default namespace
 					socketio.emit('files:changed', payload)
-					print(f"DEBUG: files:changed event emitted successfully to default namespace")
-					
-					# Also emit on explicit namespace for some clients
 					try:
-						print(f"DEBUG: Emitting files:changed event on namespace /: {payload}")
 						socketio.emit('files:changed', payload, namespace='/')
-						print(f"DEBUG: files:changed event emitted on namespace / successfully")
-					except Exception as e:
-						print(f"DEBUG: Error emitting on namespace /: {e}")
+					except Exception:
 						pass
-						
-					# Try to emit to all connected clients (broadcast is not supported in this version)
-					# socketio.emit('files:changed', payload, broadcast=True)  # Not supported
-						
 				except Exception as e:
-					print(f"DEBUG: Error emitting files:changed: {e}")
 					pass
-			else:
-				print("DEBUG: socketio is None, cannot emit events")
 		except Exception as e:
 			app.flash_error(e)
 			log_action('FILE_NOTE', current_user.name, f'failed to update note for file (id={id}): {str(e)}', request.remote_addr, success=False)
@@ -596,6 +602,7 @@ def register(app, media_service, socketio=None) -> None:
 	# Manual metadata refresh (duration/size) via context menu
 	@app.route('/files' + '/refresh' + '/<int:id>', methods=['POST'])
 	@require_permissions(FILES_VIEW_PAGE)
+	@rate_limit(120, 60)
 	def files_refresh(id: int):
 		"""Recompute file duration and size using robust ffprobe strategies and update DB; emits soft refresh."""
 		try:
@@ -733,8 +740,10 @@ def register(app, media_service, socketio=None) -> None:
 		return resp
 
 	@app.route('/files' + '/rec/save' + "/<name>/<desc>/<int:did>/<int:sdid>", methods=['POST'])
+	@require_permissions(FILES_UPLOAD)
+	@rate_limit(60, 60)
 	def save(name: str, desc: str, did: int = 0, sdid: int = 1):
-		"""Save recorded video from the recorder iframe and start conversion."""
+		"""Save recorded media from the recorder iframe and start conversion."""
 		try:
 			desc = desc[1:]
 			dirs = dirs_by_permission(app, 3, 'f')

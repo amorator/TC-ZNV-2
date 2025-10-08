@@ -20,16 +20,16 @@
           <button id="btnRefreshPresence" class="btn btn-sm btn-outline-secondary">Обновить</button>
         </div>
         <div class="table-responsive presence-table-wrap">
-          <table id="presenceTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0">
+          <table id="presenceTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0" role="table" aria-label="Таблица активных пользователей">
             <thead class="table__head">
-              <tr class="table__head_row">
-                <th class="table__head_item">Пользователь</th>
-                <th class="table__head_item">IP</th>
-                <th class="table__head_item">UA</th>
-                <th class="table__head_item">Страница</th>
+              <tr class="table__head_row" role="row">
+                <th class="table__head_item" scope="col">Пользователь</th>
+                <th class="table__head_item" scope="col">IP</th>
+                <th class="table__head_item" scope="col">UA</th>
+                <th class="table__head_item" scope="col">Страница</th>
               </tr>
             </thead>
-            <tbody class="table__body">
+            <tbody class="table__body" role="rowgroup">
             </tbody>
           </table>
         </div>
@@ -65,14 +65,14 @@
         <div class="border-top p-2">
           <div class="mb-2"><strong class="logs-caption">Логи</strong></div>
           <div class="table-responsive">
-            <table id="logsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table">
+            <table id="logsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table" role="table" aria-label="Таблица логов">
               <thead class="table__head">
-                <tr class="table__head_row">
-                  <th class="table__head_item">Файл</th>
-                  <th class="table__head_item text-end">Размер</th>
+                <tr class="table__head_row" role="row">
+                  <th class="table__head_item" scope="col">Файл</th>
+                  <th class="table__head_item text-end" scope="col">Размер</th>
                 </tr>
               </thead>
-              <tbody class="table__body"></tbody>
+              <tbody class="table__body" role="rowgroup"></tbody>
             </table>
           </div>
         </div>
@@ -101,11 +101,11 @@
   </div>
 
   <!-- Notification modal -->
-  <div class="modal fade" id="adminNotifyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal fade" id="adminNotifyModal" tabindex="-1" aria-hidden="true" aria-labelledby="adminNotifyModalTitle">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Отправка уведомлений</h5>
+          <h5 class="modal-title" id="adminNotifyModalTitle">Отправка уведомлений</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">

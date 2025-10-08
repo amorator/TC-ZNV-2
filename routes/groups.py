@@ -7,6 +7,8 @@ from flask_login import current_user
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
 from modules.logging import get_logger, log_action
 from classes.group import Group
+import time
+from functools import wraps
 
 _log = get_logger(__name__)
 
@@ -17,7 +19,27 @@ def register(app):
     Args:
         app: The application object providing `route`, `permission_required`, `_sql`, and helpers.
     """
-    
+    # Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
+    _RATE_BUCKET = {}
+    def rate_limit(max_calls: int = 60, window_sec: int = 60):
+        def decorator(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                try:
+                    key = (request.remote_addr or 'unknown', fn.__name__)
+                    now = time.time()
+                    bucket = _RATE_BUCKET.get(key, [])
+                    bucket = [t for t in bucket if now - t < window_sec]
+                    if len(bucket) >= max_calls:
+                        return jsonify({'error': 'Слишком много запросов, попробуйте позже'}), 429
+                    bucket.append(now)
+                    _RATE_BUCKET[key] = bucket
+                except Exception:
+                    pass
+                return fn(*args, **kwargs)
+            return wrapper
+        return decorator
+
     @app.route('/groups', methods=['GET'])
     @require_permissions(USERS_VIEW_PAGE)
     def groups():
@@ -181,6 +203,7 @@ def register(app):
     
     @app.route('/groups/add', methods=['POST'])
     @require_permissions(USERS_MANAGE)
+    @rate_limit(30, 60)
     def groups_add():
         """Add new group."""
         try:
@@ -213,6 +236,7 @@ def register(app):
     
     @app.route('/groups/edit/<int:id>', methods=['POST'])
     @require_permissions(USERS_MANAGE)
+    @rate_limit(60, 60)
     def groups_edit(id):
         """Edit group."""
         try:
@@ -257,6 +281,7 @@ def register(app):
     
     @app.route('/groups/delete/<int:id>', methods=['POST'])
     @require_permissions(USERS_MANAGE)
+    @rate_limit(30, 60)
     def groups_delete(id):
         """Delete group."""
         try:
