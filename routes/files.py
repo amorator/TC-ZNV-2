@@ -184,7 +184,7 @@ def register(app, media_service, socketio=None) -> None:
 			# Decide target extension by uploaded file type
 			is_audio = _is_audio_filename(uploaded_file.filename)
 			target_ext = '.m4a' if is_audio else '.mp4'
-			id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb])
+			id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None])
 			# try to detect duration from original .webm and notify clients
 			try:
 				import subprocess

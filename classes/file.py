@@ -20,6 +20,7 @@ class File:
         note: str = '',
         length_seconds: int = 0,
         size_mb: float = 0.0,
+        order_id: Optional[int] = None,
     ) -> None:
         """Create a file entity.
 
@@ -34,6 +35,7 @@ class File:
             ready: 1 if converted and ready, 0 if in processing.
             viewed: Comma or pipe-delimited string of viewers (backend format).
             note: Optional note.
+            order_id: Optional ID of associated order (foreign key).
         """
         self.display_name: str = display_name
         self.real_name: str = real_name
@@ -50,6 +52,7 @@ class File:
             self.size_mb: float = float(size_mb or 0)
         except Exception:
             self.size_mb = 0.0
+        self.order_id: Optional[int] = order_id
         
         # Check if file exists on disk
         self.exists: bool = self._check_file_exists()

@@ -206,8 +206,9 @@ class SQLUtils(SQL):
         super().__init__()
         
         # Common SQL query fragments for optimization
-        self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb"
+        self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id"
         self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
+        self._GROUP_SELECT_FIELDS = "id, name, description"
 
         # Ensure push subscriptions table exists with required columns and indexes
         try:
@@ -371,16 +372,20 @@ class SQLUtils(SQL):
         """Add new file.
         
         Args:
-            args: List containing [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
+            args: List containing [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id]
         """
         return self.execute_insert(
-            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
             args,
         )
 
     def file_edit(self, args):
         """Edit file. Args: [display_name, description, id]"""
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET display_name = %s, description = %s WHERE id = %s;", args)
+
+    def file_set_order_id(self, args):
+        """Set order_id for file. Args: [order_id, file_id]"""
+        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET order_id = %s WHERE id = %s;", args)
 
     def file_delete(self, args):
         """Delete file by ID."""
@@ -527,12 +532,14 @@ class SQLUtils(SQL):
                     note TEXT DEFAULT '',
                     length_seconds INT DEFAULT 0,
                     size_mb DECIMAL(10,2) DEFAULT 0.00,
+                    order_id INT NULL DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_owner (owner),
                     INDEX idx_ready (ready),
                     INDEX idx_date (date),
-                    INDEX idx_path (path(100))
+                    INDEX idx_path (path(100)),
+                    INDEX idx_order_id (order_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """)
 
@@ -717,6 +724,15 @@ class SQLUtils(SQL):
         data = self.execute_query(f"SELECT id, name FROM {self.config['db']['prefix']}_group;")
         return {d[0]: d[1] for d in data} if data else None
 
+    def group_all_full(self):
+        """Get all groups as list of tuples.
+        
+        Returns:
+            list: List of (id, name, description) tuples, or None if no groups found
+        """
+        data = self.execute_query(f"SELECT {self._GROUP_SELECT_FIELDS} FROM {self.config['db']['prefix']}_group;")
+        return data if data else None
+
     def group_by_id(self, args):
         """Get group by ID.
         
@@ -726,7 +742,7 @@ class SQLUtils(SQL):
         Returns:
             tuple: (id, name, description) or None if not found
         """
-        data = self.execute_scalar(f"SELECT id, name, description FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)
+        data = self.execute_scalar(f"SELECT {self._GROUP_SELECT_FIELDS} FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)
         return data if data else None
 
     def group_add(self, args):
@@ -788,7 +804,7 @@ class SQLUtils(SQL):
         """
         # Select only columns guaranteed to exist across schemas.
         # 'updated_at' may be absent in some installations.
-        data = self.execute_query(f"SELECT id, name, description, created_at FROM {self.config['db']['prefix']}_group ORDER BY name;")
+        data = self.execute_query(f"SELECT {self._GROUP_SELECT_FIELDS}, created_at FROM {self.config['db']['prefix']}_group ORDER BY name;")
         return [Group(*d) for d in data] if data else []
 
     # --- Push subscriptions ---
