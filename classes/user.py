@@ -64,7 +64,8 @@ class User(UserMixin):
                 FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY,
                 FILES_MARK_VIEWED, FILES_NOTES, REQUESTS_APPROVE, REQUESTS_ALLOW,
                 REQUESTS_VIEW_PAGE, ORDERS_VIEW_PAGE, USERS_VIEW_PAGE, USERS_MANAGE,
-                GROUPS_VIEW_PAGE, GROUPS_MANAGE, ADMIN_VIEW_PAGE, ADMIN_MANAGE, ADMIN_ANY, FILES_DISPLAY_ALL,
+                GROUPS_VIEW_PAGE, GROUPS_MANAGE, CATEGORIES_VIEW, CATEGORIES_MANAGE,
+                SUBCATEGORIES_VIEW, SUBCATEGORIES_MANAGE, ADMIN_VIEW_PAGE, ADMIN_MANAGE, ADMIN_ANY, FILES_DISPLAY_ALL,
             )
         except Exception:
             # Fallback if import cycle during app startup
@@ -104,6 +105,13 @@ class User(UserMixin):
             6: {  # admin page (new slot in legacy permission string)
                 'a': ADMIN_VIEW_PAGE,
                 'b': ADMIN_MANAGE,
+                'z': ADMIN_ANY,
+            },
+            7: {  # categories page
+                'a': CATEGORIES_VIEW,
+                'b': CATEGORIES_MANAGE,
+                'c': SUBCATEGORIES_VIEW,
+                'd': SUBCATEGORIES_MANAGE,
                 'z': ADMIN_ANY,
             },
         }

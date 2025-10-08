@@ -13,6 +13,10 @@ USERS_VIEW_PAGE = 'users.view'
 USERS_MANAGE = 'users.manage'
 GROUPS_VIEW_PAGE = 'groups.view'
 GROUPS_MANAGE = 'groups.manage'
+CATEGORIES_VIEW = 'categories.view'
+CATEGORIES_MANAGE = 'categories.manage'
+SUBCATEGORIES_VIEW = 'subcategories.view'
+SUBCATEGORIES_MANAGE = 'subcategories.manage'
 
 # Files actions
 FILES_UPLOAD = 'files.upload'
@@ -104,6 +108,10 @@ PERMISSION_LABELS = {
 
     GROUPS_VIEW_PAGE: 'Группы: просмотр',
     GROUPS_MANAGE: 'Группы: управление',
+    CATEGORIES_VIEW: 'Категории: просмотр',
+    CATEGORIES_MANAGE: 'Категории: управление',
+    SUBCATEGORIES_VIEW: 'Подкатегории: просмотр',
+    SUBCATEGORIES_MANAGE: 'Подкатегории: управление',
 
     ADMIN_VIEW_PAGE: 'Администрирование: просмотр',
     ADMIN_MANAGE: 'Администрирование: действия',

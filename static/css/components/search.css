@@ -8,10 +8,11 @@
     flex: 1 1 auto;
     min-width: 160px;
     padding: 6px 10px;
-    border: 1px solid var(--sidebar-bg);
+    border: 0;
     border-radius: 6px;
-    background-color: var(--body-bg);
+    background: transparent;
     color: var(--body-text);
+    box-shadow: none;
 }
 
 .searchbar__input::placeholder {
@@ -20,9 +21,8 @@
 }
 
 .searchbar__input:focus {
-    outline: 2px solid var(--btn-focus);
-    box-shadow: 0 0 0 2px var(--btn-focus);
-    background-color: var(--sidebar-bg);
+    outline: none;
+    box-shadow: none;
 }
 
 .theme-dark-hc .searchbar__input::placeholder,

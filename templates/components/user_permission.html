@@ -41,6 +41,13 @@
             <label><input type="checkbox" data-letter="a" name="perms_p6[]" value="a"> Просмотр</label>
             <label><input type="checkbox" data-letter="b" name="perms_p6[]" value="b"> Действия</label>
         </div>
+        <div class="permissions-group" data-page="7">
+            <div class="permissions-group__title">Категории</div>
+            <label><input type="checkbox" data-letter="a" name="perms_p7[]" value="a"> Просмотр категорий</label>
+            <label><input type="checkbox" data-letter="b" name="perms_p7[]" value="b"> Управление категориями</label>
+            <label><input type="checkbox" data-letter="c" name="perms_p7[]" value="c"> Просмотр подкатегорий</label>
+            <label><input type="checkbox" data-letter="d" name="perms_p7[]" value="d"> Управление подкатегориями</label>
+        </div>
         <div class="permissions-group permissions-group--admin" data-page="admin">
             <div class="permissions-group__title">Администратор</div>
             <label><input type="checkbox" id="{{ perm_input_id }}-admin-full-toggle" data-admin-toggle="1"> Полный
@@ -61,8 +68,8 @@
         var internalUpdate = false;
 
         function buildLegacyFromBoxes() {
-            // Pages 1..6 -> collect checked letters
-            var pages = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+            // Pages 1..7 -> collect checked letters
+            var pages = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
             var groups = box.querySelectorAll('.permissions-group');
             groups.forEach(function (group) {
                 var page = parseInt(group.getAttribute('data-page'), 10);
@@ -74,21 +81,21 @@
                 letters.sort();
                 pages[page] = letters;
             });
-            // Join into CSV per page, ensure we output 6 pages
+            // Join into CSV per page, ensure we output 7 pages
             var arr = [];
-            for (var i = 1; i <= 6; i++) {
+            for (var i = 1; i <= 7; i++) {
                 arr.push(pages[i].join(''));
             }
             input.value = arr.join(',');
         }
 
         function applyBoxesFromLegacy() {
-            // Expect format: 6 comma-separated strings (can be fewer — pad)
+            // Expect format: 7 comma-separated strings (can be fewer — pad)
             var raw = (input.value || '').trim();
             var parts = raw.split(',');
             // Some legacy strings may include extra segments or use 'z' for full admin.
-            // Normalize to 6 parts; keep extras for admin check only
-            while (parts.length < 6) parts.push('');
+            // Normalize to 7 parts; keep extras for admin check only
+            while (parts.length < 7) parts.push('');
             var groups = box.querySelectorAll('.permissions-group:not([data-page="admin"])');
             groups.forEach(function (group) {
                 var page = parseInt(group.getAttribute('data-page'), 10);
@@ -107,7 +114,8 @@
                     var hasZ = parts.some(function (seg) { return (seg || '').indexOf('z') !== -1; });
                     var isFull4 = (raw === 'aef,a,abcdflm,ab');
                     var isFull6 = (raw === 'aef,a,abcdflm,ab,ab,ab');
-                    if (hasZ || isFull) {
+                    var isFull7 = (raw === 'aef,a,abcdflm,ab,ab,ab,abcd');
+                    if (hasZ || isFull4 || isFull6 || isFull7) {
                         setAdminFull(true);
                     }
                 } catch (_) { }
@@ -141,9 +149,9 @@
             var groups = box.querySelectorAll('.permissions-group');
             // When admin is ON: set full access and disable all others
             if (on) {
-                // full access string (6 pages):
-                // p1(Requests): aef; p2(Orders): a; p3(Files): abcdflm; p4(Users): ab; p5(Groups): ab; p6(Admin): ab
-                input.value = 'aef,a,abcdflm,ab,ab,ab';
+                // full access string (7 pages):
+                // p1(Requests): aef; p2(Orders): a; p3(Files): abcdflm; p4(Users): ab; p5(Groups): ab; p6(Admin): ab; p7(Categories): abcd
+                input.value = 'aef,a,abcdflm,ab,ab,ab,abcd';
                 // Reflect checkboxes
                 applyBoxesFromLegacy();
                 try {
@@ -205,9 +213,9 @@
             applyBoxesFromLegacy();
             try {
                 var parts = raw.split(',');
-                while (parts.length < 6) parts.push('');
+                while (parts.length < 7) parts.push('');
                 var hasZ = parts.some(function (seg) { return (seg || '').indexOf('z') !== -1; });
-                var isFull = (raw === 'aef,a,abcdflm,ab,ab,ab');
+                var isFull = (raw === 'aef,a,abcdflm,ab,ab,ab,abcd');
                 if (hasZ || isFull) setAdminFull(true);
             } catch (_) { }
         };
@@ -225,7 +233,7 @@
         // On first load, reflect input->boxes; if empty, keep unchecked
         applyBoxesFromLegacy();
         // If current legacy string already equals full-admin, enable admin toggle and lock boxes
-        if ((input.value || '') === 'aef,a,abcdflm,ab,ab,ab' || (input.value || '') === 'aef,a,abcdflm,ab') {
+        if ((input.value || '') === 'aef,a,abcdflm,ab,ab,ab,abcd' || (input.value || '') === 'aef,a,abcdflm,ab,ab,ab' || (input.value || '') === 'aef,a,abcdflm,ab') {
             setAdminFull(true);
         }
     })();

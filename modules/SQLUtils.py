@@ -209,6 +209,8 @@ class SQLUtils(SQL):
         self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id"
         self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
         self._GROUP_SELECT_FIELDS = "id, name, description"
+        self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
+        self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all"
 
         # Ensure push subscriptions table exists with required columns and indexes
         try:
@@ -566,6 +568,59 @@ class SQLUtils(SQL):
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """)
+
+            # Create file categories table
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_file_category (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    display_name VARCHAR(255) NOT NULL,
+                    folder_name VARCHAR(255) NOT NULL UNIQUE,
+                    display_order INT DEFAULT 0,
+                    enabled TINYINT DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_display_order (display_order),
+                    INDEX idx_enabled (enabled)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """)
+
+            # Create file subcategories table with permissions
+            self.execute_non_query(f"""
+                CREATE TABLE IF NOT EXISTS {prefix}_file_subcategory (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    category_id INT NOT NULL,
+                    display_name VARCHAR(255) NOT NULL,
+                    folder_name VARCHAR(255) NOT NULL,
+                    display_order INT DEFAULT 0,
+                    enabled TINYINT DEFAULT 1,
+                    -- Permissions: view, edit, delete for users, groups, all
+                    user_view_own TINYINT DEFAULT 0,
+                    user_view_group TINYINT DEFAULT 0,
+                    user_view_all TINYINT DEFAULT 0,
+                    user_edit_own TINYINT DEFAULT 0,
+                    user_edit_group TINYINT DEFAULT 0,
+                    user_edit_all TINYINT DEFAULT 0,
+                    user_delete_own TINYINT DEFAULT 0,
+                    user_delete_group TINYINT DEFAULT 0,
+                    user_delete_all TINYINT DEFAULT 0,
+                    group_view_own TINYINT DEFAULT 0,
+                    group_view_group TINYINT DEFAULT 0,
+                    group_view_all TINYINT DEFAULT 0,
+                    group_edit_own TINYINT DEFAULT 0,
+                    group_edit_group TINYINT DEFAULT 0,
+                    group_edit_all TINYINT DEFAULT 0,
+                    group_delete_own TINYINT DEFAULT 0,
+                    group_delete_group TINYINT DEFAULT 0,
+                    group_delete_all TINYINT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_category_folder (category_id, folder_name),
+                    INDEX idx_category (category_id),
+                    INDEX idx_display_order (display_order),
+                    INDEX idx_enabled (enabled),
+                    FOREIGN KEY (category_id) REFERENCES {prefix}_file_category(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """)
             
             # Insert default admin group if not exists
             admin_group_name = self.config.get('admin', 'group', fallback='Администраторы')
@@ -905,3 +960,160 @@ class SQLUtils(SQL):
         self.set_flask_secret_key(key)
         _log.info("Generated and stored Flask secret key in DB settings")
         return key
+
+    # --- File Categories ---
+    def category_all(self):
+        """Get all categories ordered by display_order."""
+        from classes.category import Category
+        data = self.execute_query(f"SELECT {self._CATEGORY_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file_category ORDER BY display_order, id;")
+        return [Category(*d) for d in data] if data else []
+
+    def category_by_id(self, args):
+        """Get category by ID."""
+        from classes.category import Category
+        data = self.execute_scalar(f"SELECT {self._CATEGORY_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file_category WHERE id = %s;", args)
+        return Category(*data) if data else None
+
+    def category_add(self, args):
+        """Add new category. Args: [display_name, folder_name, display_order, enabled]"""
+        return self.execute_insert(
+            f"INSERT INTO {self.config['db']['prefix']}_file_category (display_name, folder_name, display_order, enabled) VALUES (%s, %s, %s, %s);",
+            args
+        )
+
+    def category_edit(self, args):
+        """Edit category. Args: [display_name, folder_name, display_order, enabled, id]"""
+        self.execute_non_query(
+            f"UPDATE {self.config['db']['prefix']}_file_category SET display_name = %s, folder_name = %s, display_order = %s, enabled = %s WHERE id = %s;",
+            args
+        )
+
+    def category_delete(self, args):
+        """Delete category by ID."""
+        self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_file_category WHERE id = %s;", args)
+
+    def category_exists(self, args):
+        """Check if category exists by folder_name. Args: [folder_name]"""
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_file_category WHERE folder_name = %s;", args)
+        return bool(data)
+
+    def category_exists_except(self, args):
+        """Check if category exists with different ID. Args: [folder_name, id]"""
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_file_category WHERE folder_name = %s AND id != %s;", args)
+        return bool(data)
+
+    def category_name_exists_ci(self, args):
+        """Case-insensitive check if category exists by display_name. Args: [display_name]"""
+        data = self.execute_scalar(
+            f"SELECT id FROM {self.config['db']['prefix']}_file_category WHERE LOWER(display_name) = LOWER(%s) LIMIT 1;",
+            args
+        )
+        return bool(data)
+
+    def category_name_exists_except_ci(self, args):
+        """Case-insensitive check if category display_name exists excluding specific ID. Args: [display_name, id]"""
+        data = self.execute_scalar(
+            f"SELECT id FROM {self.config['db']['prefix']}_file_category WHERE LOWER(display_name) = LOWER(%s) AND id != %s LIMIT 1;",
+            args
+        )
+        return bool(data)
+
+    # --- File Subcategories ---
+    def subcategory_all(self):
+        """Get all subcategories ordered by category_id, display_order."""
+        from classes.subcategory import Subcategory
+        data = self.execute_query(f"SELECT {self._SUBCATEGORY_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file_subcategory ORDER BY category_id, display_order, id;")
+        return [Subcategory(*d) for d in data] if data else []
+
+    def subcategory_by_category(self, args):
+        """Get subcategories by category ID."""
+        from classes.subcategory import Subcategory
+        data = self.execute_query(f"SELECT {self._SUBCATEGORY_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s ORDER BY display_order, id;", args)
+        return [Subcategory(*d) for d in data] if data else []
+
+    def subcategory_by_id(self, args):
+        """Get subcategory by ID."""
+        from classes.subcategory import Subcategory
+        data = self.execute_scalar(f"SELECT {self._SUBCATEGORY_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s;", args)
+        return Subcategory(*data) if data else None
+
+    def subcategory_basic_by_id(self, args):
+        """Get subcategory core fields by ID (compatible with older schemas)."""
+        from classes.subcategory import Subcategory
+        data = self.execute_scalar(
+            f"SELECT id, category_id, display_name, folder_name, display_order, enabled FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s;",
+            args
+        )
+        return Subcategory(*data) if data else None
+
+    def subcategory_add(self, args):
+        """Add new subcategory. Args: [category_id, display_name, folder_name, display_order, enabled]"""
+        return self.execute_insert(
+            f"INSERT INTO {self.config['db']['prefix']}_file_subcategory (category_id, display_name, folder_name, display_order, enabled) VALUES (%s, %s, %s, %s, %s);",
+            args
+        )
+
+    def subcategory_edit(self, args):
+        """Edit subcategory. Args: [category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, id]"""
+        self.execute_non_query(
+            f"UPDATE {self.config['db']['prefix']}_file_subcategory SET category_id = %s, display_name = %s, folder_name = %s, display_order = %s, enabled = %s, user_view_own = %s, user_view_group = %s, user_view_all = %s, user_edit_own = %s, user_edit_group = %s, user_edit_all = %s, user_delete_own = %s, user_delete_group = %s, user_delete_all = %s, group_view_own = %s, group_view_group = %s, group_view_all = %s, group_edit_own = %s, group_edit_group = %s, group_edit_all = %s, group_delete_own = %s, group_delete_group = %s, group_delete_all = %s WHERE id = %s;",
+            args
+        )
+
+    def subcategory_delete(self, args):
+        """Delete subcategory by ID."""
+        self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s;", args)
+
+    def subcategory_exists(self, args):
+        """Check if subcategory exists by category_id and folder_name. Args: [category_id, folder_name]"""
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s AND folder_name = %s;", args)
+        return bool(data)
+
+    def subcategory_exists_except(self, args):
+        """Check if subcategory exists with different ID. Args: [category_id, folder_name, id]"""
+        data = self.execute_scalar(f"SELECT id FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s AND folder_name = %s AND id != %s;", args)
+        return bool(data)
+
+    def subcategory_count_by_category(self, args):
+        """Count subcategories in a category. Args: [category_id] -> int"""
+        row = self.execute_scalar(
+            f"SELECT COUNT(1) FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s;",
+            args
+        )
+        return int(row[0]) if row else 0
+
+    def subcategory_enabled_count_by_category(self, args):
+        """Count enabled subcategories in a category. Args: [category_id] -> int"""
+        row = self.execute_scalar(
+            f"SELECT COUNT(1) FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s AND enabled = 1;",
+            args
+        )
+        return int(row[0]) if row else 0
+
+    def files_count_in_subcategory(self, args):
+        """Count files that belong to a subcategory by path prefix.
+        Args: [subcategory_id] -> int
+        """
+        sub_id = args[0]
+        # Get subcategory with category id and folder
+        row_sub = self.execute_scalar(
+            f"SELECT category_id, folder_name FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s;",
+            [sub_id]
+        )
+        if not row_sub:
+            return 0
+        cat_id, sub_folder = row_sub[0], row_sub[1]
+        row_cat = self.execute_scalar(
+            f"SELECT folder_name FROM {self.config['db']['prefix']}_file_category WHERE id = %s;",
+            [cat_id]
+        )
+        if not row_cat:
+            return 0
+        cat_folder = row_cat[0]
+        # Files path is stored like "category/subcategory/..."; use LIKE prefix
+        prefix = f"{cat_folder}/{sub_folder}/%"
+        row_cnt = self.execute_scalar(
+            f"SELECT COUNT(1) FROM {self.config['db']['prefix']}_file WHERE path LIKE %s;",
+            [prefix]
+        )
+        return int(row_cnt[0]) if row_cnt else 0

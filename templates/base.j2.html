@@ -137,13 +137,16 @@
           <div class="app-topbar__group">
             <a class="topbtn{{ ' active' if request.path == url_for('index') else '' }}" href="{{ url_for('index') }}" title="Главная" aria-label="Главная" data-bs-toggle="tooltip"><i class="bi bi-slash-circle"></i></a>
             {% if current_user.has('requests.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('requests')) else '' }}" href="{{ url_for('requests') }}" title="Заявки" aria-label="Заявки" data-bs-toggle="tooltip">Заявки</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('wip')) else '' }}" href="{{ url_for('wip') }}" title="Заявки (в разработке)" aria-label="Заявки (в разработке)" data-bs-toggle="tooltip">Заявки</a>
             {% endif %}
             {% if current_user.has('orders.view') %}
-              <a class="topbtn{{ ' active' if request.path.startswith(url_for('orders')) else '' }}" href="{{ url_for('orders') }}" title="Наряды-допуски" aria-label="Наряды-допуски" data-bs-toggle="tooltip">Наряды-допуски</a>
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('wip')) else '' }}" href="{{ url_for('wip') }}" title="Наряды-допуски (в разработке)" aria-label="Наряды-допуски (в разработке)" data-bs-toggle="tooltip">Наряды-допуски</a>
             {% endif %}
             {% if current_user.has('files.view') %}
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('files')) else '' }}" href="{{ url_for('files') }}" title="Файлы" aria-label="Файлы" data-bs-toggle="tooltip">Файлы</a>
+            {% endif %}
+            {% if current_user.has('categories.view') %}
+              <a class="topbtn{{ ' active' if request.path.startswith(url_for('categories_admin')) else '' }}" href="{{ url_for('categories_admin') }}" title="Управление категориями" aria-label="Управление категориями" data-bs-toggle="tooltip"><i class="bi bi-gear-fill"></i></a>
             {% endif %}
           </div>
           <div class="app-topbar__group">

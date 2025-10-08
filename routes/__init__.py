@@ -1,9 +1,11 @@
 # Route modules aggregator
 
 def register_all(app, tp, media_service, socketio=None):
-	from . import users, requests, orders, files, index, groups
+	from . import users, files, index, groups
 	from . import push
 	from . import admin
+	from . import categories
+	from . import wip
 
 	# Ensure Flask secret key is loaded from DB (and generated if missing)
 	try:
@@ -13,11 +15,14 @@ def register_all(app, tp, media_service, socketio=None):
 		app.logger.error(f"Failed to ensure Flask secret key: {e}")
 	index.register(app)
 	users.register(app)
-	requests.register(app)
-	orders.register(app, tp, media_service)
+	# requests and orders temporarily disabled
+	# requests.register(app)
+	# orders.register(app, tp, media_service)
 	files.register(app, media_service, socketio)
 	groups.register(app)
 	push.register(app)
 	admin.register(app, socketio)
+	categories.register(app, socketio)
+	wip.register(app)
 
 
