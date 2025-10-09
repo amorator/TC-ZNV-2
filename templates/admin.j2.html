@@ -19,8 +19,8 @@
           <strong>Активные пользователи</strong>
           <button id="btnRefreshPresence" class="btn btn-sm btn-outline-secondary">Обновить</button>
         </div>
-        <div class="table-responsive presence-table-wrap">
-          <table id="presenceTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0" role="table" aria-label="Таблица активных пользователей">
+        <div class="table-responsive presence-table-wrap" data-testid="admin-presence">
+          <table id="presenceTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0" role="table" aria-label="Таблица активных пользователей" data-testid="admin-presence-table">
             <thead class="table__head">
               <tr class="table__head_row" role="row">
                 <th class="table__head_item" scope="col">Пользователь</th>
@@ -41,13 +41,14 @@
           <div class="d-flex gap-2">
             <button type="button" id="btnNotifyTest" class="btn btn-sm btn-outline-secondary">Тест</button>
             {% if current_user.has('admin.manage') %}
-            <button type="button" id="btnOpenNotifyModal" class="btn btn-sm btn-primary">Отправить…</button>
+            <button type="button" id="btnOpenNotifyModal" class="btn btn-sm btn-primary" data-testid="admin-open-notify">Отправить…</button>
+            <button type="button" id="adminForceLogoutBtn" class="btn btn-sm btn-outline-danger" data-testid="admin-force-logout">Разлогинить всех</button>
             {% endif %}
           </div>
         </div>
         {% if current_user.has('admin.manage') %}
         <div class="card-body">
-          <button type="button" id="btnPushMaintain" class="btn btn-outline-danger w-100">Начать обслуживание таблицы подписок на уведомления</button>
+          <button type="button" id="btnPushMaintain" class="btn btn-outline-danger w-100" data-testid="admin-maintenance">Начать обслуживание таблицы подписок на уведомления</button>
         </div>
         {% endif %}
       </div>
@@ -65,7 +66,7 @@
         <div class="border-top p-2">
           <div class="mb-2"><strong class="logs-caption">Логи</strong></div>
           <div class="table-responsive">
-            <table id="logsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table" role="table" aria-label="Таблица логов">
+            <table id="logsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0 logs-table" role="table" aria-label="Таблица логов" data-testid="admin-logs-table">
               <thead class="table__head">
                 <tr class="table__head_row" role="row">
                   <th class="table__head_item" scope="col">Файл</th>
@@ -85,7 +86,7 @@
   </script>
 
   <!-- Context menu for admin presence table -->
-  <div id="context-menu" class="context-menu d-none">
+  <div id="context-menu" class="context-menu d-none" data-testid="admin-context-menu">
     <ul class="context-menu__list">
       <li class="context-menu__item" data-action="refresh">Обновить</li>
       <li class="context-menu__item" data-action="kick">Выгнать</li>
@@ -101,7 +102,7 @@
   </div>
 
   <!-- Notification modal -->
-  <div class="modal fade" id="adminNotifyModal" tabindex="-1" aria-hidden="true" aria-labelledby="adminNotifyModalTitle">
+  <div class="modal fade" id="adminNotifyModal" tabindex="-1" aria-hidden="true" aria-labelledby="adminNotifyModalTitle" data-testid="admin-notify-modal">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
@@ -134,7 +135,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="button" id="btnSendNotifyM" class="btn btn-primary">Отправить</button>
+          <button type="button" id="btnSendNotifyM" class="btn btn-primary" data-testid="admin-send-notify">Отправить</button>
         </div>
       </div>
     </div>

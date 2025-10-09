@@ -1,6 +1,13 @@
 __pycache__/
-static/stuff/
+.pytest*/
+.venv/
+.wdm/
+stuff/
+certs/
+logs/
+artifacts/
 server.sock
 Pipfile.lock
 *.log
 *.log.*
+*.zsh

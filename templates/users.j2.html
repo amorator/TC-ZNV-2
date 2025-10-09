@@ -11,8 +11,8 @@
 
 {% block main %}
 
-  <section class="users-page container-fluid py-3">
-    <table class="users-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица пользователей" data-can-manage="{{ 1 if current_user.has('users.manage') else 0 }}" data-server-paging="1">
+  <section class="users-page container-fluid py-3" data-testid="users-section">
+    <table class="users-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица пользователей" data-testid="users-table" data-can-manage="{{ 1 if current_user.has('users.manage') else 0 }}" data-server-paging="1">
       <thead class="table__head">
         <tr class="table__head_row" role="row">
           <th class="table__head_item" scope="col">Логин</th>
@@ -25,7 +25,14 @@
       <tbody class="table__body" role="rowgroup">
         <tr id="search" class="table__body_actions">
           <td class="table__body_action" colspan="5">
-            {% include 'components/searchbar.html' %}
+            <div class="d-flex justify-content-between align-items-center gap-2">
+              {% include 'components/searchbar.html' %}
+              {% if current_user.has('users.manage') %}
+              <button type="button" id="add-user-button" class="btn btn-primary" data-testid="users-add-open" data-action="add-user" onclick="popupToggle('popup-add');">
+                <i class="bi bi-plus-lg"></i> Добавить
+              </button>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% if users %}
@@ -108,7 +115,7 @@
 
   <div id="users-pagination" class="files-pagination d-flex justify-content-center py-2"></div>
 
-  <div id="popup-add" class="overlay-container">
+  <div id="popup-add" class="overlay-container" data-testid="users-modal-add">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-add-title">
       <h1 class="popup__title mb-4" id="popup-add-title">Добавление пользователя</h1>
       <div class="popup__body">
@@ -157,8 +164,8 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
-            <button type="button" class="btn btn-primary" onclick="validateForm(this);">Добавить</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-add-cancel" onclick="popupToggle('popup-add');">Отмена</button>
+            <button type="button" class="btn btn-primary" data-testid="users-add-submit" onclick="validateForm(this);">Добавить</button>
           </div>
         </form>
       </div>
@@ -166,19 +173,19 @@
   </div>
 
   <!-- Context menu for users table -->
-  <div id="context-menu" class="context-menu d-none">
+  <div id="context-menu" class="context-menu d-none" data-testid="users-context-menu">
     <ul class="context-menu__list">
-      <li class="context-menu__item" data-action="toggle">Включить</li>
-      <li class="context-menu__item" data-action="edit">Изменить</li>
-      <li class="context-menu__item" data-action="perm">Изменить разрешения</li>
-      <li class="context-menu__item" data-action="reset">Сбросить пароль</li>
-      <li class="context-menu__item" data-action="delete">Удалить</li>
+      <li class="context-menu__item" data-action="toggle" data-testid="users-cm-toggle">Включить</li>
+      <li class="context-menu__item" data-action="edit" data-testid="users-cm-edit">Изменить</li>
+      <li class="context-menu__item" data-action="perm" data-testid="users-cm-perm">Изменить разрешения</li>
+      <li class="context-menu__item" data-action="reset" data-testid="users-cm-reset">Сбросить пароль</li>
+      <li class="context-menu__item" data-action="delete" data-testid="users-cm-delete">Удалить</li>
       <li class="context-menu__separator"></li>
-      <li class="context-menu__item" data-action="add">Добавить</li>
+      <li class="context-menu__item" data-action="add" data-testid="users-cm-add">Добавить</li>
     </ul>
   </div>
 
-  <div id="popup-perm" class="overlay-container">
+  <div id="popup-perm" class="overlay-container" data-testid="users-modal-perm">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-perm-title">
       <h1 class="popup__title mb-4" id="popup-perm-title">Изменение разрешений</h1>
       <div class="popup__body">
@@ -197,8 +204,8 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-perm');">Отмена</button>
-            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Сохранить</button>
+            <button class="btn btn-secondary" type="button" data-testid="users-perm-cancel" onclick="popupToggle('popup-perm');">Отмена</button>
+            <button class="btn btn-primary" type="button" data-testid="users-perm-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -207,7 +214,7 @@
 
   
 
-  <div id="popup-edit" class="overlay-container">
+  <div id="popup-edit" class="overlay-container" data-testid="users-modal-edit">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-edit-title">
       <h1 class="popup__title mb-4" id="popup-edit-title">Редактирование пользователя</h1>
       <div class="popup__body">
@@ -239,8 +246,8 @@
             </label>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button class="btn btn-secondary" type="button" onclick="popupToggle('popup-edit');">Отмена</button>
-            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Сохранить</button>
+            <button class="btn btn-secondary" type="button" data-testid="users-edit-cancel" onclick="popupToggle('popup-edit');">Отмена</button>
+            <button class="btn btn-primary" type="button" data-testid="users-edit-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
       </div>
@@ -249,7 +256,7 @@
 
   
 
-  <div id="popup-reset" class="overlay-container">
+  <div id="popup-reset" class="overlay-container" data-testid="users-modal-reset">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-reset-title">
       <h1 class="popup__title mb-4" id="popup-reset-title">Изменение пароля пользователя</h1>
       <div class="popup__body">
@@ -267,15 +274,15 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-reset');">Отмена</button>
-            <button class="btn btn-primary" type="button" onclick="validateForm(this);">Изменить</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-reset-cancel" onclick="popupToggle('popup-reset');">Отмена</button>
+            <button class="btn btn-primary" type="button" data-testid="users-reset-save" onclick="validateForm(this);">Изменить</button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
-  <div id="popup-delete" class="overlay-container">
+  <div id="popup-delete" class="overlay-container" data-testid="users-modal-delete">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-delete-title">
       <h1 class="popup__title mb-4" id="popup-delete-title">Удалить пользователя</h1>
       <div class="popup__body">
@@ -283,8 +290,8 @@
           <b>uname</b>?</p>
         <form class="popup__form" id="delete" name="delete" action="{{ url_for('users_delete', id='0') }}" method="post" onsubmit="return false;">
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
-            <button type="button" class="btn btn-danger" onclick="validateForm(this);">Удалить</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-delete-cancel" onclick="popupToggle('popup-delete');">Отмена</button>
+            <button type="button" class="btn btn-danger" data-testid="users-delete-confirm" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
       </div>

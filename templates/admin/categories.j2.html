@@ -25,7 +25,7 @@
   </div>
 
   <!-- Categories Tab Content -->
-  <div id="categories-tab" class="tab-content">
+  <div id="categories-tab" class="tab-content" data-testid="categories-tab">
     <!-- Categories Navigation -->
     <div class="subbar cat" id="category-tabs" style="display: none;">
       <div class="subbar__group" id="category-nav">
@@ -154,7 +154,7 @@
   </div>
 
   <!-- Registrars Tab Content -->
-  <div id="registrars-tab" class="tab-content" style="display: none;">
+  <div id="registrars-tab" class="tab-content" style="display: none;" data-testid="registrars-tab">
     <div class="empty-state">
       <i class="fas fa-user-plus"></i>
       <h4>Регистраторы</h4>
@@ -167,7 +167,7 @@
 <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 1080;"></div>
 
 <!-- Context menu for categories page -->
-<div id="categories-context-menu" class="context-menu d-none">
+<div id="categories-context-menu" class="context-menu d-none" data-testid="categories-context-menu">
   <ul class="context-menu__list">
     <li class="context-menu__item" data-action="add-category">Добавить категорию</li>
     <li class="context-menu__item" data-action="edit-category">Изменить категорию</li>
@@ -182,7 +182,7 @@
 </div>
 
 <!-- Add Category Modal -->
-<div class="modal fade" id="addCategoryModal" tabindex="-1" aria-labelledby="addCategoryModalLabel" aria-hidden="true">
+<div class="modal fade" id="addCategoryModal" tabindex="-1" aria-labelledby="addCategoryModalLabel" aria-hidden="true" data-testid="categories-modal-add">
 <div class="modal-dialog">
   <div class="modal-content categories-modal">
       <div class="modal-header">
@@ -223,7 +223,7 @@
 </div>
 
 <!-- Add Subcategory Modal -->
-<div class="modal fade" id="addSubcategoryModal" tabindex="-1" aria-labelledby="addSubcategoryModalLabel" aria-hidden="true">
+<div class="modal fade" id="addSubcategoryModal" tabindex="-1" aria-labelledby="addSubcategoryModalLabel" aria-hidden="true" data-testid="categories-modal-add-sub">
 <div class="modal-dialog modal-lg">
   <div class="modal-content categories-modal">
       <div class="modal-header">
@@ -272,7 +272,7 @@
 </div>
 
 <!-- Confirm Delete Category Modal -->
-<div class="modal fade" id="confirmDeleteCategoryModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="confirmDeleteCategoryModal" tabindex="-1" aria-hidden="true" data-testid="categories-modal-del-cat">
 <div class="modal-dialog">
   <div class="modal-content categories-modal">
       <div class="modal-header">
@@ -291,7 +291,7 @@
 </div>
 
 <!-- Confirm Delete Subcategory Modal -->
-<div class="modal fade" id="confirmDeleteSubcategoryModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="confirmDeleteSubcategoryModal" tabindex="-1" aria-hidden="true" data-testid="categories-modal-del-sub">
 <div class="modal-dialog">
   <div class="modal-content categories-modal">
       <div class="modal-header">
@@ -310,7 +310,7 @@
 </div>
 
 <!-- Confirm Toggle Category Modal -->
-<div class="modal fade" id="confirmToggleCategoryModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="confirmToggleCategoryModal" tabindex="-1" aria-hidden="true" data-testid="categories-modal-toggle-cat">
 <div class="modal-dialog">
   <div class="modal-content categories-modal">
       <div class="modal-header">
@@ -329,7 +329,7 @@
 </div>
 
 <!-- Confirm Toggle Subcategory Modal -->
-<div class="modal fade" id="confirmToggleSubcategoryModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="confirmToggleSubcategoryModal" tabindex="-1" aria-hidden="true" data-testid="categories-modal-toggle-sub">
 <div class="modal-dialog">
   <div class="modal-content categories-modal">
       <div class="modal-header">

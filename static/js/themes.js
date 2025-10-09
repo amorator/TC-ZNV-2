@@ -17,9 +17,25 @@ const themeIcons = {
 
 (function () {
   document.addEventListener("DOMContentLoaded", function () {
-    var themeBtn = document.getElementById("btntheme");
+    var themeBtn =
+      document.getElementById("theme-toggle") ||
+      document.querySelector('[data-action="toggle-theme"]') ||
+      document.getElementById("btntheme");
     if (!themeBtn) return;
-    var savedTheme = safeGet(THEME_KEY) || "light";
+    var savedTheme = (function () {
+      // Try localStorage first
+      var t = safeGet(THEME_KEY);
+      if (t && themeOrder.indexOf(t) !== -1) return t;
+      // Fallback to current DOM attributes
+      try {
+        var html = document.documentElement;
+        var a =
+          html.getAttribute("data-bs-theme") ||
+          (document.body && document.body.getAttribute("data-theme"));
+        if (a && themeOrder.indexOf(a) !== -1) return a;
+      } catch (_) {}
+      return "light";
+    })();
     applyTheme(savedTheme);
     themeBtn.addEventListener("click", function (e) {
       var idx = themeOrder.indexOf(savedTheme);
@@ -45,18 +61,31 @@ function applyTheme(theme) {
   var root = document.documentElement;
   root.classList.remove(...Object.values(themeMap));
   root.classList.add(cls);
+  // Also set semantic attributes for frameworks/tests and embedded UIs
+  try {
+    root.setAttribute("data-bs-theme", theme);
+  } catch (_) {}
+  try {
+    if (document.body) document.body.setAttribute("data-theme", theme);
+  } catch (_) {}
   try {
     // Notify same-origin iframes about theme change
-    var frames = document.getElementsByTagName('iframe');
+    var frames = document.getElementsByTagName("iframe");
     for (var i = 0; i < frames.length; i++) {
       try {
         if (frames[i].contentWindow) {
-          frames[i].contentWindow.postMessage({ type: 'theme:changed', className: cls }, '*');
+          frames[i].contentWindow.postMessage(
+            { type: "theme:changed", className: cls },
+            "*"
+          );
         }
       } catch (_) {}
     }
   } catch (_) {}
-  var iconEl = document.getElementById("btntheme");
+  var iconEl =
+    document.getElementById("theme-toggle") ||
+    document.querySelector('[data-action="toggle-theme"]') ||
+    document.getElementById("btntheme");
   if (iconEl) {
     var i = iconEl.querySelector("i");
     if (!i) {

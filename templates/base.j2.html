@@ -159,12 +159,12 @@
             {% if current_user.has('admin.view') %}
               <a class="topbtn{{ ' active' if request.path.startswith(url_for('admin')) else '' }}" href="{{ url_for('admin') }}" title="Администрирование" aria-label="Администрирование" data-bs-toggle="tooltip"><i class="bi bi-shield-lock-fill"></i></a>
             {% endif %}
-            <button id="btntheme" class="topbtn d-inline-flex align-items-center" title="Сменить тему" aria-label="Сменить тему" data-bs-toggle="tooltip"><i class="bi bi-sun"></i></button>
+            <button id="theme-toggle" class="topbtn d-inline-flex align-items-center" title="Сменить тему" aria-label="Сменить тему" data-bs-toggle="tooltip" data-testid="theme-toggle" data-action="toggle-theme"><i class="bi bi-sun"></i></button>
             <!-- ==== DEV-ONLY START (TODO: remove in production) ========================= -->
             <button id="btn-dev-refresh-static" class="topbtn d-inline-flex align-items-center" title="Перезагрузить статику" aria-label="Перезагрузить статику" data-bs-toggle="tooltip"><i class="bi bi-arrow-repeat"></i></button>
             <button id="btn-dev-reset-socket" class="topbtn d-inline-flex align-items-center" title="Сбросить сокет" aria-label="Сбросить сокет" data-bs-toggle="tooltip"><i class="bi bi-plug"></i></button>
             <!-- ==== DEV-ONLY END ======================================================== -->
-            <a class="topbtn text-nowrap" href="{{ url_for('logout') }}" title="Выход" aria-label="Выход" data-bs-toggle="tooltip">Выход ({{ current_user.name }})</a>
+            <a class="topbtn text-nowrap" href="{{ url_for('logout') }}" title="Выход" aria-label="Выход" data-bs-toggle="tooltip" data-testid="logout">Выход ({{ current_user.name }})</a>
           </div>
         </div>
       </header>
