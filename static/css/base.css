@@ -200,19 +200,12 @@ a.active {
   position: relative;
   z-index: 1;
   background-color: var(--modal-bg);
-  border: 1px solid #000000;
+  border: 1px solid var(--modal-border) !important;
+  border-radius: .375rem !important;
 }
 
 .overlay-container .popup::before {
-  content: '';
-  position: absolute;
-  inset: -24px;
-  /* Use themed modal background with configurable opacity, fallback to body bg */
-  background: color-mix(in srgb,
-      var(--modal-bg, var(--body-bg)),
-      transparent calc((1 - var(--overlay-opacity, 0.9)) * 100%));
-  border-radius: 14px;
-  z-index: -1;
+  content: none !important;
 }
 
 /* Wide modal variant */

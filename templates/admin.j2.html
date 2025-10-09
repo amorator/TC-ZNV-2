@@ -35,6 +35,27 @@
         </div>
       </div>
 
+      <!-- Active HTTP sessions table -->
+      <div class="card mb-3 presence-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Активные сессии</strong>
+          <button id="btnRefreshSessions" class="btn btn-sm btn-outline-secondary">Обновить</button>
+        </div>
+        <div class="table-responsive presence-table-wrap" data-testid="admin-sessions">
+          <table id="sessionsTable" class="files-page__table users-page__table table table-striped table-hover table-sm align-middle table-colored mb-0" role="table" aria-label="Таблица активных сессий" data-testid="admin-sessions-table">
+            <thead class="table__head">
+              <tr class="table__head_row" role="row">
+                <th class="table__head_item" scope="col">Пользователь</th>
+                <th class="table__head_item" scope="col">IP</th>
+                <th class="table__head_item" scope="col">UA</th>
+                <th class="table__head_item text-end" scope="col">Последняя активность</th>
+              </tr>
+            </thead>
+            <tbody class="table__body" role="rowgroup"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card notify-card">
         <div class="card-header d-flex justify-content-between align-items-center">
           <strong>Уведомления</strong>
@@ -42,16 +63,22 @@
             <button type="button" id="btnNotifyTest" class="btn btn-sm btn-outline-secondary">Тест</button>
             {% if current_user.has('admin.manage') %}
             <button type="button" id="btnOpenNotifyModal" class="btn btn-sm btn-primary" data-testid="admin-open-notify">Отправить…</button>
-            <button type="button" id="adminForceLogoutBtn" class="btn btn-sm btn-outline-danger" data-testid="admin-force-logout">Разлогинить всех</button>
             {% endif %}
           </div>
         </div>
-        {% if current_user.has('admin.manage') %}
-        <div class="card-body">
-          <button type="button" id="btnPushMaintain" class="btn btn-outline-danger w-100" data-testid="admin-maintenance">Начать обслуживание таблицы подписок на уведомления</button>
-        </div>
-        {% endif %}
+        
       </div>
+      {% if current_user.has('admin.manage') %}
+      <div class="card mt-3 notify-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Сессии и обслуживание</strong>
+        </div>
+          <div class="card-body d-grid gap-2">
+          <button type="button" id="adminForceLogoutBtn" class="btn btn-outline-danger" data-testid="admin-force-logout">Разорвать все сессии</button>
+          <button type="button" id="btnPushMaintain" class="btn btn-outline-danger" data-testid="admin-maintenance">Начать обслуживание таблицы подписок на уведомления</button>
+        </div>
+      </div>
+      {% endif %}
     </div>
     <div class="col-12 col-lg-5">
       <div class="card h-100 logs-card">
@@ -98,6 +125,8 @@
       <li class="context-menu__separator"></li>
       <li class="context-menu__item" data-action="download">Скачать</li>
       <li class="context-menu__item" data-action="download-all">Скачать все</li>
+      <li class="context-menu__separator"></li>
+      <li class="context-menu__item" data-action="session-terminate" style="display:none">Разорвать сессию</li>
     </ul>
   </div>
 
@@ -136,6 +165,63 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
           <button type="button" id="btnSendNotifyM" class="btn btn-primary" data-testid="admin-send-notify">Отправить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm: Force logout all -->
+  <div class="modal fade" id="confirmForceLogoutAllModal" tabindex="-1" aria-hidden="true" aria-labelledby="confirmForceLogoutAllTitle" data-testid="admin-confirm-logout-all-modal">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="confirmForceLogoutAllTitle">Разлогинить всех пользователей?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Это завершит все активные сессии. Пользователям потребуется войти снова.
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" id="btnConfirmForceLogoutAll" class="btn btn-danger" data-testid="admin-confirm-logout-all">Разлогинить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm: Force logout one session -->
+  <div class="modal fade" id="confirmForceLogoutOneModal" tabindex="-1" aria-hidden="true" aria-labelledby="confirmForceLogoutOneTitle" data-testid="admin-confirm-logout-one-modal">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="confirmForceLogoutOneTitle">Разорвать выбранную сессию?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Текущая сессия пользователя будет завершена. Пользователю потребуется войти снова.
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" id="btnConfirmForceLogoutOne" class="btn btn-danger" data-testid="admin-confirm-logout-one">Разорвать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm: Push subscriptions maintenance -->
+  <div class="modal fade" id="confirmPushMaintainModal" tabindex="-1" aria-hidden="true" aria-labelledby="confirmPushMaintainTitle" data-testid="admin-confirm-maintenance-modal">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="confirmPushMaintainTitle">Начать обслуживание подписок?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Будут удалены невалидные и протестированы неактивные подписки. Действие ограничено по частоте.
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" id="btnConfirmPushMaintain" class="btn btn-danger" data-testid="admin-confirm-maintenance">Начать</button>
         </div>
       </div>
     </div>

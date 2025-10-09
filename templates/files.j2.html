@@ -67,7 +67,7 @@
                     <button type="button" id="filesUploadBtn" class="btn btn-primary" data-testid="files-upload" data-action="files-upload" onclick="popupToggle('popup-add');">
                       <i class="bi bi-plus-lg"></i> Загрузить
                     </button>
-                    <button type="button" id="record-file-button" class="btn btn-outline-primary" data-testid="files-record-open" data-action="record-file" onclick="popupToggle('popup-rec');">
+                    <button type="button" id="record-file-button" class="btn btn-primary" data-testid="files-record-open" data-action="record-file" onclick="popupToggle('popup-rec');">
                       <i class="bi bi-camera-video"></i> Записать
                     </button>
                   </div>
@@ -299,6 +299,18 @@
             try {
               var iframe = document.getElementById('rec-iframe');
               if (!iframe) return;
+              function disableIframeContextMenu(){
+                try {
+                  var w = iframe.contentWindow;
+                  var d = iframe.contentDocument || (w && w.document);
+                  if (!d) return false;
+                  // Prevent native context menu inside recording iframe
+                  d.addEventListener('contextmenu', function(e){ try { e.preventDefault(); e.stopPropagation(); } catch(_) {} }, { capture: true });
+                  return true;
+                } catch(_) { return false; }
+              }
+              // Bind on load and also attempt a few times after show
+              try { iframe.addEventListener('load', function(){ disableIframeContextMenu(); }, true); } catch(_) {}
               function getTheme(){
                 try {
                   var t = document.documentElement.getAttribute('data-theme')
@@ -322,6 +334,13 @@
                     iframe.setAttribute('data-src', ds + join2 + 'theme=' + encodeURIComponent(theme));
                   }
                 }
+              }
+              // If already loaded, try to disable context menu immediately; else retry a few times
+              if (!disableIframeContextMenu()) {
+                var tries = 0; var timer = setInterval(function(){
+                  tries++;
+                  if (disableIframeContextMenu() || tries > 10) { clearInterval(timer); }
+                }, 300);
               }
             } catch(_) {}
           })();

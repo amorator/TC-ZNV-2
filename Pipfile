@@ -12,6 +12,7 @@ mysql-connector-python = "*"
 gunicorn = "*"
 eventlet = "*"
 gevent-websocket = "*"
+yapf = "*"
 
 [dev-packages]
 

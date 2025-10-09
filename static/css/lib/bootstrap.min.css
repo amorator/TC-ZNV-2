@@ -6108,8 +6108,8 @@ fieldset:disabled .btn {
 
 .modal-backdrop {
     --bs-backdrop-zindex: 1050;
-    --bs-backdrop-bg: #000;
-    --bs-backdrop-opacity: 0.5;
+    --bs-backdrop-bg: transparent;
+    --bs-backdrop-opacity: 0;
     position: fixed;
     top: 0;
     left: 0;

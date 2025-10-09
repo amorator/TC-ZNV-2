@@ -15,21 +15,86 @@ def init_middleware(app):
 	def before_request():
 		"""Log request start time."""
 		g.start_time = time()
-		# Enforce server-side force-logout if flagged by admin
+		# Initialize in-memory stores and track active sessions
 		try:
-			# Initialize storage
 			if not hasattr(app, '_force_logout_users'):
 				app._force_logout_users = set()
-			# If current user is flagged, log out and mark for cookie removal
+			if not hasattr(app, '_force_logout_sessions'):
+				app._force_logout_sessions = set()
+			if not hasattr(app, '_sessions'):
+				app._sessions = {}
+			# Track current session as active (best-effort)
+			is_auth_attr = getattr(current_user, 'is_authenticated', False)
+			is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+			if is_authenticated:
+				cookie_name = getattr(app, 'session_cookie_name', 'session')
+				sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+				if sid:
+					uid = getattr(current_user, 'id', None)
+					uname = getattr(current_user, 'name', None)
+					ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+					ua = request.headers.get('User-Agent', '')
+					now_ts = time()
+					entry = app._sessions.get(sid) or {}
+					if not entry:
+						entry = {'created_at': now_ts}
+					entry.update({'user_id': uid, 'user': uname, 'ip': ip, 'ua': ua, 'last_seen': now_ts})
+					app._sessions[sid] = entry
+					# prune expired sessions by lifetime
+					try:
+						from datetime import timedelta
+						lifetime = app.config.get('PERMANENT_SESSION_LIFETIME')
+						if isinstance(lifetime, timedelta):
+							max_age = int(lifetime.total_seconds())
+						else:
+							max_age = int(lifetime or 31*24*3600)
+					except Exception:
+						max_age = 31*24*3600
+					cutoff = time() - max_age
+					for k, v in list(getattr(app, '_sessions', {}).items()):
+						try:
+							if float(v.get('last_seen') or 0) < cutoff:
+								app._sessions.pop(k, None)
+						except Exception:
+							pass
+		except Exception:
+			pass
+		# Enforce server-side force-logout if flagged by admin (by user or session)
+		try:
 			is_auth_attr = getattr(current_user, 'is_authenticated', False)
 			is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 			uid = getattr(current_user, 'id', None)
-			if is_authenticated and uid in getattr(app, '_force_logout_users', set()):
+			cookie_name = getattr(app, 'session_cookie_name', 'session')
+			sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+			if is_authenticated and (uid in getattr(app, '_force_logout_users', set()) or (sid and sid in getattr(app, '_force_logout_sessions', set()))):
 				logout_user()
 				g.force_logout = True
 				# Clear the flag so that subsequent re-login is not immediately logged out again
 				try:
 					app._force_logout_users.discard(uid)
+				except Exception:
+					pass
+				try:
+					if sid:
+						app._force_logout_sessions.discard(sid)
+						if hasattr(app, '_sessions'):
+							app._sessions.pop(sid, None)
+				except Exception:
+					pass
+				# Also purge presence and HB for this user to avoid stale rows across the app
+				try:
+					presence = getattr(app, '_presence', {}) or {}
+					for psid, info in list(presence.items()):
+						try:
+							if int(info.get('user_id') or -1) == int(uid or -2):
+								app._presence.pop(psid, None)
+						except Exception:
+							pass
+					presence_hb = getattr(app, '_presence_hb', {}) or {}
+					prefix = f"hb:{uid}:"
+					for key in list(presence_hb.keys()):
+						if isinstance(key, str) and key.startswith(prefix):
+							app._presence_hb.pop(key, None)
 				except Exception:
 					pass
 		except Exception:

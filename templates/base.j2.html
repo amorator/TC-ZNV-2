@@ -30,6 +30,27 @@
   
   {% block js %}{% endblock %}
   <script>
+    // Global: suppress native context menu everywhere; allow page-level custom menus to handle right-clicks
+    (function(){
+      try {
+        document.addEventListener('contextmenu', function(e){
+          // Always prevent the default browser menu
+          e.preventDefault();
+          // If right-click happens inside any open modal/overlay — block completely
+          try {
+            var inBsModal = !!(e.target && e.target.closest && e.target.closest('.modal.show'));
+            var inOverlay = !!(e.target && e.target.closest && e.target.closest('.overlay-container'));
+            if (inBsModal || inOverlay) {
+              e.stopPropagation();
+              return; // do not allow custom page menus under modals
+            }
+          } catch(_) {}
+          // Otherwise, do not stop propagation: page scripts may open their own custom menus
+        }, { capture: true });
+      } catch(_) {}
+    })();
+  </script>
+  <script>
     // Expose passive polling interval from server config with fallback to 20s
     (function(){
       try {

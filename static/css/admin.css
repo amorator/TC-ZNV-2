@@ -10,6 +10,28 @@
     border-radius: 6px;
 }
 
+/* Column widths for Active Users and Active Sessions tables */
+#presenceTable thead th:nth-child(1),
+#presenceTable tbody td:nth-child(1),
+#sessionsTable thead th:nth-child(1),
+#sessionsTable tbody td:nth-child(1) {
+    width: 20% !important;
+}
+
+#presenceTable thead th:nth-child(4),
+#presenceTable tbody td:nth-child(4),
+#sessionsTable thead th:nth-child(4),
+#sessionsTable tbody td:nth-child(4) {
+    width: 25% !important;
+}
+
+/* Make overflowing table cell content show ellipsis; tooltip will show full text */
+.presence-table-wrap td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Cards use theme variables */
 .presence-card,
 .notify-card,
@@ -168,46 +190,25 @@
     color: var(--brand-green, #00ff00);
 }
 
-/* Modal theming */
+/* Modal theming aligned with global variables */
 .modal-content {
-    background: var(--surface, #fff);
-    color: var(--text, #212529);
-    border-color: var(--border, rgba(0, 0, 0, .1));
+    background: var(--modal-bg) !important;
+    color: var(--body-text) !important;
+    border-color: var(--modal-border) !important;
 }
 
 .modal-header,
 .modal-footer {
-    border-color: var(--border, rgba(0, 0, 0, .1));
-}
-
-.theme-dark .modal-content {
-    background: #232323;
-    color: #e6e6e6;
-    border-color: #333;
-}
-
-.theme-dark .modal-header,
-.theme-dark .modal-footer {
-    border-color: #333;
-}
-
-.theme-dark-hc .modal-content {
-    background: #000;
-    color: var(--brand-green, #00ff00);
-    border-color: var(--brand-green, #00ff00);
-}
-
-.theme-dark-hc .modal-header,
-.theme-dark-hc .modal-footer {
-    border-color: var(--brand-green, #00ff00);
+    background: var(--modal-header-bg) !important;
+    color: var(--modal-header-text) !important;
+    border-color: var(--modal-border) !important;
 }
 
 /* Align admin notify modal visuals with app modals */
 #adminNotifyModal .modal-content {
-    background: var(--modal-bg);
-    color: var(--body-text);
-    border: 1px solid var(--modal-border);
-    border-radius: 10px;
+    background: var(--modal-bg) !important;
+    color: var(--body-text) !important;
+    border: 1px solid var(--modal-border) !important;
 }
 
 #adminNotifyModal .modal-header,
@@ -339,4 +340,12 @@
 .logs-table tbody tr>th,
 .logs-table tbody tr>td {
     font-size: 0.8em;
+}
+
+/* Normalize row font-size for presence and sessions tables so first row isn't larger */
+#presenceTable tbody tr>th,
+#presenceTable tbody tr>td,
+#sessionsTable tbody tr>th,
+#sessionsTable tbody tr>td {
+    font-size: inherit;
 }

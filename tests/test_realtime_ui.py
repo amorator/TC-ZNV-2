@@ -98,7 +98,7 @@ def create_test_user(d_admin, username: str):
     time.sleep(0.3)
     
     # Открываем модалку добавления
-    add_btns = d_admin.find_elements('css selector', "[data-testid='users-cm-add'], [data-testid='users-modal-add'], #popup-add button")
+    add_btns = d_admin.find_elements('css selector', "[data-testid='users-add-open'], [data-testid='users-cm-add'], [data-testid='users-modal-add'], #popup-add button")
     if not add_btns:
         pytest.skip('Add user button not found')
     
@@ -152,7 +152,7 @@ def create_test_file(d_admin, filename: str):
     time.sleep(0.3)
     
     # Открываем модалку добавления файла
-    add_btns = d_admin.find_elements('css selector', "[data-testid='files-cm-add'], [data-testid='files-modal-add'], #popup-add button")
+    add_btns = d_admin.find_elements('css selector', "[data-testid='files-upload'], [data-testid='files-cm-add'], [data-testid='files-modal-add'], #popup-add button")
     if not add_btns:
         pytest.skip('Add file button not found')
     
@@ -202,7 +202,7 @@ def create_test_group(d_admin, groupname: str):
     time.sleep(0.3)
     
     # Открываем модалку добавления
-    add_btns = d_admin.find_elements('css selector', "[data-testid='groups-cm-add'], [data-testid='groups-modal-add'], #popup-add button")
+    add_btns = d_admin.find_elements('css selector', "[data-testid='groups-add-open'], [data-testid='groups-cm-add'], [data-testid='groups-modal-add'], #popup-add button")
     if not add_btns:
         pytest.skip('Add group button not found')
     
@@ -243,17 +243,26 @@ def wait_for_group_in_list(d_user, groupname: str, timeout: float = 5.0) -> bool
                 return True
         time.sleep(0.5)
     return False
-    """Ожидаем, что на клиенте появится уведомление (toast/alert) с текстом."""
+
+
+def wait_user_notification(d_user, text: str, timeout: float = 6.0) -> bool:
+    """Ожидаем, что на клиенте появится уведомление (toast/alert) с указанным текстом."""
     end = time.time() + timeout
     while time.time() < end:
-        html = d_user.page_source
-        # Часто уведомления реализованы через .toast или role='alert'
-        if text in html:
-            return True
-        # Ищем явные элементы
-        toasts = d_user.find_elements('css selector', "#toastContainer .toast, .toast, [role='alert']")
-        if any(text in (t.text or '') for t in toasts):
-            return True
+        try:
+            # Быстрый check по HTML
+            if text in (d_user.page_source or ''):
+                return True
+        except Exception:
+            pass
+        try:
+            # Ищем явные видимые элементы уведомлений
+            toasts = d_user.find_elements('css selector', "#toast-container .toast, #toastContainer .toast, .toast, [role='alert']")
+            for t in toasts:
+                if text in (t.text or ''):
+                    return True
+        except Exception:
+            pass
         time.sleep(0.5)
     return False
 

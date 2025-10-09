@@ -167,7 +167,7 @@
 <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 1080;"></div>
 
 <!-- Context menu for categories page -->
-<div id="categories-context-menu" class="context-menu d-none" data-testid="categories-context-menu">
+  <div id="categories-context-menu" class="context-menu d-none" data-testid="categories-context-menu">
   <ul class="context-menu__list">
     <li class="context-menu__item" data-action="add-category">Добавить категорию</li>
     <li class="context-menu__item" data-action="edit-category">Изменить категорию</li>
@@ -1653,8 +1653,31 @@ function initCategoriesContextMenu() {
     if (id) configureForSubcategory(id); else configureForSubcategory(currentSubcategoryId);
     showMenu(e.clientX, e.clientY);
   }
-  document.getElementById('category-nav')?.addEventListener('contextmenu', onContextMenuCategory);
-  document.getElementById('subcategory-nav')?.addEventListener('contextmenu', onContextMenuSubcategory);
+  const catNav = document.getElementById('category-nav');
+  const subNav = document.getElementById('subcategory-nav');
+  if (catNav) catNav.addEventListener('contextmenu', onContextMenuCategory, { capture: true });
+  if (subNav) subNav.addEventListener('contextmenu', onContextMenuSubcategory, { capture: true });
+  // Bind also to the visual subbar containers to capture right-clicks on empty spaces
+  document.querySelectorAll('.subbar.cat, .subbar.subcat').forEach(el => {
+    el.addEventListener('contextmenu', function(e){
+      e.preventDefault(); e.stopPropagation(); hideMenu();
+      // Infer context: prefer current selection
+      if (e.currentTarget.classList.contains('cat')) { configureForCategory(currentCategoryId); }
+      else { configureForSubcategory(currentSubcategoryId); }
+      showMenu(e.clientX, e.clientY);
+    }, { capture: true });
+  });
+  // Explicitly bind context menu to top navigation tab buttons (very top menu)
+  document.querySelectorAll('.subbar.cat [data-tab]').forEach(btn => {
+    btn.addEventListener('contextmenu', function(e){
+      e.preventDefault(); e.stopPropagation(); hideMenu();
+      // If right-click on Categories tab, use currentCategoryId; otherwise fallback to category-level menu
+      const tab = (this && this.getAttribute('data-tab')) || '';
+      if (tab === 'categories') { configureForCategory(currentCategoryId); }
+      else { configureForCategory(currentCategoryId); }
+      showMenu(e.clientX, e.clientY);
+    }, { capture: true });
+  });
   // Allow opening menu from main content area; infer current selection
   document.getElementById('content-area')?.addEventListener('contextmenu', function(e){
     // Do not re-open when right-clicking inside the menu itself
@@ -1668,11 +1691,52 @@ function initCategoriesContextMenu() {
     showMenu(e.clientX, e.clientY);
   });
   // Global fallback: only when inside our categories container and not on handled elements
+  // Make context menu work across the whole visible area of Categories page, including top bars
   document.addEventListener('contextmenu', function(e){
-    if (!document.getElementById('categories-tab')) return; // not on this page
+    const pageRoot = document.querySelector('[data-testid="categories-tab"]');
+    if (!pageRoot) return; // not on this page
     if (e.target.closest('#categories-context-menu')) return; // ignore menu itself
-    if (e.target.closest('#category-nav') || e.target.closest('#subcategory-nav') || e.target.closest('#content-area')) return; // handled by specific listeners
-  });
+    // Allow anywhere within the rows containing top navigation and content area
+    if (!e.target.closest('[data-testid="categories-tab"], .subbar.cat, .subbar.subcat, #category-nav, #subcategory-nav, #content-area')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideMenu();
+    if (currentSubcategoryId) { configureForSubcategory(currentSubcategoryId); }
+    else if (currentCategoryId) { configureForCategory(currentCategoryId); }
+    else { configureForCategory(null); }
+    showMenu(e.clientX, e.clientY);
+  }, { capture: true });
+  // Bind to the global top site menu (header) so right-click opens our context menu while on Categories page
+  const header = document.querySelector('.app-topbar');
+  if (header) {
+    header.addEventListener('contextmenu', function(e){
+      // Only act on categories page; and ignore clicks on elements that have their own menus
+      const pageRoot = document.querySelector('[data-testid="categories-tab"]');
+      if (!pageRoot) return;
+      if (e.target.closest('#categories-context-menu')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      hideMenu();
+      if (currentSubcategoryId) { configureForSubcategory(currentSubcategoryId); }
+      else if (currentCategoryId) { configureForCategory(currentCategoryId); }
+      else { configureForCategory(null); }
+      showMenu(e.clientX, e.clientY);
+    }, { capture: true });
+    // Also bind directly to header buttons to ensure reliability
+    header.querySelectorAll('.topbtn').forEach(function(btn){
+      btn.addEventListener('contextmenu', function(e){
+        const pageRoot = document.querySelector('[data-testid="categories-tab"]');
+        if (!pageRoot) return;
+        e.preventDefault();
+        e.stopPropagation();
+        hideMenu();
+        if (currentSubcategoryId) { configureForSubcategory(currentSubcategoryId); }
+        else if (currentCategoryId) { configureForCategory(currentCategoryId); }
+        else { configureForCategory(null); }
+        showMenu(e.clientX, e.clientY);
+      }, { capture: true });
+    });
+  }
   document.addEventListener('click', hideMenu);
   window.addEventListener('resize', hideMenu);
 

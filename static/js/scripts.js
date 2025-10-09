@@ -1,4 +1,45 @@
-'use strict';
+"use strict";
+// Global: apply overflow tooltips for truncated table cells site-wide
+function applyOverflowTooltips(scope) {
+  try {
+    const root = scope || document;
+    const tables = root.querySelectorAll("table");
+    for (let i = 0; i < tables.length; i++) {
+      const tbodies = tables[i].tBodies;
+      if (!tbodies || tbodies.length === 0) continue;
+      const cells = tables[i].querySelectorAll("tbody td");
+      for (let j = 0; j < cells.length; j++) {
+        const c = cells[j];
+        if (c.hasAttribute("data-tooltip-ignore")) continue;
+        const text = (
+          c.getAttribute("data-title") ||
+          c.textContent ||
+          ""
+        ).trim();
+        const needs = c.scrollWidth > c.clientWidth;
+        if (needs && text) {
+          c.setAttribute("title", text);
+        } else if (c.hasAttribute("title")) {
+          c.removeAttribute("title");
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+try {
+  document.addEventListener("DOMContentLoaded", function () {
+    applyOverflowTooltips(document);
+  });
+} catch (_) {}
+try {
+  window.addEventListener("resize", function () {
+    applyOverflowTooltips(document);
+  });
+} catch (_) {}
+try {
+  window.applyOverflowTooltips = applyOverflowTooltips;
+} catch (_) {}
 
 /**
  * Toggle popup visibility by ID.
@@ -7,48 +48,74 @@
 function popupToggle(popupId) {
   const popup = document.getElementById(popupId);
   if (!popup) return;
-  
-  if (popup.classList.contains('visible')) {
+
+  if (popup.classList.contains("visible")) {
     // Hide popup
-    popup.classList.remove('visible');
-    popup.style.display = 'none';
-    document.body.style.overflow = ''; // Restore scrolling
+    popup.classList.remove("visible");
+    popup.style.display = "none";
+    document.body.style.overflow = ""; // Restore scrolling
     window.popup = null;
     // Stop any media playback inside the popup when hiding via toggle
     try {
-      const mediaEls = popup.querySelectorAll('video, audio');
-      mediaEls.forEach(function(el){
-        try { el.pause && el.pause(); } catch(_) {}
-        try { el.currentTime = 0; } catch(_) {}
+      const mediaEls = popup.querySelectorAll("video, audio");
+      mediaEls.forEach(function (el) {
+        try {
+          el.pause && el.pause();
+        } catch (_) {}
+        try {
+          el.currentTime = 0;
+        } catch (_) {}
         try {
           if (el.srcObject) {
-            try { el.srcObject.getTracks().forEach(t => { try { t.stop && t.stop(); } catch(_) {} }); } catch(_) {}
+            try {
+              el.srcObject.getTracks().forEach((t) => {
+                try {
+                  t.stop && t.stop();
+                } catch (_) {}
+              });
+            } catch (_) {}
             el.srcObject = null;
           }
-        } catch(_) {}
-        try { el.onerror = null; } catch(_) {}
-        try { el.removeAttribute('src'); } catch(_) {}
+        } catch (_) {}
+        try {
+          el.onerror = null;
+        } catch (_) {}
+        try {
+          el.removeAttribute("src");
+        } catch (_) {}
         // do not set empty src or call load() here to avoid invalid URI logs
       });
-    } catch(_) {}
+    } catch (_) {}
     // Safety net: stop any other media on the page
-    try { stopAllMedia(); } catch(_) {}
-    try { if (window.__mediaOpenState) window.__mediaOpenState.opening = false; } catch(_) {}
+    try {
+      stopAllMedia();
+    } catch (_) {}
+    try {
+      if (window.__mediaOpenState) window.__mediaOpenState.opening = false;
+    } catch (_) {}
   } else {
     // Show popup
-    popup.style.display = 'flex';
-    popup.classList.add('visible');
-    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+    popup.style.display = "flex";
+    popup.classList.add("visible");
+    document.body.style.overflow = "hidden"; // Prevent background scrolling
     window.popup = popupId;
-    try { if (!window.__mediaOpenState) window.__mediaOpenState = { opening: false }; else window.__mediaOpenState.opening = false; } catch(_) {}
+    try {
+      if (!window.__mediaOpenState)
+        window.__mediaOpenState = { opening: false };
+      else window.__mediaOpenState.opening = false;
+    } catch (_) {}
     // Reset recorder saved flag on open
-    if (popupId === 'popup-rec') {
-      try { window.__recHasSaved = false; } catch(_) {}
+    if (popupId === "popup-rec") {
+      try {
+        window.__recHasSaved = false;
+      } catch (_) {}
     }
-    
+
     // Focus first input if available
     setTimeout(() => {
-      const firstInput = popup.querySelector('input:not([type="hidden"]), textarea, select');
+      const firstInput = popup.querySelector(
+        'input:not([type="hidden"]), textarea, select'
+      );
       if (firstInput) {
         firstInput.focus();
       }
@@ -56,14 +123,20 @@ function popupToggle(popupId) {
 
     // Ensure media is unmuted on open
     try {
-      if (popupId === 'popup-audio') {
-        const a = document.getElementById('player-audio');
-        if (a) { a.muted = false; a.volume = 1; }
-      } else if (popupId === 'popup-view') {
-        const v = document.getElementById('player-video');
-        if (v) { v.muted = false; v.volume = 1; }
+      if (popupId === "popup-audio") {
+        const a = document.getElementById("player-audio");
+        if (a) {
+          a.muted = false;
+          a.volume = 1;
+        }
+      } else if (popupId === "popup-view") {
+        const v = document.getElementById("player-video");
+        if (v) {
+          v.muted = false;
+          v.volume = 1;
+        }
       }
-    } catch(_) {}
+    } catch (_) {}
   }
 }
 
@@ -71,35 +144,55 @@ function popupToggle(popupId) {
 function popupClose(popupId) {
   const popup = document.getElementById(popupId);
   if (!popup) return;
-  
+
   // Force close regardless of current state (.show or .visible)
-  popup.classList.remove('visible');
-  popup.classList.remove('show');
-  popup.style.display = 'none';
-  document.body.style.overflow = '';
+  popup.classList.remove("visible");
+  popup.classList.remove("show");
+  popup.style.display = "none";
+  document.body.style.overflow = "";
   window.popup = null;
 
   // Stop any media playback inside the popup
   try {
-    const mediaEls = popup.querySelectorAll('video, audio');
-    mediaEls.forEach(function(el){
-      try { el.pause && el.pause(); } catch(_) {}
-      try { el.currentTime = 0; } catch(_) {}
+    const mediaEls = popup.querySelectorAll("video, audio");
+    mediaEls.forEach(function (el) {
+      try {
+        el.pause && el.pause();
+      } catch (_) {}
+      try {
+        el.currentTime = 0;
+      } catch (_) {}
       try {
         if (el.srcObject) {
-          try { el.srcObject.getTracks().forEach(t => { try { t.stop && t.stop(); } catch(_) {} }); } catch(_) {}
+          try {
+            el.srcObject.getTracks().forEach((t) => {
+              try {
+                t.stop && t.stop();
+              } catch (_) {}
+            });
+          } catch (_) {}
           el.srcObject = null;
         }
-      } catch(_) {}
-      try { el.muted = true; } catch(_) {}
-      try { el.volume = 0; } catch(_) {}
-      try { el.onerror = null; } catch(_) {}
-      try { el.removeAttribute('src'); } catch(_) {}
+      } catch (_) {}
+      try {
+        el.muted = true;
+      } catch (_) {}
+      try {
+        el.volume = 0;
+      } catch (_) {}
+      try {
+        el.onerror = null;
+      } catch (_) {}
+      try {
+        el.removeAttribute("src");
+      } catch (_) {}
       // Avoid calling load() when src is empty to prevent spurious URI errors
     });
-  } catch(_) {}
+  } catch (_) {}
   // Safety net: stop any other media on the page
-  try { stopAllMedia(); } catch(_) {}
+  try {
+    stopAllMedia();
+  } catch (_) {}
 }
 
 // Note: unified close handlers are defined below (to avoid duplicates)
@@ -107,40 +200,67 @@ function popupClose(popupId) {
 // Stop all media in the document (audio/video), including live streams
 function stopAllMedia() {
   try {
-    const nodes = document.querySelectorAll('video, audio');
-    nodes.forEach(function(el){
-      try { el.pause && el.pause(); } catch(_) {}
-      try { el.currentTime = 0; } catch(_) {}
+    const nodes = document.querySelectorAll("video, audio");
+    nodes.forEach(function (el) {
+      try {
+        el.pause && el.pause();
+      } catch (_) {}
+      try {
+        el.currentTime = 0;
+      } catch (_) {}
       try {
         if (el.srcObject) {
-          try { el.srcObject.getTracks().forEach(t => { try { t.stop && t.stop(); } catch(_) {} }); } catch(_) {}
+          try {
+            el.srcObject.getTracks().forEach((t) => {
+              try {
+                t.stop && t.stop();
+              } catch (_) {}
+            });
+          } catch (_) {}
           el.srcObject = null;
         }
-      } catch(_) {}
-      try { el.muted = true; } catch(_) {}
-      try { el.volume = 0; } catch(_) {}
-      try { el.onerror = null; } catch(_) {}
-      try { el.removeAttribute('src'); } catch(_) {}
+      } catch (_) {}
+      try {
+        el.muted = true;
+      } catch (_) {}
+      try {
+        el.volume = 0;
+      } catch (_) {}
+      try {
+        el.onerror = null;
+      } catch (_) {}
+      try {
+        el.removeAttribute("src");
+      } catch (_) {}
       // Avoid calling load() when src is empty to prevent spurious URI errors
     });
-  } catch(_) {}
+  } catch (_) {}
 }
 
 // Global Enter to submit currently open overlay popup (not textarea)
-document.addEventListener('keydown', function(e){
-  try {
-    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-    const tgt = e.target; if (tgt && tgt.tagName === 'TEXTAREA') return;
-    const overlay = document.querySelector('.overlay-container.show, .overlay-container.visible');
-    if (!overlay) return;
-    // Prefer explicit default button if marked
-    let defBtn = overlay.querySelector('[data-enter="default"]');
-    if (!defBtn) defBtn = overlay.querySelector('.popup__actions .btn-primary');
-    if (!defBtn) return;
-    e.preventDefault();
-    defBtn.click();
-  } catch(_) {}
-}, true);
+document.addEventListener(
+  "keydown",
+  function (e) {
+    try {
+      if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey)
+        return;
+      const tgt = e.target;
+      if (tgt && tgt.tagName === "TEXTAREA") return;
+      const overlay = document.querySelector(
+        ".overlay-container.show, .overlay-container.visible"
+      );
+      if (!overlay) return;
+      // Prefer explicit default button if marked
+      let defBtn = overlay.querySelector('[data-enter="default"]');
+      if (!defBtn)
+        defBtn = overlay.querySelector(".popup__actions .btn-primary");
+      if (!defBtn) return;
+      e.preventDefault();
+      defBtn.click();
+    } catch (_) {}
+  },
+  true
+);
 
 /**
  * Common form validation functions
@@ -152,8 +272,8 @@ window.CommonValidation = {
    * @param {string} fieldName
    * @returns {boolean}
    */
-  validateRequired: function(field, fieldName) {
-    if (!field || !field.value || field.value.trim() === '') {
+  validateRequired: function (field, fieldName) {
+    if (!field || !field.value || field.value.trim() === "") {
       alert(`${fieldName} не может быть пустым`);
       if (field && field.focus) field.focus();
       return false;
@@ -167,9 +287,9 @@ window.CommonValidation = {
    * @param {number} minLength
    * @returns {boolean}
    */
-  validatePasswordLength: function(passwordField, minLength) {
+  validatePasswordLength: function (passwordField, minLength) {
     if (!passwordField || !passwordField.value) {
-      alert('Пароль не может быть пустым');
+      alert("Пароль не может быть пустым");
       if (passwordField && passwordField.focus) passwordField.focus();
       return false;
     }
@@ -187,10 +307,10 @@ window.CommonValidation = {
    * @param {HTMLInputElement} confirmField
    * @returns {boolean}
    */
-  validatePasswordMatch: function(passwordField, confirmField) {
+  validatePasswordMatch: function (passwordField, confirmField) {
     if (!passwordField || !confirmField) return true;
     if (passwordField.value !== confirmField.value) {
-      alert('Пароли не совпадают');
+      alert("Пароли не совпадают");
       if (confirmField.focus) confirmField.focus();
       return false;
     }
@@ -201,15 +321,17 @@ window.CommonValidation = {
    * Trim all text inputs in a form
    * @param {HTMLFormElement} form
    */
-  trimFormFields: function(form) {
+  trimFormFields: function (form) {
     if (!form) return;
-    const textFields = form.querySelectorAll('input[type="text"], input[type="password"], textarea');
-    textFields.forEach(field => {
+    const textFields = form.querySelectorAll(
+      'input[type="text"], input[type="password"], textarea'
+    );
+    textFields.forEach((field) => {
       if (field.value) {
         field.value = field.value.trim();
       }
     });
-  }
+  },
 };
 
 /**
@@ -222,9 +344,9 @@ window.CommonValidation = {
  * @param {function} options.afterSend - Called after request completes
  */
 window.CommonAjax = {
-  submitForm: function(form, options = {}) {
+  submitForm: function (form, options = {}) {
     if (!form || !form.action) {
-      console.error('Invalid form or missing action');
+      console.error("Invalid form or missing action");
       return;
     }
 
@@ -232,8 +354,12 @@ window.CommonAjax = {
     window.CommonValidation.trimFormFields(form);
 
     const formData = new FormData(form);
-    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
-    const originalText = submitBtn ? submitBtn.textContent || submitBtn.value : '';
+    const submitBtn = form.querySelector(
+      'button[type="submit"], input[type="submit"]'
+    );
+    const originalText = submitBtn
+      ? submitBtn.textContent || submitBtn.value
+      : "";
 
     // Before send callback
     if (options.beforeSend) {
@@ -243,68 +369,70 @@ window.CommonAjax = {
       if (submitBtn) {
         submitBtn.disabled = true;
         if (submitBtn.textContent !== undefined) {
-          submitBtn.textContent = 'Отправка...';
+          submitBtn.textContent = "Отправка...";
         } else if (submitBtn.value !== undefined) {
-          submitBtn.value = 'Отправка...';
+          submitBtn.value = "Отправка...";
         }
       }
     }
 
     fetch(form.action, {
-      method: form.method || 'POST',
+      method: form.method || "POST",
       body: formData,
-      credentials: 'include'
+      credentials: "include",
     })
-    .then(response => {
-      if (response.ok) {
-        if (options.onSuccess) {
-          options.onSuccess(response, form);
-        } else {
-          // Default success: close modal without page reload
-          const modal = form.closest('.overlay-container, .popup, .modal');
-          if (modal) {
-            const modalId = modal.id;
-            try { popupToggle(modalId); } catch(e) {}
-          }
-          // No default page reload - let individual handlers decide
-        }
-      } else {
-        response.text().then(text => {
-          const errorMsg = text || 'Неизвестная ошибка';
-          if (options.onError) {
-            options.onError(errorMsg, response, form);
+      .then((response) => {
+        if (response.ok) {
+          if (options.onSuccess) {
+            options.onSuccess(response, form);
           } else {
-            alert('Ошибка: ' + errorMsg);
+            // Default success: close modal without page reload
+            const modal = form.closest(".overlay-container, .popup, .modal");
+            if (modal) {
+              const modalId = modal.id;
+              try {
+                popupToggle(modalId);
+              } catch (e) {}
+            }
+            // No default page reload - let individual handlers decide
           }
-        });
-      }
-    })
-    .catch(error => {
-      console.error('AJAX Error:', error);
-      const errorMsg = 'Ошибка при отправке данных';
-      if (options.onError) {
-        options.onError(errorMsg, null, form);
-      } else {
-        alert(errorMsg);
-      }
-    })
-    .finally(() => {
-      // After send callback
-      if (options.afterSend) {
-        options.afterSend(form, submitBtn, originalText);
-      } else {
-        // Default: re-enable submit button
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          if (submitBtn.textContent !== undefined) {
-            submitBtn.textContent = originalText;
-          } else if (submitBtn.value !== undefined) {
-            submitBtn.value = originalText;
+        } else {
+          response.text().then((text) => {
+            const errorMsg = text || "Неизвестная ошибка";
+            if (options.onError) {
+              options.onError(errorMsg, response, form);
+            } else {
+              alert("Ошибка: " + errorMsg);
+            }
+          });
+        }
+      })
+      .catch((error) => {
+        console.error("AJAX Error:", error);
+        const errorMsg = "Ошибка при отправке данных";
+        if (options.onError) {
+          options.onError(errorMsg, null, form);
+        } else {
+          alert(errorMsg);
+        }
+      })
+      .finally(() => {
+        // After send callback
+        if (options.afterSend) {
+          options.afterSend(form, submitBtn, originalText);
+        } else {
+          // Default: re-enable submit button
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            if (submitBtn.textContent !== undefined) {
+              submitBtn.textContent = originalText;
+            } else if (submitBtn.value !== undefined) {
+              submitBtn.value = originalText;
+            }
           }
         }
-      }
-    });
-  }
+      });
+  },
 };
 
 /**
@@ -312,7 +440,7 @@ window.CommonAjax = {
  * Guarded to avoid unintended submits from textareas.
  */
 function popupKeys() {
-  let x = document.getElementsByTagName('form');
+  let x = document.getElementsByTagName("form");
   let target;
   /*for(let i = 0; i < x.length; i++) {
     target = x[i].parentElement.parentElement;
@@ -331,8 +459,8 @@ function popupKeys() {
       //validateForm(event.target.parentElement.parentElement);
     }
   });*/
-  document.addEventListener('keydown', function (event) {
-    if (popup && event.key == 'Escape') {
+  document.addEventListener("keydown", function (event) {
+    if (popup && event.key == "Escape") {
       event.preventDefault();
       popupToggle(popup);
     }
@@ -359,10 +487,10 @@ function popupKeys() {
  * @param {string} name
  */
 function displayName(name) {
-  let target = document.getElementById('nav').getElementsByTagName('a');
+  let target = document.getElementById("nav").getElementsByTagName("a");
   for (let i = target.length - 1; i >= 0; i--) {
-    if (target[i].href.endsWith('logout')) {
-      target[i].firstChild.data += ' (' + name + ')';
+    if (target[i].href.endsWith("logout")) {
+      target[i].firstChild.data += " (" + name + ")";
     }
   }
 }
@@ -376,247 +504,340 @@ function displayName(name) {
 function popupToggle(x, id = 0) {
   const overlay = document.getElementById(x);
   // Intercept recorder popup close attempts
-  if (x === 'popup-rec' && overlay && (overlay.classList.contains('show') || overlay.classList.contains('visible'))) {
+  if (
+    x === "popup-rec" &&
+    overlay &&
+    (overlay.classList.contains("show") ||
+      overlay.classList.contains("visible"))
+  ) {
     // about to close; ask iframe for state
     try {
-      const iframe = document.getElementById('rec-iframe');
+      const iframe = document.getElementById("rec-iframe");
       if (iframe && iframe.contentWindow) {
         window.__recCloseRequested = true;
         // Clear any previous timer
-        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-        iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+        try {
+          if (window.__recStateTimer) {
+            clearTimeout(window.__recStateTimer);
+            window.__recStateTimer = null;
+          }
+        } catch (_) {}
+        iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
         // Fallback: if iframe doesn't respond in time, show confirm dialog conservatively
-        window.__recStateTimer = setTimeout(function() {
-          try { window.__recCloseRequested = false; } catch(_) {}
-          try { showRecConfirmDialog(); } catch(_) {}
-          try { window.__recStateTimer = null; } catch(_) {}
+        window.__recStateTimer = setTimeout(function () {
+          try {
+            window.__recCloseRequested = false;
+          } catch (_) {}
+          try {
+            showRecConfirmDialog();
+          } catch (_) {}
+          try {
+            window.__recStateTimer = null;
+          } catch (_) {}
         }, 300);
         // actual close will be decided in message handler below
         return;
       }
-    } catch(e) {}
+    } catch (e) {}
   }
-  const form = overlay ? overlay.querySelector('form') : null;
-  const isOpen = overlay && overlay.classList.contains('show');
+  const form = overlay ? overlay.querySelector("form") : null;
+  const isOpen = overlay && overlay.classList.contains("show");
   if (!isOpen) {
     // Opening
     if (form) {
-      try { form.reset(); } catch(e) {}
-      try { popupValues(form, id); } catch(e) {}
+      try {
+        form.reset();
+      } catch (e) {}
+      try {
+        popupValues(form, id);
+      } catch (e) {}
     }
     // Ensure recorder iframe loads fresh content on open (bypass cache)
-    if (x === 'popup-rec') {
+    if (x === "popup-rec") {
       try {
-        let iframe = document.getElementById('rec-iframe');
+        let iframe = document.getElementById("rec-iframe");
         if (iframe) {
           // Replace with a fresh iframe to avoid browser keeping a stalled loader
           try {
             const parent = iframe.parentNode;
             const old = iframe;
-            const fresh = document.createElement('iframe');
-            fresh.id = 'rec-iframe';
-            try { fresh.setAttribute('allow', old.getAttribute('allow') || 'camera; microphone; display-capture'); } catch(_) {}
+            const fresh = document.createElement("iframe");
+            fresh.id = "rec-iframe";
+            try {
+              fresh.setAttribute(
+                "allow",
+                old.getAttribute("allow") ||
+                  "camera; microphone; display-capture"
+              );
+            } catch (_) {}
             // copy style
-            try { fresh.style.cssText = old.style.cssText; } catch(_) {}
+            try {
+              fresh.style.cssText = old.style.cssText;
+            } catch (_) {}
             // preserve data-src
-            try { fresh.setAttribute('data-src', old.getAttribute('data-src') || ''); } catch(_) {}
+            try {
+              fresh.setAttribute(
+                "data-src",
+                old.getAttribute("data-src") || ""
+              );
+            } catch (_) {}
             // Start blank
-            fresh.src = 'about:blank';
+            fresh.src = "about:blank";
             parent.replaceChild(fresh, old);
             iframe = fresh;
-          } catch(_) {}
-          let ds = iframe.getAttribute('data-src');
+          } catch (_) {}
+          let ds = iframe.getAttribute("data-src");
           // Fallback if data-src missing
-          if (!ds || ds === 'about:blank') {
+          if (!ds || ds === "about:blank") {
             try {
-              const parts = (location.pathname || '/').split('/');
-              const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
-              const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+              const parts = (location.pathname || "/").split("/");
+              const did =
+                window.currentDid != null
+                  ? window.currentDid
+                  : parseInt(parts[2] || "0", 10) || 0;
+              const sdid =
+                window.currentSdid != null
+                  ? window.currentSdid
+                  : parseInt(parts[3] || "1", 10) || 1;
               ds = `/files/rec/${did}/${sdid}?embed=1`;
-            } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+            } catch (_) {
+              ds = "/files/rec/0/1?embed=1";
+            }
           } else {
             // If data-src exists but points to a different did/sdid, rebuild it
             try {
-              const parts = (location.pathname || '/').split('/');
-              const didNow = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
-              const sdidNow = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+              const parts = (location.pathname || "/").split("/");
+              const didNow =
+                window.currentDid != null
+                  ? window.currentDid
+                  : parseInt(parts[2] || "0", 10) || 0;
+              const sdidNow =
+                window.currentSdid != null
+                  ? window.currentSdid
+                  : parseInt(parts[3] || "1", 10) || 1;
               let shouldRebuild = false;
               try {
                 const ucheck = new URL(ds, window.location.origin);
-                const seg = (ucheck.pathname || '').split('/');
-                const dOld = parseInt(seg[3]||'0',10)||0;
-                const sdOld = parseInt(seg[4]||'1',10)||1;
+                const seg = (ucheck.pathname || "").split("/");
+                const dOld = parseInt(seg[3] || "0", 10) || 0;
+                const sdOld = parseInt(seg[4] || "1", 10) || 1;
                 if (dOld !== didNow || sdOld !== sdidNow) shouldRebuild = true;
-              } catch(_) { shouldRebuild = true; }
+              } catch (_) {
+                shouldRebuild = true;
+              }
               if (shouldRebuild) {
                 ds = `/files/rec/${didNow}/${sdidNow}?embed=1`;
-                try { iframe.setAttribute('data-src', ds); } catch(_) {}
+                try {
+                  iframe.setAttribute("data-src", ds);
+                } catch (_) {}
               }
-            } catch(_) {}
+            } catch (_) {}
           }
           let urlStr = ds;
           try {
             const u = new URL(ds, window.location.origin);
-            const theme = (function(){
+            const theme = (function () {
               try {
-                return document.documentElement.getAttribute('data-theme')
-                  || (document.body && document.body.getAttribute('data-theme'))
-                  || localStorage.getItem('selectedTheme')
-                  || localStorage.getItem('theme')
-                  || 'light';
-              } catch(_) { return 'light'; }
+                return (
+                  document.documentElement.getAttribute("data-theme") ||
+                  (document.body && document.body.getAttribute("data-theme")) ||
+                  localStorage.getItem("selectedTheme") ||
+                  localStorage.getItem("theme") ||
+                  "light"
+                );
+              } catch (_) {
+                return "light";
+              }
             })();
-            if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
-            if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
-            u.searchParams.set('t', String(Date.now()));
+            if (!u.searchParams.has("embed")) u.searchParams.set("embed", "1");
+            if (!u.searchParams.has("theme"))
+              u.searchParams.set("theme", theme);
+            u.searchParams.set("t", String(Date.now()));
             urlStr = u.toString();
-            try { iframe.setAttribute('data-src', urlStr); } catch(_) {}
-          } catch(_) {}
+            try {
+              iframe.setAttribute("data-src", urlStr);
+            } catch (_) {}
+          } catch (_) {}
           iframe.src = urlStr;
           // Retry setting src if the browser didn't kick off a request yet
           try {
             let attempts = 0;
-            const ensureSrc = function(){
+            const ensureSrc = function () {
               try {
-                if (!iframe.src || iframe.src === 'about:blank') {
+                if (!iframe.src || iframe.src === "about:blank") {
                   attempts++;
                   iframe.src = urlStr;
                   if (attempts < 5) setTimeout(ensureSrc, 50);
                 }
-              } catch(_) {}
+              } catch (_) {}
             };
             setTimeout(ensureSrc, 0);
-          } catch(_) {}
+          } catch (_) {}
           // Attach load/error watchdog: if not loaded within 1200ms, force reload with fresh t
           try {
             let loaded = false;
-            const onLoad = function(){ loaded = true; try { iframe.removeEventListener('load', onLoad); } catch(_) {} };
-            const onError = function(){
-              try { iframe.removeEventListener('error', onError); } catch(_) {}
+            const onLoad = function () {
+              loaded = true;
+              try {
+                iframe.removeEventListener("load", onLoad);
+              } catch (_) {}
+            };
+            const onError = function () {
+              try {
+                iframe.removeEventListener("error", onError);
+              } catch (_) {}
               if (loaded) return;
               try {
                 const u = new URL(urlStr, window.location.origin);
-                u.searchParams.set('t', String(Date.now()));
+                u.searchParams.set("t", String(Date.now()));
                 iframe.src = u.toString();
-              } catch(_) { iframe.src = urlStr; }
+              } catch (_) {
+                iframe.src = urlStr;
+              }
             };
-            iframe.addEventListener('load', onLoad, { once: true });
-            iframe.addEventListener('error', onError, { once: true });
-            setTimeout(function(){ if (!loaded) { onError(); } }, 1200);
-          } catch(_) {}
+            iframe.addEventListener("load", onLoad, { once: true });
+            iframe.addEventListener("error", onError, { once: true });
+            setTimeout(function () {
+              if (!loaded) {
+                onError();
+              }
+            }, 1200);
+          } catch (_) {}
         }
-      } catch(_) {}
+      } catch (_) {}
     }
-    overlay.style.display = 'flex';
-    overlay.classList.add('show');
-    overlay.classList.add('visible');
+    overlay.style.display = "flex";
+    overlay.classList.add("show");
+    overlay.classList.add("visible");
     // After becoming visible, ensure src is set if still blank
-    if (x === 'popup-rec') {
+    if (x === "popup-rec") {
       try {
-        setTimeout(function(){
+        setTimeout(function () {
           try {
-            const iframe = document.getElementById('rec-iframe');
+            const iframe = document.getElementById("rec-iframe");
             if (!iframe) return;
-            if (!iframe.src || iframe.src === 'about:blank') {
-              let ds = iframe.getAttribute('data-src') || '';
+            if (!iframe.src || iframe.src === "about:blank") {
+              let ds = iframe.getAttribute("data-src") || "";
               if (!ds) return;
               try {
                 const u = new URL(ds, window.location.origin);
-                const theme = (function(){
+                const theme = (function () {
                   try {
-                    return document.documentElement.getAttribute('data-theme')
-                      || (document.body && document.body.getAttribute('data-theme'))
-                      || localStorage.getItem('selectedTheme')
-                      || localStorage.getItem('theme')
-                      || 'light';
-                  } catch(_) { return 'light'; }
+                    return (
+                      document.documentElement.getAttribute("data-theme") ||
+                      (document.body &&
+                        document.body.getAttribute("data-theme")) ||
+                      localStorage.getItem("selectedTheme") ||
+                      localStorage.getItem("theme") ||
+                      "light"
+                    );
+                  } catch (_) {
+                    return "light";
+                  }
                 })();
-                if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
-                if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
-                u.searchParams.set('t', String(Date.now()));
+                if (!u.searchParams.has("embed"))
+                  u.searchParams.set("embed", "1");
+                if (!u.searchParams.has("theme"))
+                  u.searchParams.set("theme", theme);
+                u.searchParams.set("t", String(Date.now()));
                 const built = u.toString();
-                try { iframe.setAttribute('data-src', built); } catch(_) {}
+                try {
+                  iframe.setAttribute("data-src", built);
+                } catch (_) {}
                 iframe.src = built;
-              } catch(_) {
+              } catch (_) {
                 iframe.src = ds;
               }
             }
-          } catch(_) {}
+          } catch (_) {}
         }, 0);
-      } catch(_) {}
+      } catch (_) {}
     }
-    try { if (!window.__mediaOpenState) { window.__mediaOpenState = { opening: false }; } else { window.__mediaOpenState.opening = false; } } catch(_) {}
-    
+    try {
+      if (!window.__mediaOpenState) {
+        window.__mediaOpenState = { opening: false };
+      } else {
+        window.__mediaOpenState.opening = false;
+      }
+    } catch (_) {}
+
     // Restore z-index for modal and overlay
-    overlay.style.zIndex = '1050';
-    overlay.style.pointerEvents = 'auto';
-    
+    overlay.style.zIndex = "1050";
+    overlay.style.pointerEvents = "auto";
+
     // Also restore popup inside overlay
-    const popupElement = overlay.querySelector('.popup');
+    const popupElement = overlay.querySelector(".popup");
     if (popupElement) {
-      popupElement.style.zIndex = '1050';
-      popupElement.style.pointerEvents = 'auto';
+      popupElement.style.zIndex = "1050";
+      popupElement.style.pointerEvents = "auto";
     }
-    
+
     popup = x;
   } else {
     // Closing
-    overlay.classList.remove('show');
-    overlay.classList.remove('visible');
-    overlay.style.display = 'none';
-    try { if (window.__mediaOpenState) { window.__mediaOpenState.opening = false; } } catch(_) {}
+    overlay.classList.remove("show");
+    overlay.classList.remove("visible");
+    overlay.style.display = "none";
+    try {
+      if (window.__mediaOpenState) {
+        window.__mediaOpenState.opening = false;
+      }
+    } catch (_) {}
     // Aggressively tear down recorder iframe to avoid background activity
-    if (x === 'popup-rec') {
+    if (x === "popup-rec") {
       try {
-        const iframe = document.getElementById('rec-iframe');
+        const iframe = document.getElementById("rec-iframe");
         if (iframe) {
           // clear src to abort any loads, then reset to blank
-          iframe.src = 'about:blank';
+          iframe.src = "about:blank";
           // also post a stop message to be safe
-          try { iframe.contentWindow && iframe.contentWindow.postMessage({ type: 'rec:stop-all' }, '*'); } catch(_) {}
+          try {
+            iframe.contentWindow &&
+              iframe.contentWindow.postMessage({ type: "rec:stop-all" }, "*");
+          } catch (_) {}
         }
-      } catch(_) {}
+      } catch (_) {}
     }
     popup = null;
   }
-  
+
   // Reset user typing flag when opening add popup
-  if (x === 'popup-add') {
+  if (x === "popup-add") {
     const nameInput = document.getElementById("add-name");
     if (nameInput) {
       nameInput.userHasTyped = false;
     }
-    
+
     // Reset upload progress
-    const progressDiv = document.getElementById('upload-progress');
-    const submitBtn = document.getElementById('add-submit-btn');
-    const cancelBtn = document.getElementById('add-cancel-btn');
-    
+    const progressDiv = document.getElementById("upload-progress");
+    const submitBtn = document.getElementById("add-submit-btn");
+    const cancelBtn = document.getElementById("add-cancel-btn");
+
     if (progressDiv) {
-      progressDiv.classList.add('d-none');
-      const progressBar = progressDiv.querySelector('.progress-bar');
-      const statusText = progressDiv.querySelector('.upload-status small');
-      
+      progressDiv.classList.add("d-none");
+      const progressBar = progressDiv.querySelector(".progress-bar");
+      const statusText = progressDiv.querySelector(".upload-status small");
+
       if (progressBar) {
-        progressBar.style.width = '0%';
-        progressBar.setAttribute('aria-valuenow', 0);
+        progressBar.style.width = "0%";
+        progressBar.setAttribute("aria-valuenow", 0);
       }
-      
+
       if (statusText) {
-        statusText.textContent = 'Загрузка файла...';
-        statusText.style.color = '';
+        statusText.textContent = "Загрузка файла...";
+        statusText.style.color = "";
       }
     }
-    
+
     if (submitBtn) submitBtn.disabled = false;
     if (cancelBtn) {
       cancelBtn.disabled = false;
-      cancelBtn.textContent = 'Отмена';
-      cancelBtn.onclick = function() {
-        popupToggle('popup-add');
+      cancelBtn.textContent = "Отмена";
+      cancelBtn.onclick = function () {
+        popupToggle("popup-add");
       };
     }
-    
+
     // Clear any ongoing upload
     if (window.currentUploadXHR) {
       window.currentUploadXHR.abort();
@@ -626,49 +847,75 @@ function popupToggle(x, id = 0) {
 }
 
 // Recorder close control via postMessage
-window.addEventListener('message', function(ev) {
+window.addEventListener("message", function (ev) {
   const data = ev.data || {};
-  if (!data || typeof data !== 'object') return;
+  if (!data || typeof data !== "object") return;
   // no height negotiation
-  if (data.type === 'rec:esc') {
+  if (data.type === "rec:esc") {
     try {
-      const iframe = document.getElementById('rec-iframe');
+      const iframe = document.getElementById("rec-iframe");
       if (iframe && iframe.contentWindow) {
         window.__recCloseRequested = true;
-        try { window.__recCloseReason = 'esc'; } catch(_) {}
-        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-        iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
-        window.__recStateTimer = setTimeout(function() {
-          try { window.__recCloseRequested = false; } catch(_) {}
-          try { window.__recCloseReason = null; } catch(_) {}
-          try { window.__recStateTimer = null; } catch(_) {}
+        try {
+          window.__recCloseReason = "esc";
+        } catch (_) {}
+        try {
+          if (window.__recStateTimer) {
+            clearTimeout(window.__recStateTimer);
+            window.__recStateTimer = null;
+          }
+        } catch (_) {}
+        iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+        window.__recStateTimer = setTimeout(function () {
+          try {
+            window.__recCloseRequested = false;
+          } catch (_) {}
+          try {
+            window.__recCloseReason = null;
+          } catch (_) {}
+          try {
+            window.__recStateTimer = null;
+          } catch (_) {}
         }, 300);
       }
-    } catch(_) {}
+    } catch (_) {}
     return;
   }
-  if (data.type === 'rec:state' && window.__recCloseRequested) {
+  if (data.type === "rec:state" && window.__recCloseRequested) {
     window.__recCloseRequested = false;
-    try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+    try {
+      if (window.__recStateTimer) {
+        clearTimeout(window.__recStateTimer);
+        window.__recStateTimer = null;
+      }
+    } catch (_) {}
     const st = data.state || {};
     const isRecording = !!st.recording;
     const isPaused = !!st.paused;
     const hasData = !!st.hasData;
     if (isRecording) {
       // do not allow close while recording
-      alert('Остановите запись перед закрытием окна.');
-      try { window.__recCloseReason = null; } catch(_) {}
+      alert("Остановите запись перед закрытием окна.");
+      try {
+        window.__recCloseReason = null;
+      } catch (_) {}
       return;
     }
-    if (window.__recCloseReason === 'esc') {
-      try { window.__recCloseReason = null; } catch(_) {}
+    if (window.__recCloseReason === "esc") {
+      try {
+        window.__recCloseReason = null;
+      } catch (_) {}
       if (hasData && !window.__recHasSaved) {
         // ignore ESC when data exists but not saved
         return;
       }
       // safe to close
     } else {
-      if (!window.__recSaving && (hasData || isPaused) && !window.__recHasSaved) {
+      if (
+        !window.__recSaving &&
+        (hasData || isPaused) &&
+        !window.__recHasSaved
+      ) {
         // show confirm modal with Yes/No/Cancel for non-ESC close
         showRecConfirmDialog();
         return;
@@ -676,100 +923,144 @@ window.addEventListener('message', function(ev) {
     }
     // Safe to close: instruct iframe to cleanup then hide modal
     try {
-      const iframe = document.getElementById('rec-iframe');
+      const iframe = document.getElementById("rec-iframe");
       if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'rec:close' }, '*');
+        iframe.contentWindow.postMessage({ type: "rec:close" }, "*");
       }
-    } catch(_) {}
-    const overlay = document.getElementById('popup-rec');
+    } catch (_) {}
+    const overlay = document.getElementById("popup-rec");
     if (overlay) {
-      overlay.classList.remove('show');
-      overlay.classList.remove('visible');
-      overlay.style.display = 'none';
+      overlay.classList.remove("show");
+      overlay.classList.remove("visible");
+      overlay.style.display = "none";
     }
     popup = null;
-    try { if (window.modalManager && window.modalManager.activeModal === 'popup-rec') { window.modalManager.activeModal = null; } } catch(_) {}
-  } else if (data.type === 'rec:discarded') {
+    try {
+      if (
+        window.modalManager &&
+        window.modalManager.activeModal === "popup-rec"
+      ) {
+        window.modalManager.activeModal = null;
+      }
+    } catch (_) {}
+  } else if (data.type === "rec:discarded") {
     // after discard in iframe, close popup
-    const overlay = document.getElementById('popup-rec');
-    if (overlay) overlay.classList.remove('show');
+    const overlay = document.getElementById("popup-rec");
+    if (overlay) overlay.classList.remove("show");
     popup = null;
     window.__recSaving = false;
-  } else if (data.type === 'rec:saved') {
+  } else if (data.type === "rec:saved") {
     window.__recSaving = false;
-    try { window.__recHasSaved = true; } catch(_) {}
-    try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
+    try {
+      window.__recHasSaved = true;
+    } catch (_) {}
+    try {
+      window.softRefreshFilesTable && window.softRefreshFilesTable();
+    } catch (e) {}
   }
 });
 
 // Ensure recorder iframe src is set when modal becomes visible (robust watchdog)
-(function setupRecIframeSrcWatcher(){
-  if (window.__recSrcWatcherInit) return; window.__recSrcWatcherInit = true;
+(function setupRecIframeSrcWatcher() {
+  if (window.__recSrcWatcherInit) return;
+  window.__recSrcWatcherInit = true;
   function buildRecUrlFromDataSrc(ds) {
     try {
       const u = new URL(ds, window.location.origin);
-      const theme = (function(){
+      const theme = (function () {
         try {
-          return document.documentElement.getAttribute('data-theme')
-            || (document.body && document.body.getAttribute('data-theme'))
-            || localStorage.getItem('selectedTheme')
-            || localStorage.getItem('theme')
-            || 'light';
-        } catch(_) { return 'light'; }
+          return (
+            document.documentElement.getAttribute("data-theme") ||
+            (document.body && document.body.getAttribute("data-theme")) ||
+            localStorage.getItem("selectedTheme") ||
+            localStorage.getItem("theme") ||
+            "light"
+          );
+        } catch (_) {
+          return "light";
+        }
       })();
-      if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
-      if (!u.searchParams.has('theme')) u.searchParams.set('theme', theme);
-      u.searchParams.set('t', String(Date.now()));
+      if (!u.searchParams.has("embed")) u.searchParams.set("embed", "1");
+      if (!u.searchParams.has("theme")) u.searchParams.set("theme", theme);
+      u.searchParams.set("t", String(Date.now()));
       return u.toString();
-    } catch(_) { return ds; }
+    } catch (_) {
+      return ds;
+    }
   }
   function ensure() {
     try {
-      const overlay = document.getElementById('popup-rec');
-      const iframe = document.getElementById('rec-iframe');
+      const overlay = document.getElementById("popup-rec");
+      const iframe = document.getElementById("rec-iframe");
       if (!overlay || !iframe) return;
-      const isVisible = overlay.classList && (overlay.classList.contains('show') || overlay.classList.contains('visible'));
+      const isVisible =
+        overlay.classList &&
+        (overlay.classList.contains("show") ||
+          overlay.classList.contains("visible"));
       if (!isVisible) return;
-      if (!iframe.src || iframe.src === 'about:blank') {
-        let ds = iframe.getAttribute('data-src') || '';
+      if (!iframe.src || iframe.src === "about:blank") {
+        let ds = iframe.getAttribute("data-src") || "";
         if (!ds) {
           try {
-            const parts = (location.pathname || '/').split('/');
-            const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
-            const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+            const parts = (location.pathname || "/").split("/");
+            const did =
+              window.currentDid != null
+                ? window.currentDid
+                : parseInt(parts[2] || "0", 10) || 0;
+            const sdid =
+              window.currentSdid != null
+                ? window.currentSdid
+                : parseInt(parts[3] || "1", 10) || 1;
             ds = `/files/rec/${did}/${sdid}?embed=1`;
-          } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+          } catch (_) {
+            ds = "/files/rec/0/1?embed=1";
+          }
         }
         const url = buildRecUrlFromDataSrc(ds);
-        try { iframe.setAttribute('data-src', url); } catch(_) {}
+        try {
+          iframe.setAttribute("data-src", url);
+        } catch (_) {}
         iframe.src = url;
       }
-    } catch(_) {}
+    } catch (_) {}
   }
   try {
-    const obs = new MutationObserver(function(muts){
+    const obs = new MutationObserver(function (muts) {
       for (const m of muts) {
-        if (m.type === 'attributes') { ensure(); }
+        if (m.type === "attributes") {
+          ensure();
+        }
       }
     });
-    const overlay = document.getElementById('popup-rec');
-    if (overlay) obs.observe(overlay, { attributes: true, attributeFilter: ['class', 'style'] });
-  } catch(_) {}
-  try { document.addEventListener('visibilitychange', ensure); } catch(_) {}
-  try { window.addEventListener('focus', ensure); } catch(_) {}
-  try { setInterval(ensure, 500); } catch(_) {}
+    const overlay = document.getElementById("popup-rec");
+    if (overlay)
+      obs.observe(overlay, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+      });
+  } catch (_) {}
+  try {
+    document.addEventListener("visibilitychange", ensure);
+  } catch (_) {}
+  try {
+    window.addEventListener("focus", ensure);
+  } catch (_) {}
+  try {
+    setInterval(ensure, 500);
+  } catch (_) {}
 })();
 
 /**
  * Show a confirmation dialog to save/discard recorder data on close.
  */
 function showRecConfirmDialog() {
-  let box = document.getElementById('rec-confirm');
+  let box = document.getElementById("rec-confirm");
   if (!box) {
-    box = document.createElement('div');
-    box.id = 'rec-confirm';
-    box.className = 'overlay-container show';
-    box.innerHTML = '\
+    box = document.createElement("div");
+    box.id = "rec-confirm";
+    box.className = "overlay-container show";
+    box.innerHTML =
+      '\
       <div class="popup">\
         <h1 class="popup__title">Сохранить запись?</h1>\
         <div class="popup__actions">\
@@ -779,29 +1070,29 @@ function showRecConfirmDialog() {
         </div>\
       </div>';
     document.body.appendChild(box);
-    document.getElementById('rec-confirm-yes').onclick = function() {
+    document.getElementById("rec-confirm-yes").onclick = function () {
       window.__recSaving = true;
-      const iframe = document.getElementById('rec-iframe');
+      const iframe = document.getElementById("rec-iframe");
       if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'rec:save' }, '*');
+        iframe.contentWindow.postMessage({ type: "rec:save" }, "*");
       }
-      box.classList.remove('show');
+      box.classList.remove("show");
       setTimeout(() => box.remove(), 150);
     };
-    document.getElementById('rec-confirm-no').onclick = function() {
-      const iframe = document.getElementById('rec-iframe');
+    document.getElementById("rec-confirm-no").onclick = function () {
+      const iframe = document.getElementById("rec-iframe");
       if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage({ type: 'rec:discard' }, '*');
+        iframe.contentWindow.postMessage({ type: "rec:discard" }, "*");
       }
-      box.classList.remove('show');
+      box.classList.remove("show");
       setTimeout(() => box.remove(), 150);
     };
-    document.getElementById('rec-confirm-cancel').onclick = function() {
-      box.classList.remove('show');
+    document.getElementById("rec-confirm-cancel").onclick = function () {
+      box.classList.remove("show");
       setTimeout(() => box.remove(), 150);
     };
   } else {
-    box.classList.add('show');
+    box.classList.add("show");
   }
 }
 
@@ -812,7 +1103,7 @@ function showRecConfirmDialog() {
  */
 function trimIfExists(x) {
   if (x != null) {
-    if (x.value == null || x.value.trim() == '') {
+    if (x.value == null || x.value.trim() == "") {
       return false;
     }
   }
@@ -879,197 +1170,330 @@ var popup = null;
 
 /** Demo notification to verify browser permissions */
 function notifyTest() {
-  if (!('Notification' in window)) {
-    alert('Уведомления не поддерживаются!');
-  } else if (Notification.permission === 'granted') {
-    const notification = new Notification('Провер04ka', {
-      body: 'Test\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest// NOTE: Test\n',
-      icon: '/static/icons/notification_menu.png',
+  if (!("Notification" in window)) {
+    alert("Уведомления не поддерживаются!");
+  } else if (Notification.permission === "granted") {
+    const notification = new Notification("Провер04ka", {
+      body: "Test\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest\nTest// NOTE: Test\n",
+      icon: "/static/icons/notification_menu.png",
       requireInteraction: true,
     });
-  } else if (Notification.permission !== 'denied') {
+  } else if (Notification.permission !== "denied") {
     Notification.requestPermission().then((permission) => {
-      if (permission === 'granted') {
-        const notification = new Notification('Hi there!');
+      if (permission === "granted") {
+        const notification = new Notification("Hi there!");
       }
     });
   }
 }
 
 // Global keyboard shortcuts for modals
-document.addEventListener('keydown', function (event) {
-  if (!popup) return;
-  const active = document.activeElement;
-  const isTyping = active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable);
-  // Enter to submit current modal (skip inside textarea)
-  if (event.key === 'Enter' && !isTyping) {
-    event.preventDefault();
-    if (popup === 'popup-rec') {
-      const iframe = document.getElementById('rec-iframe');
-      if (iframe && iframe.contentWindow) {
-        try { iframe.contentWindow.postMessage({ type: 'rec:save' }, '*'); } catch(e) {}
-      }
-      return;
-    }
-    const overlay = document.getElementById(popup);
-    if (!overlay) return;
-    // Prefer form submit button
-    const form = overlay.querySelector('form');
-    const submitBtn = overlay.querySelector('.popup__actions .btn.btn-primary, .popup__actions [type="submit"]');
-    if (submitBtn) { try { submitBtn.click(); } catch(e) {} return; }
-    // No fallback to form.submit() - all forms should have proper button handlers
-  }
-  // Esc to close modal with existing guards
-  if (event.key === 'Escape') {
-    try { event.preventDefault(); event.stopPropagation(); } catch(_) {}
-    // Guarded behavior for recorder: do not close while recording; no fallback confirm on ESC
-    if (popup === 'popup-rec') {
-      try {
-        const overlay = document.getElementById('popup-rec');
-        if (overlay && (overlay.classList.contains('show') || overlay.classList.contains('visible'))) {
-          const iframe = document.getElementById('rec-iframe');
-          if (iframe && iframe.contentWindow) {
-            window.__recCloseRequested = true;
-            try { window.__recCloseReason = 'esc'; } catch(_) {}
-            try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-            iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
-            // Do not auto-confirm via fallback on ESC; if no response, just ignore
-            window.__recStateTimer = setTimeout(function() {
-              try { window.__recCloseRequested = false; } catch(_) {}
-              try { window.__recCloseReason = null; } catch(_) {}
-              try { window.__recStateTimer = null; } catch(_) {}
-            }, 300);
-            return;
-          }
+document.addEventListener(
+  "keydown",
+  function (event) {
+    if (!popup) return;
+    const active = document.activeElement;
+    const isTyping =
+      active &&
+      (active.tagName === "TEXTAREA" ||
+        active.tagName === "INPUT" ||
+        active.isContentEditable);
+    // Enter to submit current modal (skip inside textarea)
+    if (event.key === "Enter" && !isTyping) {
+      event.preventDefault();
+      if (popup === "popup-rec") {
+        const iframe = document.getElementById("rec-iframe");
+        if (iframe && iframe.contentWindow) {
+          try {
+            iframe.contentWindow.postMessage({ type: "rec:save" }, "*");
+          } catch (e) {}
         }
-      } catch(_) {}
+        return;
+      }
+      const overlay = document.getElementById(popup);
+      if (!overlay) return;
+      // Prefer form submit button
+      const form = overlay.querySelector("form");
+      const submitBtn = overlay.querySelector(
+        '.popup__actions .btn.btn-primary, .popup__actions [type="submit"]'
+      );
+      if (submitBtn) {
+        try {
+          submitBtn.click();
+        } catch (e) {}
+        return;
+      }
+      // No fallback to form.submit() - all forms should have proper button handlers
     }
-    try { popupClose(popup); } catch(e) {}
-  }
-}, true);
+    // Esc to close modal with existing guards
+    if (event.key === "Escape") {
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+      } catch (_) {}
+      // Guarded behavior for recorder: do not close while recording; no fallback confirm on ESC
+      if (popup === "popup-rec") {
+        try {
+          const overlay = document.getElementById("popup-rec");
+          if (
+            overlay &&
+            (overlay.classList.contains("show") ||
+              overlay.classList.contains("visible"))
+          ) {
+            const iframe = document.getElementById("rec-iframe");
+            if (iframe && iframe.contentWindow) {
+              window.__recCloseRequested = true;
+              try {
+                window.__recCloseReason = "esc";
+              } catch (_) {}
+              try {
+                if (window.__recStateTimer) {
+                  clearTimeout(window.__recStateTimer);
+                  window.__recStateTimer = null;
+                }
+              } catch (_) {}
+              iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+              // Do not auto-confirm via fallback on ESC; if no response, just ignore
+              window.__recStateTimer = setTimeout(function () {
+                try {
+                  window.__recCloseRequested = false;
+                } catch (_) {}
+                try {
+                  window.__recCloseReason = null;
+                } catch (_) {}
+                try {
+                  window.__recStateTimer = null;
+                } catch (_) {}
+              }, 300);
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+      try {
+        popupClose(popup);
+      } catch (e) {}
+    }
+  },
+  true
+);
 
 // Global capture guard: block Space when any visible overlay present even if popup state desynced
-document.addEventListener('keydown', function (event) {
-  try {
-    // Any visible overlay?
-    var overlay = document.querySelector('.overlay-container.show, .overlay-container.visible');
-    if (!overlay) return;
-    var active = document.activeElement;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-    if (event.code === 'Space' || event.key === ' ') {
-      event.preventDefault();
-    // Do NOT stopImmediatePropagation so our toggle handler can run next
-    // Keep bubbling stopped to avoid background page shortcuts
-    event.stopPropagation();
-    }
-  } catch(_) {}
-}, true);
+document.addEventListener(
+  "keydown",
+  function (event) {
+    try {
+      // Any visible overlay?
+      var overlay = document.querySelector(
+        ".overlay-container.show, .overlay-container.visible"
+      );
+      if (!overlay) return;
+      var active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      )
+        return;
+      if (event.code === "Space" || event.key === " ") {
+        event.preventDefault();
+        // Do NOT stopImmediatePropagation so our toggle handler can run next
+        // Keep bubbling stopped to avoid background page shortcuts
+        event.stopPropagation();
+      }
+    } catch (_) {}
+  },
+  true
+);
 
-  // "p" and Space to toggle play/pause when media modals are open
-document.addEventListener('keydown', function (event) {
-  try {
-    // Do not trigger while typing
-    const active = document.activeElement;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
-      const isP = (event.code === 'KeyP') || (event.key && (event.key.toLowerCase && event.key.toLowerCase() === 'p'));
-      const isSpace = (event.code === 'Space') || (event.key === ' ');
+// "p" and Space to toggle play/pause when media modals are open
+document.addEventListener(
+  "keydown",
+  function (event) {
+    try {
+      // Do not trigger while typing
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      )
+        return;
+      const isP =
+        event.code === "KeyP" ||
+        (event.key && event.key.toLowerCase && event.key.toLowerCase() === "p");
+      const isSpace = event.code === "Space" || event.key === " ";
       if (!isP && !isSpace) return;
       // Determine which media modal is actually visible regardless of popup var
-    const audioOverlay = document.getElementById('popup-audio');
-    const videoOverlay = document.getElementById('popup-view');
-    const audioOpen = !!(audioOverlay && (audioOverlay.classList.contains('show') || audioOverlay.classList.contains('visible')));
-    const videoOpen = !!(videoOverlay && (videoOverlay.classList.contains('show') || videoOverlay.classList.contains('visible')));
-    if (!audioOpen && !videoOpen) return;
-    // Prevent background page handlers and scrolling
-    try { event.preventDefault(); event.stopPropagation(); } catch(_) {}
-    if (audioOpen) {
-      const a = document.getElementById('player-audio');
-      if (a) {
-        if (a.paused) { try { a.play(); } catch(_) {} } else { try { a.pause(); } catch(_) {} }
+      const audioOverlay = document.getElementById("popup-audio");
+      const videoOverlay = document.getElementById("popup-view");
+      const audioOpen = !!(
+        audioOverlay &&
+        (audioOverlay.classList.contains("show") ||
+          audioOverlay.classList.contains("visible"))
+      );
+      const videoOpen = !!(
+        videoOverlay &&
+        (videoOverlay.classList.contains("show") ||
+          videoOverlay.classList.contains("visible"))
+      );
+      if (!audioOpen && !videoOpen) return;
+      // Prevent background page handlers and scrolling
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+      } catch (_) {}
+      if (audioOpen) {
+        const a = document.getElementById("player-audio");
+        if (a) {
+          if (a.paused) {
+            try {
+              a.play();
+            } catch (_) {}
+          } else {
+            try {
+              a.pause();
+            } catch (_) {}
+          }
+        }
+      } else if (videoOpen) {
+        const v = document.getElementById("player-video");
+        if (v) {
+          if (v.paused) {
+            try {
+              v.play();
+            } catch (_) {}
+          } else {
+            try {
+              v.pause();
+            } catch (_) {}
+          }
+        }
       }
-    } else if (videoOpen) {
-      const v = document.getElementById('player-video');
-      if (v) {
-        if (v.paused) { try { v.play(); } catch(_) {} } else { try { v.pause(); } catch(_) {} }
-      }
-    }
-  } catch(_) {}
-}, true);
+    } catch (_) {}
+  },
+  true
+);
 
 // Click outside to close any open modal (unified)
-document.addEventListener('click', function (e) {
-  try {
-    const overlay = e.target.closest('.overlay-container');
-    if (!overlay) return;
-    if (e.target === overlay && (overlay.classList.contains('show') || overlay.classList.contains('visible'))) {
-      const id = overlay.id;
-      if (!id) return;
-      if (id === 'popup-rec') {
+document.addEventListener(
+  "click",
+  function (e) {
+    try {
+      const overlay = e.target.closest(".overlay-container");
+      if (!overlay) return;
+      if (
+        e.target === overlay &&
+        (overlay.classList.contains("show") ||
+          overlay.classList.contains("visible"))
+      ) {
+        const id = overlay.id;
+        if (!id) return;
+        if (id === "popup-rec") {
+          try {
+            const iframe = document.getElementById("rec-iframe");
+            if (iframe && iframe.contentWindow) {
+              window.__recCloseRequested = true;
+              try {
+                window.__recCloseReason = "esc";
+              } catch (_) {}
+              try {
+                if (window.__recStateTimer) {
+                  clearTimeout(window.__recStateTimer);
+                  window.__recStateTimer = null;
+                }
+              } catch (_) {}
+              iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+              window.__recStateTimer = setTimeout(function () {
+                try {
+                  window.__recCloseRequested = false;
+                } catch (_) {}
+                try {
+                  window.__recCloseReason = null;
+                } catch (_) {}
+                try {
+                  window.__recStateTimer = null;
+                } catch (_) {}
+              }, 300);
+              return;
+            }
+          } catch (_) {}
+        }
         try {
-          const iframe = document.getElementById('rec-iframe');
-          if (iframe && iframe.contentWindow) {
-            window.__recCloseRequested = true;
-            try { window.__recCloseReason = 'esc'; } catch(_) {}
-            try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-            iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
-            window.__recStateTimer = setTimeout(function() {
-              try { window.__recCloseRequested = false; } catch(_) {}
-              try { window.__recCloseReason = null; } catch(_) {}
-              try { window.__recStateTimer = null; } catch(_) {}
-            }, 300);
-            return;
-          }
-        } catch(_) {}
+          popupClose(id);
+        } catch (err) {
+          overlay.classList.remove("show");
+        }
+        try {
+          stopAllMedia();
+        } catch (_) {}
       }
-      try { popupClose(id); } catch(err) { overlay.classList.remove('show'); }
-      try { stopAllMedia(); } catch(_) {}
-    }
-  } catch (_) {}
-}, true);
+    } catch (_) {}
+  },
+  true
+);
 
 // Ensure recorder iframe src is set when modal becomes visible (observer)
-(function observeRecorder(){
+(function observeRecorder() {
   try {
-    const overlay = document.getElementById('popup-rec');
+    const overlay = document.getElementById("popup-rec");
     if (!overlay || overlay._observerBound) return;
     overlay._observerBound = true;
-    const ensure = function(){
+    const ensure = function () {
       try {
-        const iframe = document.getElementById('rec-iframe');
+        const iframe = document.getElementById("rec-iframe");
         if (!iframe) return;
-        if (iframe.src && iframe.src !== 'about:blank') return;
-        let ds = iframe.getAttribute('data-src');
-        if (!ds || ds === 'about:blank') {
+        if (iframe.src && iframe.src !== "about:blank") return;
+        let ds = iframe.getAttribute("data-src");
+        if (!ds || ds === "about:blank") {
           try {
-            const parts = (location.pathname || '/').split('/');
-            const did = (window.currentDid != null) ? window.currentDid : (parseInt(parts[2]||'0',10)||0);
-            const sdid = (window.currentSdid != null) ? window.currentSdid : (parseInt(parts[3]||'1',10)||1);
+            const parts = (location.pathname || "/").split("/");
+            const did =
+              window.currentDid != null
+                ? window.currentDid
+                : parseInt(parts[2] || "0", 10) || 0;
+            const sdid =
+              window.currentSdid != null
+                ? window.currentSdid
+                : parseInt(parts[3] || "1", 10) || 1;
             ds = `/files/rec/${did}/${sdid}?embed=1`;
-          } catch(_) { ds = '/files/rec/0/1?embed=1'; }
+          } catch (_) {
+            ds = "/files/rec/0/1?embed=1";
+          }
         }
         try {
           const u = new URL(ds, window.location.origin);
-          if (!u.searchParams.has('embed')) u.searchParams.set('embed', '1');
-          u.searchParams.set('t', String(Date.now()));
+          if (!u.searchParams.has("embed")) u.searchParams.set("embed", "1");
+          u.searchParams.set("t", String(Date.now()));
           iframe.src = u.toString();
-        } catch(_) { iframe.src = ds + (ds.includes('?') ? '&' : '?') + 't=' + Date.now(); }
-      } catch(_) {}
+        } catch (_) {
+          iframe.src = ds + (ds.includes("?") ? "&" : "?") + "t=" + Date.now();
+        }
+      } catch (_) {}
     };
-    const mo = new MutationObserver(function(){
+    const mo = new MutationObserver(function () {
       try {
-        const vis = overlay.classList.contains('show') || overlay.classList.contains('visible') || overlay.style.display === 'flex';
+        const vis =
+          overlay.classList.contains("show") ||
+          overlay.classList.contains("visible") ||
+          overlay.style.display === "flex";
         if (vis) setTimeout(ensure, 0);
-      } catch(_) {}
+      } catch (_) {}
     });
-    mo.observe(overlay, { attributes: true, attributeFilter: ['class','style'] });
-  } catch(_) {}
+    mo.observe(overlay, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+  } catch (_) {}
 })();
 
 // Stop all media when tab becomes hidden (safety)
-document.addEventListener('visibilitychange', function(){
+document.addEventListener("visibilitychange", function () {
   try {
     if (document.hidden) {
-      if (typeof stopAllMedia === 'function') stopAllMedia();
+      if (typeof stopAllMedia === "function") stopAllMedia();
     }
-  } catch(_) {}
+  } catch (_) {}
 });

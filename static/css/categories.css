@@ -227,25 +227,41 @@
     border-color: var(--sidebar-bg);
 }
 
-/* Modal styling to match Files page */
-.categories-modal .modal-header {
-    background-color: var(--topbar-bg);
-    color: var(--topbar-text);
-    border-bottom-color: var(--sidebar-bg);
+/* Modal styling unified with global modal variables */
+.categories-modal {
+    /* use global modal content colors */
 }
 
-.categories-modal .modal-footer {
-    background-color: var(--topbar-bg);
-    border-top-color: var(--sidebar-bg);
+.categories-modal .modal-content,
+.modal-content.categories-modal {
+    background-color: var(--modal-bg) !important;
+    color: var(--body-text) !important;
+    border: 1px solid var(--modal-border) !important;
 }
 
-.categories-modal .btn-primary {
-    background-color: var(--btn-focus);
-    border-color: var(--btn-focus);
+.categories-modal .modal-header,
+.categories-modal .modal-footer,
+.modal-content.categories-modal .modal-header,
+.modal-content.categories-modal .modal-footer {
+    background-color: var(--modal-header-bg) !important;
+    color: var(--modal-header-text) !important;
+    border-color: var(--modal-border) !important;
 }
 
-.categories-modal .btn-primary:hover {
-    background-color: var(--btn-focus);
+/* Remove Bootstrap modal shadow to eliminate halo */
+.categories-modal .modal-content,
+.modal-content.categories-modal {
+    box-shadow: none !important;
+}
+
+.categories-modal .btn-primary,
+.modal-content.categories-modal .btn-primary {
+    background-color: var(--btn-focus) !important;
+    border-color: var(--btn-focus) !important;
+}
+
+.categories-modal .btn-primary:hover,
+.modal-content.categories-modal .btn-primary:hover {
     filter: brightness(0.95);
 }
 

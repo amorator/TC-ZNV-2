@@ -118,6 +118,29 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, .1);
 }
 
+/* Force-remove any modal backdrop (Bootstrap) */
+.modal-backdrop {
+    --bs-backdrop-bg: transparent !important;
+    --bs-backdrop-opacity: 0 !important;
+    background-color: transparent !important;
+    opacity: 0 !important;
+}
+
+/* Unified modal content border/radius across Bootstrap modals */
+.modal-content {
+    border: 1px solid var(--modal-border) !important;
+    border-radius: .375rem !important;
+    box-shadow: none !important;
+}
+
+/* Ensure custom overlay has no tint or extra layers */
+.overlay-container,
+.overlay-container::before,
+.overlay-container::after {
+    background: transparent !important;
+    background-image: none !important;
+}
+
 .theme-dark .app-topbar .topbtn {
     color: #f8f9fa;
     background: rgba(255, 255, 255, .1);
@@ -216,6 +239,31 @@
     text-decoration: none;
     color: var(--text);
     cursor: default;
+}
+
+/* Themed primary buttons: inherit from current theme variables */
+.btn-primary,
+.btn.btn-primary {
+    background-color: var(--btn-primary-bg, var(--btn-focus)) !important;
+    border-color: var(--btn-primary-bg, var(--btn-focus)) !important;
+    color: var(--btn-primary-fg, var(--body-bg)) !important;
+}
+
+.btn-primary:hover,
+.btn.btn-primary:hover {
+    filter: brightness(0.95);
+}
+
+.btn-primary:active,
+.btn.btn-primary:active {
+    filter: brightness(0.9);
+}
+
+.btn-primary:focus,
+.btn.btn-primary:focus {
+    outline: 2px solid var(--btn-focus);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
 /* Add file button wrapper */
@@ -661,6 +709,14 @@
 .files-page__table th,
 .files-page__table td {
     border: 1px solid var(--sidebar-bg);
+}
+
+/* Global: truncate overflowing table cell content with ellipsis */
+table td,
+table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .files-page__table .table__body_item span:hover {

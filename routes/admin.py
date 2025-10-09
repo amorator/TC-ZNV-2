@@ -67,15 +67,15 @@ def register(app, socketio=None):
 	def admin_push_maintain():
 		"""Ручное обслуживание web push подписок: чистка ошибок и проверка неактивных.
 
-		Ограничение: не чаще 1 раза в 23 часа (глобальная блокировка).
+		Ограничение: не чаще 1 раза в 12 часов (глобальная блокировка).
 		"""
 		try:
 			# Глобальный троттлинг по времени
 			from datetime import datetime, timedelta
 			now = datetime.utcnow()
 			last_run = getattr(app, '_last_push_maintain', None)
-			if last_run and (now - last_run) < timedelta(hours=23):
-				return jsonify({'status': 'error', 'message': 'Операция уже выполнялась недавно. Повторите позже.'}), 429
+			if last_run and (now - last_run) < timedelta(hours=12):
+				return jsonify({'status': 'error', 'message': 'Операция уже выполнялась недавно (ограничение 12 часов). Повторите позже.'}), 429
 			app._last_push_maintain = now
 			# Порог для “старых ошибок” (N дней), берем из конфигурации либо 7 по умолчанию
 			try:
@@ -136,7 +136,39 @@ def register(app, socketio=None):
 				log_action('ADMIN_PUSH_MAINTAIN', current_user.name, f'deleted={deleted} tested={tested} removed={removed}', request.remote_addr)
 			except Exception:
 				pass
-			return jsonify({'status': 'success', 'deleted': deleted, 'tested': tested, 'removed': removed})
+			# include cooldown info in response
+			try:
+				from datetime import timedelta
+				next_allowed_dt = app._last_push_maintain + timedelta(hours=12)
+				seconds_left = max(0, int((next_allowed_dt - now).total_seconds()))
+			except Exception:
+				seconds_left = 12*3600
+			return jsonify({'status': 'success', 'deleted': deleted, 'tested': tested, 'removed': removed, 'seconds_left': seconds_left})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
+
+	# Статус «обслуживания подписок»: вернёт последний запуск и когда можно снова
+	@app.route('/admin/push_maintain_status', methods=['GET'])
+	@require_permissions(ADMIN_MANAGE)
+	def admin_push_maintain_status():
+		try:
+			from datetime import datetime, timedelta
+			last_run = getattr(app, '_last_push_maintain', None)
+			cooldown = timedelta(hours=12)
+			now = datetime.utcnow()
+			next_allowed_at = None
+			seconds_left = 0
+			if last_run:
+				next_allowed_dt = last_run + cooldown
+				next_allowed_at = int(next_allowed_dt.timestamp())
+				seconds_left = max(0, int((next_allowed_dt - now).total_seconds()))
+			return jsonify({
+				'status': 'success',
+				'last_run': int(last_run.timestamp()) if last_run else None,
+				'next_allowed_at': next_allowed_at,
+				'seconds_left': seconds_left
+			})
 		except Exception as e:
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -283,6 +315,114 @@ def register(app, socketio=None):
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500
 
+	# --- Active sessions (HTTP sessions not yet expired) ---
+	@app.route('/admin/sessions', methods=['GET'])
+	@require_permissions(ADMIN_VIEW_PAGE)
+	def admin_sessions():
+		"""Return JSON with active sessions tracked via middleware (best-effort)."""
+		try:
+			sessions = getattr(app, '_sessions', {}) or {}
+			# Prune expired sessions based on configured lifetime to avoid showing stale rows
+			try:
+				from datetime import timedelta
+				lifetime = app.config.get('PERMANENT_SESSION_LIFETIME')
+				if isinstance(lifetime, timedelta):
+					max_age = int(lifetime.total_seconds())
+				else:
+					max_age = int(lifetime or 31*24*3600)
+			except Exception:
+				max_age = 31*24*3600
+			cutoff = time.time() - max_age
+			for k, v in list(sessions.items()):
+				try:
+					if float(v.get('last_seen') or 0) < cutoff:
+						app._sessions.pop(k, None)
+				except Exception:
+					pass
+			items = []
+			for sid, info in sessions.items():
+				try:
+					items.append({
+						'sid': sid,
+						'user_id': info.get('user_id'),
+						'user': info.get('user'),
+						'ip': info.get('ip'),
+						'ua': info.get('ua'),
+						'created_at': int(info.get('created_at') or 0),
+						'last_seen': int(info.get('last_seen') or 0),
+					})
+				except Exception:
+					pass
+			# sort by last_seen desc
+			items.sort(key=lambda r: r.get('last_seen') or 0, reverse=True)
+			return jsonify({'status': 'success', 'items': items})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
+
+	# --- Force logout by HTTP session id ---
+	@app.route('/admin/force_logout_session', methods=['POST'])
+	@require_permissions(ADMIN_MANAGE)
+	@rate_limit(60, 60)
+	def admin_force_logout_session():
+		"""Mark a specific HTTP session id to be forcibly logged out on next request."""
+		try:
+			sid = (request.json or {}).get('sid') or request.form.get('sid')
+			if not sid:
+				return jsonify({'status': 'error', 'message': 'sid required'}), 400
+			if not hasattr(app, '_force_logout_sessions'):
+				app._force_logout_sessions = set()
+			# Capture user id before removing session
+			user_id_for_cleanup = None
+			try:
+				entry = getattr(app, '_sessions', {}).get(sid)
+				if entry:
+					user_id_for_cleanup = entry.get('user_id')
+			except Exception:
+				pass
+			app._force_logout_sessions.add(sid)
+			# Immediately remove from active sessions store for instant UI update
+			try:
+				if hasattr(app, '_sessions'):
+					app._sessions.pop(sid, None)
+			except Exception:
+				pass
+			# Also purge presence and heartbeat entries for this user (best-effort)
+			try:
+				if user_id_for_cleanup is not None:
+					# purge socket presence by user_id
+					presence = getattr(app, '_presence', {}) or {}
+					for psid, info in list(presence.items()):
+						try:
+							if int(info.get('user_id') or -1) == int(user_id_for_cleanup):
+								app._presence.pop(psid, None)
+						except Exception:
+							pass
+					# purge heartbeat entries by uid prefix
+					presence_hb = getattr(app, '_presence_hb', {}) or {}
+					prefix = f"hb:{user_id_for_cleanup}:"
+					for key in list(presence_hb.keys()):
+						if isinstance(key, str) and key.startswith(prefix):
+							app._presence_hb.pop(key, None)
+			except Exception:
+				pass
+			# Optionally emit a socket event if there is a presence mapping with same user to hint immediate logout
+			try:
+				if socketio:
+					payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+					# We don't know socket room by HTTP session; best-effort: broadcast to user if can be found
+					pass
+			except Exception:
+				pass
+			try:
+				log_action('ADMIN_FORCE_LOGOUT_SESSION', current_user.name, f'sid={sid}', request.remote_addr)
+			except Exception:
+				pass
+			return jsonify({'status': 'success'})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
+
 	# --- Generic heartbeat for idle tabs (no admin permission required) ---
 	@app.route('/presence/heartbeat', methods=['POST'])
 	def presence_heartbeat():
@@ -400,11 +540,88 @@ def register(app, socketio=None):
 					app._force_logout_users.add(int(uid))
 			except Exception:
 				pass
+			# Cleanup presence/heartbeat and sessions store (best-effort)
+			try:
+				if uid:
+					# purge presence entries by user_id
+					presence = getattr(app, '_presence', {}) or {}
+					for psid, info in list(presence.items()):
+						try:
+							if int(info.get('user_id') or -1) == int(uid):
+								app._presence.pop(psid, None)
+						except Exception:
+							pass
+					# purge heartbeat keys by uid prefix
+					presence_hb = getattr(app, '_presence_hb', {}) or {}
+					prefix = f"hb:{uid}:"
+					for key in list(presence_hb.keys()):
+						if isinstance(key, str) and key.startswith(prefix):
+							app._presence_hb.pop(key, None)
+				# if sid provided, drop from sessions immediately
+				if sid and hasattr(app, '_sessions'):
+					app._sessions.pop(sid, None)
+			except Exception:
+				pass
 			try:
 				log_action('ADMIN_FORCE_LOGOUT', current_user.name, f'sid={sid} uid={uid}', request.remote_addr)
 			except Exception:
 				pass
 			return jsonify({'status': 'success'})
+		except Exception as e:
+			app.flash_error(e)
+			return jsonify({'status': 'error', 'message': str(e)}), 500
+
+	# --- Force logout ALL sessions ---
+	@app.route('/admin/force_logout_all', methods=['POST'])
+	@require_permissions(ADMIN_MANAGE)
+	@rate_limit(5, 60)
+	def admin_force_logout_all():
+		"""Force logout all currently tracked sessions and mark all users to re-login."""
+		try:
+			count = 0
+			payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+			if socketio:
+				try:
+					presence = getattr(app, '_presence', {}) or {}
+					for psid in list(presence.keys()):
+						try:
+							socketio.emit('force-logout', payload, room=psid)
+							count += 1
+						except Exception:
+							pass
+				except Exception:
+					pass
+			# mark server-side flag for all known users (best-effort) and clear sessions/presence stores
+			try:
+				if not hasattr(app, '_force_logout_users'):
+					app._force_logout_users = set()
+				presence = getattr(app, '_presence', {}) or {}
+				for info in list(presence.values()):
+					uid = info.get('user_id')
+					if uid is not None:
+						try: app._force_logout_users.add(int(uid))
+						except Exception: pass
+				# Clear tracked HTTP sessions immediately so UI updates at once
+				try:
+					if hasattr(app, '_sessions'):
+						app._sessions.clear()
+				except Exception:
+					pass
+				# Clear presence and heartbeat stores
+				try:
+					if hasattr(app, '_presence'):
+						app._presence.clear()
+					if hasattr(app, '_presence_hb'):
+						app._presence_hb.clear()
+				except Exception:
+					pass
+			except Exception:
+				pass
+			try:
+				log_action('ADMIN_FORCE_LOGOUT_ALL', current_user.name, f'count={count}', request.remote_addr)
+			except Exception:
+				pass
+			return jsonify({'status': 'success', 'count': count})
 		except Exception as e:
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500

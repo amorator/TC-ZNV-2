@@ -28,6 +28,11 @@
     --button-bg: #ffffff;
     --button-text: #0f1724;
     --button-border: #000000;
+    /* bootstrap-like btn tokens */
+    --btn-primary-bg: var(--btn-focus);
+    --btn-primary-fg: #111827;
+    --btn-secondary-bg: #6c757d;
+    --btn-secondary-fg: #ffffff;
     /* modal header/footer */
     --modal-header-bg: #fff06d;
     --modal-header-text: #111827;
@@ -76,6 +81,10 @@
     --button-bg: #1a1a1a;
     --button-text: #ffffff;
     --button-border: #000000;
+    --btn-primary-bg: var(--btn-focus);
+    --btn-primary-fg: #000000;
+    --btn-secondary-bg: #4b5563;
+    --btn-secondary-fg: #e5e7eb;
     --modal-header-bg: #000000;
     --modal-header-text: #ffd43b;
     --overlay-text: #ffd43b;
@@ -133,6 +142,10 @@
 
     --control-radius: 10px;
     --overlay-opacity: 0.82;
+    --btn-primary-bg: var(--brand-green);
+    --btn-primary-fg: #000000;
+    --btn-secondary-bg: #000000;
+    --btn-secondary-fg: var(--brand-green);
     /* Camera size badge strictly green gradient on black */
     --cam-size-bg: linear-gradient(135deg, var(--brand-green) 0%, #00c800 100%);
     --cam-size-text: #000000;
