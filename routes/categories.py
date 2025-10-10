@@ -14,6 +14,7 @@ from modules.logging import get_logger
 from modules.permissions import require_permissions, CATEGORIES_VIEW, CATEGORIES_MANAGE, SUBCATEGORIES_VIEW, SUBCATEGORIES_MANAGE
 import time
 from functools import wraps
+import os
 
 _log = get_logger(__name__)
 
@@ -64,12 +65,56 @@ def register(app, socketio=None):
             return wrapper
         return decorator
     
-    @app.route('/admin/categories')
+    # Files root resolver with fallback
+    def _files_root() -> str:
+        try:
+            cfg = getattr(app, '_sql', None)
+            base = None
+            if cfg and getattr(cfg, 'config', None):
+                base = cfg.config.get('storage', {}).get('files_root') or cfg.config.get('paths', {}).get('files_root')
+            if not base:
+                base = os.path.join(app.root_path, 'files')
+            return base
+        except Exception:
+            return os.path.join(app.root_path, 'files')
+
+    # Ensure category/subcategory directories exist at startup (best-effort)
+    try:
+        base_dir = _files_root()
+        os.makedirs(base_dir, exist_ok=True)
+        # Ensure reserved category 'registrators' exists
+        try:
+            reg_cat = None
+            for c in app._sql.category_all():
+                if (c.folder_name or '').lower() == 'registrators':
+                    reg_cat = c
+                    break
+            if not reg_cat:
+                try:
+                    cid = app._sql.category_add(['Регистраторы', 'registrators', 9999, 1])
+                except Exception:
+                    cid = None
+            else:
+                cid = reg_cat.id
+            if cid:
+                os.makedirs(os.path.join(base_dir, 'registrators'), exist_ok=True)
+        except Exception:
+            pass
+        for cat in app._sql.category_all():
+            cat_dir = os.path.join(base_dir, cat.folder_name)
+            os.makedirs(cat_dir, exist_ok=True)
+            for sub in app._sql.subcategory_by_category([cat.id]):
+                os.makedirs(os.path.join(cat_dir, sub.folder_name), exist_ok=True)
+    except Exception:
+        pass
+
+    @app.route('/categories')
     @login_required
     @require_permissions(CATEGORIES_VIEW)
     def categories_admin():
         """Admin panel for managing categories and subcategories."""
-        categories = app._sql.category_all()
+        # Exclude system 'registrators' from visible categories
+        categories = [c for c in app._sql.category_all() if (getattr(c, 'folder_name', '') or '').lower() != 'registrators']
         subcategories = app._sql.subcategory_all()
         
         # Group subcategories by category
@@ -83,7 +128,19 @@ def register(app, socketio=None):
                              categories=categories,
                              subcategories_by_category=subcategories_by_category)
 
-    @app.route('/admin/categories/add', methods=['POST'])
+    # Provide a fallback '/admin' endpoint that redirects here if not already defined
+    try:
+        # Only register if not already present
+        if 'admin' not in [r.endpoint for r in app.url_map.iter_rules()]:
+            @app.route('/admin', methods=['GET'], endpoint='admin')
+            @login_required
+            @require_permissions(CATEGORIES_VIEW)
+            def _admin_fallback():
+                return redirect(url_for('categories_admin'))
+    except Exception:
+        pass
+
+    @app.route('/categories/add', methods=['POST'])
     @login_required
     @require_permissions(CATEGORIES_MANAGE)
     @rate_limit(50, 60)
@@ -117,6 +174,13 @@ def register(app, socketio=None):
                 flash(f'Категория с именем "{display_name}" уже существует', 'error')
                 return redirect(url_for('categories_admin'))
 
+            # Reserve system folder names and check uniqueness
+            reserved = {'orders', 'requests', 'registrators'}
+            if folder_name.lower() in reserved:
+                if _wants_json_response():
+                    return jsonify({'error': 'Системное имя папки зарезервировано'}), 409
+                flash('Системное имя папки зарезервировано', 'error')
+                return redirect(url_for('categories_admin'))
             # Check if folder name already exists
             if app._sql.category_exists([folder_name]):
                 if _wants_json_response():
@@ -124,7 +188,18 @@ def register(app, socketio=None):
                 flash(f'Категория с именем папки "{folder_name}" уже существует', 'error')
                 return redirect(url_for('categories_admin'))
             
-            app._sql.category_add([display_name, folder_name, display_order, enabled])
+            new_id = app._sql.category_add([display_name, folder_name, display_order, enabled])
+            # Notify clients (files page, categories admin) to refresh
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'add', 'category_id': new_id})
+            except Exception:
+                pass
+            # Create directory on disk
+            try:
+                os.makedirs(os.path.join(_files_root(), folder_name), exist_ok=True)
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Категория "{display_name}" успешно добавлена', 'success')
@@ -135,7 +210,7 @@ def register(app, socketio=None):
         
         return redirect(url_for('categories_admin'))
 
-    @app.route('/admin/categories/edit/<int:category_id>', methods=['POST'])
+    @app.route('/categories/edit/<int:category_id>', methods=['POST'])
     @login_required
     @require_permissions(CATEGORIES_MANAGE)
     @rate_limit(80, 60)
@@ -169,6 +244,12 @@ def register(app, socketio=None):
                 return redirect(url_for('categories_admin'))
             
             # Keep original folder_name unchanged
+            # For system category 'registrators' deny disabling
+            if (existing.folder_name or '').lower() == 'registrators' and enabled == 0:
+                if _wants_json_response():
+                    return jsonify({'error': 'Системную категорию "Регистраторы" нельзя отключать'}), 409
+                flash('Системную категорию "Регистраторы" нельзя отключать', 'error')
+                return redirect(url_for('categories_admin'))
             # Prevent disabling category while it has enabled subcategories
             if enabled == 0:
                 en_cnt = app._sql.subcategory_enabled_count_by_category([category_id])
@@ -178,6 +259,11 @@ def register(app, socketio=None):
                     flash('Нельзя выключить категорию: есть включенные подкатегории. Сначала выключите или переместите их.', 'error')
                     return redirect(url_for('categories_admin'))
             app._sql.category_edit([display_name, existing.folder_name, display_order, enabled, category_id])
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'edit', 'category_id': category_id})
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Категория "{display_name}" успешно обновлена', 'success')
@@ -188,7 +274,7 @@ def register(app, socketio=None):
         
         return redirect(url_for('categories_admin'))
 
-    @app.route('/admin/categories/delete/<int:category_id>', methods=['POST'])
+    @app.route('/categories/delete/<int:category_id>', methods=['POST'])
     @login_required
     @require_permissions(CATEGORIES_MANAGE)
     @rate_limit(40, 60)
@@ -201,6 +287,12 @@ def register(app, socketio=None):
                     return jsonify({'error': 'Категория не найдена'}), 404
                 flash('Категория не найдена', 'error')
                 return redirect(url_for('categories_admin'))
+            # For system category 'registrators' deny deletion
+            if (category.folder_name or '').lower() == 'registrators':
+                if _wants_json_response():
+                    return jsonify({'error': 'Системную категорию "Регистраторы" нельзя удалять'}), 409
+                flash('Системную категорию "Регистраторы" нельзя удалять', 'error')
+                return redirect(url_for('categories_admin'))
             # Prevent deletion if category has subcategories
             sub_cnt = app._sql.subcategory_count_by_category([category_id])
             if sub_cnt > 0:
@@ -210,6 +302,11 @@ def register(app, socketio=None):
                 return redirect(url_for('categories_admin'))
             
             app._sql.category_delete([category_id])
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'delete', 'category_id': category_id})
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Категория "{category.display_name}" успешно удалена', 'success')
@@ -220,7 +317,7 @@ def register(app, socketio=None):
         
         return redirect(url_for('categories_admin'))
 
-    @app.route('/admin/subcategories/add', methods=['POST'])
+    @app.route('/subcategories/add', methods=['POST'])
     @login_required
     @require_permissions(SUBCATEGORIES_MANAGE)
     @rate_limit(50, 60)
@@ -266,7 +363,18 @@ def register(app, socketio=None):
             
             # Insert only core fields; permissions default to 0 in DB schema
             args = [category_id, display_name, folder_name, display_order, enabled]
-            app._sql.subcategory_add(args)
+            new_id = app._sql.subcategory_add(args)
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'sub-add', 'subcategory_id': new_id, 'category_id': category_id})
+            except Exception:
+                pass
+            # Create directory on disk
+            try:
+                cat = app._sql.category_by_id([category_id])
+                os.makedirs(os.path.join(_files_root(), cat.folder_name, folder_name), exist_ok=True)
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Подкатегория "{display_name}" успешно добавлена', 'success')
@@ -277,7 +385,7 @@ def register(app, socketio=None):
         
         return redirect(url_for('categories_admin'))
 
-    @app.route('/admin/subcategories/edit/<int:subcategory_id>', methods=['POST'])
+    @app.route('/subcategories/edit/<int:subcategory_id>', methods=['POST'])
     @login_required
     @require_permissions(SUBCATEGORIES_MANAGE)
     @rate_limit(80, 60)
@@ -314,6 +422,11 @@ def register(app, socketio=None):
             
             args = [category_id, display_name, folder_name, display_order, enabled] + permissions + [subcategory_id]
             app._sql.subcategory_edit(args)
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'sub-edit', 'subcategory_id': subcategory_id, 'category_id': category_id})
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Подкатегория "{display_name}" успешно обновлена', 'success')
@@ -324,7 +437,7 @@ def register(app, socketio=None):
         
         return redirect(url_for('categories_admin'))
 
-    @app.route('/admin/subcategories/delete/<int:subcategory_id>', methods=['POST'])
+    @app.route('/subcategories/delete/<int:subcategory_id>', methods=['POST'])
     @login_required
     @require_permissions(SUBCATEGORIES_MANAGE)
     @rate_limit(40, 60)
@@ -346,6 +459,11 @@ def register(app, socketio=None):
                 return redirect(url_for('categories_admin'))
             
             app._sql.subcategory_delete([subcategory_id])
+            try:
+                if socketio:
+                    socketio.emit('categories:changed', {'reason': 'sub-delete', 'subcategory_id': subcategory_id})
+            except Exception:
+                pass
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Подкатегория "{subcategory.display_name}" успешно удалена', 'success')
@@ -361,7 +479,7 @@ def register(app, socketio=None):
     @require_permissions(CATEGORIES_VIEW)
     def api_categories():
         """API: список категорий (JSON)."""
-        categories = app._sql.category_all()
+        categories = [c for c in app._sql.category_all() if (getattr(c, 'folder_name', '') or '').lower() != 'registrators']
         return jsonify([{
             'id': cat.id,
             'display_name': cat.display_name,

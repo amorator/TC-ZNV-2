@@ -38,7 +38,9 @@ class File:
             order_id: Optional ID of associated order (foreign key).
         """
         self.display_name: str = display_name
+        # "real_name" in older schema is actual file on disk. In new schema it is the stored file_name
         self.real_name: str = real_name
+        # Computed absolute directory on disk resolved by DAL based on category/subcategory
         self.path: str = path
         self.description: str = description if description else 'Нет описания...'
         self.date: str = date if date else dt.now().strftime('%Y-%m-%d %H:%M')

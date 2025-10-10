@@ -1,0 +1,81 @@
+{% extends 'base.j2.html' %}
+
+{% block js %}
+<script src="{{ url_for('static', filename='js/registrators.js') }}" defer="defer"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  window.openAddRegistratorModalUI = function(){
+    var m = document.getElementById('addRegistratorModal');
+    if (!m) return;
+    try { var modal = new bootstrap.Modal(m); modal.show(); }
+    catch(_) { m.style.display='block'; m.classList.add('show'); }
+  };
+});
+</script>
+{% endblock %}
+
+{% block css %}
+<link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block main %}
+<main class="container-fluid py-3">
+  <div class="subbar cat">
+    <div class="subbar__group">
+      <a class="topbtn" href="{{ url_for('categories_admin') }}">
+        <i class="fas fa-folder"></i> Категории
+      </a>
+      <button class="topbtn active">
+        <i class="fas fa-user-plus"></i> Регистраторы
+      </button>
+    </div>
+  </div>
+  <!-- Registrators Navigation (mirrors subcategory tabs) -->
+  <div class="subbar subcat" id="registrators-tabs" data-testid="registrators-tabs">
+    <div class="subbar__group" id="registrators-nav">
+      <!-- Registrators will be loaded here as .topbtn -->
+    </div>
+    <!-- Add button moved into nav via JS rendering -->
+  </div>
+
+  <!-- Context menu for registrators page -->
+  <div id="registrators-context-menu" class="context-menu d-none" data-testid="registrators-context-menu">
+    <ul class="context-menu__list">
+      <li class="context-menu__item" data-action="edit">Изменить регистратор</li>
+      <li class="context-menu__item" data-action="toggle">Включить/Отключить</li>
+      <li class="context-menu__separator"></li>
+      <li class="context-menu__item" data-action="delete">Удалить регистратор</li>
+    </ul>
+  </div>
+
+  <!-- Add Registrator Modal -->
+  <div class="modal fade" id="addRegistratorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Добавить регистратор</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Название *</label>
+            <input type="text" class="form-control" id="regAddName" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Прототип ссылки *</label>
+            <input type="text" class="form-control" id="regAddUrl" placeholder="https://host/<date>/<user>/<time>/<type>/<file>" required>
+            <div class="form-text">Должны использоваться маркеры &lt;date&gt;, &lt;user&gt;, &lt;time&gt;, &lt;type&gt;, &lt;file&gt;</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" class="btn btn-primary" id="regAddSubmit">Добавить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+
+

@@ -206,7 +206,8 @@ class SQLUtils(SQL):
         super().__init__()
         
         # Common SQL query fragments for optimization
-        self._FILE_SELECT_FIELDS = "id, display_name, real_name, path, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id"
+        # Note: path is deprecated in DB; use category_id/subcategory_id/file_name. Keep legacy path for fallback.
+        self._FILE_SELECT_FIELDS_CORE = "id, display_name, COALESCE(file_name, real_name) AS file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, path"
         self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
         self._GROUP_SELECT_FIELDS = "id, name, description"
         self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
@@ -333,6 +334,120 @@ class SQLUtils(SQL):
         """
         return self.execute_scalar(f"SELECT name FROM {self.config['db']['prefix']}_group WHERE id = %s;", args)[0]
 
+    # --- Internal helpers for files ---
+    def _ensure_files_new_columns(self):
+        try:
+            prefix = self.config['db']['prefix']
+            dbname = self.config['db']['name']
+            # Add new columns if missing
+            for col, ddl in [
+                ('category_id', f"ALTER TABLE {prefix}_file ADD COLUMN IF NOT EXISTS category_id INT NULL"),
+                ('subcategory_id', f"ALTER TABLE {prefix}_file ADD COLUMN IF NOT EXISTS subcategory_id INT NULL"),
+                ('file_name', f"ALTER TABLE {prefix}_file ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) NULL")
+            ]:
+                try:
+                    exists = self.execute_scalar(
+                        """
+                        SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                        LIMIT 1;
+                        """,
+                        [dbname, f"{prefix}_file", col]
+                    )
+                    if not exists or int(exists[0]) == 0:
+                        try:
+                            self.execute_non_query(ddl)
+                        except Exception:
+                            self.execute_non_query(ddl.replace(" IF NOT EXISTS", ""))
+                except Exception:
+                    pass
+            # Indexes for fast lookups
+            try:
+                self.execute_non_query(f"CREATE INDEX ix_{prefix}_file_cat_sub ON {prefix}_file (category_id, subcategory_id);")
+            except Exception:
+                pass
+            try:
+                self.execute_non_query(f"CREATE INDEX ix_{prefix}_file_fname ON {prefix}_file (file_name);")
+            except Exception:
+                pass
+            # Backfill legacy rows into new columns (best-effort)
+            try:
+                rows = self.execute_query(
+                    f"SELECT id, path, real_name, category_id, subcategory_id, file_name FROM {prefix}_file WHERE (category_id IS NULL OR subcategory_id IS NULL OR file_name IS NULL);"
+                )
+                import os
+                for r in rows or []:
+                    fid, fpath, real_name, cat_id, sub_id, fname = r
+                    # compute file_name
+                    fname_new = fname or real_name
+                    # try parse .../video/<cat>/<sub>
+                    try:
+                        parts = os.path.normpath(fpath or '').split(os.sep)
+                        cat_folder = parts[-2] if len(parts) >= 2 else None
+                        sub_folder = parts[-1] if len(parts) >= 1 else None
+                        new_cat_id = cat_id or (self.category_id_by_folder(cat_folder) if cat_folder else None)
+                        new_sub_id = sub_id or (self.subcategory_id_by_folder(new_cat_id, sub_folder) if (new_cat_id and sub_folder) else None)
+                    except Exception:
+                        new_cat_id, new_sub_id = cat_id, sub_id
+                    # Apply update when we have something to set
+                    try:
+                        self.execute_non_query(
+                            f"UPDATE {prefix}_file SET category_id = COALESCE(%s, category_id), subcategory_id = COALESCE(%s, subcategory_id), file_name = COALESCE(%s, file_name) WHERE id = %s;",
+                            [new_cat_id, new_sub_id, fname_new, fid]
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _get_category_folder_by_id(self, category_id: int) -> str:
+        row = self.execute_scalar(
+            f"SELECT folder_name FROM {self.config['db']['prefix']}_file_category WHERE id = %s LIMIT 1;",
+            [category_id]
+        )
+        return row[0] if row else ''
+
+    def _get_subcategory_folder_by_id(self, subcategory_id: int) -> str:
+        row = self.execute_scalar(
+            f"SELECT folder_name FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s LIMIT 1;",
+            [subcategory_id]
+        )
+        return row[0] if row else ''
+
+    def _build_storage_dir(self, category_id: int, subcategory_id: int) -> str:
+        try:
+            base = self.config['files']['root']
+            cat_folder = self._get_category_folder_by_id(category_id)
+            sub_folder = self._get_subcategory_folder_by_id(subcategory_id)
+            import os
+            return os.path.join(base, 'video', cat_folder, sub_folder)
+        except Exception:
+            import os
+            return os.path.join(self.config['files'].get('root', '/var/lib/znv-files'), 'video')
+
+    def get_file_storage_path(self, category_id: int, subcategory_id: int) -> str:
+        """Public helper to compute absolute directory for given category/subcategory ids."""
+        try:
+            return self._build_storage_dir(int(category_id or 0), int(subcategory_id or 0))
+        except Exception:
+            return self._build_storage_dir(0, 0)
+
+    def category_id_by_folder(self, folder_name: str):
+        row = self.execute_scalar(
+            f"SELECT id FROM {self.config['db']['prefix']}_file_category WHERE folder_name = %s LIMIT 1;",
+            [folder_name]
+        )
+        return int(row[0]) if row else None
+
+    def subcategory_id_by_folder(self, category_id: int, folder_name: str):
+        row = self.execute_scalar(
+            f"SELECT id FROM {self.config['db']['prefix']}_file_subcategory WHERE category_id = %s AND folder_name = %s LIMIT 1;",
+            [category_id, folder_name]
+        )
+        return int(row[0]) if row else None
+
     # File management functions
     def file_by_id(self, args):
         """Get file by ID.
@@ -343,22 +458,71 @@ class SQLUtils(SQL):
         Returns:
             File object or None if not found
         """
+        self._ensure_files_new_columns()
         from classes.file import File
-        data = self.execute_scalar(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file WHERE id = %s;", args)
-        return File(*data) if data else None
+        row = self.execute_scalar(
+            f"SELECT {self._FILE_SELECT_FIELDS_CORE} FROM {self.config['db']['prefix']}_file WHERE id = %s;",
+            args
+        )
+        if not row:
+            return None
+        (
+            fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path
+        ) = row
+        storage_dir = self._build_storage_dir(category_id or 0, subcategory_id or 0) or (legacy_path or '')
+        return File(fid, display_name, file_name, storage_dir, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id)
 
     def file_by_path(self, args):
-        """Get files by path.
-        
-        Args:
-            args: List containing file path
-            
-        Returns:
-            List of File objects or None if not found
+        """Backward-compatible: resolve by absolute directory path, then fetch by category/subcategory.
+        Args: [abs_dir_path]
         """
+        self._ensure_files_new_columns()
+        try:
+            import os
+            abs_dir = args[0]
+            parts = os.path.normpath(abs_dir).split(os.sep)
+            # Expect .../<root>/video/<cat>/<sub>
+            cat_folder = parts[-2] if len(parts) >= 2 else ''
+            sub_folder = parts[-1] if len(parts) >= 1 else ''
+            cat_id = self.category_id_by_folder(cat_folder)
+            sub_id = self.subcategory_id_by_folder(cat_id or 0, sub_folder) if cat_id else None
+            if not cat_id or not sub_id:
+                return []
+            rows = self.execute_query(
+                f"SELECT {self._FILE_SELECT_FIELDS_CORE} FROM {self.config['db']['prefix']}_file WHERE category_id = %s AND subcategory_id = %s;",
+                [cat_id, sub_id]
+            )
+            from classes.file import File
+            storage_dir = self._build_storage_dir(cat_id, sub_id)
+            files = []
+            for r in rows or []:
+                (fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
+                files.append(File(fid, display_name, file_name, storage_dir or (legacy_path or ''), owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+            return files
+        except Exception:
+            return []
+
+    def file_by_category_and_subcategory(self, args):
+        """Fetch files by category_id and subcategory_id using new schema.
+        Args: [category_id, subcategory_id]
+        Returns: list[File]
+        """
+        self._ensure_files_new_columns()
+        try:
+            cat_id, sub_id = int(args[0]), int(args[1])
+        except Exception:
+            return []
+        rows = self.execute_query(
+            f"SELECT {self._FILE_SELECT_FIELDS_CORE} FROM {self.config['db']['prefix']}_file WHERE category_id = %s AND subcategory_id = %s;",
+            [cat_id, sub_id]
+        )
         from classes.file import File
-        data = self.execute_query(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file WHERE path = %s;", args)
-        return [File(*d) for d in data] if data else None
+        storage_dir = self._build_storage_dir(cat_id, sub_id)
+        files = []
+        for r in rows or []:
+            (fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
+            files.append(File(fid, display_name, file_name, storage_dir or (legacy_path or ''), owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+        return files
 
     def file_all(self):
         """Get all files.
@@ -366,18 +530,48 @@ class SQLUtils(SQL):
         Returns:
             List of File objects or None if no files found
         """
+        self._ensure_files_new_columns()
+        rows = self.execute_query(f"SELECT {self._FILE_SELECT_FIELDS_CORE} FROM {self.config['db']['prefix']}_file;")
         from classes.file import File
-        data = self.execute_query(f"SELECT {self._FILE_SELECT_FIELDS} FROM {self.config['db']['prefix']}_file;")
-        return [File(*d) for d in data] if data else None
+        result = []
+        for r in rows or []:
+            (fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
+            storage_dir = self._build_storage_dir(category_id or 0, subcategory_id or 0) or (legacy_path or '')
+            result.append(File(fid, display_name, file_name, storage_dir, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+        return result
 
     def file_add(self, args):
-        """Add new file.
-        
-        Args:
-            args: List containing [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id]
+        """Deprecated signature kept for compatibility: will map to new columns.
+        Args: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id]
         """
+        # Try to infer category/subcategory from path
+        try:
+            import os
+            _, _, cat_folder, sub_folder = os.path.normpath(args[2]).rsplit(os.sep, 3)
+        except Exception:
+            cat_folder, sub_folder = None, None
+        cat_id = self.category_id_by_folder(cat_folder) if cat_folder else None
+        sub_id = self.subcategory_id_by_folder(cat_id or 0, sub_folder) if (cat_id and sub_folder) else None
+        return self.file_add2([
+            args[0],               # display_name
+            args[1],               # file_name
+            cat_id, sub_id,
+            args[3],               # owner
+            args[4],               # description
+            args[5],               # date
+            args[6],               # ready
+            args[7],               # length_seconds
+            args[8],               # size_mb
+            args[9] if len(args) > 9 else None  # order_id
+        ])
+
+    def file_add2(self, args):
+        """Add new file with new schema.
+        Args: [display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id]
+        """
+        self._ensure_files_new_columns()
         return self.execute_insert(
-            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
             args,
         )
 
@@ -405,8 +599,18 @@ class SQLUtils(SQL):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET ready = 1 WHERE id IN ({placeholders});", args)
 
     def file_update_real_name(self, args):
-        """Update file real_name after conversion. Args: [real_name, id]"""
-        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s WHERE id = %s;", args)
+        """Update stored filename after conversion. Args: [real_name, id]
+        Keeps both legacy real_name and new file_name in sync.
+        """
+        try:
+            # Update both columns if file_name exists
+            self.execute_non_query(
+                f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s, file_name = %s WHERE id = %s;",
+                [args[0], args[0], args[1]]
+            )
+        except Exception:
+            # Fallback for older schemas without file_name
+            self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s WHERE id = %s;", args)
 
     def file_view(self, args):
         """Mark file as viewed. Args: [viewed, id]"""
@@ -417,8 +621,20 @@ class SQLUtils(SQL):
         self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET note = %s WHERE id = %s;", args)
 
     def file_move(self, args):
-        """Move file to new path. Args: [new_path, id]"""
-        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET path = %s WHERE id = %s;", args)
+        """Deprecated: update path (no-op for new schema)."""
+        try:
+            # Attempt to infer and update new columns too
+            import os
+            _, _, cat_folder, sub_folder = os.path.normpath(args[0]).rsplit(os.sep, 3)
+            cat_id = self.category_id_by_folder(cat_folder)
+            sub_id = self.subcategory_id_by_folder(int(cat_id), sub_folder) if cat_id is not None else None
+            self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET category_id = %s, subcategory_id = %s WHERE id = %s;", [cat_id, sub_id, args[1]])
+        except Exception:
+            pass
+
+    def file_move_to_subcategory(self, args):
+        """Move file to another subcategory. Args: [category_id, subcategory_id, id]"""
+        self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET category_id = %s, subcategory_id = %s WHERE id = %s;", args)
 
 
     def request_all(self):
@@ -1091,29 +1307,10 @@ class SQLUtils(SQL):
         return int(row[0]) if row else 0
 
     def files_count_in_subcategory(self, args):
-        """Count files that belong to a subcategory by path prefix.
-        Args: [subcategory_id] -> int
-        """
-        sub_id = args[0]
-        # Get subcategory with category id and folder
-        row_sub = self.execute_scalar(
-            f"SELECT category_id, folder_name FROM {self.config['db']['prefix']}_file_subcategory WHERE id = %s;",
-            [sub_id]
-        )
-        if not row_sub:
-            return 0
-        cat_id, sub_folder = row_sub[0], row_sub[1]
-        row_cat = self.execute_scalar(
-            f"SELECT folder_name FROM {self.config['db']['prefix']}_file_category WHERE id = %s;",
-            [cat_id]
-        )
-        if not row_cat:
-            return 0
-        cat_folder = row_cat[0]
-        # Files path is stored like "category/subcategory/..."; use LIKE prefix
-        prefix = f"{cat_folder}/{sub_folder}/%"
+        """Count files by subcategory id using new schema. Args: [subcategory_id] -> int"""
+        sub_id = int(args[0])
         row_cnt = self.execute_scalar(
-            f"SELECT COUNT(1) FROM {self.config['db']['prefix']}_file WHERE path LIKE %s;",
-            [prefix]
+            f"SELECT COUNT(1) FROM {self.config['db']['prefix']}_file WHERE subcategory_id = %s;",
+            [sub_id]
         )
         return int(row_cnt[0]) if row_cnt else 0

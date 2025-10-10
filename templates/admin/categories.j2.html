@@ -18,9 +18,9 @@
       <button class="topbtn active" data-tab="categories">
         <i class="fas fa-folder"></i> Категории
       </button>
-      <button class="topbtn" data-tab="registrars">
+      <a class="topbtn" href="{{ url_for('registrators_page') }}">
         <i class="fas fa-user-plus"></i> Регистраторы
-      </button>
+      </a>
     </div>
   </div>
 
@@ -153,14 +153,7 @@
     </div>
   </div>
 
-  <!-- Registrars Tab Content -->
-  <div id="registrars-tab" class="tab-content" style="display: none;" data-testid="registrars-tab">
-    <div class="empty-state">
-      <i class="fas fa-user-plus"></i>
-      <h4>Регистраторы</h4>
-      <p>Функция в разработке</p>
-    </div>
-  </div>
+  
 </div>
 
 <!-- Toasts -->
@@ -1302,14 +1295,14 @@ function wireInlineEditForms() {
       if (catName) {
         catName.addEventListener('change', function(){
           if (!currentCategoryId) return;
-          catForm.action = `/admin/categories/edit/${currentCategoryId}`;
+          catForm.action = `/categories/edit/${currentCategoryId}`;
           catForm.submit();
         });
       }
       if (catOrder) {
         catOrder.addEventListener('change', function(){
           if (!currentCategoryId) return;
-          catForm.action = `/admin/categories/edit/${currentCategoryId}`;
+          catForm.action = `/categories/edit/${currentCategoryId}`;
           catForm.submit();
         });
       }
@@ -1391,7 +1384,7 @@ function tryDeleteCategory() {
         alert('Нельзя удалить категорию: в ней есть подкатегории. Сначала удалите или перенесите подкатегории.');
         throw new Error('blocked');
       }
-      return fetch(`/admin/categories/delete/${currentCategoryId}`, { method: 'POST', credentials: 'include' });
+      return fetch(`/categories/delete/${currentCategoryId}`, { method: 'POST', credentials: 'include' });
     })
     .then(() => {
       // Reload categories list after deletion
@@ -1412,7 +1405,7 @@ function tryDeleteSubcategory() {
         alert('Нельзя удалить подкатегорию: в ней есть файлы. Сначала удалите или перенесите файлы.');
         throw new Error('blocked');
       }
-      return fetch(`/admin/subcategories/delete/${currentSubcategoryId}`, { method: 'POST', credentials: 'include' });
+      return fetch(`/subcategories/delete/${currentSubcategoryId}`, { method: 'POST', credentials: 'include' });
     })
     .then(() => {
       // Reload subcategories for current category
@@ -1589,13 +1582,14 @@ function initCategoriesContextMenu() {
     ctx.targetType = 'category'; ctx.targetId = catId;
     const subsOfCat = (subcategoriesCache || []).filter(s => String(s.category_id) === String(catId));
     const canDelete = subsOfCat.length === 0;
+    const cat = (categoriesCache || []).find(c => String(c.id) === String(catId));
+    const isRegistrators = !!(cat && String((cat.folder_name||'')).toLowerCase() === 'registrators');
     setItemEnabled('add-category', true);
     setItemEnabled('edit-category', !!catId);
-    setItemEnabled('delete-category', !!catId && canDelete);
+    setItemEnabled('delete-category', !!catId && canDelete && !isRegistrators);
     const hasEnabledSub = subsOfCat.some(s => !!s.enabled);
-    setItemEnabled('toggle-category', !!catId && !hasEnabledSub);
+    setItemEnabled('toggle-category', !!catId && !hasEnabledSub && !isRegistrators);
     // Update label to reflect state
-    const cat = (categoriesCache || []).find(c => String(c.id) === String(catId));
     const toggleCat = menu.querySelector('.context-menu__item[data-action="toggle-category"]');
     if (toggleCat) toggleCat.textContent = (cat && cat.enabled) ? 'Отключить категорию' : 'Включить категорию';
     setItemEnabled('add-subcategory', !!catId);
@@ -1815,7 +1809,7 @@ function showEditCategoryModal(){
   }
   const form = document.getElementById('category-edit-form');
   if (form) {
-    form.action = `/admin/categories/edit/${currentCategoryId}`;
+    form.action = `/categories/edit/${currentCategoryId}`;
     if (!form._ajaxBound) { form._ajaxBound = true; form.addEventListener('submit', function(e){ e.preventDefault(); submitEditCategoryAjax(); }); }
   }
   new bootstrap.Modal(document.getElementById('editCategoryModal')).show();
@@ -1843,7 +1837,7 @@ function showEditSubcategoryModal(){
   }
   const form = document.getElementById('subcategory-edit-form');
   if (form) {
-    form.action = `/admin/subcategories/edit/${currentSubcategoryId}`;
+    form.action = `/subcategories/edit/${currentSubcategoryId}`;
     if (!form._ajaxBound) { form._ajaxBound = true; form.addEventListener('submit', function(e){ e.preventDefault(); submitEditSubcategoryAjax(); }); }
   }
   new bootstrap.Modal(document.getElementById('editSubcategoryModal')).show();
@@ -1873,7 +1867,7 @@ function submitEditCategoryAjax(){
   if (name) body.set('display_name', name);
   if (order) body.set('display_order', String(order));
   if (enabled) body.set('enabled', 'on');
-  fetch(`/admin/categories/edit/${currentCategoryId}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body })
+  fetch(`/categories/edit/${currentCategoryId}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body })
     .then(async (resp) => {
       if (!resp.ok) {
         let msg = 'Ошибка сохранения категории';
@@ -1909,7 +1903,7 @@ function submitEditSubcategoryAjax(){
   if (name) body.set('display_name', name);
   if (order) body.set('display_order', String(order));
   if (enabled) body.set('enabled', 'on');
-  fetch(`/admin/subcategories/edit/${currentSubcategoryId}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body })
+  fetch(`/subcategories/edit/${currentSubcategoryId}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body })
     .then(async (resp) => {
       if (!resp.ok) {
         let msg = 'Ошибка сохранения подкатегории';
@@ -1940,6 +1934,7 @@ function openConfirmDeleteSubcategory(){
 function openConfirmToggleCategory(){
   if (!currentCategoryId) return;
   const cat = (categoriesCache || []).find(c => String(c.id) === String(currentCategoryId));
+  if (cat && String((cat.folder_name||'')).toLowerCase() === 'registrators') { notify('Системную категорию «Регистраторы» нельзя отключать', 'warning'); return; }
   const willDisable = !!(cat && cat.enabled);
   const title = document.getElementById('confirmToggleCategoryTitle');
   const body = document.getElementById('confirmToggleCategoryBody');

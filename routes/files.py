@@ -5,6 +5,7 @@ from os import path, remove
 from utils.common import make_dir, hash_str
 from utils.dir_utils import validate_directory_params
 from services.permissions import dirs_by_permission
+from modules.SQLUtils import SQLUtils
 from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
 import time
@@ -156,13 +157,36 @@ def register(app, media_service, socketio=None) -> None:
 
 		# Safe access to subdir index
 		files = None
+		current_category_id = None
+		current_subcategory_id = None
 		if 1 <= sdid < len(dirs):
-			files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
+			# Prefer new schema when available
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs[0]) if hasattr(app._sql, 'category_id_by_folder') else None
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs[sdid]) if (cat_id and hasattr(app._sql, 'subcategory_id_by_folder')) else None
+				current_category_id = cat_id
+				current_subcategory_id = sub_id
+				if cat_id and sub_id and hasattr(app._sql, 'file_by_category_and_subcategory'):
+					files = app._sql.file_by_category_and_subcategory([cat_id, sub_id])
+				else:
+					files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
+			except Exception:
+				files = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])])
 			# Sort files by date descending (newest first)
 			if files:
 				files.sort(key=lambda f: f.date, reverse=True)
+		# Determine whether to show "Загрузить с регистратора" controls
+		can_reg_import = False
+		try:
+			rows = app._sql.execute_query(
+				f"SELECT id, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE enabled=1;",
+				[]
+			)
+			can_reg_import = bool(rows and len(rows) > 0)
+		except Exception:
+			can_reg_import = False
 		from flask import make_response
-		resp = make_response(render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb))
+		resp = make_response(render_template('files.j2.html', title='Файлы — Заявки-Наряды-Файлы', id=id, dirs=_dirs, files=files, did=did, sdid=sdid, max_file_size_mb=max_file_size_mb, can_reg_import=can_reg_import, current_category_id=current_category_id or 0, current_subcategory_id=current_subcategory_id or 0))
 		resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
 		resp.headers['Pragma'] = 'no-cache'
 		resp.headers['Expires'] = '0'
@@ -177,8 +201,18 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_UPLOAD_START', current_user.name, f'start upload to did={did} sdid={sdid}', request.remote_addr)
 			dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, dirs)
-			dirs = list(dirs[did].keys())
-			dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			root_folder = list(dirs[did].keys())[0]
+			sub_folder = list(dirs[did].keys())[sdid]
+			# Prefer DB-based target dir when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(root_folder)
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, sub_folder) if cat_id else None
+				if cat_id and sub_id:
+					dir = app._sql.get_file_storage_path(cat_id, sub_id)
+				else:
+					dir = path.join(app._sql.config['files']['root'], 'video', root_folder, sub_folder)
+			except Exception:
+				dir = path.join(app._sql.config['files']['root'], 'video', root_folder, sub_folder)
 			
 			# Validate form data
 			name = request.form.get('name', '').strip()
@@ -208,7 +242,15 @@ def register(app, media_service, socketio=None) -> None:
 			# Decide target extension by uploaded file type
 			is_audio = _is_audio_filename(uploaded_file.filename)
 			target_ext = '.m4a' if is_audio else '.mp4'
-			id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None])
+			# Insert using backward-compatible file_add which maps to new schema
+			# Insert using new schema when possible
+			try:
+				if cat_id and sub_id and hasattr(app._sql, 'file_add2'):
+					id = app._sql.file_add2([name, real_name + target_ext, cat_id, sub_id, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None])
+				else:
+					id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None])
+			except Exception:
+				id = app._sql.file_add([name, real_name + target_ext, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None])
 			# try to detect duration from original .webm and notify clients
 			try:
 				import subprocess
@@ -257,15 +299,31 @@ def register(app, media_service, socketio=None) -> None:
 			log_action('FILE_UPLOAD_INIT_START', current_user.name, f'start init upload to did={did} sdid={sdid}', request.remote_addr)
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
-			dirs = list(_dirs[did].keys())
-			dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
-			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
+			root_folder = list(_dirs[did].keys())[0]
+			sub_folder = list(_dirs[did].keys())[sdid]
+			try:
+				cat_id = app._sql.category_id_by_folder(root_folder)
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, sub_folder) if cat_id else None
+				if cat_id and sub_id:
+					dir = app._sql.get_file_storage_path(cat_id, sub_id)
+				else:
+					dir = path.join(app._sql.config['files']['root'], 'video', root_folder, sub_folder)
+			except Exception:
+				dir = path.join(app._sql.config['files']['root'], 'video', root_folder, sub_folder)
+			make_dir(path.join(app._sql.config['files']['root'], 'video'), root_folder, sub_folder)
 			name = (request.form.get('name') or '').strip()
 			desc = (request.form.get('description') or '').strip()
 			if not name:
 				raise ValueError('Название файла не может быть пустым')
 			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
-			fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
+			# Insert via compatibility layer
+			try:
+				if cat_id and sub_id and hasattr(app._sql, 'file_add2'):
+					fid = app._sql.file_add2([name, real_name + '.mp4', cat_id, sub_id, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
+				else:
+					fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
+			except Exception:
+				fid = app._sql.file_add([name, real_name + '.mp4', dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0])
 			if socketio:
 				try:
 						socketio.emit('files:changed', {'reason': 'init', 'id': fid})
@@ -341,6 +399,12 @@ def register(app, media_service, socketio=None) -> None:
 		try:
 			name = (request.form.get('name') or '').strip()
 			desc = (request.form.get('description') or '').strip()
+			# Prevent editing system-generated registrator description
+			try:
+				if file and isinstance(file.description, str) and file.description.startswith('Регистратор — '):
+					desc = file.description
+			except Exception:
+				pass
 			app._sql.file_edit([name, desc, id])
 			log_action('FILE_EDIT', current_user.name, f'edited file {file.name} (id={id})', request.remote_addr)
 			if socketio:
@@ -412,17 +476,23 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
+			# Compute path via DB helpers when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs[0])
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs[sdid]) if cat_id else None
+				if cat_id and sub_id:
+					file_dir = app._sql.get_file_storage_path(cat_id, sub_id)
+				else:
+					file_dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			except Exception:
+				file_dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
 			# Detect explicit download intent via query flag `dl=1`
 			is_download = (request.args.get('dl') == '1')
 			if is_download:
 				log_action('FILE_DOWNLOAD', current_user.name, f'download file {name} from {dirs[0]}/{dirs[sdid]}', request.remote_addr)
 			else:
 				log_action('FILE_OPEN', current_user.name, f'open file {name} in {dirs[0]}/{dirs[sdid]}', request.remote_addr)
-			return send_from_directory(
-				path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]),
-				name,
-				as_attachment=is_download
-			)
+			return send_from_directory(file_dir, name, as_attachment=is_download)
 		except Exception as e:
 			app.flash_error(e)
 			return redirect(url_for('files', did=did, sdid=sdid))
@@ -438,8 +508,18 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
+			# Compute path via DB helpers when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs[0])
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs[sdid]) if cat_id else None
+				if cat_id and sub_id:
+					file_dir = app._sql.get_file_storage_path(cat_id, sub_id)
+				else:
+					file_dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			except Exception:
+				file_dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
 			log_action('FILE_DOWNLOAD', current_user.name, f'download original {base}.webm from {dirs[0]}/{dirs[sdid]}', request.remote_addr)
-			return send_from_directory(path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid]), base + '.webm', as_attachment=True)
+			return send_from_directory(file_dir, base + '.webm', as_attachment=True)
 		except Exception as e:
 			app.flash_error(e)
 		return redirect(url_for('files', did=did, sdid=sdid))
@@ -506,20 +586,45 @@ def register(app, media_service, socketio=None) -> None:
 			_dirs = dirs_by_permission(app, 3, 'f')
 			did, sdid = validate_directory_params(did, sdid, _dirs)
 			dirs = list(_dirs[did].keys())
-			selected_root = (request.form.get('target_root') or '').strip()
-			selected_sub = (request.form.get('target_sub') or '').strip()
-			# Validate selected root exists in allowed dirs (match values as used in template)
-			valid_roots = [list(d.values())[0] for d in _dirs]
-			if selected_root not in valid_roots:
-				raise ValueError('Неверная категория назначения')
-			# Find its sub list to validate subcategory
-			root_index = valid_roots.index(selected_root)
-			valid_subs = list(_dirs[root_index].values())[1:]
-			if selected_sub not in valid_subs:
-				raise ValueError('Неверная подкатегория назначения')
-			new_dir = os.path.join(app._sql.config['files']['root'], 'video', selected_root, selected_sub)
+			# Prefer new id-based fields
+			target_cat_id = 0
+			target_sub_id = 0
+			try:
+				target_cat_id = int(request.form.get('target_category_id') or 0)
+				target_sub_id = int(request.form.get('target_subcategory_id') or 0)
+			except Exception:
+				pass
+			if not (target_cat_id and target_sub_id):
+				# Fallback to legacy folder fields
+				selected_root = (request.form.get('target_root') or '').strip()
+				selected_sub = (request.form.get('target_sub') or '').strip()
+				# Validate legacy names against allowed
+				valid_roots = [list(d.values())[0] for d in _dirs]
+				if selected_root not in valid_roots:
+					raise ValueError('Неверная категория назначения')
+				root_index = valid_roots.index(selected_root)
+				valid_subs = list(_dirs[root_index].values())[1:]
+				if selected_sub not in valid_subs:
+					raise ValueError('Неверная подкатегория назначения')
+				# Resolve ids
+				target_cat_id = app._sql.category_id_by_folder(selected_root)
+				target_sub_id = app._sql.subcategory_id_by_folder(target_cat_id, selected_sub) if target_cat_id else None
+
+			if not (target_cat_id and target_sub_id):
+				raise ValueError('Не выбрана категория/подкатегория назначения')
+
+			# Compute destination dir via DB helpers when possible
+			try:
+				new_dir = app._sql.get_file_storage_path(target_cat_id, target_sub_id)
+			except Exception:
+				# Fallback to legacy path compose (requires legacy fields)
+				new_dir = os.path.join(app._sql.config['files']['root'], 'video', selected_root, selected_sub)
 			# Ensure destination directory exists
-			make_dir(os.path.join(app._sql.config['files']['root'], 'video'), selected_root, selected_sub)
+			try:
+				# Best effort: ensure leaf exists
+				os.makedirs(new_dir, exist_ok=True)
+			except Exception:
+				pass
 			# Move files on disk: real_name without extension combines with mp4/webm if exist
 			old_base = os.path.join(file.path, os.path.splitext(file.real_name)[0])
 			new_base = os.path.join(new_dir, os.path.splitext(file.real_name)[0])
@@ -528,10 +633,11 @@ def register(app, media_service, socketio=None) -> None:
 				new_path = new_base + ext
 				if os.path.exists(old_path):
 					os.replace(old_path, new_path)
-			# Update DB path
-			app._sql.file_move([new_dir, id])
+			# Update DB category/subcategory
+			if target_cat_id and target_sub_id:
+				app._sql.file_move_to_subcategory([target_cat_id, target_sub_id, id])
 			
-			# Refresh file object to update exists status
+			# Refresh file object to update exists status and in-memory path
 			file.path = new_dir
 			file.update_exists_status()
 			
@@ -752,7 +858,16 @@ def register(app, media_service, socketio=None) -> None:
 			if sdid >= len(dirs[did]):
 				sdid = 1
 			dirs = list(dirs[did].keys())
-			dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			# Compute path via DB helpers when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs[0])
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs[sdid]) if cat_id else None
+				if cat_id and sub_id:
+					dir = app._sql.get_file_storage_path(cat_id, sub_id)
+				else:
+					dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
+			except Exception:
+				dir = path.join(app._sql.config['files']['root'], 'video', dirs[0], dirs[sdid])
 			make_dir(path.join(app._sql.config['files']['root'], 'video'), dirs[0], dirs[sdid])
 			real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') + str(randint(1000, 9999)))
 			fname = path.join(dir, real_name)
@@ -782,8 +897,14 @@ def register(app, media_service, socketio=None) -> None:
 			else:
 				real_target = real_name + '.mp4'
 				convert_dst = fname + '.mp4'
-			# Args need to match file_add signature: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb]
-			id = app._sql.file_add([name, real_target, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
+			# Insert using new schema when possible
+			try:
+				if cat_id and sub_id and hasattr(app._sql, 'file_add2'):
+					id = app._sql.file_add2([name, real_target, cat_id, sub_id, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
+				else:
+					id = app._sql.file_add([name, real_target, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
+			except Exception:
+				id = app._sql.file_add([name, real_target, dir, f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})', desc, dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0])
 			media_service.convert_async(fname + '.webm', convert_dst, ('file', id))
 			# Log successful end of recording save
 			try:
@@ -844,7 +965,16 @@ def register(app, media_service, socketio=None) -> None:
 				resp.headers['Pragma'] = 'no-cache'
 				resp.headers['Expires'] = '0'
 				return resp
-			fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
+			# Use DB-based file retrieval when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs_list[0])
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs_list[sdid]) if cat_id else None
+				if cat_id and sub_id and hasattr(app._sql, 'file_by_category_and_subcategory'):
+					fs = app._sql.file_by_category_and_subcategory(cat_id, sub_id)
+				else:
+					fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
+			except Exception:
+				fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
 			# Sort files by date descending (newest first)
 			if fs:
 				fs.sort(key=lambda f: f.date, reverse=True)
@@ -896,7 +1026,17 @@ def register(app, media_service, socketio=None) -> None:
 				resp.headers['Pragma'] = 'no-cache'
 				resp.headers['Expires'] = '0'
 				return resp
-			fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])]) or []
+			# Use DB-based file retrieval when possible
+			try:
+				cat_id = app._sql.category_id_by_folder(dirs_list[0])
+				sub_id = app._sql.subcategory_id_by_folder(cat_id, dirs_list[sdid]) if cat_id else None
+				if cat_id and sub_id and hasattr(app._sql, 'file_by_category_and_subcategory'):
+					fs = app._sql.file_by_category_and_subcategory(cat_id, sub_id)
+				else:
+					fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
+			except Exception:
+				fs = app._sql.file_by_path([path.join(app._sql.config['files']['root'], 'video', dirs_list[0], dirs_list[sdid])])
+			fs = fs or []
 			if q:
 				q_cf = q.casefold()
 				def matches(file):

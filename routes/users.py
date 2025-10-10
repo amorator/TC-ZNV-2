@@ -165,7 +165,9 @@ def register(app):
 			if app._sql.user_exists(login, name):
 				raise Exception('Пользователь уже существует!')
 			
-			app._sql.user_add([login, name, app.hash(password), (request.form.get('group') or '').strip(), int(request.form.get('enabled') != None), (request.form.get('permission') or '').strip()])
+			# Use permission string as provided
+			perm_value = (request.form.get('permission') or '').strip()
+			app._sql.user_add([login, name, app.hash(password), (request.form.get('group') or '').strip(), int(request.form.get('enabled') != None), perm_value])
 			log_action('USER_CREATE', current_user.name, f'created user {name} ({login})', request.remote_addr)
 		except Exception as e:
 			ok = False
@@ -217,15 +219,15 @@ def register(app):
 				except Exception:
 					permission_value = ''
 
-			# If admin is present (any 'z' in any segment) or configured admin account,
-			# normalize to full access legacy string including Files 'f'
+			# Normalize only if 'z' is present anywhere in the legacy string
 			try:
 				parts = (permission_value or '').split(',')
 				while len(parts) < 4:
 					parts.append('')
-				is_admin_any = any(('z' in (seg or '')) for seg in parts) or getattr(current_user, 'is_config_admin', False)
-				if is_admin_any:
-					permission_value = 'aef,a,abcdflm,ab'
+				is_z = any(('z' in (seg or '')) for seg in parts)
+				if is_z:
+					# Use 7-segment full-access string to include Categories page rights
+					permission_value = 'aef,a,abcdflm,ab,ab,ab,abcd'
 			except Exception:
 				pass
 			

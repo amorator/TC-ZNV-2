@@ -35,6 +35,21 @@ class LoggingConfig:
     
     def _setup_loggers(self):
         """Setup all application loggers."""
+        # Safe rotating file handler to avoid FileNotFoundError during rollover when some
+        # rotated files are missing (common on first runs or manual cleanup)
+        class SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+            def doRollover(self):
+                try:
+                    super().doRollover()
+                except FileNotFoundError:
+                    try:
+                        # Best-effort: ensure base file exists then continue
+                        open(self.baseFilename, 'a').close()
+                    except Exception:
+                        pass
+                except PermissionError:
+                    # Ignore read-only FS issues to keep the app running
+                    pass
         # Root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
@@ -54,7 +69,7 @@ class LoggingConfig:
         root_logger.addHandler(console_handler)
         
         # Error log handler with filter to suppress benign gevent websocket KeyError on abrupt reloads
-        error_handler = logging.handlers.RotatingFileHandler(
+        error_handler = SafeRotatingFileHandler(
             path.join(self.logs_dir, 'error.log'),
             maxBytes=self.max_bytes,
             backupCount=self.backup_count,
@@ -77,7 +92,7 @@ class LoggingConfig:
         root_logger.addHandler(error_handler)
         
         # Access log handler
-        access_handler = logging.handlers.RotatingFileHandler(
+        access_handler = SafeRotatingFileHandler(
             path.join(self.logs_dir, 'access.log'),
             maxBytes=self.max_bytes,
             backupCount=self.backup_count,
@@ -99,7 +114,7 @@ class LoggingConfig:
         access_logger.propagate = False
         
         # Actions log handler
-        actions_handler = logging.handlers.RotatingFileHandler(
+        actions_handler = SafeRotatingFileHandler(
             path.join(self.logs_dir, 'actions.log'),
             maxBytes=self.max_bytes,
             backupCount=self.backup_count,
@@ -121,7 +136,7 @@ class LoggingConfig:
         actions_logger.propagate = False
         
         # File log handler for general application logs
-        file_handler = logging.handlers.RotatingFileHandler(
+        file_handler = SafeRotatingFileHandler(
             path.join(self.logs_dir, 'app.log'),
             maxBytes=self.max_bytes,
             backupCount=self.backup_count,

@@ -5,6 +5,7 @@ def register_all(app, tp, media_service, socketio=None):
 	from . import push
 	from . import admin
 	from . import categories
+	from . import registrators
 	from . import wip
 
 	# Ensure Flask secret key is loaded from DB (and generated if missing)
@@ -23,6 +24,7 @@ def register_all(app, tp, media_service, socketio=None):
 	push.register(app)
 	admin.register(app, socketio)
 	categories.register(app, socketio)
+	registrators.register(app, socketio)
 	wip.register(app)
 
 

@@ -70,6 +70,11 @@
                     <button type="button" id="record-file-button" class="btn btn-primary" data-testid="files-record-open" data-action="record-file" onclick="popupToggle('popup-rec');">
                       <i class="bi bi-camera-video"></i> Записать
                     </button>
+                    {% if can_reg_import %}
+                    <button type="button" id="import-from-registrator" class="btn btn-outline-primary" data-action="import-registrator" onclick="window.openRegistratorImport && window.openRegistratorImport();">
+                      <i class="bi bi-cloud-download"></i> Загрузить с регистратора
+                    </button>
+                    {% endif %}
                   </div>
                 {% endif %}
               </div>
@@ -169,6 +174,12 @@
           <li class="context-menu__separator"></li>
           <li class="context-menu__item" data-action="add" data-testid="files-cm-add">Загрузить</li>
           <li class="context-menu__item" data-action="record" data-testid="files-cm-record">Записать</li>
+          {% if can_reg_import %}
+          <li class="context-menu__item" data-action="import-registrator" data-testid="files-cm-import-registrator">Загрузить с регистратора</li>
+          {% endif %}
+          {% if can_reg_import %}
+          <li class="context-menu__item" data-action="import-registrator" data-testid="files-cm-import-registrator">Загрузить с регистратора</li>
+          {% endif %}
         </ul>
       </div>
 
@@ -220,6 +231,41 @@
     </div>
   </div>
 
+  {% if can_reg_import %}
+  <div id="popup-import-registrator" class="overlay-container" data-testid="files-modal-import-registrator">
+    <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-import-registrator-title">
+      <h1 class="popup__title mb-4" id="popup-import-registrator-title">Загрузка с регистратора</h1>
+      <div class="popup__body">
+        <div class="mb-3">
+          <label class="form-control__label" for="reg-picker">Регистратор:</label>
+          <select id="reg-picker" class="select form-control__control"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-control__label">Путь:</label>
+          <div class="d-flex gap-2">
+            <select id="reg-level" class="select form-control__control">
+              <option value="date">Дата</option>
+              <option value="user">Пользователь</option>
+              <option value="time">Время</option>
+              <option value="type">Тип</option>
+              <option value="file">Файл</option>
+            </select>
+            <input id="reg-parent" class="input form-control__control" placeholder="Например: 2025-10-10/user1/10-00-00/VIDEO" />
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-control__label" for="reg-files">Файлы:</label>
+          <textarea id="reg-files" class="input form-control__control" rows="3" placeholder="имя1.ext\nимя2.ext"></textarea>
+          <small class="form-text text-muted">Каждое имя файла на новой строке.</small>
+        </div>
+      </div>
+      <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
+        <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-import-registrator');">Отмена</button>
+        <button type="button" class="btn btn-primary" onclick="window.submitRegistratorImport && window.submitRegistratorImport();">Загрузить</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <div id="popup-edit" class="overlay-container" data-testid="files-modal-edit">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-edit-title">
       <h1 class="popup__title mb-4" id="popup-edit-title">Редактирование файла</h1>
@@ -419,6 +465,13 @@
 
 {% endblock %}
 <script>
+// Expose current category/subcategory for registrator import
+try {
+  window.current_category_id = {{ (current_category_id or 0) | int }};
+  window.current_subcategory_id = {{ (current_subcategory_id or 0) | int }};
+  document.body.setAttribute('data-current-category-id', String(window.current_category_id||0));
+  document.body.setAttribute('data-current-subcategory-id', String(window.current_subcategory_id||0));
+} catch(_) {}
 // Фокус-ловушка для модальных окон файловой страницы (кастомные попапы)
 (function setupFilesFocusTrap(){
   try {

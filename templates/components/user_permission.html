@@ -134,10 +134,8 @@
             if (!internalUpdate) {
                 try {
                     var hasZ = parts.some(function (seg) { return (seg || '').indexOf('z') !== -1; });
-                    var isFull4 = (raw === 'aef,a,abcdflm,ab');
-                    var isFull6 = (raw === 'aef,a,abcdflm,ab,ab,ab');
                     var isFull7 = (raw === 'aef,a,abcdflm,ab,ab,ab,abcd');
-                    if (hasZ || isFull4 || isFull6 || isFull7) {
+                    if (hasZ || isFull7) {
                         setAdminFull(true);
                     }
                 } catch (_) { }
@@ -255,7 +253,7 @@
         // On first load, reflect input->boxes; if empty, keep unchecked
         applyBoxesFromLegacy();
         // If current legacy string already equals full-admin, enable admin toggle and lock boxes
-        if ((input.value || '') === 'aef,a,abcdflm,ab,ab,ab,abcd' || (input.value || '') === 'aef,a,abcdflm,ab,ab,ab' || (input.value || '') === 'aef,a,abcdflm,ab') {
+        if ((input.value || '') === 'aef,a,abcdflm,ab,ab,ab,abcd') {
             setAdminFull(true);
         }
     })();

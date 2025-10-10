@@ -18,7 +18,10 @@ import signal
 from os import path, listdir
 from datetime import datetime as dt, timedelta
 import urllib.request as http
-from bs4 import BeautifulSoup as bs
+try:
+	from bs4 import BeautifulSoup as bs
+except Exception:
+	bs = None
 from modules.logging import init_logging, get_logger, log_action
 
 from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
@@ -31,7 +34,10 @@ from utils.common import make_dir
 from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
-from werkzeug.middleware.proxy_fix import ProxyFix
+try:
+	from werkzeug.middleware.proxy_fix import ProxyFix
+except Exception:
+	ProxyFix = None
 from modules.middleware import init_middleware
 
 app = Server(path.dirname(path.realpath(__file__)))
@@ -40,11 +46,15 @@ init_logging()
 _log = get_logger(__name__)
 
 # Initialize middleware for access logging
-init_middleware(app)
+try:
+	init_middleware(app)
+except Exception:
+	pass
 
 # Respect proxy headers to keep original scheme/host/port (avoids forced 443 redirects)
 try:
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+    if ProxyFix:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 except Exception:
     pass
 # Optional cross-process message queue (e.g., Redis) to deliver emits across workers
@@ -79,6 +89,10 @@ except Exception:
     pass
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql, socketio)
+try:
+    setattr(app, 'media_service', media_service)
+except Exception:
+    pass
 register_all(app, tp, media_service, socketio)
 
 make_dir(app._sql.config['files']['root'], 'video')
