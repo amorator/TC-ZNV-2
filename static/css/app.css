@@ -247,11 +247,21 @@
     background-color: var(--btn-primary-bg, var(--btn-focus)) !important;
     border-color: var(--btn-primary-bg, var(--btn-focus)) !important;
     color: var(--btn-primary-fg, var(--body-bg)) !important;
+    /* Override Bootstrap button vars to match theme on files page */
+    --bs-btn-color: var(--btn-primary-fg, var(--body-bg));
+    --bs-btn-bg: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-border-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-hover-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-active-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-active-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
 }
 
 .btn-primary:hover,
 .btn.btn-primary:hover {
-    filter: brightness(0.95);
+    background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    color: var(--btn-primary-fg, var(--body-bg)) !important;
 }
 
 .btn-primary:active,
@@ -264,6 +274,83 @@
     outline: 2px solid var(--btn-focus);
     outline-offset: 2px;
     box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Force theme colors on Files page buttons regardless of Bootstrap defaults */
+.files-page .btn {
+    /* Provide fallbacks for any button variant using Bootstrap vars */
+    --bs-btn-color: var(--button-text, var(--btn-primary-fg, var(--body-bg)));
+    --bs-btn-bg: var(--button-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-border-color: var(--button-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-color: var(--btn-primary-fg, var(--body-bg));
+    --bs-btn-active-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-active-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-active-color: var(--btn-primary-fg, var(--body-bg));
+}
+
+.files-page .btn-primary,
+.files-page .btn.btn-primary {
+    background-color: var(--btn-primary-bg, var(--btn-focus)) !important;
+    border-color: var(--btn-primary-bg, var(--btn-focus)) !important;
+    color: var(--btn-primary-fg, var(--body-bg)) !important;
+    /* Ensure Bootstrap vars follow theme within files page */
+    --bs-btn-color: var(--btn-primary-fg, var(--body-bg));
+    --bs-btn-bg: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-border-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-hover-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-hover-color: var(--btn-primary-fg, var(--body-bg));
+    --bs-btn-active-bg: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+    --bs-btn-active-border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus)));
+}
+
+.files-page .btn-primary:hover,
+.files-page .btn.btn-primary:hover {
+    background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    color: var(--btn-primary-fg, var(--body-bg)) !important;
+}
+
+.files-page .btn-primary:active,
+.files-page .btn.btn-primary:active {
+    background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+}
+
+/* Ensure all active/checked variants follow theme (Bootstrap patterns) */
+.files-page .btn-primary.active,
+.files-page .btn.btn-primary.active,
+.files-page .show>.btn-primary.dropdown-toggle,
+.files-page .show>.btn.btn-primary.dropdown-toggle,
+.files-page .btn-check:checked+.btn.btn-primary,
+.files-page .btn-check:active+.btn.btn-primary {
+    background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, var(--btn-focus))) !important;
+    color: var(--btn-primary-fg, var(--body-bg)) !important;
+}
+
+/* Focus styles override Bootstrap blue glow while keeping accessibility */
+.files-page .btn-primary:focus,
+.files-page .btn.btn-primary:focus,
+.files-page .btn-primary:focus-visible,
+.files-page .btn.btn-primary:focus-visible {
+    outline: 2px solid var(--btn-focus) !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+}
+
+/* Outline primary within files page should also follow theme hover */
+.files-page .btn-outline-primary {
+    --bs-btn-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-border-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-hover-bg: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-hover-border-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-hover-color: var(--btn-primary-fg, var(--body-bg));
+    --bs-btn-active-bg: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-active-border-color: var(--btn-primary-bg, var(--btn-focus));
+    --bs-btn-active-color: var(--btn-primary-fg, var(--body-bg));
 }
 
 /* Add file button wrapper */

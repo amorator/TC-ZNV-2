@@ -127,22 +127,27 @@
 /* Fixed column widths for permissions tables */
 .permissions-table .table thead th:nth-child(1),
 .permissions-table .table tbody td:nth-child(1) {
-    width: 30% !important;
+    width: 28% !important;
 }
 
 .permissions-table .table thead th:nth-child(2),
 .permissions-table .table tbody td:nth-child(2) {
-    width: 23% !important;
+    width: 18% !important;
 }
 
 .permissions-table .table thead th:nth-child(3),
 .permissions-table .table tbody td:nth-child(3) {
-    width: 24% !important;
+    width: 18% !important;
 }
 
 .permissions-table .table thead th:nth-child(4),
 .permissions-table .table tbody td:nth-child(4) {
-    width: 23% !important;
+    width: 18% !important;
+}
+
+.permissions-table .table thead th:nth-child(5),
+.permissions-table .table tbody td:nth-child(5) {
+    width: 18% !important;
 }
 
 /* Inherit zebra and hover from global table styles */

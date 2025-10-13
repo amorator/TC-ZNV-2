@@ -633,21 +633,50 @@
       el.innerHTML = "";
       var totalPages = parseInt(resp.total_pages || 1, 10);
       var currentPage = parseInt(resp.page || 1, 10);
-      for (var i = 1; i <= totalPages; i++) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className =
-          "btn btn-sm " +
-          (i === currentPage ? "btn-primary" : "btn-outline-primary");
-        b.textContent = i;
-        (function (page) {
-          b.addEventListener("click", function () {
+      var ul = document.createElement("ul");
+      ul.className = "pagination pagination-sm mb-0";
+
+      var makeItem = function (page, active, disabled, label) {
+        var li = document.createElement("li");
+        li.className =
+          "page-item" +
+          (active ? " active" : "") +
+          (disabled ? " disabled" : "");
+        var a = document.createElement("a");
+        a.className = "page-link";
+        a.href = "#";
+        a.textContent = label != null ? String(label) : String(page);
+        if (!disabled && !active) {
+          a.addEventListener("click", function (e) {
+            e.preventDefault();
             if (which === "groups") loadRegPermissions(page, null);
             else loadRegPermissions(null, page);
           });
-        })(i);
-        el.appendChild(b);
+        }
+        li.appendChild(a);
+        return li;
+      };
+
+      // Prev
+      ul.appendChild(
+        makeItem(Math.max(1, currentPage - 1), false, currentPage === 1, "«")
+      );
+
+      for (var i = 1; i <= totalPages; i++) {
+        ul.appendChild(makeItem(i, i === currentPage, false, i));
       }
+
+      // Next
+      ul.appendChild(
+        makeItem(
+          Math.min(totalPages, currentPage + 1),
+          false,
+          currentPage === totalPages,
+          "»"
+        )
+      );
+
+      el.appendChild(ul);
     } catch (_) {}
   }
 

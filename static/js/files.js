@@ -4033,3 +4033,107 @@ window.markViewedAjax = function (fileId) {
     }
   } catch (_) {}
 })();
+
+(function () {
+  if (typeof window.submitRegistratorImport === "function") return;
+  window.submitRegistratorImport = function () {
+    try {
+      var ridEl = document.getElementById("reg-picker");
+      var rid = ridEl && ridEl.value ? parseInt(ridEl.value, 10) : 0;
+      var parentEl = document.getElementById("reg-parent");
+      var filesEl = document.getElementById("reg-files");
+      if (!rid) {
+        if (window.appNotify) window.appNotify("Выберите регистратор");
+        return;
+      }
+      var did =
+        typeof window.currentDid !== "undefined" && window.currentDid != null
+          ? parseInt(window.currentDid, 10)
+          : 0;
+      var sdid =
+        typeof window.currentSdid !== "undefined" && window.currentSdid != null
+          ? parseInt(window.currentSdid, 10)
+          : 0;
+      if (!did || !sdid) {
+        if (window.appNotify)
+          window.appNotify("Не выбрана категория/подкатегория");
+        return;
+      }
+      var baseParts = { date: "", user: "", time: "", type: "" };
+      var parent = parentEl && parentEl.value ? String(parentEl.value) : "";
+      if (parent) {
+        var pp = parent.split("/");
+        var keys = ["date", "user", "time", "type"];
+        for (var i = 0; i < pp.length && i < keys.length; i++)
+          baseParts[keys[i]] = pp[i];
+      }
+      var files = [];
+      if (filesEl && filesEl.value) {
+        files = filesEl.value
+          .split(/\r?\n/)
+          .map(function (s) {
+            return s.trim();
+          })
+          .filter(function (s) {
+            return !!s;
+          });
+      }
+      if (!files.length) {
+        if (window.appNotify) window.appNotify("Укажите имена файлов");
+        return;
+      }
+      var payload = {
+        category_id: did,
+        subcategory_id: sdid,
+        base_parts: baseParts,
+        files: files,
+      };
+      var url = "/registrators/" + encodeURIComponent(rid) + "/import";
+      var doNotify = function (ok, msg) {
+        if (window.appNotify)
+          window.appNotify(ok ? "Импорт начат" : msg || "Ошибка импорта");
+      };
+      if (typeof window.postJson === "function") {
+        window
+          .postJson(url, payload)
+          .then(function (j) {
+            doNotify(j && j.status === "success", j && j.message);
+            if (
+              j &&
+              j.status === "success" &&
+              typeof window.popupToggle === "function"
+            )
+              window.popupToggle("popup-import-registrator");
+          })
+          .catch(function () {
+            doNotify(false);
+          });
+      } else {
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (j) {
+            doNotify(j && j.status === "success", j && j.message);
+            if (
+              j &&
+              j.status === "success" &&
+              typeof window.popupToggle === "function"
+            )
+              window.popupToggle("popup-import-registrator");
+          })
+          .catch(function () {
+            doNotify(false);
+          });
+      }
+    } catch (e) {
+      try {
+        if (window.appNotify) window.appNotify("Ошибка импорта");
+      } catch (_) {}
+    }
+  };
+})();

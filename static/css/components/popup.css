@@ -100,6 +100,25 @@
   filter: brightness(.95);
 }
 
+/* Ensure active/pressed state follows theme (override bootstrap blue) */
+.btn-primary:active,
+.btn-primary.active,
+.show>.btn-primary.dropdown-toggle,
+.btn-check:checked+.btn-primary,
+.btn-check:active+.btn-primary {
+  background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, #0d6efd));
+  color: var(--btn-primary-fg, #ffffff);
+  border-color: var(--btn-primary-hover-bg, var(--btn-primary-bg, #0d6efd));
+}
+
+/* Remove blue focus halo; use themed outline */
+.btn-primary:focus,
+.btn-primary:focus-visible {
+  outline: 2px solid var(--btn-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
 .btn-secondary {
   background-color: var(--btn-secondary-bg, #6c757d);
   color: var(--btn-secondary-fg, #ffffff);
