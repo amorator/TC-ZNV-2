@@ -252,11 +252,23 @@
             </select>
             <input id="reg-parent" class="input form-control__control" placeholder="Например: 2025-10-10/user1/10-00-00/VIDEO" />
           </div>
+          <small class="form-text text-muted">Выберите уровень и путь. Список вариантов ниже формируется автоматически со страницы регистратора.</small>
         </div>
         <div class="mb-3">
-          <label class="form-control__label" for="reg-files">Файлы:</label>
-          <textarea id="reg-files" class="input form-control__control" rows="3" placeholder="имя1.ext\nимя2.ext"></textarea>
-          <small class="form-text text-muted">Каждое имя файла на новой строке.</small>
+          <label class="form-control__label">Шаги выбора:</label>
+          <div class="d-flex flex-column gap-2">
+            <select id="reg-opt-date" class="select form-control__control" aria-label="Дата"></select>
+            <select id="reg-opt-user" class="select form-control__control" aria-label="Пользователь"></select>
+            <select id="reg-opt-time" class="select form-control__control" aria-label="Время"></select>
+            <select id="reg-opt-type" class="select form-control__control" aria-label="Тип"></select>
+          </div>
+          <small class="form-text text-muted">Выбирайте по очереди. После выбора предыдущего списка автоматически подгружается следующий.</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-control__label">Файлы:</label>
+          <div id="reg-file-list" class="d-flex flex-column gap-1" style="max-height: 240px; overflow:auto"></div>
+          <small class="form-text text-muted">Отметьте файлы для загрузки (макс. <span id="reg-max-files">{{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}</span>). При отсутствии списка можно ввести вручную:</small>
+          <textarea id="reg-files" class="input form-control__control mt-1" rows="3" placeholder="имя1.ext\nимя2.ext"></textarea>
         </div>
       </div>
       <div class="popup__actions d-flex gap-2 justify-content-between mt-4">

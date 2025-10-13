@@ -1,5 +1,80 @@
+(function modalHelpers() {
+  if (window.__modalHelpersInstalled) return;
+  window.__modalHelpersInstalled = true;
+  window.showModalEl = function (el) {
+    try {
+      // Ensure aria-hidden is cleared before show (avoid focused hidden ancestor)
+      try {
+        el.removeAttribute("aria-hidden");
+      } catch (_) {}
+      // Blur focus, let Bootstrap manage aria attributes (match categories.js behavior)
+      try {
+        document.activeElement &&
+          document.activeElement.blur &&
+          document.activeElement.blur();
+      } catch (_) {}
+      try {
+        (bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el)).show();
+      } catch (_) {}
+    } catch (_) {}
+  };
+  window.hideModalEl = function (el) {
+    try {
+      // Blur any focused element inside to avoid aria-hidden focus trap
+      try {
+        var ae = document.activeElement;
+        if (ae && (ae === el || el.contains(ae))) {
+          ae.blur && ae.blur();
+        }
+      } catch (_) {}
+      // Proactively move focus away before Bootstrap toggles aria-hidden
+      try {
+        document.body &&
+          typeof document.body.focus === "function" &&
+          document.body.focus();
+      } catch (_) {}
+      // Hide on next tick to ensure focus change is committed
+      try {
+        var inst =
+          bootstrap && bootstrap.Modal && bootstrap.Modal.getInstance(el);
+        if (!inst && bootstrap && bootstrap.Modal)
+          inst = new bootstrap.Modal(el);
+        if (inst && inst.hide) {
+          setTimeout(function () {
+            try {
+              inst.hide();
+            } catch (_) {}
+          }, 0);
+        }
+      } catch (_) {}
+    } catch (_) {}
+  };
+})();
 (function () {
   "use strict";
+
+  // Ensure focus leaves the modal before Bootstrap applies aria-hidden on hide
+  (function installModalFocusGuards() {
+    try {
+      if (window.__regModalGuardsInstalled) return;
+      window.__regModalGuardsInstalled = true;
+      document.addEventListener(
+        "hide.bs.modal",
+        function (ev) {
+          try {
+            var el = ev && ev.target;
+            var ae = document.activeElement;
+            if (el && ae && (ae === el || el.contains(ae))) {
+              if (typeof ae.blur === "function") ae.blur();
+              if (document.body && typeof document.body.focus === "function")
+                document.body.focus();
+            }
+          } catch (_) {}
+        },
+        true
+      );
+    } catch (_) {}
+  })();
 
   function q(id) {
     return document.getElementById(id);
@@ -196,24 +271,7 @@
             if (r && r.status === "success") {
               try {
                 const modalEl = document.getElementById("addRegistratorModal");
-                if (modalEl) {
-                  // remove focus from inputs before hiding to avoid aria-hidden focus issue
-                  try {
-                    document.activeElement &&
-                      document.activeElement.blur &&
-                      document.activeElement.blur();
-                  } catch (_) {}
-                  try {
-                    let m =
-                      bootstrap.Modal.getInstance(modalEl) ||
-                      new bootstrap.Modal(modalEl);
-                    m.hide();
-                  } catch (_) {
-                    modalEl.setAttribute("aria-hidden", "true");
-                    modalEl.style.display = "none";
-                    modalEl.classList.remove("show");
-                  }
-                }
+                if (modalEl) hideModalEl(modalEl);
               } catch (_) {}
               loadRegistrators();
             } else if (r && r.message) {
@@ -226,6 +284,9 @@
   })();
 
   function editRegistrator(item) {
+    if (window.openEditRegistratorModalUI)
+      return window.openEditRegistratorModalUI(item);
+    // Fallback to prompt if modal not available
     var name = prompt("Название регистратора", item.name || "");
     if (!name && name !== "") return;
     var urlTemplate = prompt(
@@ -278,22 +339,12 @@
       // rebind click
       if (btn.__bound) btn.removeEventListener("click", btn.__handler);
       btn.__handler = function () {
-        try {
-          bootstrap.Modal.getInstance(m)?.hide();
-        } catch (_) {
-          m.style.display = "none";
-          m.classList.remove("show");
-        }
+        hideModalEl(m);
         deleteRegistrator(item);
       };
       btn.addEventListener("click", btn.__handler);
       btn.__bound = true;
-      try {
-        new bootstrap.Modal(m).show();
-      } catch (_) {
-        m.style.display = "block";
-        m.classList.add("show");
-      }
+      showModalEl(m);
     } catch (_) {
       deleteRegistrator(item);
     }
@@ -436,6 +487,7 @@
     tbody.innerHTML = "";
     (groups || []).forEach(function (group) {
       var row = document.createElement("tr");
+      row.className = "small";
       var checked =
         permissions && permissions[group.id] ? !!permissions[group.id] : false;
       var isAdminGroup = false;
@@ -458,9 +510,9 @@
           <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
             <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="${
               group.id
-            }" 
-              ${checked || isAdminGroup ? "checked" : ""} 
-              ${isAdminGroup ? "disabled" : ""} 
+            }"
+              ${checked || isAdminGroup ? "checked" : ""}
+              ${isAdminGroup ? "disabled" : ""}
               onchange="updateRegistratorGroupPermission(${
                 group.id
               }, this.checked)">
@@ -476,12 +528,6 @@
         if (input) {
           input.disabled = true;
           input.checked = true;
-          console.log(
-            "Forced disabled state for group",
-            group.name,
-            "input.disabled:",
-            input.disabled
-          );
         }
       }
 
@@ -555,6 +601,7 @@
     tbody.innerHTML = "";
     (users || []).forEach(function (user) {
       var row = document.createElement("tr");
+      row.className = "small";
       var checked =
         permissions && permissions[user.id] ? !!permissions[user.id] : false;
       var force = false;
@@ -597,9 +644,9 @@
           <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
             <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="${
               user.id
-            }" 
-              ${checked || force ? "checked" : ""} 
-              ${force ? "disabled" : ""} 
+            }"
+              ${checked || force ? "checked" : ""}
+              ${force ? "disabled" : ""}
               onchange="updateRegistratorUserPermission(${
                 user.id
               }, this.checked)">
@@ -631,52 +678,64 @@
       );
       if (!el) return;
       el.innerHTML = "";
-      var totalPages = parseInt(resp.total_pages || 1, 10);
+      var total = parseInt(resp.total || 0, 10);
+      var size = parseInt(resp.page_size || 5, 10);
+      var totalPages = Math.max(1, Math.ceil(total / (size || 1)));
       var currentPage = parseInt(resp.page || 1, 10);
-      var ul = document.createElement("ul");
-      ul.className = "pagination pagination-sm mb-0";
 
-      var makeItem = function (page, active, disabled, label) {
+      // Prev controls
+      var mk = function (label, target, disabled, active) {
         var li = document.createElement("li");
         li.className =
           "page-item" +
-          (active ? " active" : "") +
-          (disabled ? " disabled" : "");
+          (disabled ? " disabled" : "") +
+          (active ? " active" : "");
         var a = document.createElement("a");
-        a.className = "page-link";
         a.href = "#";
-        a.textContent = label != null ? String(label) : String(page);
-        if (!disabled && !active) {
+        a.className = "page-link";
+        a.textContent = label;
+        a.addEventListener("click", function (e) {
+          e.preventDefault();
+          if (disabled) return;
+          if (which === "groups") loadRegPermissions(target, null);
+          else loadRegPermissions(null, target);
+        });
+        li.appendChild(a);
+        return li;
+      };
+
+      el.appendChild(mk("«", 1, currentPage === 1, false));
+      el.appendChild(
+        mk("‹", Math.max(1, currentPage - 1), currentPage === 1, false)
+      );
+
+      for (var i = 1; i <= totalPages; i++) {
+        var li = document.createElement("li");
+        li.className = "page-item" + (i === currentPage ? " active" : "");
+        var a = document.createElement("a");
+        a.href = "#";
+        a.className = "page-link";
+        a.textContent = i;
+        (function (page) {
           a.addEventListener("click", function (e) {
             e.preventDefault();
             if (which === "groups") loadRegPermissions(page, null);
             else loadRegPermissions(null, page);
           });
-        }
+        })(i);
         li.appendChild(a);
-        return li;
-      };
-
-      // Prev
-      ul.appendChild(
-        makeItem(Math.max(1, currentPage - 1), false, currentPage === 1, "«")
-      );
-
-      for (var i = 1; i <= totalPages; i++) {
-        ul.appendChild(makeItem(i, i === currentPage, false, i));
+        el.appendChild(li);
       }
 
-      // Next
-      ul.appendChild(
-        makeItem(
+      el.appendChild(
+        mk(
+          "›",
           Math.min(totalPages, currentPage + 1),
-          false,
           currentPage === totalPages,
-          "»"
+          false
         )
       );
-
-      el.appendChild(ul);
+      el.appendChild(mk("»", totalPages, currentPage === totalPages, false));
     } catch (_) {}
   }
 
@@ -734,6 +793,9 @@
   }
 
   function openAddRegistratorModal() {
+    if (window.openAddRegistratorModalUI)
+      return window.openAddRegistratorModalUI();
+    // Fallback to prompt if modal not available
     var name = prompt("Название регистратора");
     if (!name) return;
     var localFolder = prompt("Папка на диске (a-z, A-Z, 0-9, -, _)");
@@ -752,6 +814,56 @@
       else if (j && j.message) alert(j.message);
     });
   }
+
+  // UI modal openers
+  window.openAddRegistratorModalUI = function () {
+    var modalEl = document.getElementById("addRegistratorModal");
+    if (!modalEl) return;
+    showModalEl(modalEl);
+  };
+
+  window.openEditRegistratorModalUI = function (item) {
+    var modalEl = document.getElementById("editRegistratorModal");
+    if (!modalEl) return;
+    var idEl = document.getElementById("regEditId");
+    var nameEl = document.getElementById("regEditName");
+    var urlEl = document.getElementById("regEditUrl");
+    if (idEl) idEl.value = item.id;
+    if (nameEl) nameEl.value = item.name || "";
+    if (urlEl) urlEl.value = item.url_template || "";
+    showModalEl(modalEl);
+  };
+
+  // Save from Edit modal
+  (function bindEditModal() {
+    try {
+      var btn = document.getElementById("regEditSubmit");
+      if (!btn || btn.__bound) return;
+      btn.__bound = true;
+      btn.addEventListener("click", function () {
+        try {
+          var id = (document.getElementById("regEditId") || {}).value;
+          var name = (document.getElementById("regEditName") || {}).value || "";
+          var url = (document.getElementById("regEditUrl") || {}).value || "";
+          if (!id) return;
+          postJson("/registrators/" + encodeURIComponent(id), {
+            name: name.trim(),
+            url_template: url.trim(),
+          }).then(function (r) {
+            if (r && r.status === "success") {
+              try {
+                var modalEl = document.getElementById("editRegistratorModal");
+                if (modalEl) hideModalEl(modalEl);
+              } catch (_) {}
+              loadRegistrators();
+            } else if (r && r.message) {
+              alert(r.message);
+            }
+          });
+        } catch (_) {}
+      });
+    } catch (_) {}
+  })();
 
   function enableLevel(selectId, enable) {
     var el = q(selectId);

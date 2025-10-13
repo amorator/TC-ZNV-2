@@ -4137,3 +4137,272 @@ window.markViewedAjax = function (fileId) {
     }
   };
 })();
+
+(function () {
+  // Registrar modal helper: preload registrators, browse, enforce max files
+  if (window.__registratorInit) return;
+  window.__registratorInit = true;
+  function q(id) {
+    return document.getElementById(id);
+  }
+  function getDidSdid() {
+    var did =
+      (document.querySelector("#maintable") &&
+        document.querySelector("#maintable").getAttribute("data-category")) ||
+      (typeof window.currentDid !== "undefined"
+        ? String(window.currentDid)
+        : "0");
+    var sdid =
+      (document.querySelector("#maintable") &&
+        document
+          .querySelector("#maintable")
+          .getAttribute("data-subcategory")) ||
+      (typeof window.currentSdid !== "undefined"
+        ? String(window.currentSdid)
+        : "0");
+    return {
+      did: parseInt(did || "0", 10) || 0,
+      sdid: parseInt(sdid || "0", 10) || 0,
+    };
+  }
+  function ensureMaxFilesLimit() {
+    var maxHidden = document.getElementById("max-upload-files");
+    var maxFiles = 5;
+    try {
+      maxFiles =
+        parseInt(maxHidden && maxHidden.value ? maxHidden.value : "5", 10) || 5;
+    } catch (_) {}
+    var span = document.getElementById("reg-max-files");
+    if (span) span.textContent = String(maxFiles);
+    return maxFiles;
+  }
+  function enforceSelectionLimit() {
+    var maxFiles = ensureMaxFilesLimit();
+    var list = q("reg-file-list");
+    if (!list) return;
+    var boxes = list.querySelectorAll('input[type="checkbox"]');
+    var checked = Array.from(boxes).filter(function (b) {
+      return b.checked;
+    });
+    if (checked.length > maxFiles) {
+      // Uncheck the last toggled one
+      var last = checked[checked.length - 1];
+      last.checked = false;
+      if (window.showToast)
+        window.showToast(
+          "Можно выбрать максимум " + maxFiles + " файлов",
+          "error"
+        );
+    }
+  }
+  function fillSelect(selectEl, names) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    var ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "— выберите —";
+    selectEl.appendChild(ph);
+    (names || []).forEach(function (name) {
+      var opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      selectEl.appendChild(opt);
+    });
+  }
+  function renderFiles(entries) {
+    var wrap = q("reg-file-list");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    var allowed = ensureMaxFilesLimit();
+    (entries || []).forEach(function (e, idx) {
+      if (!e || !e.name) return;
+      var row = document.createElement("label");
+      row.className = "d-flex align-items-center gap-2";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = e.name;
+      cb.addEventListener("change", enforceSelectionLimit);
+      if (idx < allowed) cb.checked = true; // preselect up to allowed
+      var span = document.createElement("span");
+      span.textContent = e.name;
+      row.appendChild(cb);
+      row.appendChild(span);
+      wrap.appendChild(row);
+    });
+    // Mirror to textarea
+    syncCheckedToTextarea();
+  }
+  function syncCheckedToTextarea() {
+    try {
+      var wrap = q("reg-file-list");
+      var ta = q("reg-files");
+      if (!wrap || !ta) return;
+      var names = Array.from(wrap.querySelectorAll('input[type="checkbox"]'))
+        .filter(function (b) {
+          return b.checked;
+        })
+        .map(function (b) {
+          return b.value;
+        });
+      ta.value = names.join("\n");
+    } catch (_) {}
+  }
+  // Build base host/path from selected registrator url_template, up to first '{'
+  function getBaseFromTemplate() {
+    var sel = q("reg-picker");
+    if (!sel) return "";
+    var opt = sel.options && sel.options[sel.selectedIndex];
+    var tpl = (opt && opt.getAttribute("data-template")) || "";
+    if (!tpl) return "";
+    try {
+      var noScheme = tpl.replace(/^https?:\/\//i, "");
+      var brace = noScheme.indexOf("{");
+      var base = brace !== -1 ? noScheme.slice(0, brace) : noScheme;
+      // ensure ends with '/'
+      if (base[base.length - 1] !== "/") base += "/";
+      return base;
+    } catch (_) {
+      return "";
+    }
+  }
+  // Progressive browse via /proxy: fetch anchor texts from remote HTML through proxy
+  function browse(level) {
+    var base = getBaseFromTemplate();
+    if (!base) return;
+    var parent = (q("reg-parent") && q("reg-parent").value) || "";
+    // Compose full path and convert slashes to '!'
+    var full = base + (parent ? parent.replace(/^\/+|\/+$/g, "") + "/" : "");
+    var prox = "/proxy/" + encodeURIComponent(full.replace(/\//g, "!"));
+    fetch(prox, { headers: { Accept: "text/plain" } })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (txt) {
+        var names = (txt || "")
+          .split("|")
+          .map(function (s) {
+            return s.trim();
+          })
+          .filter(Boolean);
+        // Heuristic: if items look like filenames (contain a dot and not end with '/') -> render files
+        var isFiles = names.some(function (n) {
+          return /\.[a-z0-9]{2,5}$/i.test(n);
+        });
+        if (isFiles) {
+          renderFiles(
+            names.map(function (n) {
+              return { name: n };
+            })
+          );
+          // Set level to 'file' for UI consistency
+          try {
+            if (q("reg-level")) q("reg-level").value = "file";
+          } catch (_) {}
+        } else {
+          // Determine which select to fill next based on already chosen parts
+          var parentVal = (q("reg-parent") && q("reg-parent").value) || "";
+          var parts = parentVal.split("/").filter(Boolean);
+          var order = ["date", "user", "time", "type"];
+          var nextIdx = Math.min(parts.length, order.length - 1);
+          var nextId = "reg-opt-" + order[nextIdx];
+          fillSelect(q(nextId), names);
+        }
+      })
+      .catch(function () {
+        /* ignore */
+      });
+  }
+  function loadRegistrators() {
+    var sel = q("reg-picker");
+    if (!sel) return;
+    fetch("/api/registrators", { headers: { Accept: "application/json" } })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (j) {
+        var items = (j && j.items) || [];
+        sel.innerHTML = "";
+        items.forEach(function (it) {
+          if (!it || !it.enabled) return;
+          var opt = document.createElement("option");
+          opt.value = String(it.id);
+          opt.textContent = it.name;
+          opt.setAttribute("data-template", it.url_template || "");
+          sel.appendChild(opt);
+        });
+        // Initial browse for first registrator
+        browse((q("reg-level") && q("reg-level").value) || "date");
+      })
+      .catch(function () {
+        /* ignore */
+      });
+  }
+  // Wire interactions when modal opens
+  function onOpen() {
+    ensureMaxFilesLimit();
+    loadRegistrators();
+  }
+  // Expose to open button
+  if (!window.openRegistratorImport) {
+    window.openRegistratorImport = function () {
+      try {
+        onOpen();
+      } catch (_) {}
+      if (window.popupToggle) window.popupToggle("popup-import-registrator");
+    };
+  }
+  // Handlers
+  try {
+    q("reg-picker").addEventListener("change", function () {
+      browse((q("reg-level") && q("reg-level").value) || "date");
+    });
+  } catch (_) {}
+  function onStepChange(stepId) {
+    var sel = q(stepId);
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      var val = sel.value || "";
+      var parent = q("reg-parent");
+      if (!parent) return;
+      var parts = (parent.value || "").split("/").filter(Boolean);
+      var idxMap = {
+        "reg-opt-date": 0,
+        "reg-opt-user": 1,
+        "reg-opt-time": 2,
+        "reg-opt-type": 3,
+      };
+      var idx = idxMap[stepId];
+      while (parts.length > idx) parts.pop();
+      if (val) parts[idx] = val;
+      parent.value = parts.filter(Boolean).join("/");
+      // Clear deeper selects
+      if (stepId === "reg-opt-date") {
+        fillSelect(q("reg-opt-user"), []);
+        fillSelect(q("reg-opt-time"), []);
+        fillSelect(q("reg-opt-type"), []);
+      } else if (stepId === "reg-opt-user") {
+        fillSelect(q("reg-opt-time"), []);
+        fillSelect(q("reg-opt-type"), []);
+      } else if (stepId === "reg-opt-time") {
+        fillSelect(q("reg-opt-type"), []);
+      }
+      // Fetch next level or files
+      browse("next");
+    });
+  }
+  try {
+    onStepChange("reg-opt-date");
+  } catch (_) {}
+  try {
+    onStepChange("reg-opt-user");
+  } catch (_) {}
+  try {
+    onStepChange("reg-opt-time");
+  } catch (_) {}
+  try {
+    onStepChange("reg-opt-type");
+  } catch (_) {}
+  try {
+    q("reg-file-list").addEventListener("change", syncCheckedToTextarea);
+  } catch (_) {}
+})();

@@ -544,6 +544,12 @@
     font-size: 0.8em;
 }
 
+/* Registrators permissions tables: keep consistent font size for the first data row */
+#permissions-content .files-page__table tbody tr:first-child>th,
+#permissions-content .files-page__table tbody tr:first-child>td {
+    font-size: 0.8em;
+}
+
 /* Zebra striping via Bootstrap variables, skipping the very first body row */
 .files-page__table.table-striped {
     /* more visible zebra on light theme: soft yellow */

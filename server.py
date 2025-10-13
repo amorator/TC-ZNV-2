@@ -357,15 +357,33 @@ def static_files(filename):
 @app.route('/proxy' + '/<string:url>', methods=['GET'])
 def proxy(url: str) -> str:
     """Simple proxy to fetch and parse links from remote HTML (internal use)."""
-    raw = http.urlopen('http://' + url.replace('!', '/')).read()
-    html = bs(raw, features='html.parser')
-    links = list(reversed([i for i in html.body.findAll('a')]))
-    if links:
+    try:
+        target = 'http://' + url.replace('!', '/')
+        _log.info('[proxy] fetch %s', target)
+        raw = http.urlopen(target, timeout=15).read()
+        html = bs(raw, features='html.parser') if bs else None
+        if not html or not getattr(html, 'body', None):
+            _log.warning('[proxy] no HTML body for %s', target)
+            return ''
+        links = list(reversed([i for i in html.body.findAll('a')]))
+        if links:
+            try:
+                links.pop()
+            except Exception:
+                pass
+        texts = [str(getattr(i, 'text', '')).strip() for i in links]
+        # Filter empty and service anchors
+        texts = [t for t in texts if t and t not in ('..', '.')]
+        out = '|'.join(texts)
         try:
-            links.pop()
+            _log.info('[proxy] %d links: %s', len(texts),
+                      ', '.join(texts[:20]))
         except Exception:
             pass
-    return '|'.join(i.text for i in links)
+        return out
+    except Exception as e:
+        _log.error('[proxy] error for %s: %s', url, e)
+        return ''
 
 
 def signal_handler(signum, frame):

@@ -20,7 +20,7 @@
     <div class="subbar__group" id="registrators-nav"></div>
   </div>
 
-  <!-- Permissions and file browser area -->
+  <!-- Permissions area -->
   <div id="permissions-content" style="display:none;">
     <div class="row">
       <div class="col-md-6">
@@ -97,38 +97,6 @@
     </div>
   </div>
 
-  <!-- Browser and import area -->
-  <div class="card mt-3">
-    <div class="card-body">
-      <div class="row g-2 align-items-end">
-        <div class="col-md-3">
-          <label class="form-label" for="regSelect">Регистратор</label>
-          <select id="regSelect" class="form-select"></select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label" for="dateSelect">Дата</label>
-          <select id="dateSelect" class="form-select" disabled></select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label" for="userSelect">Пользователь</label>
-          <select id="userSelect" class="form-select" disabled></select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label" for="timeSelect">Время</label>
-          <select id="timeSelect" class="form-select" disabled></select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label" for="typeSelect">Тип</label>
-          <select id="typeSelect" class="form-select" disabled></select>
-        </div>
-        <div class="col-md-1 d-grid">
-          <button id="btnImportSelected" class="btn btn-primary" disabled>Импорт</button>
-        </div>
-      </div>
-      <div class="mt-3" id="filesList"></div>
-    </div>
-  </div>
-
   <div id="registratorFilesTbody"></div>
 
   <!-- Context menu for registrators page -->
@@ -161,6 +129,33 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
           <button type="button" class="btn btn-primary" id="regAddSubmit">Добавить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Registrator Modal -->
+  <div class="modal fade" id="editRegistratorModal" tabindex="-1" aria-labelledby="editRegistratorModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editRegistratorModalLabel">Изменить регистратор</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="regEditId" />
+          <div class="mb-3">
+            <label class="form-label" for="regEditName">Название</label>
+            <input type="text" id="regEditName" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="regEditUrl">Прототип ссылки</label>
+            <input type="text" id="regEditUrl" class="form-control" placeholder="https://host/{date}/{user}/{time}/{type}/{file}" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" class="btn btn-primary" id="regEditSubmit">Сохранить</button>
         </div>
       </div>
     </div>
