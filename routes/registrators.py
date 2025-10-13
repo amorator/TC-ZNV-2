@@ -23,7 +23,7 @@ def register(app, socketio=None):
 				return True
 			import json
 			key = f"registrator_permissions:{rid}"
-			val = app._sql.setting_get([key])
+			val = app._sql.setting_get(key)
 			data = json.loads(val) if val else {}
 			uid = str(getattr(current_user, 'id', 0))
 			gid = str(getattr(current_user, 'gid', 0))
@@ -44,10 +44,9 @@ def register(app, socketio=None):
 				id INT AUTO_INCREMENT PRIMARY KEY,
 				name VARCHAR(255) NOT NULL,
 				url_template TEXT NOT NULL,
-				local_folder VARCHAR(255) NOT NULL,
 				enabled TINYINT(1) NOT NULL DEFAULT 1,
-				UNIQUE KEY uniq_reg_name (name),
-				UNIQUE KEY uniq_reg_folder (local_folder)
+				display_order INT NOT NULL DEFAULT 0,
+				UNIQUE KEY uniq_reg_name (name)
 			);
 			""",
 			[]
@@ -81,11 +80,11 @@ def register(app, socketio=None):
 	def registrators_list():
 		try:
 			rows = app._sql.execute_query(
-				f"SELECT id, name, url_template, local_folder, enabled FROM {app._sql.config['db']['prefix']}_registrator ORDER BY name;",
+				f"SELECT id, name, url_template, enabled, display_order FROM {app._sql.config['db']['prefix']}_registrator ORDER BY display_order, name;",
 				[]
 			)
 			items = [
-				{'id': r[0], 'name': r[1], 'url_template': r[2], 'local_folder': r[3], 'enabled': int(r[4])}
+				{'id': r[0], 'name': r[1], 'url_template': r[2], 'enabled': int(r[3]), 'display_order': int(r[4] or 0)}
 				for r in (rows or []) if r
 			]
 			return jsonify({'status': 'success', 'items': items})
@@ -100,47 +99,42 @@ def register(app, socketio=None):
 			j = request.get_json(silent=True) or {}
 			name = (j.get('name') or '').strip()
 			url_template = (j.get('url_template') or '').strip()
-			local_folder = (j.get('local_folder') or '').strip()
+			# optional display_order; if not provided, append to the end
+			try:
+				display_order = int(j.get('display_order'))
+			except Exception:
+				display_order = None
 			enabled = 1 if j.get('enabled') in (1, '1', True, 'true', 'on') else 0
 			# Server-side validation
-			if not name or not url_template or not local_folder:
-				return jsonify({'status': 'error', 'message': 'name, url_template, local_folder required'}), 400
-			# local_folder constraints: ascii letters, digits, dash, underscore only
-			try:
-				import re
-				if not re.match(r'^[a-zA-Z0-9_-]+$', local_folder):
-					return jsonify({'status': 'error', 'message': 'Некорректная папка. Разрешены только a-z, A-Z, 0-9, -, _'}), 400
-			except Exception:
-				pass
+			if not name or not url_template:
+				return jsonify({'status': 'error', 'message': 'name and url_template required'}), 400
 			# Require file placeholder in url_template at minimum
-			if '{file}' not in url_template:
+			if ('{file}' not in url_template) and ('<file>' not in url_template):
 				return jsonify({'status': 'error', 'message': 'В прототипе ссылки должен быть плейсхолдер {file}'}), 400
 			# Reject duplicates
 			try:
 				row = app._sql.execute_scalar(
-					f"SELECT id FROM {app._sql.config['db']['prefix']}_registrator WHERE name=%s OR local_folder=%s LIMIT 1;",
-					[name, local_folder]
+					f"SELECT id FROM {app._sql.config['db']['prefix']}_registrator WHERE name=%s LIMIT 1;",
+					[name]
 				)
 				if row:
-					return jsonify({'status': 'error', 'message': 'Регистратор с таким именем или папкой уже существует'}), 409
+					return jsonify({'status': 'error', 'message': 'Регистратор с таким именем уже существует'}), 409
 			except Exception:
 				pass
+			# compute next display_order if not provided
+			if display_order is None:
+				try:
+					next_do = app._sql.execute_scalar(
+						f"SELECT COALESCE(MAX(display_order), 0) + 1 FROM {app._sql.config['db']['prefix']}_registrator",
+						[]
+					)
+					display_order = int(next_do or 1)
+				except Exception:
+					display_order = 1
 			app._sql.execute_non_query(
-				f"INSERT INTO {app._sql.config['db']['prefix']}_registrator (name, url_template, local_folder, enabled) VALUES (%s, %s, %s, %s);",
-				[name, url_template, local_folder, enabled]
+				f"INSERT INTO {app._sql.config['db']['prefix']}_registrator (name, url_template, enabled, display_order) VALUES (%s, %s, %s, %s);",
+				[name, url_template, enabled, display_order]
 			)
-			# Ensure local folder exists under files_root/registrators/<local_folder>
-			try:
-				import os
-				base = None
-				cfg = getattr(app, '_sql', None)
-				if cfg and getattr(cfg, 'config', None):
-					base = cfg.config.get('storage', {}).get('files_root') or cfg.config.get('paths', {}).get('files_root')
-				if not base:
-					base = os.path.join(app.root_path, 'files')
-				os.makedirs(os.path.join(base, 'registrators', local_folder), exist_ok=True)
-			except Exception:
-				pass
 			return jsonify({'status': 'success'})
 		except Exception as e:
 			app.flash_error(e)
@@ -155,17 +149,20 @@ def register(app, socketio=None):
 			url_template = (j.get('url_template') or '').strip()
 			incoming_folder = (j.get('local_folder') or '').strip()
 			enabled = 1 if j.get('enabled') in (1, '1', True, 'true', 'on') else 0
+			# optional display_order update
+			try:
+				display_order = j.get('display_order')
+				display_order = None if display_order is None else int(display_order)
+			except Exception:
+				display_order = None
 			# Load existing
 			row = app._sql.execute_query(
-				f"SELECT id, name, url_template, local_folder, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
+				f"SELECT id, name, url_template, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
 				[rid]
 			)
 			if not row:
 				return jsonify({'status': 'error', 'message': 'not found'}), 404
-			current_folder = row[0][3]
-			# Forbid folder change
-			if incoming_folder and incoming_folder != current_folder:
-				return jsonify({'status': 'error', 'message': 'Изменение папки запрещено'}), 400
+			# Ignore incoming local_folder; no longer stored
 			# Validate
 			if not name or not url_template:
 				return jsonify({'status': 'error', 'message': 'name and url_template required'}), 400
@@ -178,10 +175,16 @@ def register(app, socketio=None):
 			)
 			if dup:
 				return jsonify({'status': 'error', 'message': 'Имя уже занято'}), 409
-			app._sql.execute_non_query(
-				f"UPDATE {app._sql.config['db']['prefix']}_registrator SET name=%s, url_template=%s, enabled=%s WHERE id=%s;",
-				[name, url_template, enabled, rid]
-			)
+			if display_order is None:
+				app._sql.execute_non_query(
+					f"UPDATE {app._sql.config['db']['prefix']}_registrator SET name=%s, url_template=%s, enabled=%s WHERE id=%s;",
+					[name, url_template, enabled, rid]
+				)
+			else:
+				app._sql.execute_non_query(
+					f"UPDATE {app._sql.config['db']['prefix']}_registrator SET name=%s, url_template=%s, enabled=%s, display_order=%s WHERE id=%s;",
+					[name, url_template, enabled, display_order, rid]
+				)
 			return jsonify({'status': 'success'})
 		except Exception as e:
 			app.flash_error(e)
@@ -192,30 +195,14 @@ def register(app, socketio=None):
 	def registrators_delete(rid):
 		try:
 			# Resolve local folder
+			# No local_folder anymore; allow delete without filesystem check
 			row = app._sql.execute_query(
-				f"SELECT local_folder FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
+				f"SELECT id FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
 				[rid]
 			)
 			if not row:
 				return jsonify({'status': 'error', 'message': 'not found'}), 404
-			local_folder = row[0][0]
-			# Count files under files_root/registrators/<local_folder>
-			files_count = 0
-			try:
-				import os
-				base = None
-				cfg = getattr(app, '_sql', None)
-				if cfg and getattr(cfg, 'config', None):
-					base = cfg.config.get('storage', {}).get('files_root') or cfg.config.get('paths', {}).get('files_root')
-				if not base:
-					base = os.path.join(app.root_path, 'files')
-				root = os.path.join(base, 'registrators', local_folder)
-				for _root, _dirs, _files in os.walk(root):
-					files_count += len(_files)
-			except Exception:
-				files_count = 0
-			if files_count > 0:
-				return jsonify({'status': 'error', 'message': 'Нельзя удалить: есть скачанные файлы', 'files_count': files_count}), 409
+			# Previously we prevented delete if there were downloaded files per local_folder, but local_folder is removed
 			app._sql.execute_non_query(
 				f"DELETE FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s;",
 				[rid]
@@ -230,27 +217,13 @@ def register(app, socketio=None):
 	def registrators_stats(rid):
 		try:
 			row = app._sql.execute_query(
-				f"SELECT local_folder FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
+				f"SELECT id FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s",
 				[rid]
 			)
 			if not row:
 				return jsonify({'status': 'error', 'message': 'not found'}), 404
-			local_folder = row[0][0]
-			files_count = 0
-			try:
-				import os
-				base = None
-				cfg = getattr(app, '_sql', None)
-				if cfg and getattr(cfg, 'config', None):
-					base = cfg.config.get('storage', {}).get('files_root') or cfg.config.get('paths', {}).get('files_root')
-				if not base:
-					base = os.path.join(app.root_path, 'files')
-				root = os.path.join(base, 'registrators', local_folder)
-				for _root, _dirs, _files in os.walk(root):
-					files_count += len(_files)
-			except Exception:
-				files_count = 0
-			return jsonify({'status': 'success', 'files_count': files_count})
+			# No local folder — cannot compute files_count; return 0 as neutral value
+			return jsonify({'status': 'success', 'files_count': 0})
 		except Exception as e:
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -262,28 +235,17 @@ def register(app, socketio=None):
 		try:
 			import json
 			key = f"registrator_permissions:{rid}"
-			val = app._sql.setting_get([key])
+			val = app._sql.setting_get(key)
 			try:
-				data = json.loads(val) if val else {}
+				stored = json.loads(val) if val else {}
 			except Exception:
-				data = {}
-			# default zeros shape like subcategories
-			def zeros():
-				return {
-					'user': {k: 0 for k in (
-						'view_own','view_group','view_all',
-						'edit_own','edit_group','edit_all',
-						'delete_own','delete_group','delete_all'
-					)},
-					'group': {k: 0 for k in (
-						'view_own','view_group','view_all',
-						'edit_own','edit_group','edit_all',
-						'delete_own','delete_group','delete_all'
-					)}
-				}
-			if not isinstance(data, dict) or 'user' not in data or 'group' not in data:
-				data = zeros()
-			return jsonify({'status': 'success', 'permissions': data})
+				stored = {}
+			# Simplified view-only permissions: maps of id->0/1
+			perms = {
+				'user': stored.get('user') if isinstance(stored, dict) and isinstance(stored.get('user'), dict) else {},
+				'group': stored.get('group') if isinstance(stored, dict) and isinstance(stored.get('group'), dict) else {},
+			}
+			return jsonify({'status': 'success', 'permissions': perms})
 		except Exception as e:
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -296,7 +258,7 @@ def register(app, socketio=None):
 			data = request.get_json(silent=True) or {}
 			perms = data.get('permissions') or {}
 			key = f"registrator_permissions:{rid}"
-			app._sql.setting_set([key, json.dumps(perms, ensure_ascii=False)])
+			app._sql.setting_set(key, json.dumps(perms, ensure_ascii=False))
 			try:
 				if socketio:
 					socketio.emit('registrator_permissions_updated', {'registrator_id': rid}, broadcast=True)
@@ -313,17 +275,17 @@ def register(app, socketio=None):
 		"""Browse remote structure progressively: ?level=date|user|time|type and ?parent=..."""
 		try:
 			rows = app._sql.execute_query(
-				f"SELECT id, name, url_template, local_folder, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s;",
+				f"SELECT id, name, url_template, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s;",
 				[rid]
 			)
 			if not rows:
 				return jsonify({'status': 'error', 'message': 'not found'}), 404
-			name, url_template, local_folder, enabled = rows[0][1], rows[0][2], rows[0][3], int(rows[0][4])
+			name, url_template, enabled = rows[0][1], rows[0][2], int(rows[0][3])
 			if not enabled:
 				return jsonify({'status': 'error', 'message': 'disabled'}), 400
 			level = (request.args.get('level') or 'date').strip()
 			parent = (request.args.get('parent') or '').strip()
-			r = Registrator(name, url_template, local_folder, True, rid)
+			r = Registrator(name, url_template, True, rid)
 			parts = {'date': '', 'user': '', 'time': '', 'type': '', 'file': ''}
 			try:
 				if parent:
@@ -382,15 +344,15 @@ def register(app, socketio=None):
 				file_names = file_names[:max_files]
 			# Load registrator
 			row = app._sql.execute_scalar(
-				f"SELECT name, url_template, local_folder, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s LIMIT 1;",
+				f"SELECT name, url_template, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s LIMIT 1;",
 				[rid]
 			)
 			if not row:
 				return jsonify({'status': 'error', 'message': 'registrator not found'}), 404
-			name, url_template, local_folder, enabled = row[0], row[1], row[2], int(row[3] or 0)
+			name, url_template, enabled = row[0], row[1], int(row[2] or 0)
 			if not enabled:
 				return jsonify({'status': 'error', 'message': 'registrator disabled'}), 400
-			r = Registrator(name, url_template, local_folder, True, rid)
+			r = Registrator(name, url_template, True, rid)
 			# Resolve storage dir
 			storage_dir = app._sql._build_storage_dir(cat_id, sub_id)
 			import os

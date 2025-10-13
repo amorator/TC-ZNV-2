@@ -10,11 +10,19 @@ TEMPLATE_MARKERS = ["<date>", "<user>", "<time>", "<type>", "<file>"]
 
 
 class Registrator:
-    def __init__(self, name: str, url_template: str, enabled: bool = True, rid: int | None = None):
+    def __init__(self, name: str, url_template: str, local_folder: str = "", enabled: bool = True, rid: int | None = None):
         self.id = rid
         self.name = name
-        self.url_template = url_template
+        # Normalize markers: support both <> and {} in url templates
+        t = str(url_template or "")
+        t = t.replace("{date}", "<date>")
+        t = t.replace("{user}", "<user>")
+        t = t.replace("{time}", "<time>")
+        t = t.replace("{type}", "<type>")
+        t = t.replace("{file}", "<file>")
+        self.url_template = t
         self.enabled = bool(enabled)
+        self.local_folder = local_folder or ""
 
     def base_url(self) -> str:
         t = str(self.url_template or "")

@@ -11,43 +11,26 @@ _log = get_logger(__name__)
 
 
 def register(app, socketio=None):
-		# --- Registrators: DB bootstrap ---
-		try:
-			app._sql.execute_non_query(
-				f"""
-				CREATE TABLE IF NOT EXISTS {app._sql.config['db']['prefix']}_registrator (
-					id INT AUTO_INCREMENT PRIMARY KEY,
-					name VARCHAR(255) NOT NULL,
-					url_template TEXT NOT NULL,
-					local_folder VARCHAR(255) NOT NULL,
-					enabled TINYINT(1) NOT NULL DEFAULT 1
-				);
-				""",
-				[]
-			)
-		except Exception:
-			pass
-
-# Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
-_RATE_BUCKET = {}
-def rate_limit(max_calls: int = 60, window_sec: int = 60):
-	def decorator(fn):
-		@wraps(fn)
-		def wrapper(*args, **kwargs):
-			try:
-				key = (request.remote_addr or 'unknown', fn.__name__)
-				now = time.time()
-				bucket = _RATE_BUCKET.get(key, [])
-				bucket = [t for t in bucket if now - t < window_sec]
-				if len(bucket) >= max_calls:
-					return jsonify({'status': 'error', 'message': 'Слишком много запросов, попробуйте позже'}), 429
-				bucket.append(now)
-				_RATE_BUCKET[key] = bucket
-			except Exception:
-				pass
-			return fn(*args, **kwargs)
-		return wrapper
-	return decorator
+	# Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
+	_RATE_BUCKET = {}
+	def rate_limit(max_calls: int = 60, window_sec: int = 60):
+		def decorator(fn):
+			@wraps(fn)
+			def wrapper(*args, **kwargs):
+				try:
+					key = (request.remote_addr or 'unknown', fn.__name__)
+					now = time.time()
+					bucket = _RATE_BUCKET.get(key, [])
+					bucket = [t for t in bucket if now - t < window_sec]
+					if len(bucket) >= max_calls:
+						return jsonify({'status': 'error', 'message': 'Слишком много запросов, попробуйте позже'}), 429
+					bucket.append(now)
+					_RATE_BUCKET[key] = bucket
+				except Exception:
+					pass
+				return fn(*args, **kwargs)
+			return wrapper
+		return decorator
 
 	@app.route('/admin', methods=['GET'])
 	@require_permissions(ADMIN_VIEW_PAGE)

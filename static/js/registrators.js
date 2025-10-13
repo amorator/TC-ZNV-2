@@ -57,9 +57,38 @@
           };
           // Right-click context menu
           btn.addEventListener("contextmenu", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            openRegContextMenu(e.clientX, e.clientY, it);
+            try {
+              e.preventDefault();
+              e.stopPropagation();
+            } catch (_) {}
+            const cx = typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
+            const cy = typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
+            openRegContextMenu(cx, cy, it);
+          });
+          // also handle long-press on touch to open context menu
+          let tId;
+          btn.addEventListener(
+            "touchstart",
+            function (ev) {
+              try {
+                ev.stopPropagation();
+              } catch (_) {}
+              const touch = ev.touches && ev.touches[0];
+              const cx = touch ? touch.clientX : 0;
+              const cy = touch ? touch.clientY : 0;
+              tId = setTimeout(function () {
+                openRegContextMenu(cx, cy, it);
+              }, 500);
+            },
+            { passive: true }
+          );
+          ["touchend", "touchcancel", "touchmove"].forEach(function (n) {
+            btn.addEventListener(n, function () {
+              if (tId) {
+                clearTimeout(tId);
+                tId = null;
+              }
+            });
           });
           wrap.appendChild(btn);
         });
@@ -81,28 +110,116 @@
   function openRegContextMenu(x, y, item) {
     var menu = document.getElementById("registrators-context-menu");
     if (!menu) return;
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    try {
+      menu.style.position = "fixed";
+      menu.style.zIndex = "2000";
+      const vw = Math.max(
+        document.documentElement.clientWidth || 0,
+        window.innerWidth || 0
+      );
+      const vh = Math.max(
+        document.documentElement.clientHeight || 0,
+        window.innerHeight || 0
+      );
+      const rect = menu.getBoundingClientRect();
+      const mw = rect && rect.width ? rect.width : 180;
+      const mh = rect && rect.height ? rect.height : 140;
+      const left = Math.max(0, Math.min(x, vw - mw - 4));
+      const top = Math.max(0, Math.min(y, vh - mh - 4));
+      menu.style.left = left + "px";
+      menu.style.top = top + "px";
+    } catch (_) {
+      menu.style.left = x + "px";
+      menu.style.top = y + "px";
+    }
     menu.classList.remove("d-none");
+    menu.style.display = "block";
     var hide = function () {
       menu.classList.add("d-none");
-      document.removeEventListener("click", hide, { capture: true });
+      menu.style.display = "none";
+      document.removeEventListener("mousedown", hide, true);
     };
-    document.addEventListener("click", hide, { capture: true });
+    setTimeout(function () {
+      document.addEventListener(
+        "mousedown",
+        function onDown(ev) {
+          try {
+            if (ev.button === 2) return;
+            const inside =
+              ev.target && (ev.target === menu || menu.contains(ev.target));
+            if (!inside) hide();
+          } catch (_) {
+            hide();
+          }
+        },
+        true
+      );
+    }, 0);
     menu.onclick = function (ev) {
       var actionEl = ev.target.closest("[data-action]");
       if (!actionEl) return;
       var action = actionEl.getAttribute("data-action");
       if (action === "edit") {
         editRegistrator(item);
-      } else if (action === "toggle") {
-        toggleRegistrator(item);
       } else if (action === "delete") {
-        deleteRegistrator(item);
+        confirmDeleteRegistrator(item);
+      } else if (action === "add") {
+        if (window.openAddRegistratorModalUI)
+          return window.openAddRegistratorModalUI();
+        openAddRegistratorModal();
       }
       hide();
     };
   }
+
+  // Wire Add modal submit
+  (function bindAddModal() {
+    try {
+      const btn = document.getElementById("regAddSubmit");
+      if (!btn || btn.__bound) return;
+      btn.__bound = true;
+      btn.addEventListener("click", function () {
+        try {
+          const name =
+            (document.getElementById("regAddName") || {}).value || "";
+          const url = (document.getElementById("regAddUrl") || {}).value || "";
+          if (!name || !url) return;
+          postJson("/registrators", {
+            name: name.trim(),
+            url_template: url.trim(),
+            enabled: 1,
+          }).then(function (r) {
+            if (r && r.status === "success") {
+              try {
+                const modalEl = document.getElementById("addRegistratorModal");
+                if (modalEl) {
+                  // remove focus from inputs before hiding to avoid aria-hidden focus issue
+                  try {
+                    document.activeElement &&
+                      document.activeElement.blur &&
+                      document.activeElement.blur();
+                  } catch (_) {}
+                  try {
+                    let m =
+                      bootstrap.Modal.getInstance(modalEl) ||
+                      new bootstrap.Modal(modalEl);
+                    m.hide();
+                  } catch (_) {
+                    modalEl.setAttribute("aria-hidden", "true");
+                    modalEl.style.display = "none";
+                    modalEl.classList.remove("show");
+                  }
+                }
+              } catch (_) {}
+              loadRegistrators();
+            } else if (r && r.message) {
+              alert(r.message);
+            }
+          });
+        } catch (_) {}
+      });
+    } catch (_) {}
+  })();
 
   function editRegistrator(item) {
     var name = prompt("Название регистратора", item.name || "");
@@ -134,32 +251,48 @@
   }
 
   function deleteRegistrator(item) {
-    fetch("/registrators/" + encodeURIComponent(item.id) + "/stats", {
+    fetch("/registrators/" + encodeURIComponent(item.id), {
+      method: "DELETE",
       credentials: "same-origin",
     })
       .then(function (r) {
         return r.json();
       })
-      .then(function (s) {
-        var cnt = s && s.files_count ? s.files_count : 0;
-        if (cnt > 0) {
-          alert("Нельзя удалить: есть скачанные файлы (" + cnt + ")");
-          return;
-        }
-        if (!confirm('Удалить регистратор "' + (item.name || "") + '"?'))
-          return;
-        fetch("/registrators/" + encodeURIComponent(item.id), {
-          method: "DELETE",
-          credentials: "same-origin",
-        })
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (j) {
-            if (j && j.status === "success") loadRegistrators();
-            else if (j && j.message) alert(j.message);
-          });
+      .then(function (j) {
+        if (j && j.status === "success") loadRegistrators();
+        else if (j && j.message) alert(j.message);
       });
+  }
+
+  function confirmDeleteRegistrator(item) {
+    try {
+      var m = document.getElementById("deleteRegistratorModal");
+      var nameEl = document.getElementById("regDelName");
+      var btn = document.getElementById("regDelConfirm");
+      if (!m || !btn) return deleteRegistrator(item);
+      if (nameEl) nameEl.textContent = item.name || "";
+      // rebind click
+      if (btn.__bound) btn.removeEventListener("click", btn.__handler);
+      btn.__handler = function () {
+        try {
+          bootstrap.Modal.getInstance(m)?.hide();
+        } catch (_) {
+          m.style.display = "none";
+          m.classList.remove("show");
+        }
+        deleteRegistrator(item);
+      };
+      btn.addEventListener("click", btn.__handler);
+      btn.__bound = true;
+      try {
+        new bootstrap.Modal(m).show();
+      } catch (_) {
+        m.style.display = "block";
+        m.classList.add("show");
+      }
+    } catch (_) {
+      deleteRegistrator(item);
+    }
   }
 
   function selectRegistrator(id) {
@@ -249,21 +382,36 @@
       var row = document.createElement("tr");
       var checked =
         permissions && permissions[group.id] ? !!permissions[group.id] : false;
+      var isAdminGroup = false;
+      try {
+        var adminName = (window.adminGroupName || "Программисты").toLowerCase();
+        isAdminGroup = String(group.name || "").toLowerCase() === adminName;
+      } catch (_) {}
+      // Force-enable and lock admin group in draft too
+      try {
+        if (isAdminGroup) {
+          if (!regCurrentPermissionsDraft.group)
+            regCurrentPermissionsDraft.group = {};
+          regCurrentPermissionsDraft.group[String(group.id)] = 1;
+        }
+      } catch (_) {}
       row.innerHTML =
         "\n        <td>" +
         (group.name || "") +
-        '</td>\n        <td class="text-center">' +
-        '<label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="' +
+        '</td>\n        <td class="text-end">' +
+        '<label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="' +
         group.id +
         '" ' +
-        (checked ? "checked" : "") +
-        '> <span class="form-check-label">Просмотр</span></label>' +
+        (checked || isAdminGroup ? "checked" : "") +
+        (isAdminGroup ? " disabled" : "") +
+        "></label>" +
         "</td>\n      ";
       tbody.appendChild(row);
     });
     tbody.addEventListener("change", function (e) {
       var t = e.target;
       if (!t || t.name !== "reg-perm-view") return;
+      if (t.disabled) return;
       var gid = String(t.dataset.id || "");
       if (!regCurrentPermissionsDraft.group)
         regCurrentPermissionsDraft.group = {};
@@ -281,23 +429,45 @@
       var row = document.createElement("tr");
       var checked =
         permissions && permissions[user.id] ? !!permissions[user.id] : false;
+      var force = false;
+      try {
+        var permStr = String(
+          (user && (user.permissions_string || user.permission_string)) || ""
+        ).trim();
+        force =
+          permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
+          permStr === "aef,a,abcdflm,ab,ab,ab" ||
+          permStr.indexOf("z") !== -1;
+        if (!force)
+          force = String((user && user.login) || "").toLowerCase() === "admin";
+      } catch (_) {}
+      // Force-enable and lock full-access/admin users in draft too
+      try {
+        if (force) {
+          if (!regCurrentPermissionsDraft.user)
+            regCurrentPermissionsDraft.user = {};
+          regCurrentPermissionsDraft.user[String(user.id)] = 1;
+        }
+      } catch (_) {}
       row.innerHTML =
         '\n        <td><span title="' +
         (user.name || "") +
         '">' +
         (user.login || "") +
-        '</span></td>\n        <td class="text-center">' +
-        '<label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="' +
+        '</span></td>\n        <td class="text-end">' +
+        '<label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="' +
         user.id +
         '" ' +
-        (checked ? "checked" : "") +
-        '> <span class="form-check-label">Просмотр</span></label>' +
+        (checked || force ? "checked" : "") +
+        (force ? " disabled" : "") +
+        '"></label>' +
         "</td>\n      ";
       tbody.appendChild(row);
     });
     tbody.addEventListener("change", function (e) {
       var t = e.target;
       if (!t || t.name !== "reg-perm-view") return;
+      if (t.disabled) return;
       var uid = String(t.dataset.id || "");
       if (!regCurrentPermissionsDraft.user)
         regCurrentPermissionsDraft.user = {};
