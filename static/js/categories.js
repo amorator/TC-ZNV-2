@@ -399,7 +399,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
     ).toLowerCase();
     const isAdminGroup = String(group.name || "").toLowerCase() === adminName;
     row.innerHTML = `
-      <td>${group.name}</td>
+      <td data-admin="${isAdminGroup}">${group.name}</td>
       <td>
         <div class="perm-stack">
           <div class="form-check">
@@ -575,15 +575,25 @@ function loadUsersPermissionsTable(users, permissions) {
           : "own"
         : "none";
     const permStr = String(
-      (user && (user.permissions_string || user.permission_string)) || ""
+      (user &&
+        (user.permissions_string ||
+          user.permission_string ||
+          user.permission)) ||
+        ""
     ).trim();
     const isFull =
       permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
       permStr === "aef,a,abcdflm,ab,ab,ab" ||
       permStr.indexOf("z") !== -1 ||
       String((user && user.login) || "").toLowerCase() === "admin";
+    const fileFlags = checkFilePermissions(permStr);
+    const viewLocked = isFull || fileFlags.viewAll;
+    const editLocked = isFull || fileFlags.editAny;
+    const deleteLocked = isFull || fileFlags.deleteAny;
     row.innerHTML = `
-      <td><span title="${user.name}" data-bs-toggle="tooltip">${
+      <td><span title="${
+        user.name
+      }" data-bs-toggle="tooltip" data-permission="${permStr}">${
       user.login
     }</span></td>
       <td>
@@ -593,7 +603,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_view_none_${user.id}" value="none" ${
       viewValue === "none" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${viewLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'view', this.value)">
             <label class="form-check-label" for="user_view_none_${
@@ -605,7 +615,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_view_own_${user.id}" value="own" ${
       viewValue === "own" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${viewLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'view', this.value)">
             <label class="form-check-label" for="user_view_own_${
@@ -617,7 +627,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_view_group_${user.id}" value="group" ${
       viewValue === "group" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${viewLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'view', this.value)">
             <label class="form-check-label" for="user_view_group_${
@@ -628,8 +638,8 @@ function loadUsersPermissionsTable(users, permissions) {
             <input class="form-check-input" type="radio" name="user_view_${
               user.id
             }" id="user_view_all_${user.id}" value="all" ${
-      isFull || viewValue === "all" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+      viewLocked || viewValue === "all" ? "checked" : ""
+    } ${viewLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'view', this.value)">
             <label class="form-check-label" for="user_view_all_${
@@ -645,7 +655,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_edit_none_${user.id}" value="none" ${
       editValue === "none" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${editLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'edit', this.value)">
             <label class="form-check-label" for="user_edit_none_${
@@ -657,7 +667,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_edit_own_${user.id}" value="own" ${
       editValue === "own" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${editLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'edit', this.value)">
             <label class="form-check-label" for="user_edit_own_${
@@ -669,7 +679,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_edit_group_${user.id}" value="group" ${
       editValue === "group" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${editLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'edit', this.value)">
             <label class="form-check-label" for="user_edit_group_${
@@ -680,8 +690,8 @@ function loadUsersPermissionsTable(users, permissions) {
             <input class="form-check-input" type="radio" name="user_edit_${
               user.id
             }" id="user_edit_all_${user.id}" value="all" ${
-      isFull || editValue === "all" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+      editLocked || editValue === "all" ? "checked" : ""
+    } ${editLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'edit', this.value)">
             <label class="form-check-label" for="user_edit_all_${
@@ -697,7 +707,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_delete_none_${user.id}" value="none" ${
       deleteValue === "none" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${deleteLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'delete', this.value)">
             <label class="form-check-label" for="user_delete_none_${
@@ -709,7 +719,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_delete_own_${user.id}" value="own" ${
       deleteValue === "own" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${deleteLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'delete', this.value)">
             <label class="form-check-label" for="user_delete_own_${
@@ -721,7 +731,7 @@ function loadUsersPermissionsTable(users, permissions) {
               user.id
             }" id="user_delete_group_${user.id}" value="group" ${
       deleteValue === "group" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+    } ${deleteLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'delete', this.value)">
             <label class="form-check-label" for="user_delete_group_${
@@ -732,8 +742,8 @@ function loadUsersPermissionsTable(users, permissions) {
             <input class="form-check-input" type="radio" name="user_delete_${
               user.id
             }" id="user_delete_all_${user.id}" value="all" ${
-      isFull || deleteValue === "all" ? "checked" : ""
-    } ${isFull ? "disabled" : ""} onchange="updateUserPermissionLevel(${
+      deleteLocked || deleteValue === "all" ? "checked" : ""
+    } ${deleteLocked ? "disabled" : ""} onchange="updateUserPermissionLevel(${
       user.id
     }, 'delete', this.value)">
             <label class="form-check-label" for="user_delete_all_${
@@ -834,6 +844,35 @@ function updateUserPermission(userId, action, scope, value) {
 
 function updateGroupPermissionLevel(groupId, action, level) {
   if (!currentSubcategoryId) return;
+
+  // Check if this is admin group - prevent disabling
+  const groupRow = document.querySelector(
+    `input[name="group_${action}_${groupId}"]`
+  );
+  if (groupRow) {
+    const groupCell = groupRow.closest("tr").querySelector("td:first-child");
+    const isAdminGroup =
+      groupCell && groupCell.getAttribute("data-admin") === "true";
+
+    console.log("Group permission check:", {
+      groupId: groupId,
+      isAdminGroup: isAdminGroup,
+      level: level,
+    });
+
+    if (isAdminGroup && level !== "all") {
+      console.log("Preventing admin group from being disabled");
+      // Re-check the "all" radio button
+      setTimeout(() => {
+        const allRadio = document.querySelector(
+          `input[name="group_${action}_${groupId}"][value="all"]`
+        );
+        if (allRadio) allRadio.checked = true;
+      }, 0);
+      return;
+    }
+  }
+
   const base = `group_${action}_`;
   const updated = {
     [`${base}own`]: level === "own",
@@ -847,8 +886,102 @@ function updateGroupPermissionLevel(groupId, action, level) {
   markDirty("groups");
 }
 
+function checkFilePermissions(permStr) {
+  // Returns fine-grained file permission flags from the permission string.
+  // Files page (index 2): 'c' = edit_any, 'd' = delete_any, 'f' = display_all
+  const result = { viewAll: false, editAny: false, deleteAny: false };
+  if (!permStr) return result;
+  const pages = permStr.split(",");
+  if (pages.length > 2) {
+    const filePermissions = pages[2] || "";
+    result.editAny = filePermissions.includes("c");
+    result.deleteAny = filePermissions.includes("d");
+    result.viewAll = filePermissions.includes("f");
+  }
+  return result;
+}
+
 function updateUserPermissionLevel(userId, action, level) {
   if (!currentSubcategoryId) return;
+
+  // Check if this is admin or full-access user - prevent disabling
+  const userRow = document.querySelector(
+    `input[name="user_${action}_${userId}"]`
+  );
+  if (userRow) {
+    const userCell = userRow.closest("tr").querySelector("td:first-child span");
+    const login = ((userCell && userCell.textContent) || "").toLowerCase();
+    const permStr =
+      (userCell && userCell.getAttribute("data-permission")) || "";
+
+    console.log("Debug userCell:", {
+      userCell: userCell,
+      textContent: userCell ? userCell.textContent : "no cell",
+      dataPermission: userCell
+        ? userCell.getAttribute("data-permission")
+        : "no cell",
+      login: login,
+      permStr: permStr,
+    });
+
+    // Check if admin user
+    if (login === "admin" && level !== "all") {
+      console.log("Preventing admin user from being disabled");
+      // Re-check the "all" radio button
+      setTimeout(() => {
+        const allRadio = document.querySelector(
+          `input[name="user_${action}_${userId}"][value="all"]`
+        );
+        if (allRadio) allRadio.checked = true;
+      }, 0);
+      return;
+    }
+
+    // Check if full-access user
+    const isFullAccess =
+      permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
+      permStr === "aef,a,abcdflm,ab,ab,ab" ||
+      permStr.indexOf("z") !== -1 ||
+      permStr.includes("полный доступ") ||
+      permStr.includes("full access");
+
+    // Check if user has file permissions that affect categories
+    const hasFilePermissions = checkFilePermissions(permStr);
+
+    console.log("User permission check:", {
+      login: login,
+      permStr: permStr,
+      level: level,
+      isFullAccess: isFullAccess,
+      hasFilePermissions: hasFilePermissions,
+    });
+
+    if (isFullAccess && level !== "all") {
+      console.log("Preventing full-access user from being disabled");
+      // Re-check the "all" radio button
+      setTimeout(() => {
+        const allRadio = document.querySelector(
+          `input[name="user_${action}_${userId}"][value="all"]`
+        );
+        if (allRadio) allRadio.checked = true;
+      }, 0);
+      return;
+    }
+
+    // Block users with file permissions that affect categories
+    if (hasFilePermissions && level !== "all") {
+      console.log("Preventing user with file permissions from being disabled");
+      // Re-check the "all" radio button
+      setTimeout(() => {
+        const allRadio = document.querySelector(
+          `input[name="user_${action}_${userId}"][value="all"]`
+        );
+        if (allRadio) allRadio.checked = true;
+      }, 0);
+      return;
+    }
+  }
+
   const base = `user_${action}_`;
   const updated = {
     [`${base}own`]: level === "own",
@@ -2266,4 +2399,3 @@ function confirmToggleSubcategory(targetEnabled) {
     })
     .catch(() => {});
 }
-

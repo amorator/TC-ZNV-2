@@ -1,11 +1,12 @@
 from flask import render_template, request, jsonify, Response, abort, send_file, make_response
-from flask_login import current_user
+from flask_login import current_user, login_required
 from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
 from modules.logging import get_logger, log_action
 from datetime import datetime
 import time
 from functools import wraps
 from modules.registrators import Registrator, parse_directory_listing
+from pywebpush import webpush, WebPushException
 
 _log = get_logger(__name__)
 
@@ -59,7 +60,25 @@ def register(app, socketio=None):
 			log_action('ADMIN_VIEW', current_user.name, f'ip={request.remote_addr}', request.remote_addr)
 		except Exception:
 			pass
+		
 		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Файлы', groups=groups)
+
+	@app.route('/api/pool-status', methods=['GET'])
+	@login_required
+	@require_permissions(ADMIN_VIEW_PAGE)
+	def pool_status():
+		"""API endpoint to check database connection pool status."""
+		try:
+			status = app._sql.get_pool_status()
+			return jsonify({
+				'status': 'success',
+				'pool_status': status
+			})
+		except Exception as e:
+			return jsonify({
+				'status': 'error',
+				'message': str(e)
+			}), 500
 
 	# --- Обслуживание таблицы подписок на уведомления (ручной запуск, с блокировкой на 23ч) ---
 	@app.route('/admin/push_maintain', methods=['POST'])
@@ -97,7 +116,6 @@ def register(app, socketio=None):
 			tested = 0
 			removed = 0
 			try:
-				from pywebpush import webpush, WebPushException
 				vapid_public = (app._sql.push_get_vapid_public() or '')
 				vapid_private = (app._sql.push_get_vapid_private() or '')
 				vapid_subject = (app._sql.push_get_vapid_subject() or 'mailto:admin@example.com')

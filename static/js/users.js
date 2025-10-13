@@ -9,11 +9,33 @@ function initUsersContextMenu() {
   // Helper: detect full access by legacy permission string
   function isFullAccessLegacy(legacy) {
     try {
-      const s = String(legacy || "");
+      const sRaw = String(legacy || "");
+      const s = sRaw.replace(/\s+/g, "");
       if (!s) return false;
       if (s.indexOf("z") !== -1) return true;
-      // Only accept exact 7-part full string
-      if (s === "aef,a,abcdflm,ab,ab,ab,abcd") return true;
+      if (/полныйдоступ/i.test(sRaw) || /fullaccess/i.test(sRaw)) return true;
+      // Accept known full strings and minor variants with empty segments
+      // Examples: aef,a,abcdflm,ab,ab,ab,abcd OR aef,a,abcdflm,ab,ab,,abcd
+      const fullPattern = /^aef,a,[a-z]*abcdflm[a-z]*,ab,ab,(ab|),abcd?$/i;
+      if (fullPattern.test(s)) return true;
+      // Fallback: heuristic across 7 segments
+      const parts = s.split(",");
+      if (parts.length >= 6) {
+        const p1 = parts[0] || ""; // page 1
+        const p2 = parts[1] || ""; // page 2
+        const p3 = parts[2] || ""; // page 3 (Files)
+        const ok1 = /a/.test(p1) && /e/.test(p1) && /f/.test(p1);
+        const ok2 = p2 === "a";
+        const ok3 =
+          /a/.test(p3) &&
+          /b/.test(p3) &&
+          /c/.test(p3) &&
+          /d/.test(p3) &&
+          /f/.test(p3) &&
+          /l/.test(p3) &&
+          /m/.test(p3);
+        if (ok1 && ok2 && ok3) return true;
+      }
       return false;
     } catch (_) {
       return false;
@@ -252,64 +274,131 @@ if (document.readyState === "loading") {
     } catch (_) {}
   })();
 
+  // Utility: set disabled state consistently (property, class, aria)
+  function setDisabled(el, disabled) {
+    try {
+      if (!el) return;
+      el.disabled = !!disabled;
+      // Ensure attribute reflects state for CSS [disabled] selectors
+      try {
+        if (disabled) el.setAttribute("disabled", "");
+        else el.removeAttribute("disabled");
+      } catch (_) {}
+      const label = el.closest("label");
+      if (disabled) {
+        el.setAttribute("aria-disabled", "true");
+        el.classList.add("disabled");
+        if (label) {
+          label.classList.add("disabled");
+          label.style.pointerEvents = "none";
+          label.style.opacity = label.style.opacity || "0.65";
+        }
+      } else {
+        el.removeAttribute("aria-disabled");
+        el.classList.remove("disabled");
+        if (label) {
+          label.classList.remove("disabled");
+          label.style.pointerEvents = "";
+          if (label.style.opacity === "0.65") label.style.opacity = "";
+        }
+      }
+    } catch (_) {}
+  }
+
   // Enforce dependency: if any non-view permission is checked in a category, force 'f' (view) and lock it.
   // Additionally for Files group (data-page="3"): if user is in admin group and any Files permission besides 'a'/'f' is set,
   // then auto-enable and lock 'f' (Отображать все записи).
-  function enforceViewRuleInBox(box) {
+  function enforceViewRuleInBox(box, onlyGroup) {
     try {
       if (!box) return;
       // Categories rule
-      box
-        .querySelectorAll('.permissions-group[data-page="7"]')
-        .forEach(function (group) {
-          const checks = Array.from(
-            group.querySelectorAll('input[type="checkbox"]')
-          );
-          const viewCb = group.querySelector(
-            'input[type="checkbox"][data-letter="f"]'
-          );
-          const hasNonView = checks.some(function (cb) {
-            return cb.getAttribute("data-letter") !== "f" && cb.checked;
-          });
-          if (viewCb) {
-            if (hasNonView) {
-              viewCb.checked = true;
-              viewCb.disabled = true;
-            } else {
-              viewCb.disabled = false;
-            }
-          }
+      (onlyGroup
+        ? [onlyGroup]
+        : box.querySelectorAll('.permissions-group[data-page="7"]')
+      ).forEach(function (group) {
+        if (
+          group &&
+          group.getAttribute &&
+          group.getAttribute("data-page") !== "7"
+        )
+          return;
+        const checks = Array.from(
+          group.querySelectorAll('input[type="checkbox"]')
+        );
+        const viewCb = group.querySelector(
+          'input[type="checkbox"][data-letter="f"]'
+        );
+        const hasNonView = checks.some(function (cb) {
+          return cb.getAttribute("data-letter") !== "f" && cb.checked;
         });
+        if (viewCb) {
+          if (hasNonView) {
+            viewCb.checked = true;
+            setDisabled(viewCb, true);
+          } else {
+            setDisabled(viewCb, false);
+          }
+        }
+      });
+      // If scoped update was used, also re-apply to all other category groups to keep visual consistency
+      if (onlyGroup) {
+        try {
+          // Removed global re-application to avoid clearing disabled styles in other groups
+        } catch (_) {}
+      }
 
       // Files rule for admin-group users: auto-enable 'f' if any other Files permission is set
-      box
-        .querySelectorAll('.permissions-group[data-page="3"]')
-        .forEach(function (group) {
-          const filesAllCb = group.querySelector(
-            'input[type="checkbox"][data-letter="f"]'
-          );
-          const viewACb = group.querySelector(
-            'input[type="checkbox"][data-letter="a"]'
-          );
-          if (!filesAllCb) return;
-          const checks = Array.from(
-            group.querySelectorAll('input[type="checkbox"]')
-          );
-          const hasNonView = checks.some(function (cb) {
-            const ch = cb.getAttribute("data-letter");
-            return ch !== "a" && ch !== "f" && cb.checked;
-          });
-          // Never disable the view ('a') checkbox in Files
-          if (viewACb) viewACb.disabled = false;
-          // Determine if current selected group equals admin group
-          let isAdminGroupUser = false;
-          try {
-            const form = group.closest("form");
+      (onlyGroup
+        ? [onlyGroup]
+        : box.querySelectorAll('.permissions-group[data-page="3"]')
+      ).forEach(function (group) {
+        if (
+          group &&
+          group.getAttribute &&
+          group.getAttribute("data-page") !== "3"
+        )
+          return;
+        // Only manage 'a' (Просмотр); do not force or disable 'm'
+        const viewACb = group.querySelector(
+          'input[type="checkbox"][data-letter="a"]'
+        );
+        if (!viewACb) return;
+        // Early: if admin toggle is ON in this form, hard-lock 'a' only
+        try {
+          const form = group.closest("form");
+          const adminToggle =
+            form && form.querySelector('[data-admin-toggle="1"]');
+          if (adminToggle && adminToggle.checked) {
+            viewACb.checked = true;
+            setDisabled(viewACb, true);
+            return;
+          }
+        } catch (_) {}
+        // Compute context (no actions for 'm')
+        const checks = Array.from(
+          group.querySelectorAll('input[type="checkbox"]')
+        );
+        const hasNonView = checks.some(function (cb) {
+          const ch = cb.getAttribute("data-letter");
+          return ch !== "a" && cb.checked;
+        });
+        // Determine admin/full-access
+        let isAdminGroupUser = false;
+        let isFullAccessUser = false;
+        try {
+          const form = group.closest("form");
+          if (form) {
+            const hid =
+              form.querySelector("#perm-string-perm") ||
+              form.querySelector("#perm-string-add");
+            const legacyStr =
+              hid && typeof hid.value === "string" ? hid.value : "";
+            isFullAccessUser = isFullAccessLegacy(legacyStr);
             const adminName = (window.adminGroupName || "").toLowerCase();
-            if (form && adminName) {
+            if (adminName) {
               if (form.id === "perm") {
-                // From permissions modal: use currently selected row dataset
-                const row = document.getElementById(window.__permRowId || "");
+                const rid = (window.__permRowId || "").trim();
+                const row = rid ? document.getElementById(rid) : null;
                 const gname =
                   row && row.dataset && row.dataset.groupname
                     ? row.dataset.groupname.toLowerCase()
@@ -335,20 +424,17 @@ if (document.readyState === "loading") {
                 isAdminGroupUser = !!txt && txt === adminName;
               }
             }
-          } catch (_) {}
-          // If view is unchecked, also uncheck and unlock 'f'
-          if (viewACb && !viewACb.checked) {
-            filesAllCb.checked = false;
-            filesAllCb.disabled = false;
-          } else if (hasNonView && isAdminGroupUser) {
-            // View is on; admin-group + other perms -> force and lock 'f'
-            filesAllCb.checked = true;
-            filesAllCb.disabled = true;
-          } else if (!hasNonView) {
-            // No other perms -> do not lock 'f'
-            filesAllCb.disabled = false;
           }
-        });
+        } catch (_) {}
+        // For full-access or admin-group users: lock 'a' ON
+        if (isFullAccessUser || isAdminGroupUser) {
+          viewACb.checked = true;
+          setDisabled(viewACb, true);
+          return;
+        }
+        // Otherwise, 'a' stays enabled
+        setDisabled(viewACb, false);
+      });
     } catch (_) {}
   }
 
@@ -358,9 +444,27 @@ if (document.readyState === "loading") {
       const addBox = document.getElementById("perm-string-add-box");
       if (addBox && !addBox.__viewRuleBound) {
         addBox.__viewRuleBound = true;
+        const handler = function (e) {
+          const grp =
+            e && e.target && e.target.closest
+              ? e.target.closest(".permissions-group")
+              : null;
+          enforceViewRuleInBox(addBox, grp || undefined);
+        };
         addBox.addEventListener("change", function (e) {
           if (e && e.target && e.target.matches('input[type="checkbox"]')) {
-            enforceViewRuleInBox(addBox);
+            handler(e);
+          }
+        });
+        // Immediate visual feedback on click/input as well
+        addBox.addEventListener("click", function (e) {
+          if (e && e.target && e.target.matches('input[type="checkbox"]')) {
+            handler(e);
+          }
+        });
+        addBox.addEventListener("input", function (e) {
+          if (e && e.target && e.target.matches('input[type="checkbox"]')) {
+            handler(e);
           }
         });
       }
@@ -369,11 +473,74 @@ if (document.readyState === "loading") {
       const permBox = document.getElementById("perm-string-perm-box");
       if (permBox && !permBox.__viewRuleBound) {
         permBox.__viewRuleBound = true;
+        const handler = function (e) {
+          const grp =
+            e && e.target && e.target.closest
+              ? e.target.closest(".permissions-group")
+              : null;
+          enforceViewRuleInBox(permBox, grp || undefined);
+        };
         permBox.addEventListener("change", function (e) {
           if (e && e.target && e.target.matches('input[type="checkbox"]')) {
-            enforceViewRuleInBox(permBox);
+            handler(e);
           }
         });
+        // Immediate visual feedback on click/input as well
+        permBox.addEventListener("click", function (e) {
+          if (e && e.target && e.target.matches('input[type="checkbox"]')) {
+            handler(e);
+          }
+        });
+        permBox.addEventListener("input", function (e) {
+          if (e && e.target && e.target.matches('input[type="checkbox"]')) {
+            handler(e);
+          }
+        });
+        // Also re-enforce when group select changes in the Edit form while perm box is open
+        try {
+          const editSel = document.getElementById("edit-group");
+          if (editSel && !editSel.__viewRuleRebind) {
+            editSel.__viewRuleRebind = true;
+            editSel.addEventListener("change", function () {
+              enforceViewRuleInBox(permBox);
+            });
+          }
+        } catch (_) {}
+        // Re-apply when admin toggle changes
+        try {
+          const adminToggle = permBox.querySelector('[data-admin-toggle="1"]');
+          if (adminToggle && !adminToggle.__filesRebind) {
+            adminToggle.__filesRebind = true;
+            const applyFiles = function () {
+              try {
+                const filesGroup = permBox.querySelector(
+                  '.permissions-group[data-page="3"]'
+                );
+                enforceViewRuleInBox(permBox, filesGroup || undefined);
+              } catch (_) {}
+            };
+            adminToggle.addEventListener("change", applyFiles);
+            adminToggle.addEventListener("click", applyFiles);
+            setTimeout(applyFiles, 0);
+          }
+        } catch (_) {}
+        // Re-apply when hidden permission input changes value
+        try {
+          const hid = permBox.querySelector("#perm-string-perm");
+          if (hid && !hid.__filesRebind) {
+            hid.__filesRebind = true;
+            const applyFiles = function () {
+              try {
+                const filesGroup = permBox.querySelector(
+                  '.permissions-group[data-page="3"]'
+                );
+                enforceViewRuleInBox(permBox, filesGroup || undefined);
+              } catch (_) {}
+            };
+            hid.addEventListener("change", applyFiles);
+            hid.addEventListener("input", applyFiles);
+          }
+        } catch (_) {}
       }
     } catch (_) {}
   })();
@@ -382,25 +549,34 @@ if (document.readyState === "loading") {
   (function observePermModalVisibility() {
     try {
       const modal = document.getElementById("popup-perm");
-      if (!modal || modal.__permViewObsBound) return;
-      modal.__permViewObsBound = true;
+      if (!modal || modal.__permRefreshObsBound) return;
+      modal.__permRefreshObsBound = true;
+      const lastState = { visible: false };
       const apply = function () {
         try {
           const cs = window.getComputedStyle(modal);
-          const box = document.getElementById("perm-string-perm-box");
-          if (!box) return;
-          // Enforce both when shown and hidden (cleanup)
-          enforceViewRuleInBox(box);
+          const isVisible = cs && cs.display !== "none";
+          // On show -> enforce view rules immediately
+          if (!lastState.visible && isVisible) {
+            try {
+              const box = document.getElementById("perm-string-perm-box");
+              if (box) enforceViewRuleInBox(box);
+            } catch (_) {}
+          }
+          // On hide -> refresh users table and re-apply collapses
+          if (lastState.visible && !isVisible) {
+            try {
+              if (window.refreshUsersPage) window.refreshUsersPage();
+            } catch (_) {}
+            try {
+              enforceAdminCollapse(document);
+            } catch (_) {}
+          }
+          lastState.visible = isVisible;
         } catch (_) {}
       };
-      const mo = new MutationObserver(function () {
-        apply();
-      });
-      mo.observe(modal, {
-        attributes: true,
-        attributeFilter: ["style", "class"],
-      });
-      apply();
+      // Polling observer (since overlay isn't Bootstrap modal)
+      setInterval(apply, 150);
     } catch (_) {}
   })();
 
@@ -590,13 +766,46 @@ if (document.readyState === "loading") {
         if (viewCb) {
           if (hasNonView) {
             viewCb.checked = true;
-            viewCb.disabled = true;
+            setDisabled(viewCb, true);
           } else {
-            viewCb.disabled = false;
+            setDisabled(viewCb, false);
           }
         }
       } catch (_) {}
     });
+    // If full access detected, lock Files page ('a' only) immediately
+    try {
+      const isFull = isFullAccessLegacy(legacy);
+      // Also detect admin-group
+      let isAdminGroup = false;
+      try {
+        const row = document.getElementById(rowId);
+        const adminName = (window.adminGroupName || "").toLowerCase();
+        const gname =
+          row && row.dataset && row.dataset.groupname
+            ? row.dataset.groupname.toLowerCase()
+            : "";
+        isAdminGroup = !!adminName && !!gname && gname === adminName;
+      } catch (_) {}
+      if (isFull || isAdminGroup) {
+        const filesGroup = box.querySelector(
+          '.permissions-group[data-page="3"]'
+        );
+        if (filesGroup) {
+          const aCb = filesGroup.querySelector(
+            'input[type="checkbox"][data-letter="a"]'
+          );
+          if (aCb) {
+            aCb.checked = true;
+            setDisabled(aCb, true);
+          }
+        }
+      }
+    } catch (_) {}
+    // Immediately enforce cross-group rules (Files admin-group rule, Categories view rule)
+    try {
+      enforceViewRuleInBox(box);
+    } catch (_) {}
 
     // Also populate hidden fields so backend validation passes
     try {
@@ -1145,18 +1354,33 @@ if (document.readyState === "loading") {
           window.__usersClientId =
             Math.random().toString(36).slice(2) + Date.now();
       } catch (_) {}
-      // Reuse global socket if available (like files page), else create robust connection
-      /** @type {import('socket.io-client').Socket} */
       // Initialize a dedicated socket for Users page to avoid cross-page interference
+      function destroyUsersSocket() {
+        try {
+          if (window.usersSocket) {
+            const s = window.usersSocket;
+            try {
+              s.off && s.off();
+            } catch (_) {}
+            try {
+              s.disconnect && s.disconnect();
+            } catch (_) {}
+          }
+        } catch (_) {}
+        try {
+          window.usersSocket = null;
+        } catch (_) {}
+      }
+      // Do not destroy shared global socket used by other pages
+      // destroyUsersSocket();
       let socket =
-        window.usersSocket &&
-        (window.usersSocket.connected || window.usersSocket.connecting) &&
-        typeof window.usersSocket.on === "function"
-          ? window.usersSocket
+        window.socket &&
+        (window.socket.connected || window.socket.connecting) &&
+        typeof window.socket.on === "function"
+          ? window.socket
           : window.io(window.location.origin, {
-              // Try WebSocket-only first to avoid 400 on polling behind some proxies
-              transports: ["websocket"],
-              upgrade: false,
+              transports: ["websocket", "polling"],
+              upgrade: true,
               path: "/socket.io",
               withCredentials: true,
               reconnection: true,
@@ -1165,9 +1389,8 @@ if (document.readyState === "loading") {
               reconnectionDelayMax: 5000,
               timeout: 20000,
             });
-      if (!window.socket) {
-        window.socket = socket;
-      }
+      window.usersSocket = socket;
+      if (!window.socket) window.socket = socket;
       // Always (re)bind to current socket instance
       try {
         socket.off && socket.off("users:changed");
@@ -1175,38 +1398,136 @@ if (document.readyState === "loading") {
       try {
         socket.off && socket.off("/users:changed");
       } catch (_) {}
-      socket.on("connect", function () {
+      // Helper to rebuild socket on hard errors (e.g., 400 due to stale sid)
+      function rebuildSocket() {
+        // Recreate similar to files.js and reuse global
         try {
-          softRefreshUsersTable();
+          if (socket && socket.off) {
+            try {
+              socket.off("connect");
+            } catch (_) {}
+            try {
+              socket.off("disconnect");
+            } catch (_) {}
+            try {
+              socket.off("connect_error");
+            } catch (_) {}
+            try {
+              socket.off("error");
+            } catch (_) {}
+            try {
+              socket.off("reconnect_error");
+            } catch (_) {}
+            try {
+              socket.off("users:changed");
+            } catch (_) {}
+          }
         } catch (_) {}
-      });
-      socket.on("disconnect", function (reason) {
-        /* no-op */
-      });
-      socket.on("users:changed", function (evt) {
         try {
-          const fromSelf = !!(
-            evt &&
-            evt.originClientId &&
-            window.__usersClientId &&
-            evt.originClientId === window.__usersClientId
-          );
-          if (fromSelf) return;
+          socket && socket.disconnect && socket.disconnect();
         } catch (_) {}
-        // If tab hidden, perform immediate network refresh to bypass throttling
-        if (document.hidden) {
-          try {
-            window.__usersHadBackgroundEvent = true;
-          } catch (_) {}
-          try {
-            backgroundImmediateUsersRefresh();
-          } catch (_) {}
-        } else {
+        const next = window.io(window.location.origin, {
+          transports: ["websocket", "polling"],
+          upgrade: true,
+          path: "/socket.io",
+          withCredentials: true,
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          timeout: 20000,
+        });
+        socket = next;
+        window.usersSocket = next;
+        if (!window.socket) window.socket = next;
+        bindSocketHandlers(next);
+      }
+      function bindSocketHandlers(sock) {
+        sock.on("connect", function () {
           try {
             softRefreshUsersTable();
           } catch (_) {}
-        }
-      });
+        });
+        sock.on("disconnect", function (reason) {
+          // No-op; reconnection is handled by client. If server restarted, 400s may occur on old session
+        });
+        // If we see 400 or transport errors after restart, rebuild with fresh ts and possibly polling-only first
+        const onConnErr = function (err) {
+          try {
+            const code = (err && (err.code || err.status)) || 0;
+            const msg = String(err && (err.message || err)) || "";
+            const is400 = code === 400 || /400/i.test(msg);
+            const stale = /session|sid|bad request/i.test(msg);
+            if (is400 || stale) {
+              setTimeout(rebuildSocket, 500);
+              return;
+            }
+          } catch (_) {}
+        };
+        try {
+          sock.on("connect_error", onConnErr);
+        } catch (_) {}
+        try {
+          sock.on("error", onConnErr);
+        } catch (_) {}
+        try {
+          sock.on("reconnect_error", onConnErr);
+        } catch (_) {}
+        // Engine-level guards: close/error/upgradeError
+        try {
+          const eng = sock && sock.io && sock.io.engine;
+          if (eng && !eng.__usersEngineBound) {
+            eng.__usersEngineBound = true;
+            eng.on &&
+              eng.on("close", function (reason, desc) {
+                try {
+                  const msg = String(desc || reason || "");
+                  if (/400|bad request|sid|session/i.test(msg)) {
+                    setTimeout(rebuildSocket, 500);
+                  }
+                } catch (_) {}
+              });
+            eng.on &&
+              eng.on("error", function (err) {
+                try {
+                  const code = (err && (err.code || err.status)) || 0;
+                  const msg = String(err && (err.message || err)) || "";
+                  if (
+                    code === 400 ||
+                    /400|bad request|sid|session/i.test(msg)
+                  ) {
+                    setTimeout(rebuildSocket, 500);
+                  }
+                } catch (_) {}
+              });
+            // Do not attempt upgrade; polling-only
+          }
+        } catch (_) {}
+        sock.on("users:changed", function (evt) {
+          try {
+            const fromSelf = !!(
+              evt &&
+              evt.originClientId &&
+              window.__usersClientId &&
+              evt.originClientId === window.__usersClientId
+            );
+            if (fromSelf) return;
+          } catch (_) {}
+          if (document.hidden) {
+            try {
+              window.__usersHadBackgroundEvent = true;
+            } catch (_) {}
+            try {
+              backgroundImmediateUsersRefresh();
+            } catch (_) {}
+          } else {
+            try {
+              softRefreshUsersTable();
+            } catch (_) {}
+          }
+        });
+      }
+      bindSocketHandlers(socket);
       window.usersSocket = socket;
     } catch (e) {}
 

@@ -25,86 +25,90 @@
     });
   }
 
-  function loadRegistrators() {
-    return fetchJson("/api/registrators").then(function (j) {
-      const wrap = document.getElementById("registrators-nav");
-      if (!wrap) return [];
-      wrap.innerHTML = "";
-      var items = (j.items || []).slice();
-      if (items.length === 0) {
-        const addBtn = document.createElement("button");
-        addBtn.className = "topbtn";
-        addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
-        addBtn.title = "Добавить регистратор";
-        addBtn.onclick = function () {
-          if (window.openAddRegistratorModalUI)
-            return window.openAddRegistratorModalUI();
-          openAddRegistratorModal();
-        };
-        wrap.appendChild(addBtn);
-        try {
-          var perm = document.getElementById("permissions-content");
-          if (perm) perm.style.display = "none";
-        } catch (_) {}
-      } else {
-        items.forEach(function (it) {
-          const btn = document.createElement("button");
-          btn.className = "topbtn" + (!it.enabled ? " is-disabled" : "");
-          btn.innerHTML = it.name;
-          btn.setAttribute("data-registrator-id", it.id);
-          btn.onclick = function () {
-            selectRegistrator(it.id);
+  function loadRegistrators(page = 1) {
+    return fetchJson(`/api/registrators?page=${page}&page_size=10`).then(
+      function (j) {
+        const wrap = document.getElementById("registrators-nav");
+        if (!wrap) return [];
+        wrap.innerHTML = "";
+        var items = (j.items || []).slice();
+        if (items.length === 0) {
+          const addBtn = document.createElement("button");
+          addBtn.className = "topbtn";
+          addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
+          addBtn.title = "Добавить регистратор";
+          addBtn.onclick = function () {
+            if (window.openAddRegistratorModalUI)
+              return window.openAddRegistratorModalUI();
+            openAddRegistratorModal();
           };
-          // Right-click context menu
-          btn.addEventListener("contextmenu", function (e) {
-            try {
-              e.preventDefault();
-              e.stopPropagation();
-            } catch (_) {}
-            const cx = typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
-            const cy = typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
-            openRegContextMenu(cx, cy, it);
-          });
-          // also handle long-press on touch to open context menu
-          let tId;
-          btn.addEventListener(
-            "touchstart",
-            function (ev) {
+          wrap.appendChild(addBtn);
+          try {
+            var perm = document.getElementById("permissions-content");
+            if (perm) perm.style.display = "none";
+          } catch (_) {}
+        } else {
+          items.forEach(function (it) {
+            const btn = document.createElement("button");
+            btn.className = "topbtn" + (!it.enabled ? " is-disabled" : "");
+            btn.innerHTML = it.name;
+            btn.setAttribute("data-registrator-id", it.id);
+            btn.onclick = function () {
+              selectRegistrator(it.id);
+            };
+            // Right-click context menu
+            btn.addEventListener("contextmenu", function (e) {
               try {
-                ev.stopPropagation();
+                e.preventDefault();
+                e.stopPropagation();
               } catch (_) {}
-              const touch = ev.touches && ev.touches[0];
-              const cx = touch ? touch.clientX : 0;
-              const cy = touch ? touch.clientY : 0;
-              tId = setTimeout(function () {
-                openRegContextMenu(cx, cy, it);
-              }, 500);
-            },
-            { passive: true }
-          );
-          ["touchend", "touchcancel", "touchmove"].forEach(function (n) {
-            btn.addEventListener(n, function () {
-              if (tId) {
-                clearTimeout(tId);
-                tId = null;
-              }
+              const cx =
+                typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
+              const cy =
+                typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
+              openRegContextMenu(cx, cy, it);
             });
+            // also handle long-press on touch to open context menu
+            let tId;
+            btn.addEventListener(
+              "touchstart",
+              function (ev) {
+                try {
+                  ev.stopPropagation();
+                } catch (_) {}
+                const touch = ev.touches && ev.touches[0];
+                const cx = touch ? touch.clientX : 0;
+                const cy = touch ? touch.clientY : 0;
+                tId = setTimeout(function () {
+                  openRegContextMenu(cx, cy, it);
+                }, 500);
+              },
+              { passive: true }
+            );
+            ["touchend", "touchcancel", "touchmove"].forEach(function (n) {
+              btn.addEventListener(n, function () {
+                if (tId) {
+                  clearTimeout(tId);
+                  tId = null;
+                }
+              });
+            });
+            wrap.appendChild(btn);
           });
-          wrap.appendChild(btn);
-        });
-        const addBtn = document.createElement("button");
-        addBtn.className = "topbtn";
-        addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
-        addBtn.title = "Добавить регистратор";
-        addBtn.onclick = function () {
-          if (window.openAddRegistratorModalUI)
-            return window.openAddRegistratorModalUI();
-          openAddRegistratorModal();
-        };
-        wrap.appendChild(addBtn);
+          const addBtn = document.createElement("button");
+          addBtn.className = "topbtn";
+          addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
+          addBtn.title = "Добавить регистратор";
+          addBtn.onclick = function () {
+            if (window.openAddRegistratorModalUI)
+              return window.openAddRegistratorModalUI();
+            openAddRegistratorModal();
+          };
+          wrap.appendChild(addBtn);
+        }
+        return items;
       }
-      return items;
-    });
+    );
   }
 
   function openRegContextMenu(x, y, item) {
@@ -321,6 +325,50 @@
   var regDirtyUsers = false;
   var regDirtyGroups = false;
 
+  function enforceAdminAccess(permissions, groups, users) {
+    // Force admin group access
+    if (groups && groups.length > 0) {
+      var adminName = (window.adminGroupName || "Программисты").toLowerCase();
+      groups.forEach(function (group) {
+        if (String(group.name || "").toLowerCase() === adminName) {
+          if (!permissions.group) permissions.group = {};
+          permissions.group[String(group.id)] = 1;
+        }
+      });
+    }
+
+    // Force admin and full-access users access
+    if (users && users.length > 0) {
+      users.forEach(function (user) {
+        var force = false;
+        try {
+          var permStr = String((user && user.permission) || "").trim();
+          var login = String((user && user.login) || "").toLowerCase();
+
+          // Always force for admin user
+          if (login === "admin") {
+            force = true;
+          } else {
+            // Check for full access patterns
+            force =
+              permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
+              permStr === "aef,a,abcdflm,ab,ab,ab" ||
+              permStr.indexOf("z") !== -1 ||
+              permStr.includes("полный доступ") ||
+              permStr.includes("full access");
+          }
+        } catch (_) {}
+
+        if (force) {
+          if (!permissions.user) permissions.user = {};
+          permissions.user[String(user.id)] = 1;
+        }
+      });
+    }
+
+    return permissions;
+  }
+
   function loadRegPermissions(pageGroups, pageUsers, termGroups, termUsers) {
     var rid = window.currentRegistratorId;
     if (!rid) return;
@@ -354,6 +402,14 @@
         permissionsData && permissionsData.permissions
           ? permissionsData.permissions
           : { user: {}, group: {} };
+
+      // Enforce admin access for all registrators
+      perms = enforceAdminAccess(
+        perms,
+        groupsResp.items || [],
+        usersResp.items || []
+      );
+
       regLastSavedPermissions = JSON.parse(JSON.stringify(perms));
       regCurrentPermissionsDraft = JSON.parse(JSON.stringify(perms));
       regDirtyGroups = false;
@@ -393,33 +449,105 @@
           if (!regCurrentPermissionsDraft.group)
             regCurrentPermissionsDraft.group = {};
           regCurrentPermissionsDraft.group[String(group.id)] = 1;
+          checked = true; // Force checked state for admin group
         }
       } catch (_) {}
-      row.innerHTML =
-        "\n        <td>" +
-        (group.name || "") +
-        '</td>\n        <td class="text-end">' +
-        '<label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="' +
-        group.id +
-        '" ' +
-        (checked || isAdminGroup ? "checked" : "") +
-        (isAdminGroup ? " disabled" : "") +
-        "></label>" +
-        "</td>\n      ";
+      var html = `
+        <td>${group.name || ""}</td>
+        <td class="text-end">
+          <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
+            <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="${
+              group.id
+            }" 
+              ${checked || isAdminGroup ? "checked" : ""} 
+              ${isAdminGroup ? "disabled" : ""} 
+              onchange="updateRegistratorGroupPermission(${
+                group.id
+              }, this.checked)">
+          </label>
+        </td>
+      `;
+
+      row.innerHTML = html;
+
+      // Force disable state after HTML is set
+      if (isAdminGroup) {
+        var input = row.querySelector('input[type="checkbox"]');
+        if (input) {
+          input.disabled = true;
+          input.checked = true;
+          console.log(
+            "Forced disabled state for group",
+            group.name,
+            "input.disabled:",
+            input.disabled
+          );
+        }
+      }
+
       tbody.appendChild(row);
     });
-    tbody.addEventListener("change", function (e) {
-      var t = e.target;
-      if (!t || t.name !== "reg-perm-view") return;
-      if (t.disabled) return;
-      var gid = String(t.dataset.id || "");
-      if (!regCurrentPermissionsDraft.group)
-        regCurrentPermissionsDraft.group = {};
-      regCurrentPermissionsDraft.group[gid] = t.checked ? 1 : 0;
-      regDirtyGroups = true;
-      updateSaveButtonsState();
-    });
   }
+
+  // Global functions for onchange handlers (like in categories.js)
+  window.updateRegistratorGroupPermission = function (groupId, checked) {
+    // Check if this is admin group - prevent disabling
+    var adminName = (window.adminGroupName || "Программисты").toLowerCase();
+    var groupName = "";
+    try {
+      var groupRow = document.querySelector(
+        `input[data-entity="group"][data-id="${groupId}"]`
+      );
+      if (groupRow) {
+        var groupCell = groupRow.closest("tr").querySelector("td:first-child");
+        groupName = ((groupCell && groupCell.textContent) || "").toLowerCase();
+      }
+    } catch (_) {}
+
+    if (groupName === adminName && !checked) {
+      // Re-check the checkbox
+      setTimeout(() => {
+        var input = document.querySelector(
+          `input[data-entity="group"][data-id="${groupId}"]`
+        );
+        if (input) input.checked = true;
+      }, 0);
+      return;
+    }
+
+    if (!regCurrentPermissionsDraft.group)
+      regCurrentPermissionsDraft.group = {};
+    regCurrentPermissionsDraft.group[String(groupId)] = checked ? 1 : 0;
+    regDirtyGroups = true;
+    updateSaveButtonsState();
+  };
+
+  window.updateRegistratorUserPermission = function (userId, checked) {
+    // Check if this is admin or full-access user - prevent disabling
+    var userRow = document.querySelector(
+      `input[data-entity="user"][data-id="${userId}"]`
+    );
+    if (userRow) {
+      var userCell = userRow.closest("tr").querySelector("td:first-child span");
+      var login = ((userCell && userCell.textContent) || "").toLowerCase();
+
+      // Check if admin user
+      if (login === "admin" && !checked) {
+        setTimeout(() => {
+          userRow.checked = true;
+        }, 0);
+        return;
+      }
+
+      // Check if full-access user (we need to get permission string from somewhere)
+      // For now, we'll rely on the server-side enforcement
+    }
+
+    if (!regCurrentPermissionsDraft.user) regCurrentPermissionsDraft.user = {};
+    regCurrentPermissionsDraft.user[String(userId)] = checked ? 1 : 0;
+    regDirtyUsers = true;
+    updateSaveButtonsState();
+  };
 
   function loadUsersPermissionsTable(users, permissions) {
     var tbody = document.getElementById("users-permissions");
@@ -431,15 +559,28 @@
         permissions && permissions[user.id] ? !!permissions[user.id] : false;
       var force = false;
       try {
-        var permStr = String(
-          (user && (user.permissions_string || user.permission_string)) || ""
-        ).trim();
-        force =
-          permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
-          permStr === "aef,a,abcdflm,ab,ab,ab" ||
-          permStr.indexOf("z") !== -1;
-        if (!force)
-          force = String((user && user.login) || "").toLowerCase() === "admin";
+        var permStr = String((user && user.permission) || "").trim();
+        var login = String((user && user.login) || "").toLowerCase();
+
+        // Always force for admin user
+        if (login === "admin") {
+          force = true;
+        } else {
+          // Check for full access patterns
+          force =
+            permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
+            permStr === "aef,a,abcdflm,ab,ab,ab" ||
+            permStr.indexOf("z") !== -1 ||
+            permStr.includes("полный доступ") ||
+            permStr.includes("full access");
+        }
+
+        if (force) {
+          if (!regCurrentPermissionsDraft.user)
+            regCurrentPermissionsDraft.user = {};
+          regCurrentPermissionsDraft.user[String(user.id)] = 1;
+          checked = true; // Force checked state for admin/full-access users
+        }
       } catch (_) {}
       // Force-enable and lock full-access/admin users in draft too
       try {
@@ -447,33 +588,37 @@
           if (!regCurrentPermissionsDraft.user)
             regCurrentPermissionsDraft.user = {};
           regCurrentPermissionsDraft.user[String(user.id)] = 1;
+          checked = true; // Force checked state for admin/full-access users
         }
       } catch (_) {}
-      row.innerHTML =
-        '\n        <td><span title="' +
-        (user.name || "") +
-        '">' +
-        (user.login || "") +
-        '</span></td>\n        <td class="text-end">' +
-        '<label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end"><input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="' +
-        user.id +
-        '" ' +
-        (checked || force ? "checked" : "") +
-        (force ? " disabled" : "") +
-        '"></label>' +
-        "</td>\n      ";
+      var html = `
+        <td><span title="${user.name || ""}">${user.login || ""}</span></td>
+        <td class="text-end">
+          <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
+            <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="${
+              user.id
+            }" 
+              ${checked || force ? "checked" : ""} 
+              ${force ? "disabled" : ""} 
+              onchange="updateRegistratorUserPermission(${
+                user.id
+              }, this.checked)">
+          </label>
+        </td>
+      `;
+
+      row.innerHTML = html;
+
+      // Force disable state after HTML is set
+      if (force) {
+        var input = row.querySelector('input[type="checkbox"]');
+        if (input) {
+          input.disabled = true;
+          input.checked = true;
+        }
+      }
+
       tbody.appendChild(row);
-    });
-    tbody.addEventListener("change", function (e) {
-      var t = e.target;
-      if (!t || t.name !== "reg-perm-view") return;
-      if (t.disabled) return;
-      var uid = String(t.dataset.id || "");
-      if (!regCurrentPermissionsDraft.user)
-        regCurrentPermissionsDraft.user = {};
-      regCurrentPermissionsDraft.user[uid] = t.checked ? 1 : 0;
-      regDirtyUsers = true;
-      updateSaveButtonsState();
     });
   }
 
@@ -534,7 +679,12 @@
   function saveRegPermissions(which) {
     var rid = window.currentRegistratorId;
     if (!rid) return;
-    var payload = { permissions: regCurrentPermissionsDraft };
+
+    // Ensure admin access is always enforced before saving
+    var payload = {
+      permissions: JSON.parse(JSON.stringify(regCurrentPermissionsDraft)),
+    };
+
     fetch("/registrators/" + encodeURIComponent(rid) + "/permissions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

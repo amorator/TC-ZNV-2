@@ -36,9 +36,9 @@ class Server(Flask):
 	def init(self) -> None:
 		"""Initialize login manager and SQL utilities."""
 		self.login_manager = LoginManager(self)
-		self.login_manager.login_view = 'login'
+		self.login_manager.login_view = 'login'  # type: ignore[assignment]
 		self.login_manager.login_message = 'Please log in to access this page.'
-		self.login_manager.refresh_view = 'reauth'
+		self.login_manager.refresh_view = 'reauth'  # type: ignore[assignment]
 		self._sql = SQLUtils()
 		# Load Flask secret key from DB (create if missing) unless provided via env
 		try:
@@ -46,6 +46,13 @@ class Server(Flask):
 				sk = self._sql.get_or_create_secret_key()
 				if sk and isinstance(sk, str) and len(sk) >= 32:
 					self.config['SECRET_KEY'] = sk
+		except Exception:
+			pass
+		# Override session lifetime from config.ini [web] if present (fallback to current value)
+		try:
+			default_lifetime = int(self.config.get('PERMANENT_SESSION_LIFETIME', 86400))
+			lifetime = self._sql.config.getint('web', 'permanent_session_lifetime', fallback=default_lifetime)
+			self.config['PERMANENT_SESSION_LIFETIME'] = lifetime
 		except Exception:
 			pass
 
@@ -95,7 +102,7 @@ class Server(Flask):
 		"""Return MD5 hash for a string (legacy)."""
 		return md5(s.encode('utf-8')).hexdigest()
 
-	def flash_error(self, e: Exception) -> None:
+	def flash_error(self, e) -> None:
 		"""Normalize and flash an error message to UI."""
 		msg = sub("['\"]", '', str(e))
 		flash(msg)

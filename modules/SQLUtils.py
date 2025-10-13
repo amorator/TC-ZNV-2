@@ -2,6 +2,7 @@
 
 import mysql.connector as mysql
 from mysql.connector import errors as mysql_errors
+from typing import Optional
 
 from classes.user import User
 from classes.request import Request
@@ -22,7 +23,7 @@ class SQL(Config):
 
     def __init__(self):
         super().__init__()
-        self._pool = None
+        self._pool: Optional[mysql.pooling.MySQLConnectionPool] = None
         # Initialize database schema on startup
         self._ensure_database_schema()
 
@@ -133,13 +134,14 @@ class SQL(Config):
         self.execute_non_query(f"INSERT IGNORE INTO {self.config['db']['prefix']}_user (id, login, name, password, gid, enabled, permission) VALUES (%s, %s, %s, %s, %s, %s, %s);", 
                               [1, "admin", self.config['admin']['name'], self.config['admin']['password'], 1, 1, admin_permissions])
 
+    @staticmethod
     def with_conn(func):
         def _with_conn(self, command, args=[]):
             if not self._pool:
-                _log.info("Creating MySQL connection pool")
+                _log.info(f"Creating MySQL connection pool with size {int(self.config['db'].get('pool_size', 20))}")
                 self._pool = mysql.pooling.MySQLConnectionPool(
                     pool_name="znv_pool",
-                    pool_size=int(self.config['db'].get('pool_size', 5)),
+                    pool_size=int(self.config['db'].get('pool_size', 20)),  # Increased from 5 to 20
                     pool_reset_session=True,
                     host=self.config['db']['host'],
                     user=self.config['db']['user'],
@@ -148,20 +150,25 @@ class SQL(Config):
                     charset="utf8mb4",
                     collation="utf8mb4_general_ci",
                     connection_timeout=int(self.config['db'].get('connect_timeout', 10)),
+                    autocommit=True,  # Enable autocommit to prevent long transactions
+                    sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO',
                 )
             # Retry acquire to avoid immediate PoolError: pool exhausted under burst load
-            retries = int(self.config['db'].get('pool_acquire_retries', 50))
-            delay_ms = int(self.config['db'].get('pool_acquire_delay_ms', 200))
+            retries = int(self.config['db'].get('pool_acquire_retries', 100))  # Increased from 50 to 100
+            delay_ms = int(self.config['db'].get('pool_acquire_delay_ms', 100))  # Decreased from 200 to 100
             last_err = None
             for _ in range(max(1, retries)):
                 try:
+                    assert self._pool is not None
                     self.conn = self._pool.get_connection()
                     break
                 except mysql_errors.PoolError as e:
                     last_err = e
+                    _log.warning(f"Pool exhausted, retrying in {delay_ms}ms (attempt {_+1}/{retries})")
                     time.sleep(max(0, delay_ms) / 1000.0)
             else:
                 # Exhausted retries
+                _log.error(f"Failed to get connection after {retries} retries, pool size: {self._pool.pool_size}")
                 raise last_err or mysql_errors.PoolError("Failed getting connection; pool exhausted")
             # Ensure connection is alive; reconnect if needed
             try:
@@ -170,11 +177,89 @@ class SQL(Config):
                 pass
             # Use buffered cursor to allow fetch after execute reliably
             self.cur = self.conn.cursor(buffered=True)
-            data = func(self, command, args)
-            self.cur.close()
-            self.conn.close()
-            return data
+            try:
+                data = func(self, command, args)
+                return data
+            finally:
+                # Always clean up cursor and return connection to pool
+                try:
+                    self.cur.close()
+                except Exception:
+                    pass
+                try:
+                    self.conn.close()  # This returns connection to pool
+                except Exception:
+                    pass
         return _with_conn
+
+    def get_pool_status(self):
+        """Get connection pool status for monitoring."""
+        if not self._pool:
+            return {"pool_size": 0, "available_connections": 0, "in_use": 0}
+        try:
+            q = getattr(self._pool, '_cnx_queue', None)
+            available = int(q.qsize()) if (q is not None and hasattr(q, 'qsize')) else 0
+        except Exception:
+            available = 0
+        in_use = max(0, int(self._pool.pool_size) - available)
+        return {
+            "pool_size": int(self._pool.pool_size),
+            "available_connections": available,
+            "in_use": in_use,
+        }
+
+    def __enter__(self):
+        """Context manager entry - get connection from pool."""
+        if not self._pool:
+            # Ensure schema and initialize pool if missing (mirrors with_conn)
+            self._ensure_database_schema()
+            try:
+                _log.info(f"Creating MySQL connection pool with size {int(self.config['db'].get('pool_size', 20))}")
+                self._pool = mysql.pooling.MySQLConnectionPool(
+                    pool_name="znv_pool",
+                    pool_size=int(self.config['db'].get('pool_size', 20)),
+                    pool_reset_session=True,
+                    host=self.config['db']['host'],
+                    user=self.config['db']['user'],
+                    password=self.config['db']['password'],
+                    database=self.config['db']['name'],
+                    charset="utf8mb4",
+                    collation="utf8mb4_general_ci",
+                    connection_timeout=int(self.config['db'].get('connect_timeout', 10)),
+                    autocommit=True,
+                    sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO',
+                )
+            except Exception:
+                pass
+        retries = int(self.config['db'].get('pool_acquire_retries', 100))
+        delay_ms = int(self.config['db'].get('pool_acquire_delay_ms', 100))
+        last_err = None
+        for _ in range(max(1, retries)):
+            try:
+                assert self._pool is not None
+                self.conn = self._pool.get_connection()
+                self.cur = self.conn.cursor(buffered=True)
+                return self
+            except mysql_errors.PoolError as e:
+                last_err = e
+                _log.warning(f"Pool exhausted in context manager, retrying in {delay_ms}ms (attempt {_+1}/{retries})")
+                time.sleep(max(0, delay_ms) / 1000.0)
+        else:
+            _log.error(f"Failed to get connection in context manager after {retries} retries")
+            raise last_err or mysql_errors.PoolError("Failed getting connection; pool exhausted")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - return connection to pool."""
+        try:
+            if hasattr(self, 'cur') and self.cur:
+                self.cur.close()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()  # Returns connection to pool
+        except Exception:
+            pass
 
     @with_conn
     def execute_non_query(self, command, args=[]):
@@ -422,10 +507,10 @@ class SQLUtils(SQL):
             cat_folder = self._get_category_folder_by_id(category_id)
             sub_folder = self._get_subcategory_folder_by_id(subcategory_id)
             import os
-            return os.path.join(base, 'video', cat_folder, sub_folder)
+            return os.path.join(base, 'files', cat_folder, sub_folder)
         except Exception:
             import os
-            return os.path.join(self.config['files'].get('root', '/var/lib/znv-files'), 'video')
+            return os.path.join(self.config['files'].get('root', './znf-files'), 'files')
 
     def get_file_storage_path(self, category_id: int, subcategory_id: int) -> str:
         """Public helper to compute absolute directory for given category/subcategory ids."""
@@ -1086,14 +1171,19 @@ class SQLUtils(SQL):
             f"SELECT id FROM {self.config['db']['prefix']}_push_sub WHERE endpoint = %s;",
             [endpoint]
         )
+        # Resolve user-agent string from config safely for type checker
+        try:
+            ua = self.config.get('web', 'user_agent', fallback='')
+        except Exception:
+            ua = ''
         if existing:
             return self.execute_non_query(
                 f"UPDATE {self.config['db']['prefix']}_push_sub SET user_id = %s, p256dh = %s, auth = %s, user_agent = %s, last_checked_at = NOW(), last_error_at = NULL, error_code = NULL, invalidated_at = NULL WHERE id = %s;",
-                [user_id, p256dh, auth, (self.config.get('user_agent') or ''), existing[0]]
+                [user_id, p256dh, auth, ua, existing[0]]
             )
         return self.execute_insert(
             f"INSERT INTO {self.config['db']['prefix']}_push_sub (user_id, endpoint, p256dh, auth, user_agent, last_checked_at) VALUES (%s, %s, %s, %s, %s, NOW());",
-            [user_id, endpoint, p256dh, auth, (self.config.get('user_agent') or '')]
+            [user_id, endpoint, p256dh, auth, ua]
         )
 
     def push_remove_subscription(self, endpoint: str):
@@ -1119,11 +1209,12 @@ class SQLUtils(SQL):
         except Exception:
             return None
 
-    def push_mark_error(self, endpoint: str, code: str = None):
+    def push_mark_error(self, endpoint: str, code: Optional[str] = None):
         try:
+            err = '' if code is None else str(code)
             return self.execute_non_query(
                 f"UPDATE {self.config['db']['prefix']}_push_sub SET last_error_at = NOW(), last_checked_at = NOW(), error_code = %s WHERE endpoint = %s;",
-                [str(code) if code else None, endpoint]
+                [err, endpoint]
             )
         except Exception:
             return None
