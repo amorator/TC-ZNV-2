@@ -1,4 +1,4 @@
-from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort, request, jsonify, make_response
+from flask import render_template, url_for, request, send_from_directory, redirect, Response, abort, request, jsonify, make_response, flash
 from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
@@ -460,7 +460,26 @@ def register(app, media_service, socketio=None) -> None:
                     desc,
                     dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0
                 ])
-            except Exception:
+                if not fid:
+                    raise RuntimeError('ID созданной записи пуст')
+            except Exception as e:
+                _log.error(f'files_add init DB insert failed: {e}')
+                return {'error': 'Не удалось создать запись файла'}, 400
+            try:
+                if not (cat_id and sub_id):
+                    raise ValueError(
+                        'Не удалось определить категорию/подкатегорию для загрузки'
+                    )
+                fid = app._sql.file_add2([
+                    name, real_name + '.mp4', cat_id, sub_id,
+                    f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})',
+                    desc,
+                    dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0
+                ])
+                if not fid:
+                    raise RuntimeError('ID созданной записи пуст')
+            except Exception as e:
+                _log.error(f'files_add_init DB insert failed: {e}')
                 return {'error': 'Не удалось создать запись файла'}, 400
             if socketio:
                 try:
@@ -565,10 +584,10 @@ def register(app, media_service, socketio=None) -> None:
             log_action('FILE_UPLOAD_BIN_END', current_user.name,
                        f'uploaded binary for id={id} size_mb={size_mb}',
                        (request.remote_addr or ''))
-            return {200: 'OK'}
+            return {'status': 'success', 'id': id}, 200
         except Exception as e:
             app.flash_error(e)
-            return {'error': str(e)}, 400
+            return {'status': 'error', 'message': str(e)}, 400
 
     @app.route('/files' + '/edit' + '/<int:did>' + '/<int:sdid>' + '/<int:id>',
                methods=['POST'])

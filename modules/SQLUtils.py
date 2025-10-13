@@ -678,13 +678,45 @@ class SQLUtils(SQL):
         ])
 
     def file_add2(self, args):
-        """Add new file with new schema.
-        Args: [display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id]
+        """Add new file (new schema).
+        Incoming args:
+          [display_name, file_name, category_id, subcategory_id, owner, description,
+           date, ready, length_seconds, size_mb, order_id]
+
+        New schema columns: display_name, real_name, file_name, path, owner, description,
+                            date, ready, length_seconds, size_mb, order_id
+        We compute `path` from category/subcategory and set real_name=file_name if not provided.
         """
         self._ensure_files_new_columns()
+        display_name = args[0]
+        file_name = args[1]
+        category_id = int(args[2] or 0)
+        subcategory_id = int(args[3] or 0)
+        owner = args[4]
+        description = args[5]
+        date_s = args[6]
+        ready = args[7]
+        length_seconds = args[8]
+        size_mb = args[9]
+        order_id = args[10] if len(args) > 10 else None
+        # Build absolute storage directory
+        path_dir = self._build_storage_dir(category_id, subcategory_id)
+        values = [
+            display_name,
+            file_name,   # real_name
+            file_name,   # file_name
+            path_dir,    # path
+            owner,
+            description,
+            date_s,
+            ready,
+            length_seconds,
+            size_mb,
+            order_id,
+        ]
         return self.execute_insert(
-            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
-            args,
+            f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, file_name, path, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            values,
         )
 
     def file_edit(self, args):
