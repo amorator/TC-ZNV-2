@@ -31,12 +31,22 @@
       <div class="subbar__group" id="category-nav">
         <!-- Categories will be loaded here -->
       </div>
+      <div class="subbar__group">
+        <button class="topbtn" id="add-category-btn" onclick="showAddCategoryModal()" {% if not can_cats_manage %}disabled{% endif %}>
+          <i class="fas fa-plus"></i> Добавить
+        </button>
+      </div>
     </div>
 
     <!-- Subcategories Navigation -->
     <div class="subbar subcat" id="subcategory-tabs" style="display: none;">
       <div class="subbar__group" id="subcategory-nav">
         <!-- Subcategories will be loaded here -->
+      </div>
+      <div class="subbar__group">
+        <button class="topbtn" id="add-subcategory-btn" onclick="showAddSubcategoryModal()" {% if not can_subs_manage %}disabled{% endif %}>
+          <i class="fas fa-plus"></i> Добавить
+        </button>
       </div>
     </div>
 
@@ -61,8 +71,8 @@
           <i class="fas fa-plus"></i> Создать подкатегорию
         </button>
         <div class="mt-3" id="empty-subcategories-actions">
-          <button type="button" class="btn btn-outline-warning me-2" onclick="openConfirmToggleCategory()">Отключить категорию</button>
-          <button type="button" class="btn btn-outline-danger" onclick="openConfirmDeleteCategory()">Удалить категорию</button>
+          <button type="button" class="btn btn-outline-warning me-2" onclick="openConfirmToggleCategory()" {% if not can_cats_manage %}disabled{% endif %}>Отключить категорию</button>
+          <button type="button" class="btn btn-outline-danger" onclick="openConfirmDeleteCategory()" {% if not can_cats_manage %}disabled{% endif %}>Удалить категорию</button>
         </div>
       </div>
 
@@ -79,11 +89,12 @@
                     <tr role="row">
                       <th scope="col">Группа</th>
                       <th scope="col" class="text-center" title="Просмотр" data-bs-toggle="tooltip" aria-label="Просмотр"><i class="bi bi-eye" aria-hidden="true"></i></th>
+                      <th scope="col" class="text-center" title="Загрузка/Запись" data-bs-toggle="tooltip" aria-label="Загрузка/Запись"><i class="bi bi-upload" aria-hidden="true"></i></th>
                       <th scope="col" class="text-center" title="Редактирование" data-bs-toggle="tooltip" aria-label="Редактирование"><i class="bi bi-pencil-square" aria-hidden="true"></i></th>
                       <th scope="col" class="text-center" title="Удаление" data-bs-toggle="tooltip" aria-label="Удаление"><i class="bi bi-trash" aria-hidden="true"></i></th>
                     </tr>
                     <tr>
-                      <th colspan="4">
+                      <th colspan="5">
                     {% include 'components/searchbar.html' %}
                       </th>
                     </tr>
@@ -93,7 +104,7 @@
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colspan="4">
+                      <td colspan="5">
                         <nav class="d-flex justify-content-center align-items-center">
                           <ul class="pagination pagination-sm mb-0 files-pagination" id="groups-pagination"></ul>
                         </nav>
@@ -118,11 +129,12 @@
                     <tr role="row">
                       <th scope="col">Пользователь</th>
                       <th scope="col" class="text-center" title="Просмотр" data-bs-toggle="tooltip" aria-label="Просмотр"><i class="bi bi-eye" aria-hidden="true"></i></th>
+                      <th scope="col" class="text-center" title="Загрузка/Запись" data-bs-toggle="tooltip" aria-label="Загрузка/Запись"><i class="bi bi-upload" aria-hidden="true"></i></th>
                       <th scope="col" class="text-center" title="Редактирование" data-bs-toggle="tooltip" aria-label="Редактирование"><i class="bi bi-pencil-square" aria-hidden="true"></i></th>
                       <th scope="col" class="text-center" title="Удаление" data-bs-toggle="tooltip" aria-label="Удаление"><i class="bi bi-trash" aria-hidden="true"></i></th>
                     </tr>
                     <tr>
-                      <th colspan="4">
+                      <th colspan="5">
                     {% include 'components/searchbar.html' %}
                       </th>
                     </tr>
@@ -132,7 +144,7 @@
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colspan="4">
+                      <td colspan="5">
                         <nav class="d-flex justify-content-center align-items-center">
                           <ul class="pagination pagination-sm mb-0 files-pagination" id="users-pagination"></ul>
                         </nav>
@@ -365,7 +377,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="submit" class="btn btn-primary">Сохранить</button>
+          <button type="submit" class="btn btn-primary" {% if not can_cats_manage %}disabled{% endif %}>Сохранить</button>
         </div>
       </form>
     </div>
@@ -397,7 +409,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="submit" class="btn btn-primary">Сохранить</button>
+          <button type="submit" class="btn btn-primary" {% if not can_subs_manage %}disabled{% endif %}>Сохранить</button>
         </div>
       </form>
     </div>
@@ -410,6 +422,11 @@ try {
   const __adminCfg = {{ (config.get('admin') or {})|tojson }};
   const __ag = (__adminCfg && (__adminCfg.group || __adminCfg.group_name)) || 'Программисты';
   window.adminGroupName = __ag;
+} catch(_) {}
+// Expose capability flags for categories UI permissions
+try {
+  window.__canCatsManage = {{ (can_cats_manage|default(False))|tojson }};
+  window.__canSubsManage = {{ (can_subs_manage|default(False))|tojson }};
 } catch(_) {}
 </script>
 <script src="{{ url_for('static', filename='js/categories.js') }}" defer></script>

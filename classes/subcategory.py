@@ -1,6 +1,7 @@
 from typing import Optional
 from datetime import datetime as dt
 
+
 class Subcategory:
     """Domain model for a file subcategory with permissions."""
 
@@ -32,6 +33,9 @@ class Subcategory:
         group_delete_own: int = 0,
         group_delete_group: int = 0,
         group_delete_all: int = 0,
+        # Upload/Write flags
+        user_upload: int = 0,
+        group_upload: int = 0,
     ) -> None:
         """Create a subcategory entity.
 
@@ -67,7 +71,7 @@ class Subcategory:
         self.folder_name: str = folder_name
         self.display_order: int = int(display_order or 0)
         self.enabled: int = int(enabled or 1)
-        
+
         # User permissions
         self.user_view_own: int = int(user_view_own or 0)
         self.user_view_group: int = int(user_view_group or 0)
@@ -78,7 +82,7 @@ class Subcategory:
         self.user_delete_own: int = int(user_delete_own or 0)
         self.user_delete_group: int = int(user_delete_group or 0)
         self.user_delete_all: int = int(user_delete_all or 0)
-        
+
         # Group permissions
         self.group_view_own: int = int(group_view_own or 0)
         self.group_view_group: int = int(group_view_group or 0)
@@ -89,6 +93,9 @@ class Subcategory:
         self.group_delete_own: int = int(group_delete_own or 0)
         self.group_delete_group: int = int(group_delete_group or 0)
         self.group_delete_all: int = int(group_delete_all or 0)
+        # Upload/Write flags
+        self.user_upload: int = int(user_upload or 0)
+        self.group_upload: int = int(group_upload or 0)
 
     @property
     def is_enabled(self) -> bool:
@@ -133,6 +140,7 @@ class Subcategory:
             'delete_own': self.user_delete_own,
             'delete_group': self.user_delete_group,
             'delete_all': self.user_delete_all,
+            'upload': self.user_upload,
         }
 
     def get_group_permissions(self) -> dict:
@@ -147,6 +155,7 @@ class Subcategory:
             'delete_own': self.group_delete_own,
             'delete_group': self.group_delete_group,
             'delete_all': self.group_delete_all,
+            'upload': self.group_upload,
         }
 
     def __str__(self) -> str:
@@ -154,4 +163,3 @@ class Subcategory:
 
     def __repr__(self) -> str:
         return self.__str__()
-

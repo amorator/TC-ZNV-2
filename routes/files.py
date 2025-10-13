@@ -296,9 +296,17 @@ def register(app, media_service, socketio=None) -> None:
             validate_uploaded_file(file_part, app)
 
             real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
+            # Ensure directory exists and writable
+            try:
+                os.makedirs(dir, exist_ok=True)
+            except Exception:
+                pass
+            if not os.access(dir, os.W_OK):
+                raise PermissionError(f"Нет прав записи в каталог: {dir}")
             fpath = path.join(dir, real_name)
+            # Ensure target directory exists under files root
             make_dir(path.join(app._sql.config['files']['root'], 'files'),
-                     dirs[0], dirs[sdid])
+                     root_folder, sub_folder)
 
             # Save original as temporary .webm path (ffmpeg detects format by content)
             file_part = file_part or request.files.get(
@@ -357,7 +365,7 @@ def register(app, media_service, socketio=None) -> None:
             except Exception:
                 pass
             log_action('FILE_UPLOAD', current_user.name,
-                       f'uploaded file {name} to {dirs[0]}/{dirs[sdid]}',
+                       f'uploaded file {name} to {root_folder}/{sub_folder}',
                        (request.remote_addr or ''))
             # notify all clients about new pending file
             if socketio:
@@ -376,14 +384,6 @@ def register(app, media_service, socketio=None) -> None:
             log_action('FILE_UPLOAD_END', current_user.name,
                        f'uploaded file {name} as {real_name}.webm (id={id})',
                        (request.remote_addr or ''))
-        except Exception as e:
-            app.flash_error(e)
-            log_action('FILE_UPLOAD',
-                       current_user.name,
-                       f'failed to upload file {name}: {str(e)}',
-                       (request.remote_addr or ''),
-                       success=False)
-        finally:
             # Return JSON for AJAX requests, redirect for traditional forms
             if request.headers.get(
                     'Content-Type'
@@ -391,8 +391,23 @@ def register(app, media_service, socketio=None) -> None:
                     'X-Requested-With') == 'XMLHttpRequest':
                 return {
                     'status': 'success',
-                    'message': 'File uploaded successfully'
+                    'message': 'Файл успешно загружен'
                 }, 200
+            return redirect(url_for('files', did=did, sdid=sdid))
+        except Exception as e:
+            app.flash_error(e)
+            log_action('FILE_UPLOAD',
+                       current_user.name,
+                       f'failed to upload file {name}: {str(e)}',
+                       (request.remote_addr or ''),
+                       success=False)
+            # Error response for AJAX / forms
+            if request.headers.get(
+                    'Content-Type'
+            ) == 'application/json' or request.headers.get(
+                    'X-Requested-With') == 'XMLHttpRequest':
+                return {'status': 'error', 'message': str(e)}, 400
+            flash(str(e), 'error')
             return redirect(url_for('files', did=did, sdid=sdid))
 
     # Phase 1: init record (for large uploads to appear immediately)

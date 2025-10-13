@@ -296,7 +296,7 @@ class SQLUtils(SQL):
         self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
         self._GROUP_SELECT_FIELDS = "id, name, description"
         self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
-        self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all"
+        self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, user_upload, group_upload"
 
         # Ensure push subscriptions table exists with required columns and indexes
         try:
@@ -367,6 +367,30 @@ class SQLUtils(SQL):
                                 pass
                 except Exception:
                     pass
+            # Ensure new subcategory upload flags exist
+            try:
+                for col, ddl in [
+                    ('user_upload', f"ALTER TABLE {prefix}_file_subcategory ADD COLUMN IF NOT EXISTS user_upload TINYINT(1) NOT NULL DEFAULT 0"),
+                    ('group_upload', f"ALTER TABLE {prefix}_file_subcategory ADD COLUMN IF NOT EXISTS group_upload TINYINT(1) NOT NULL DEFAULT 0"),
+                ]:
+                    try:
+                        exists = self.execute_scalar(
+                            """
+                            SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
+                            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                            LIMIT 1;
+                            """,
+                            [dbname, f"{prefix}_file_subcategory", col]
+                        )
+                        if not exists or int(exists[0]) == 0:
+                            try:
+                                self.execute_non_query(ddl)
+                            except Exception:
+                                self.execute_non_query(ddl.replace(" IF NOT EXISTS", ""))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -510,7 +534,10 @@ class SQLUtils(SQL):
             return os.path.join(base, 'files', cat_folder, sub_folder)
         except Exception:
             import os
-            return os.path.join(self.config['files'].get('root', './znf-files'), 'files')
+            # Never use a relative CWD fallback; ensure absolute path
+            cfg_root = self.config.get('files', {}).get('root', '/var/lib/znf-files')
+            safe_root = cfg_root if os.path.isabs(str(cfg_root)) else os.path.abspath(str(cfg_root))
+            return os.path.join(safe_root, 'files')
 
     def get_file_storage_path(self, category_id: int, subcategory_id: int) -> str:
         """Public helper to compute absolute directory for given category/subcategory ids."""
@@ -1361,9 +1388,9 @@ class SQLUtils(SQL):
         )
 
     def subcategory_edit(self, args):
-        """Edit subcategory. Args: [category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, id]"""
+        """Edit subcategory. Args: [category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, user_upload, group_upload, id]"""
         self.execute_non_query(
-            f"UPDATE {self.config['db']['prefix']}_file_subcategory SET category_id = %s, display_name = %s, folder_name = %s, display_order = %s, enabled = %s, user_view_own = %s, user_view_group = %s, user_view_all = %s, user_edit_own = %s, user_edit_group = %s, user_edit_all = %s, user_delete_own = %s, user_delete_group = %s, user_delete_all = %s, group_view_own = %s, group_view_group = %s, group_view_all = %s, group_edit_own = %s, group_edit_group = %s, group_edit_all = %s, group_delete_own = %s, group_delete_group = %s, group_delete_all = %s WHERE id = %s;",
+            f"UPDATE {self.config['db']['prefix']}_file_subcategory SET category_id = %s, display_name = %s, folder_name = %s, display_order = %s, enabled = %s, user_view_own = %s, user_view_group = %s, user_view_all = %s, user_edit_own = %s, user_edit_group = %s, user_edit_all = %s, user_delete_own = %s, user_delete_group = %s, user_delete_all = %s, group_view_own = %s, group_view_group = %s, group_view_all = %s, group_edit_own = %s, group_edit_group = %s, group_edit_all = %s, group_delete_own = %s, group_delete_group = %s, group_delete_all = %s, user_upload = %s, group_upload = %s WHERE id = %s;",
             args
         )
 

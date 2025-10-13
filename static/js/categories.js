@@ -398,6 +398,8 @@ function loadGroupsPermissionsTable(groups, permissions) {
       window.adminGroupName || "Программисты"
     ).toLowerCase();
     const isAdminGroup = String(group.name || "").toLowerCase() === adminName;
+    const uploadVal =
+      Number(permissions.group_upload || 0) === 1 ? "yes" : "no";
     row.innerHTML = `
       <td data-admin="${isAdminGroup}">${group.name}</td>
       <td>
@@ -443,6 +445,34 @@ function loadGroupsPermissionsTable(groups, permissions) {
             <label class="form-check-label" for="group_view_all_${
               group.id
             }">Все</label>
+          </div>
+        </div>
+      </td>
+      <td>
+        <div class="perm-stack">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="group_upload_${
+              group.id
+            }" id="group_upload_no_${group.id}" value="no" ${
+      isAdminGroup ? "" : uploadVal === "no" ? "checked" : ""
+    } ${
+      isAdminGroup ? "disabled" : ""
+    } onchange="updatePermission('group_upload', 0)">
+            <label class="form-check-label" for="group_upload_no_${
+              group.id
+            }">Нет</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="group_upload_${
+              group.id
+            }" id="group_upload_yes_${group.id}" value="yes" ${
+      isAdminGroup ? "checked" : uploadVal === "yes" ? "checked" : ""
+    } ${
+      isAdminGroup ? "disabled" : ""
+    } onchange="updatePermission('group_upload', 1)">
+            <label class="form-check-label" for="group_upload_yes_${
+              group.id
+            }">Да</label>
           </div>
         </div>
       </td>
@@ -590,6 +620,9 @@ function loadUsersPermissionsTable(users, permissions) {
     const viewLocked = isFull || fileFlags.viewAll;
     const editLocked = isFull || fileFlags.editAny;
     const deleteLocked = isFull || fileFlags.deleteAny;
+    const uploadLocked = isFull || fileFlags.uploadAny;
+    const uploadValue =
+      Number((permissions && permissions.user_upload) || 0) === 1;
     row.innerHTML = `
       <td><span title="${
         user.name
@@ -645,6 +678,34 @@ function loadUsersPermissionsTable(users, permissions) {
             <label class="form-check-label" for="user_view_all_${
               user.id
             }">Все</label>
+          </div>
+        </div>
+      </td>
+      <td>
+        <div class="perm-stack">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="user_upload_${
+              user.id
+            }" id="user_upload_no_${user.id}" value="no" ${
+      !uploadValue ? "checked" : ""
+    } ${
+      uploadLocked ? "disabled" : ""
+    } onchange="updatePermission('user_upload', 0)">
+            <label class="form-check-label" for="user_upload_no_${
+              user.id
+            }">Нет</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="user_upload_${
+              user.id
+            }" id="user_upload_yes_${user.id}" value="yes" ${
+      uploadLocked || uploadValue ? "checked" : ""
+    } ${
+      uploadLocked ? "disabled" : ""
+    } onchange="updatePermission('user_upload', 1)">
+            <label class="form-check-label" for="user_upload_yes_${
+              user.id
+            }">Да</label>
           </div>
         </div>
       </td>
@@ -889,7 +950,12 @@ function updateGroupPermissionLevel(groupId, action, level) {
 function checkFilePermissions(permStr) {
   // Returns fine-grained file permission flags from the permission string.
   // Files page (index 2): 'c' = edit_any, 'd' = delete_any, 'f' = display_all
-  const result = { viewAll: false, editAny: false, deleteAny: false };
+  const result = {
+    viewAll: false,
+    editAny: false,
+    deleteAny: false,
+    uploadAny: false,
+  };
   if (!permStr) return result;
   const pages = permStr.split(",");
   if (pages.length > 2) {
@@ -897,6 +963,7 @@ function checkFilePermissions(permStr) {
     result.editAny = filePermissions.includes("c");
     result.deleteAny = filePermissions.includes("d");
     result.viewAll = filePermissions.includes("f");
+    result.uploadAny = filePermissions.includes("b");
   }
   return result;
 }
@@ -1588,6 +1655,37 @@ function initCategoriesContextMenu() {
       el.classList.add("disabled");
     }
   }
+  function applyContextPermissions(target) {
+    const canCats = !!window.__canCatsManage;
+    const canSubs = !!window.__canSubsManage;
+    if (target === "category") {
+      if (!canCats) {
+        setItemEnabled("add-category", false);
+        setItemEnabled("edit-category", false);
+        setItemEnabled("delete-category", false);
+        setItemEnabled("toggle-category", false);
+      }
+      if (!canSubs) {
+        setItemEnabled("add-subcategory", false);
+        setItemEnabled("edit-subcategory", false);
+        setItemEnabled("delete-subcategory", false);
+        setItemEnabled("toggle-subcategory", false);
+      }
+    } else if (target === "subcategory") {
+      if (!canCats) {
+        setItemEnabled("add-category", false);
+        setItemEnabled("edit-category", false);
+        setItemEnabled("delete-category", false);
+        setItemEnabled("toggle-category", false);
+      }
+      if (!canSubs) {
+        setItemEnabled("add-subcategory", false);
+        setItemEnabled("edit-subcategory", false);
+        setItemEnabled("delete-subcategory", false);
+        setItemEnabled("toggle-subcategory", false);
+      }
+    }
+  }
   function configureForCategory(catId) {
     ctx.targetType = "category";
     ctx.targetId = catId;
@@ -1619,6 +1717,7 @@ function initCategoriesContextMenu() {
     setItemEnabled("edit-subcategory", false);
     setItemEnabled("delete-subcategory", false);
     setItemEnabled("toggle-subcategory", false);
+    applyContextPermissions("category");
   }
   function configureForSubcategory(subId) {
     ctx.targetType = "subcategory";
@@ -1640,6 +1739,7 @@ function initCategoriesContextMenu() {
     setItemEnabled("edit-subcategory", !!subId);
     setItemEnabled("delete-subcategory", !!subId);
     setItemEnabled("toggle-subcategory", !!subId);
+    applyContextPermissions("subcategory");
     const toggleSub = menu.querySelector(
       '.context-menu__item[data-action="toggle-subcategory"]'
     );
@@ -1897,6 +1997,7 @@ function toggleSubcategoryEnabled(explicitState) {
 
 function showEditCategoryModal() {
   if (!currentCategoryId) return;
+  if (!window.__canCatsManage) return;
   const cat = (categoriesCache || []).find(
     (c) => String(c.id) === String(currentCategoryId)
   );
@@ -1940,6 +2041,7 @@ function showEditCategoryModal() {
 
 function showEditSubcategoryModal() {
   if (!currentSubcategoryId) return;
+  if (!window.__canSubsManage) return;
   const sub = (subcategoriesCache || []).find(
     (s) => String(s.id) === String(currentSubcategoryId)
   );
@@ -2135,6 +2237,7 @@ function submitEditSubcategoryAjax() {
 
 function openConfirmDeleteCategory() {
   if (!currentCategoryId) return;
+  if (!window.__canCatsManage) return;
   const btn = document.getElementById("confirmDeleteCategoryBtn");
   if (btn) btn.onclick = confirmDeleteCategory;
   new bootstrap.Modal(
@@ -2143,6 +2246,7 @@ function openConfirmDeleteCategory() {
 }
 function openConfirmDeleteSubcategory() {
   if (!currentSubcategoryId) return;
+  if (!window.__canSubsManage) return;
   const btn = document.getElementById("confirmDeleteSubcategoryBtn");
   if (btn) btn.onclick = confirmDeleteSubcategory;
   new bootstrap.Modal(

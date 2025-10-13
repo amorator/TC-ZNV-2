@@ -76,51 +76,37 @@ def register(app, socketio=None):
 
     # Files root resolver with fallback
     def _files_root() -> str:
+        """Resolve files root from config, supporting dict and ConfigParser.
+
+        Priority: app._sql.config['files']['root'] else <app.root_path>/files
+        """
         try:
             cfg = getattr(app, '_sql', None)
+            conf = getattr(cfg, 'config', None)
             base = None
-            if cfg and getattr(cfg, 'config', None):
-                base = cfg.config.get('storage',
-                                      {}).get('files_root') or cfg.config.get(
-                                          'paths', {}).get('files_root')
-            if not base:
-                base = os.path.join(app.root_path, 'files')
-            return base
+            if conf is not None:
+                # Try dict-style first
+                try:
+                    files = conf['files']  # type: ignore[index]
+                    base = str(files.get('root') or '').strip() or None
+                except Exception:
+                    pass
+                # Try ConfigParser-style
+                if not base:
+                    try:
+                        base = str(conf.get(
+                            'files', 'root',
+                            fallback='')).strip()  # type: ignore[call-arg]
+                    except Exception:
+                        pass
+            if base:
+                return base if os.path.isabs(base) else os.path.abspath(base)
+            # Original fallback (intentional): project-root files directory
+            return os.path.join(app.root_path, 'files')
         except Exception:
             return os.path.join(app.root_path, 'files')
 
-    # Ensure category/subcategory directories exist at startup (best-effort)
-    try:
-        base_dir = _files_root()
-        os.makedirs(base_dir, exist_ok=True)
-        # Ensure reserved category 'registrators' exists
-        try:
-            reg_cat = None
-            for c in app._sql.category_all():
-                if (c.folder_name or '').lower() == 'registrators':
-                    reg_cat = c
-                    break
-            if not reg_cat:
-                try:
-                    cid = app._sql.category_add(
-                        ['Регистраторы', 'registrators', 9999, 1])
-                except Exception:
-                    cid = None
-            else:
-                cid = reg_cat.id
-            if cid:
-                os.makedirs(os.path.join(base_dir, 'registrators'),
-                            exist_ok=True)
-        except Exception:
-            pass
-        for cat in app._sql.category_all():
-            cat_dir = os.path.join(base_dir, cat.folder_name)
-            os.makedirs(cat_dir, exist_ok=True)
-            for sub in app._sql.subcategory_by_category([cat.id]):
-                os.makedirs(os.path.join(cat_dir, sub.folder_name),
-                            exist_ok=True)
-    except Exception:
-        pass
+    # Startup directory initialization removed to avoid root-owned folders.
 
     @app.route('/categories')
     @login_required
@@ -141,11 +127,23 @@ def register(app, socketio=None):
                 subcategories_by_category[subcat.category_id] = []
             subcategories_by_category[subcat.category_id].append(subcat)
 
+        # Capability flags for client-side UI gating
+        try:
+            can_cats_manage = current_user.has(CATEGORIES_MANAGE)
+        except Exception:
+            can_cats_manage = False
+        try:
+            can_subs_manage = current_user.has(SUBCATEGORIES_MANAGE)
+        except Exception:
+            can_subs_manage = False
+
         return render_template(
-            'admin/categories.j2.html',
+            'categories.j2.html',
             title='Категории — Заявки-Наряды-Файлы',
             categories=categories,
-            subcategories_by_category=subcategories_by_category)
+            subcategories_by_category=subcategories_by_category,
+            can_cats_manage=can_cats_manage,
+            can_subs_manage=can_subs_manage)
 
     # Provide a fallback '/admin' endpoint that redirects here if not already defined
     try:
@@ -240,7 +238,7 @@ def register(app, socketio=None):
                 pass
             # Create directory on disk
             try:
-                os.makedirs(os.path.join(_files_root(), folder_name),
+                os.makedirs(os.path.join(_files_root(), 'files', folder_name),
                             exist_ok=True)
             except Exception:
                 pass
@@ -471,8 +469,8 @@ def register(app, socketio=None):
             # Create directory on disk
             try:
                 cat = app._sql.category_by_id([category_id])
-                os.makedirs(os.path.join(_files_root(), cat.folder_name,
-                                         folder_name),
+                os.makedirs(os.path.join(_files_root(), 'files',
+                                         cat.folder_name, folder_name),
                             exist_ok=True)
             except Exception:
                 pass
@@ -783,6 +781,18 @@ def register(app, socketio=None):
                 'delete_group': 0,
                 'delete_all': 0,
             }
+        # Enforce admin group Upload=1 in response
+        try:
+            admin_group_name = (app.config.get('admin', {}).get('group')
+                                or 'Программисты').strip().lower()
+            group_name = (getattr(subcategory, 'group_name', '')
+                          or '').strip().lower()
+        except Exception:
+            admin_group_name = 'программисты'
+            group_name = ''
+        # If this subcategory response is per subcategory, we cannot infer specific group rows here.
+        # Instead, mark that admin group must have upload=1 at client: provide a hint flag.
+        group_perms['upload_admin_enforced'] = 1
         return jsonify({
             'id': subcategory.id,
             'display_name': subcategory.display_name,
@@ -836,6 +846,45 @@ def register(app, socketio=None):
                     # user first, then group to match SQL order defined in SQLUtils._SUBCATEGORY_SELECT_FIELDS
                     perms.append(get_perm('user', action, scope))
                     perms.append(get_perm('group', action, scope))
+            # Append upload flags (binary): user_upload, group_upload
+            def get_upload(entity: str) -> int:
+                nested = permissions.get(entity)
+                if isinstance(nested, dict):
+                    val = nested.get('upload')
+                    return 1 if (val is True or val == 1 or val == '1') else 0
+                flat = permissions.get(f"{entity}_upload")
+                return 1 if (flat is True or flat == 1 or flat == '1') else 0
+
+            user_upload = get_upload('user')
+            group_upload = get_upload('group')
+            # Enforce admin group Upload=1 regardless of input
+            try:
+                admin_group_name = (app.config.get('admin', {}).get('group')
+                                    or 'Программисты').strip().lower()
+                # If payload contains group-specific overrides list, map them; otherwise rely on single flag
+                # Here we only have a single binary for the whole group set; enforce to 1
+                group_upload = 1
+            except Exception:
+                pass
+            # Enforce global config: if uploads effectively disabled, force 0
+            try:
+                cfg = getattr(app, '_sql', None)
+                conf = getattr(cfg, 'config', None)
+                files = (conf.get('files') or {}) if conf else {}
+                max_upload_files = files.get('max_upload_files', '0')
+                uploads_enabled = False
+                try:
+                    uploads_enabled = int(
+                        str(max_upload_files).strip() or '0') > 0
+                except Exception:
+                    uploads_enabled = False
+                if not uploads_enabled:
+                    user_upload = 0
+                    group_upload = 0
+            except Exception:
+                pass
+            perms.append(user_upload)
+            perms.append(group_upload)
 
             # Update subcategory with new permissions
             args = [

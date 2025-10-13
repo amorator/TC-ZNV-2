@@ -105,38 +105,8 @@ except Exception:
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql,
                              socketio)
-try:
-    # Ensure required storage subdirectories exist under files root
-    base_root = app._sql.config['files']['root']
-    try:
-        import os
-        os.makedirs(base_root, exist_ok=True)
-        try:
-            _log.info('Storage root ensured: %s', base_root)
-        except Exception:
-            pass
-    except Exception:
-        pass
-    make_dir(base_root, 'files')
-    try:
-        _log.info('Storage subdir ensured: %s',
-                  os.path.join(base_root, 'files'))
-    except Exception:
-        pass
-    make_dir(base_root, 'orders')
-    try:
-        _log.info('Storage subdir ensured: %s',
-                  os.path.join(base_root, 'orders'))
-    except Exception:
-        pass
-    make_dir(base_root, 'requests')
-    try:
-        _log.info('Storage subdir ensured: %s',
-                  os.path.join(base_root, 'requests'))
-    except Exception:
-        pass
-except Exception:
-    pass
+# NOTE: Removed early directory creation to avoid root-owned folders when gunicorn starts as root.
+# Directories are created lazily in route handlers under the effective runtime user.
 try:
     setattr(app, 'media_service', media_service)
 except Exception:

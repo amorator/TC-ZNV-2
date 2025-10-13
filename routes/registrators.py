@@ -603,7 +603,7 @@ def register(app, socketio=None):
     @require_permissions(CATEGORIES_VIEW)
     def admin_registrators_page():
         try:
-            return render_template('admin/registrators.j2.html',
+            return render_template('registrators.j2.html',
                                    title='Регистраторы — Заявки-Наряды-Файлы')
         except Exception as e:
             app.flash_error(e)
