@@ -144,6 +144,8 @@
 
         function enforceViewDependency(group) {
             try {
+                // Do not auto-lock Files group (data-page="3") view checkbox
+                if (group && group.getAttribute('data-page') === '3') return;
                 var viewCb = group.querySelector('input[type="checkbox"][data-letter="a"]');
                 if (!viewCb) return;
                 var anyOther = false;
@@ -184,13 +186,7 @@
                 } catch (_) { }
             }
             internalUpdate = false;
-            groups.forEach(function (group) {
-                if (group.getAttribute('data-page') !== 'admin') {
-                    group.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
-                        cb.disabled = !!on;
-                    });
-                }
-            });
+            // Do not globally disable other groups; per-page enforcement happens elsewhere
             if (!on) {
                 // Ensure legacy string reflects current boxes when admin is turned off
                 buildLegacyFromBoxes();

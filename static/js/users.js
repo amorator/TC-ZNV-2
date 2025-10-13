@@ -311,6 +311,7 @@ if (document.readyState === "loading") {
   function enforceViewRuleInBox(box, onlyGroup) {
     try {
       if (!box) return;
+
       // Categories rule
       (onlyGroup
         ? [onlyGroup]
@@ -347,7 +348,7 @@ if (document.readyState === "loading") {
         } catch (_) {}
       }
 
-      // Files rule for admin-group users: auto-enable 'f' if any other Files permission is set
+      // Files rule for admin-group users: lock 'f' (Отображать все записи) to mirror 'a'
       (onlyGroup
         ? [onlyGroup]
         : box.querySelectorAll('.permissions-group[data-page="3"]')
@@ -358,22 +359,17 @@ if (document.readyState === "loading") {
           group.getAttribute("data-page") !== "3"
         )
           return;
-        // Only manage 'a' (Просмотр); do not force or disable 'm'
+        // Files page controls
         const viewACb = group.querySelector(
           'input[type="checkbox"][data-letter="a"]'
         );
+        const viewFCb = group.querySelector(
+          'input[type="checkbox"][data-letter="f"]'
+        );
         if (!viewACb) return;
-        // Early: if admin toggle is ON in this form, hard-lock 'a' only
-        try {
-          const form = group.closest("form");
-          const adminToggle =
-            form && form.querySelector('[data-admin-toggle="1"]');
-          if (adminToggle && adminToggle.checked) {
-            viewACb.checked = true;
-            setDisabled(viewACb, true);
-            return;
-          }
-        } catch (_) {}
+
+        // Do not use adminToggle here to avoid locking for non-admin users
+        // The admin-group check is handled below via isAdminGroupUser
         // Compute context (no actions for 'm')
         const checks = Array.from(
           group.querySelectorAll('input[type="checkbox"]')
@@ -383,7 +379,7 @@ if (document.readyState === "loading") {
           return ch !== "a" && cb.checked;
         });
         // Determine admin/full-access
-        let isAdminGroupUser = false;
+        let isAdminGroupUser = !!window.__isAdminGroupUser;
         let isFullAccessUser = false;
         try {
           const form = group.closest("form");
@@ -394,16 +390,30 @@ if (document.readyState === "loading") {
             const legacyStr =
               hid && typeof hid.value === "string" ? hid.value : "";
             isFullAccessUser = isFullAccessLegacy(legacyStr);
-            const adminName = (window.adminGroupName || "").toLowerCase();
+            const adminName = String(window.adminGroupName || "")
+              .trim()
+              .toLowerCase();
             if (adminName) {
               if (form.id === "perm") {
                 const rid = (window.__permRowId || "").trim();
                 const row = rid ? document.getElementById(rid) : null;
                 const gname =
                   row && row.dataset && row.dataset.groupname
-                    ? row.dataset.groupname.toLowerCase()
+                    ? String(row.dataset.groupname).trim().toLowerCase()
                     : "";
-                isAdminGroupUser = !!gname && gname === adminName;
+                isAdminGroupUser =
+                  (!!gname && gname === adminName) ||
+                  !!window.__isAdminGroupUser;
+                if (!isAdminGroupUser) {
+                  try {
+                    const grpEl = document.getElementById("perm-summary-group");
+                    const sumName =
+                      grpEl && grpEl.textContent
+                        ? grpEl.textContent.trim().toLowerCase()
+                        : "";
+                    if (sumName) isAdminGroupUser = sumName === adminName;
+                  } catch (_) {}
+                }
               } else if (form.id === "add") {
                 const sel = document.getElementById("add-group");
                 const txt =
@@ -426,14 +436,46 @@ if (document.readyState === "loading") {
             }
           }
         } catch (_) {}
-        // For full-access or admin-group users: lock 'a' ON
-        if (isFullAccessUser || isAdminGroupUser) {
-          viewACb.checked = true;
-          setDisabled(viewACb, true);
-          return;
+        // Enforce: cannot uncheck 'a' while any other Files permissions are set
+        try {
+          const othersChecked = checks.some(function (cb) {
+            const ch = cb.getAttribute("data-letter");
+            if (!ch || ch === "a") return false;
+            // For admin-group: ignore 'f' (Отображать все записи) in this rule
+            if (isAdminGroupUser && ch === "f") return false;
+            return cb.checked === true;
+          });
+          if (viewACb) {
+            if (othersChecked) {
+              viewACb.checked = true;
+              setDisabled(viewACb, true);
+            } else {
+              setDisabled(viewACb, false);
+            }
+          }
+        } catch (_) {}
+        // For admin-group users: lock 'f' to mirror 'a' but do not lock 'a'
+        if (isAdminGroupUser) {
+          if (viewFCb) {
+            viewFCb.checked = !!viewACb.checked;
+            setDisabled(viewFCb, true);
+            // Keep 'f' synced with 'a' on change without blocking uncheck of 'a'
+            if (!viewACb.__mirrorF) {
+              viewACb.__mirrorF = true;
+              viewACb.addEventListener("change", function () {
+                try {
+                  viewFCb.checked = !!viewACb.checked;
+                } catch (_) {}
+              });
+            }
+          }
+          setDisabled(viewACb, false);
+        } else {
+          // Otherwise, 'a' stays enabled
+          setDisabled(viewACb, false);
+          // Ensure 'f' is not force-disabled for non-admin users
+          if (viewFCb) setDisabled(viewFCb, false);
         }
-        // Otherwise, 'a' stays enabled
-        setDisabled(viewACb, false);
       });
     } catch (_) {}
   }
@@ -611,6 +653,9 @@ if (document.readyState === "loading") {
         popupValues(form, rowId);
         // Ensure permission checkboxes reflect current legacy string
         if (formId === "perm") {
+          try {
+            window.__permRowId = String(rowId || "");
+          } catch (_) {}
           syncPermFormFromRow(form, rowId);
           // In case layout needs time, re-sync on next tick
           setTimeout(function () {
@@ -687,6 +732,9 @@ if (document.readyState === "loading") {
    * @param {string} rowId
    */
   function syncPermFormFromRow(form, rowId) {
+    try {
+      window.__permRowId = String(rowId || "");
+    } catch (_) {}
     const row = document.getElementById(rowId);
     if (!row || !form) return;
     // Only sync permissions; do NOT sync login/name/group/enabled in this modal
@@ -704,6 +752,15 @@ if (document.readyState === "loading") {
     if (groupBox) groupBox.textContent = groupName;
     if (enabledBox)
       enabledBox.textContent = row.dataset.enabled === "1" ? "Да" : "Нет";
+    try {
+      var __adm = String(window.adminGroupName || "")
+        .trim()
+        .toLowerCase();
+      var __grp = String(groupName || "")
+        .trim()
+        .toLowerCase();
+      window.__isAdminGroupUser = !!__adm && !!__grp && __adm === __grp;
+    } catch (_) {}
 
     // Sync checkboxes from legacy string on row dataset
     const input = form.querySelector("#perm-string-perm");
@@ -718,7 +775,7 @@ if (document.readyState === "loading") {
     const boxId = (input ? input.id : "perm-string-perm") + "-box";
     const box = document.getElementById(boxId);
     if (!box) return;
-    // If legacy equals full admin string, enable admin toggle and lock others
+    // If legacy equals full admin string, enable admin toggle (do not lock others here)
     try {
       const partsForZ = (legacy || "").split(",");
       while (partsForZ.length < 4) partsForZ.push("");
@@ -731,15 +788,7 @@ if (document.readyState === "loading") {
       if (adminToggle) {
         adminToggle.checked = isFullAdmin;
       }
-      box.querySelectorAll(".permissions-group").forEach(function (group) {
-        if (group.getAttribute("data-page") !== "admin") {
-          group
-            .querySelectorAll('input[type="checkbox"]')
-            .forEach(function (cb) {
-              cb.disabled = isFullAdmin;
-            });
-        }
-      });
+      // Do not globally disable other groups here; enforcement handled in enforceViewRuleInBox
     } catch (_) {}
     const parts = (legacy || "").split(",");
     while (parts.length < 4) parts.push("");
@@ -755,52 +804,29 @@ if (document.readyState === "loading") {
         const ch = cb.getAttribute("data-letter");
         cb.checked = !!set[ch];
       });
-      // Rule: if any non-view permission in this category is set, force 'f' (view) and lock it
+      // Categories-only rule: in Categories (page 7), if any non-view permission is set, force 'f' (view) and lock it
       try {
-        const hasNonView = Object.keys(set).some(function (k) {
-          return k && k !== "f";
-        });
-        const viewCb = group.querySelector(
-          'input[type="checkbox"][data-letter="f"]'
-        );
-        if (viewCb) {
-          if (hasNonView) {
-            viewCb.checked = true;
-            setDisabled(viewCb, true);
-          } else {
-            setDisabled(viewCb, false);
+        if (String(group.getAttribute("data-page")) === "7") {
+          const hasNonView = Object.keys(set).some(function (k) {
+            return k && k !== "f";
+          });
+          const viewCb = group.querySelector(
+            'input[type="checkbox"][data-letter="f"]'
+          );
+          if (viewCb) {
+            if (hasNonView) {
+              viewCb.checked = true;
+              setDisabled(viewCb, true);
+            } else {
+              setDisabled(viewCb, false);
+            }
           }
         }
       } catch (_) {}
     });
-    // If full access detected, lock Files page ('a' only) immediately
+    // Do not lock Files 'a' during initial sync; enforcement happens in enforceViewRuleInBox
     try {
-      const isFull = isFullAccessLegacy(legacy);
-      // Also detect admin-group
-      let isAdminGroup = false;
-      try {
-        const row = document.getElementById(rowId);
-        const adminName = (window.adminGroupName || "").toLowerCase();
-        const gname =
-          row && row.dataset && row.dataset.groupname
-            ? row.dataset.groupname.toLowerCase()
-            : "";
-        isAdminGroup = !!adminName && !!gname && gname === adminName;
-      } catch (_) {}
-      if (isFull || isAdminGroup) {
-        const filesGroup = box.querySelector(
-          '.permissions-group[data-page="3"]'
-        );
-        if (filesGroup) {
-          const aCb = filesGroup.querySelector(
-            'input[type="checkbox"][data-letter="a"]'
-          );
-          if (aCb) {
-            aCb.checked = true;
-            setDisabled(aCb, true);
-          }
-        }
-      }
+      // no-op
     } catch (_) {}
     // Immediately enforce cross-group rules (Files admin-group rule, Categories view rule)
     try {

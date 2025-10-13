@@ -317,9 +317,10 @@
   // Expose admin group name for client-side logic
   (function(){
     try {
-      var adminCfg = {{ (config.get('admin') or {})|tojson }};
-      var adminGroupName = (adminCfg.group || adminCfg.group_name || 'Программисты');
-      window.adminGroupName = String(adminGroupName || '').toLowerCase();
+      // Prefer server-provided variable
+      var ag = '{{ admin_group_name|default("Программисты") }}';
+      if (!ag || ag === 'None') { ag = 'Программисты'; }
+      window.adminGroupName = String(ag || '').toLowerCase();
     } catch(_) {
       window.adminGroupName = 'программисты';
     }
