@@ -4067,19 +4067,15 @@ window.markViewedAjax = function (fileId) {
         for (var i = 0; i < pp.length && i < keys.length; i++)
           baseParts[keys[i]] = pp[i];
       }
-      var files = [];
-      if (filesEl && filesEl.value) {
-        files = filesEl.value
-          .split(/\r?\n/)
-          .map(function (s) {
-            return s.trim();
-          })
-          .filter(function (s) {
-            return !!s;
-          });
-      }
+      var files = Array.from(
+        (
+          document.getElementById("reg-file-list") || document.body
+        ).querySelectorAll('input[type="checkbox"]:checked')
+      ).map(function (b) {
+        return b.value;
+      });
       if (!files.length) {
-        if (window.appNotify) window.appNotify("Укажите имена файлов");
+        if (window.appNotify) window.appNotify("Выберите хотя бы один файл");
         return;
       }
       var payload = {
@@ -4233,19 +4229,7 @@ window.markViewedAjax = function (fileId) {
     syncCheckedToTextarea();
   }
   function syncCheckedToTextarea() {
-    try {
-      var wrap = q("reg-file-list");
-      var ta = q("reg-files");
-      if (!wrap || !ta) return;
-      var names = Array.from(wrap.querySelectorAll('input[type="checkbox"]'))
-        .filter(function (b) {
-          return b.checked;
-        })
-        .map(function (b) {
-          return b.value;
-        });
-      ta.value = names.join("\n");
-    } catch (_) {}
+    /* removed manual textarea sync */
   }
   // Build base host/path from selected registrator url_template, up to first '{'
   function getBaseFromTemplate() {
@@ -4322,6 +4306,14 @@ window.markViewedAjax = function (fileId) {
       .then(function (j) {
         var items = (j && j.items) || [];
         sel.innerHTML = "";
+        // Placeholder empty option first
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "— Выберите регистратор —";
+        placeholder.selected = true;
+        placeholder.disabled = true;
+        sel.appendChild(placeholder);
+
         items.forEach(function (it) {
           if (!it || !it.enabled) return;
           var opt = document.createElement("option");
@@ -4330,8 +4322,20 @@ window.markViewedAjax = function (fileId) {
           opt.setAttribute("data-template", it.url_template || "");
           sel.appendChild(opt);
         });
-        // Initial browse for first registrator
-        browse((q("reg-level") && q("reg-level").value) || "date");
+        // Clear param labels and hide all param wraps initially
+        try {
+          [1, 2, 3, 4, 5].forEach(function (i) {
+            var wrap = q("reg-param-" + i + "-wrap");
+            var lab = q("reg-param-" + i + "-label");
+            var selp = q("reg-param-" + i);
+            if (wrap) wrap.classList.add("d-none");
+            if (lab) lab.textContent = "—";
+            if (selp) selp.innerHTML = "";
+          });
+          // Make sure first param stays hidden until registrator is explicitly chosen
+          var p1wrap = q("reg-param-1-wrap");
+          if (p1wrap) p1wrap.classList.add("d-none");
+        } catch (_) {}
       })
       .catch(function () {
         /* ignore */
@@ -4354,8 +4358,122 @@ window.markViewedAjax = function (fileId) {
   // Handlers
   try {
     q("reg-picker").addEventListener("change", function () {
-      browse((q("reg-level") && q("reg-level").value) || "date");
+      // When registrator changes, parse its template and set param labels
+      var sel = q("reg-picker");
+      var opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+      var tpl = (opt && opt.getAttribute("data-template")) || "";
+      // Extract placeholders like {date}, {user}, <date>, <user>, etc.
+      var names = [];
+      // Safer, do two passes
+      try {
+        (tpl.match(/\{\s*([a-zA-Z0-9_\-]+)\s*\}/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^{]*\{\s*|\s*\}[^}]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+        (tpl.match(/<\s*([a-zA-Z0-9_\-]+)\s*>/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^<]*<\s*|\s*>[^>]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+      } catch (_) {}
+      // Map known placeholders to RU labels
+      function toRuLabel(n) {
+        var k = String(n || "").toLowerCase();
+        if (k === "date") return "Дату";
+        if (k === "user") return "Пользователя";
+        if (k === "time") return "Время";
+        if (k === "type") return "Тип";
+        return n || "—";
+      }
+      function ensurePlaceholder(selectEl, labelText) {
+        if (!selectEl) return;
+        selectEl.innerHTML = "";
+        var opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = labelText
+          ? "— Выберите " + labelText + " —"
+          : "— Выберите —";
+        opt.selected = true;
+        opt.disabled = true;
+        selectEl.appendChild(opt);
+      }
+      function hideFrom(index) {
+        [index, index + 1, index + 2, index + 3, index + 4].forEach(function (
+          i
+        ) {
+          if (i < 1 || i > 5) return;
+          var wrap = q("reg-param-" + i + "-wrap");
+          var lab = q("reg-param-" + i + "-label");
+          var selp = q("reg-param-" + i);
+          if (wrap) wrap.classList.add("d-none");
+          if (selp)
+            ensurePlaceholder(
+              selp,
+              lab && lab.textContent !== "—" ? lab.textContent : ""
+            );
+        });
+      }
+      // Update labels in order of appearance; show only the FIRST param initially
+      [1, 2, 3, 4, 5].forEach(function (i) {
+        var wrap = q("reg-param-" + i + "-wrap");
+        var lab = q("reg-param-" + i + "-label");
+        var selp = q("reg-param-" + i);
+        if (!wrap || !lab || !selp) return;
+        if (names[i - 1]) {
+          lab.textContent = toRuLabel(names[i - 1]);
+          // only the first param should be visible right after choosing registrator
+          if (i === 1) wrap.classList.remove("d-none");
+          else wrap.classList.add("d-none");
+          ensurePlaceholder(selp, lab.textContent);
+        } else {
+          wrap.classList.add("d-none");
+          lab.textContent = "—";
+          ensurePlaceholder(selp, "");
+        }
+      });
+      // After changing registrator, ensure deeper params are hidden beyond the first
+      hideFrom(2);
     });
+  } catch (_) {}
+  function wireParamChain() {
+    function onParamChange(i) {
+      var sel = q("reg-param-" + i);
+      if (!sel) return;
+      sel.addEventListener("change", function () {
+        var val = sel.value || "";
+        // Hide all following selects and reset them to placeholder
+        for (var j = i + 1; j <= 5; j++) {
+          var wrapJ = q("reg-param-" + j + "-wrap");
+          var labJ = q("reg-param-" + j + "-label");
+          var selJ = q("reg-param-" + j);
+          if (wrapJ) wrapJ.classList.add("d-none");
+          if (selJ)
+            ensurePlaceholder(
+              selJ,
+              labJ && labJ.textContent !== "—" ? labJ.textContent : ""
+            );
+        }
+        // If current has value and next label exists, show next with placeholder
+        var nextIdx = i + 1;
+        var nextWrap = q("reg-param-" + nextIdx + "-wrap");
+        var nextLab = q("reg-param-" + nextIdx + "-label");
+        var nextSel = q("reg-param-" + nextIdx);
+        if (
+          val &&
+          nextWrap &&
+          nextLab &&
+          nextSel &&
+          nextLab.textContent &&
+          nextLab.textContent !== "—"
+        ) {
+          ensurePlaceholder(nextSel, nextLab.textContent);
+          nextWrap.classList.remove("d-none");
+        }
+      });
+    }
+    [1, 2, 3, 4, 5].forEach(onParamChange);
+  }
+  try {
+    wireParamChain();
   } catch (_) {}
   function onStepChange(stepId) {
     var sel = q(stepId);
