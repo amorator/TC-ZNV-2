@@ -1,12 +1,8 @@
 # Route modules aggregator
 
+
 def register_all(app, tp, media_service, socketio=None):
-	from . import users, files, index, groups
-	from . import push
-	from . import admin
-	from . import categories
-	from . import registrators
-	from . import wip
+	from . import users, files, index, groups, push, admin, categories, registrators, wip
 
 	# Ensure Flask secret key is loaded from DB (and generated if missing)
 	try:
@@ -26,5 +22,3 @@ def register_all(app, tp, media_service, socketio=None):
 	categories.register(app, socketio)
 	registrators.register(app, socketio)
 	wip.register(app)
-
-

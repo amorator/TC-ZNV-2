@@ -1,24 +1,24 @@
 Keyboard Shortcuts
 
 Global (all pages):
-- Enter: Submit the currently open modal (primary action). Skips inside multiline textarea.
-- Esc: Close the currently open modal. For the recording modal, closing is blocked while recording; if paused/unsaved data exists, a confirm dialog (Да/Нет/Отмена) appears.
+- Enter: Submit the currently open modal (primary action). Skips inside multi-line textarea.
+- Esc: Close the currently open modal. For the recording modal, closing is blocked while recording; if paused or unsaved data exists, a confirm dialog (Да/Нет/Отмена) appears.
 - Click outside modal: Close the modal (with the same recording safeguards).
 
 Files page (table):
-- DblClick on a data row: Open video in the player modal.
+- Double-click on a data row: Open the video in the player modal.
 
 Player modal (popup-view):
 - F (physical key, works in any keyboard layout): Toggle fullscreen for the video player.
 - M (physical key, works in any keyboard layout): Toggle mute for the video player.
-- P or Space: Toggle play/pause for audio/video player (works when player modal is open).
+- P or Space: Toggle play/pause for the audio/video player (works when the player modal is open).
 
 Recording modal (iframe):
-- Enter: If recording, stop then save; otherwise save (if data present).
+- Enter: If recording, stop then save; otherwise, save (if data present).
 - Esc: Stop recording.
-- Save button is hidden until recording starts; after successful save it hides again.
+- The Save button is hidden until recording starts; after a successful save it hides again.
 
 Notes:
 - Pagination and search states persist across soft refreshes.
-- Table updates live via Socket.IO without page reloads.
- - Admin page: right-click anywhere for “Обновить”; right-click on logs for copy/download actions; double-click a log to view as text.
+- The table updates live via Socket.IO without page reloads.
+- Admin page: right-click anywhere for “Обновить”; right-click on logs for copy or download actions; double-click a log to view as text.

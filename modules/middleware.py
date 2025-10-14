@@ -3,6 +3,7 @@
 from flask import request, g
 from flask_login import logout_user, current_user
 from time import time
+from datetime import timedelta
 from modules.logging import log_access, get_logger
 
 _log = get_logger(__name__)
@@ -42,7 +43,6 @@ def init_middleware(app):
 					app._sessions[sid] = entry
 					# prune expired sessions by lifetime
 					try:
-						from datetime import timedelta
 						lifetime = app.config.get('PERMANENT_SESSION_LIFETIME')
 						if isinstance(lifetime, timedelta):
 							max_age = int(lifetime.total_seconds())

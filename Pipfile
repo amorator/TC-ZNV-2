@@ -15,6 +15,7 @@ gevent-websocket = "*"
 yapf = "*"
 pywebpush = "*"
 werkzeug = "*"
+flask-socketio = "*"
 
 [dev-packages]
 

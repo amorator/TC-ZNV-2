@@ -27,14 +27,16 @@ max_requests = 1000  # Перезапуск воркера после N запр
 max_requests_jitter = 100  # Случайная задержка для равномерного перезапуска
 preload_app = True  # Загрузка приложения до форка воркеров (экономия памяти)
 
+
 # Обработка сигналов для корректного завершения
 def worker_int_handler(worker):
-    """Handle worker interrupt signal gracefully."""
-    try:
-        worker.alive = False
-        worker.kill()
-    except:
-        pass
+	"""Handle worker interrupt signal gracefully."""
+	try:
+		worker.alive = False
+		worker.kill()
+	except:
+		pass
+
 
 worker_int = worker_int_handler
 
@@ -50,12 +52,12 @@ umask = 0o007  # Права доступа для создаваемых фай�
 
 # Переменные окружения (Python 3.13 в виртуальном окружении)
 raw_env = [
-    'PYTHONPATH=/usr/share/znv2',
-    'PWD=/usr/share/znv2',
+	'PYTHONPATH=/usr/share/znf',
+	'PWD=/usr/share/znf',
 ]
 
 # Обработка сигналов
 worker_tmp_dir = "/dev/shm"  # Использование RAM для временных файлов
 
 # PID файл
-pidfile = "/var/run/znv2.pid"
+pidfile = "/var/run/znf.pid"

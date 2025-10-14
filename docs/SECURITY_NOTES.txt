@@ -1,3 +1,5 @@
+Security Notes
+
 Files and Users pages - implemented validations, restrictions, and protections
 
 1) Common (frontend behavior)
@@ -84,3 +86,14 @@ Files and Users pages - implemented validations, restrictions, and protections
 - Admin push notifications use VAPID keys stored in DB; no secrets in config.
 - Flask secret key stored in DB and ensured at startup.
 - Actions/logs endpoints require admin.view; downloads sanitized (basename, path traversal protection).
+ 
+11) Additional backend safeguards
+- Secure cookies and session settings: HttpOnly, Secure (when behind TLS), SameSite=Lax.
+- CSRF protection: include and validate CSRF tokens for forms and AJAX.
+- Rate limiting: apply per-IP/user throttles on auth and mutation endpoints.
+- Audit logs: record admin actions with timestamp, actor, IP; append-only.
+- Secrets management: do not commit secrets; store in environment/DB; rotate keys.
+- Input validation: validate filenames, MIME types; enforce extension allowlists.
+- Output encoding: escape user-provided strings in templates; avoid unsafe HTML.
+- File serving: sanitize paths using basename; deny traversal; safe Content-Disposition.
+- Password policy: enforce minimum length from config; strong hashing with per-user salt.

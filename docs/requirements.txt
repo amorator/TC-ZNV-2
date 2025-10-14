@@ -1,10 +1,10 @@
 beautifulsoup4
 Flask
-Flask_Cors
-Flask_Login
-mysql_connector_python
+Flask-Cors
+Flask-Login
+mysql-connector-python
 gunicorn
 ffmpeg
-Flask_SocketIO
+Flask-SocketIO
 gevent
 pywebpush

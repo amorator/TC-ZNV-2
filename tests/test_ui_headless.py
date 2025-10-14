@@ -7,7 +7,6 @@ from selenium.webdriver.chrome.service import Service
 import socket
 from urllib.parse import urlparse
 
-
 BASE = os.getenv('BASE_URL', 'http://localhost:5000')
 LOGIN = os.getenv('LOGIN', 'admin')
 PASSWORD = os.getenv('PASSWORD', 'admin')
@@ -24,7 +23,7 @@ def _ensure_host_resolves_or_skip():
     try:
         # Проверяем только доступность сервера, не HTTP статус
         import requests
-        response = requests.head(BASE, timeout=5, allow_redirects=True)
+        requests.head(BASE, timeout=5, allow_redirects=True)
         # Если получили любой HTTP ответ (даже 400, 401, 403, 500) - сервер работает
         # Пропускаем только при network errors (connection refused, timeout)
         pass
@@ -41,8 +40,9 @@ def make_chrome():
     _ensure_host_resolves_or_skip()
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
     # TLS: strict if CERT_FILE defined else accept self-signed
@@ -72,9 +72,11 @@ def test_admin_table_visible_selenium():
         assert table.is_displayed()
         # Скриншот состояния страницы → tests/artifacts/
         try:
-            artifacts_dir = os.path.join(os.path.dirname(__file__), 'artifacts')
+            artifacts_dir = os.path.join(os.path.dirname(__file__),
+                                         'artifacts')
             os.makedirs(artifacts_dir, exist_ok=True)
-            d.save_screenshot(os.path.join(artifacts_dir, 'admin_headless.png'))
+            d.save_screenshot(os.path.join(artifacts_dir,
+                                           'admin_headless.png'))
         except Exception:
             pass
     finally:
@@ -93,7 +95,8 @@ def test_files_table_visible_selenium():
         time.sleep(0.2)
         d.get(f'{BASE}/files')
         # По ARIA-метке из шаблона
-        table = d.find_element('css selector', "table[role='table'][aria-label='Таблица файлов']")
+        table = d.find_element(
+            'css selector', "table[role='table'][aria-label='Таблица файлов']")
         assert table.is_displayed()
     finally:
         d.quit()
@@ -110,7 +113,9 @@ def test_users_table_visible_selenium():
         d.find_element('css selector', "button[type=submit]").click()
         time.sleep(0.2)
         d.get(f'{BASE}/users')
-        table = d.find_element('css selector', "table[role='table'][aria-label='Таблица пользователей']")
+        table = d.find_element(
+            'css selector',
+            "table[role='table'][aria-label='Таблица пользователей']")
         assert table.is_displayed()
     finally:
         d.quit()
@@ -127,9 +132,8 @@ def test_groups_table_visible_selenium():
         d.find_element('css selector', "button[type=submit]").click()
         time.sleep(0.2)
         d.get(f'{BASE}/groups')
-        table = d.find_element('css selector', "table[role='table'][aria-label='Таблица групп']")
+        table = d.find_element(
+            'css selector', "table[role='table'][aria-label='Таблица групп']")
         assert table.is_displayed()
     finally:
         d.quit()
-
-

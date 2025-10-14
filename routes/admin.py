@@ -7,6 +7,10 @@ import time
 from functools import wraps
 from modules.registrators import Registrator, parse_directory_listing
 from pywebpush import webpush, WebPushException
+from os import path, listdir, stat
+from io import BytesIO
+from zipfile import ZipFile, ZIP_DEFLATED
+from datetime import datetime as dt
 
 _log = get_logger(__name__)
 
@@ -14,8 +18,11 @@ _log = get_logger(__name__)
 def register(app, socketio=None):
 	# Простой in-memory rate limiter (IP+эндпоинт, скользящее окно)
 	_RATE_BUCKET = {}
+
 	def rate_limit(max_calls: int = 60, window_sec: int = 60):
+
 		def decorator(fn):
+
 			@wraps(fn)
 			def wrapper(*args, **kwargs):
 				try:
@@ -24,13 +31,20 @@ def register(app, socketio=None):
 					bucket = _RATE_BUCKET.get(key, [])
 					bucket = [t for t in bucket if now - t < window_sec]
 					if len(bucket) >= max_calls:
-						return jsonify({'status': 'error', 'message': 'Слишком много запросов, попробуйте позже'}), 429
+						return jsonify({
+							'status':
+							'error',
+							'message':
+							'Слишком много запросов, попробуйте позже'
+						}), 429
 					bucket.append(now)
 					_RATE_BUCKET[key] = bucket
 				except Exception:
 					pass
 				return fn(*args, **kwargs)
+
 			return wrapper
+
 		return decorator
 
 	@app.route('/admin', methods=['GET'])
@@ -43,25 +57,33 @@ def register(app, socketio=None):
 			try:
 				rows = app._sql.execute_query(
 					f"SELECT id, name FROM {app._sql.config['db']['prefix']}_group ORDER BY name;",
-					[]
-				)
-				groups = [{'id': r[0], 'name': r[1]} for r in (rows or []) if r]
+					[])
+				groups = [{
+					'id': r[0],
+					'name': r[1]
+				} for r in (rows or []) if r]
 			except Exception:
 				# Fallback to group_all() if available and map objects to dict
 				try:
 					objs = app._sql.group_all()
-					groups = [{'id': getattr(o, 'id', None), 'name': getattr(o, 'name', '')} for o in (objs or [])]
+					groups = [{
+						'id': getattr(o, 'id', None),
+						'name': getattr(o, 'name', '')
+					} for o in (objs or [])]
 				except Exception:
 					groups = []
 		except Exception:
 			groups = []
 		# Log page view in actions log
 		try:
-			log_action('ADMIN_VIEW', current_user.name, f'ip={request.remote_addr}', request.remote_addr)
+			log_action('ADMIN_VIEW', current_user.name,
+					   f'ip={request.remote_addr}', request.remote_addr)
 		except Exception:
 			pass
-		
-		return render_template('admin.j2.html', title='Администрирование — Заявки-Наряды-Файлы', groups=groups)
+
+		return render_template('admin.j2.html',
+							   title='Администрирование — Заявки-Наряды-Файлы',
+							   groups=groups)
 
 	@app.route('/api/pool-status', methods=['GET'])
 	@login_required
@@ -70,15 +92,9 @@ def register(app, socketio=None):
 		"""API endpoint to check database connection pool status."""
 		try:
 			status = app._sql.get_pool_status()
-			return jsonify({
-				'status': 'success',
-				'pool_status': status
-			})
+			return jsonify({'status': 'success', 'pool_status': status})
 		except Exception as e:
-			return jsonify({
-				'status': 'error',
-				'message': str(e)
-			}), 500
+			return jsonify({'status': 'error', 'message': str(e)}), 500
 
 	# --- Обслуживание таблицы подписок на уведомления (ручной запуск, с блокировкой на 23ч) ---
 	@app.route('/admin/push_maintain', methods=['POST'])
@@ -95,11 +111,18 @@ def register(app, socketio=None):
 			now = datetime.utcnow()
 			last_run = getattr(app, '_last_push_maintain', None)
 			if last_run and (now - last_run) < timedelta(hours=12):
-				return jsonify({'status': 'error', 'message': 'Операция уже выполнялась недавно (ограничение 12 часов). Повторите позже.'}), 429
+				return jsonify({
+					'status':
+					'error',
+					'message':
+					'Операция уже выполнялась недавно (ограничение 12 часов). Повторите позже.'
+				}), 429
 			app._last_push_maintain = now
 			# Порог для “старых ошибок” (N дней), берем из конфигурации либо 7 по умолчанию
 			try:
-				N = int(app._sql.config.get('web', {}).get('push_error_ttl_days', 7))
+				N = int(
+					app._sql.config.get('web', {}).get('push_error_ttl_days',
+													   7))
 			except Exception:
 				N = 7
 			# 1) Удалить записи с last_success_at IS NULL и last_error_at < NOW()-N дней
@@ -107,8 +130,7 @@ def register(app, socketio=None):
 			try:
 				res = app._sql.execute_non_query(
 					f"DELETE FROM {app._sql.config['db']['prefix']}_push_sub WHERE last_success_at IS NULL AND last_error_at IS NOT NULL AND last_error_at < (NOW() - INTERVAL %s DAY);",
-					[N]
-				)
+					[N])
 				deleted = deleted + (res or 0)
 			except Exception:
 				pass
@@ -118,51 +140,75 @@ def register(app, socketio=None):
 			try:
 				vapid_public = (app._sql.push_get_vapid_public() or '')
 				vapid_private = (app._sql.push_get_vapid_private() or '')
-				vapid_subject = (app._sql.push_get_vapid_subject() or 'mailto:admin@example.com')
+				vapid_subject = (app._sql.push_get_vapid_subject()
+								 or 'mailto:admin@example.com')
 				if vapid_public and vapid_private:
 					rows = app._sql.execute_query(
 						f"SELECT s.user_id, s.endpoint, s.p256dh, s.auth FROM {app._sql.config['db']['prefix']}_push_sub s WHERE (s.last_success_at IS NULL OR s.last_success_at < (NOW() - INTERVAL 30 DAY)) GROUP BY s.user_id ORDER BY s.user_id;",
-						[]
-					)
-					payload = {'title': 'Проверка подписки', 'body': 'Сервисная проверка', 'icon': '/static/images/notification-icon.png'}
+						[])
+					payload = {
+						'title': 'Проверка подписки',
+						'body': 'Сервисная проверка',
+						'icon': '/static/images/notification-icon.png'
+					}
 					for r in rows or []:
 						uid, endpoint, p256dh, auth = r[0], r[1], r[2], r[3]
 						if not endpoint: continue
 						try:
-							webpush(
-								subscription_info={'endpoint': endpoint, 'keys': {'p256dh': p256dh, 'auth': auth}},
-								data=jsonify_payload(payload),
-								vapid_private_key=vapid_private,
-								vapid_claims={'sub': vapid_subject}
-							)
+							webpush(subscription_info={
+								'endpoint': endpoint,
+								'keys': {
+									'p256dh': p256dh,
+									'auth': auth
+								}
+							},
+									data=jsonify_payload(payload),
+									vapid_private_key=vapid_private,
+									vapid_claims={'sub': vapid_subject})
 							tested += 1
-							try: app._sql.push_mark_success(endpoint)
-							except Exception: pass
+							try:
+								app._sql.push_mark_success(endpoint)
+							except Exception:
+								pass
 						except WebPushException as we:
-							code = getattr(getattr(we, 'response', None), 'status_code', None)
+							code = getattr(getattr(we, 'response', None),
+										   'status_code', None)
 							if code == 410:
 								try:
 									app._sql.push_remove_subscription(endpoint)
 									removed += 1
 								except Exception:
 									pass
-							try: app._sql.push_mark_error(endpoint, str(code or '410'))
-							except Exception: pass
+							try:
+								app._sql.push_mark_error(
+									endpoint, str(code or '410'))
+							except Exception:
+								pass
 							continue
 			except Exception:
 				pass
 			try:
-				log_action('ADMIN_PUSH_MAINTAIN', current_user.name, f'deleted={deleted} tested={tested} removed={removed}', request.remote_addr)
+				log_action(
+					'ADMIN_PUSH_MAINTAIN', current_user.name,
+					f'deleted={deleted} tested={tested} removed={removed}',
+					request.remote_addr)
 			except Exception:
 				pass
 			# include cooldown info in response
 			try:
 				from datetime import timedelta
 				next_allowed_dt = app._last_push_maintain + timedelta(hours=12)
-				seconds_left = max(0, int((next_allowed_dt - now).total_seconds()))
+				seconds_left = max(
+					0, int((next_allowed_dt - now).total_seconds()))
 			except Exception:
-				seconds_left = 12*3600
-			return jsonify({'status': 'success', 'deleted': deleted, 'tested': tested, 'removed': removed, 'seconds_left': seconds_left})
+				seconds_left = 12 * 3600
+			return jsonify({
+				'status': 'success',
+				'deleted': deleted,
+				'tested': tested,
+				'removed': removed,
+				'seconds_left': seconds_left
+			})
 		except Exception as e:
 			app.flash_error(e)
 			return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -181,12 +227,17 @@ def register(app, socketio=None):
 			if last_run:
 				next_allowed_dt = last_run + cooldown
 				next_allowed_at = int(next_allowed_dt.timestamp())
-				seconds_left = max(0, int((next_allowed_dt - now).total_seconds()))
+				seconds_left = max(
+					0, int((next_allowed_dt - now).total_seconds()))
 			return jsonify({
-				'status': 'success',
-				'last_run': int(last_run.timestamp()) if last_run else None,
-				'next_allowed_at': next_allowed_at,
-				'seconds_left': seconds_left
+				'status':
+				'success',
+				'last_run':
+				int(last_run.timestamp()) if last_run else None,
+				'next_allowed_at':
+				next_allowed_at,
+				'seconds_left':
+				seconds_left
 			})
 		except Exception as e:
 			app.flash_error(e)
@@ -198,7 +249,7 @@ def register(app, socketio=None):
 	def admin_logs_page():
 		"""Return paginated logs table rows as HTML fragment and meta."""
 		try:
-			import os
+			# os used from top-level imports
 			page = int(request.args.get('page', 1))
 			page_size = int(request.args.get('page_size', 20))
 			if page < 1: page = 1
@@ -211,7 +262,11 @@ def register(app, socketio=None):
 					full = os.path.join(logs_dir, name)
 					if not os.path.isfile(full): continue
 					st = os.stat(full)
-					items.append({'name': name, 'size': int(st.st_size), 'mtime': int(st.st_mtime)})
+					items.append({
+						'name': name,
+						'size': int(st.st_size),
+						'mtime': int(st.st_mtime)
+					})
 			items.sort(key=lambda x: x.get('mtime', 0), reverse=True)
 			total = len(items)
 			start = (page - 1) * page_size
@@ -220,11 +275,21 @@ def register(app, socketio=None):
 			# Render minimal rows HTML to match admin logs table structure
 			html_rows = []
 			for it in slice_items:
-				size_kb = f"{round(it['size']/1024, 1)} KB" if it['size'] < 1024*1024 else f"{round(it['size']/1024/1024, 1)} MB"
-				html_rows.append(f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>")
+				size_kb = f"{round(it['size']/1024, 1)} KB" if it[
+					'size'] < 1024 * 1024 else f"{round(it['size']/1024/1024, 1)} MB"
+				html_rows.append(
+					f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>"
+				)
 			html = ''.join(html_rows)
-			resp = make_response(jsonify({'html': html, 'total': total, 'page': page, 'page_size': page_size}))
-			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp = make_response(
+				jsonify({
+					'html': html,
+					'total': total,
+					'page': page,
+					'page_size': page_size
+				}))
+			resp.headers[
+				'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
 			resp.headers['Pragma'] = 'no-cache'
 			resp.headers['Expires'] = '0'
 			return resp
@@ -236,7 +301,7 @@ def register(app, socketio=None):
 	def admin_logs_search():
 		"""Search logs by filename; returns HTML rows and meta."""
 		try:
-			import os
+			# os used from top-level imports
 			q = (request.args.get('q') or '').strip()
 			page = int(request.args.get('page', 1))
 			page_size = int(request.args.get('page_size', 50))
@@ -251,7 +316,11 @@ def register(app, socketio=None):
 					full = os.path.join(logs_dir, name)
 					if not os.path.isfile(full): continue
 					st = os.stat(full)
-					items.append({'name': name, 'size': int(st.st_size), 'mtime': int(st.st_mtime)})
+					items.append({
+						'name': name,
+						'size': int(st.st_size),
+						'mtime': int(st.st_mtime)
+					})
 			items.sort(key=lambda x: x.get('mtime', 0), reverse=True)
 			total = len(items)
 			start = (page - 1) * page_size
@@ -259,11 +328,21 @@ def register(app, socketio=None):
 			slice_items = items[start:end]
 			html_rows = []
 			for it in slice_items:
-				size_kb = f"{round(it['size']/1024, 1)} KB" if it['size'] < 1024*1024 else f"{round(it['size']/1024/1024, 1)} MB"
-				html_rows.append(f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>")
+				size_kb = f"{round(it['size']/1024, 1)} KB" if it[
+					'size'] < 1024 * 1024 else f"{round(it['size']/1024/1024, 1)} MB"
+				html_rows.append(
+					f"<tr class=\"table__body_row logs-row\" data-name=\"{it['name']}\"><td class=\"table__body_item\">{it['name']}</td><td class=\"table__body_item text-end\">{size_kb}</td></tr>"
+				)
 			html = ''.join(html_rows)
-			resp = make_response(jsonify({'html': html, 'total': total, 'page': page, 'page_size': page_size}))
-			resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+			resp = make_response(
+				jsonify({
+					'html': html,
+					'total': total,
+					'page': page,
+					'page_size': page_size
+				}))
+			resp.headers[
+				'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
 			resp.headers['Pragma'] = 'no-cache'
 			resp.headers['Expires'] = '0'
 			return resp
@@ -285,7 +364,8 @@ def register(app, socketio=None):
 			rows = []
 			for sid, info in presence.items():
 				try:
-					if (now_ts - int(info.get('updated_at') or 0)) > stale_cutoff:
+					if (now_ts -
+							int(info.get('updated_at') or 0)) > stale_cutoff:
 						continue
 				except Exception:
 					pass
@@ -301,7 +381,8 @@ def register(app, socketio=None):
 			# Merge heartbeat-based entries
 			for key, info in presence_hb.items():
 				try:
-					if (now_ts - int(info.get('updated_at') or 0)) > stale_cutoff:
+					if (now_ts -
+							int(info.get('updated_at') or 0)) > stale_cutoff:
 						continue
 				except Exception:
 					pass
@@ -325,7 +406,8 @@ def register(app, socketio=None):
 				ua_key = ua[:64]
 				key = f"{uid or user}:{ip}:{ua_key}"
 				prev = unique.get(key)
-				if not prev or int(r.get('updated_at') or 0) >= int(prev.get('updated_at') or 0):
+				if not prev or int(r.get('updated_at') or 0) >= int(
+						prev.get('updated_at') or 0):
 					unique[key] = r
 			items = list(unique.values())
 			items.sort(key=lambda r: r.get('updated_at') or 0, reverse=True)
@@ -348,9 +430,9 @@ def register(app, socketio=None):
 				if isinstance(lifetime, timedelta):
 					max_age = int(lifetime.total_seconds())
 				else:
-					max_age = int(lifetime or 31*24*3600)
+					max_age = int(lifetime or 31 * 24 * 3600)
 			except Exception:
-				max_age = 31*24*3600
+				max_age = 31 * 24 * 3600
 			cutoff = time.time() - max_age
 			for k, v in list(sessions.items()):
 				try:
@@ -388,7 +470,10 @@ def register(app, socketio=None):
 		try:
 			sid = (request.json or {}).get('sid') or request.form.get('sid')
 			if not sid:
-				return jsonify({'status': 'error', 'message': 'sid required'}), 400
+				return jsonify({
+					'status': 'error',
+					'message': 'sid required'
+				}), 400
 			if not hasattr(app, '_force_logout_sessions'):
 				app._force_logout_sessions = set()
 			# Capture user id before removing session
@@ -413,7 +498,8 @@ def register(app, socketio=None):
 					presence = getattr(app, '_presence', {}) or {}
 					for psid, info in list(presence.items()):
 						try:
-							if int(info.get('user_id') or -1) == int(user_id_for_cleanup):
+							if int(info.get('user_id')
+								   or -1) == int(user_id_for_cleanup):
 								app._presence.pop(psid, None)
 						except Exception:
 							pass
@@ -428,13 +514,19 @@ def register(app, socketio=None):
 			# Optionally emit a socket event if there is a presence mapping with same user to hint immediate logout
 			try:
 				if socketio:
-					payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+					payload = {
+						'reason': 'admin',
+						'title': 'Сессия завершена',
+						'body':
+						'Сессия разорвана администратором. Войдите снова.'
+					}
 					# We don't know socket room by HTTP session; best-effort: broadcast to user if can be found
 					pass
 			except Exception:
 				pass
 			try:
-				log_action('ADMIN_FORCE_LOGOUT_SESSION', current_user.name, f'sid={sid}', request.remote_addr)
+				log_action('ADMIN_FORCE_LOGOUT_SESSION', current_user.name,
+						   f'sid={sid}', request.remote_addr)
 			except Exception:
 				pass
 			return jsonify({'status': 'success'})
@@ -453,15 +545,21 @@ def register(app, socketio=None):
 			# Only for authenticated users
 			is_auth_attr = getattr(current_user, 'is_authenticated', False)
 			try:
-				is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+				is_authenticated = bool(
+					is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 			except Exception:
 				is_authenticated = False
 			if not is_authenticated:
-				return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+				return jsonify({
+					'status': 'error',
+					'message': 'Unauthorized'
+				}), 401
 			data = request.get_json(silent=True) or {}
 			user = getattr(current_user, 'name', None) or 'unknown'
 			uid = getattr(current_user, 'id', None)
-			ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+			ip = request.headers.get(
+				'X-Forwarded-For',
+				'').split(',')[0].strip() or request.remote_addr
 			page = data.get('page')
 			ua = request.headers.get('User-Agent', '')
 			key = f"hb:{uid}:{ip}:{(ua or '')[:24]}"
@@ -488,13 +586,19 @@ def register(app, socketio=None):
 			# Auth check similar to heartbeat
 			is_auth_attr = getattr(current_user, 'is_authenticated', False)
 			try:
-				is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+				is_authenticated = bool(
+					is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 			except Exception:
 				is_authenticated = False
 			if not is_authenticated:
-				return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+				return jsonify({
+					'status': 'error',
+					'message': 'Unauthorized'
+				}), 401
 			uid = getattr(current_user, 'id', None)
-			ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+			ip = request.headers.get(
+				'X-Forwarded-For',
+				'').split(',')[0].strip() or request.remote_addr
 			ua = request.headers.get('User-Agent', '')
 			# Remove all socket-based presence entries for this user
 			try:
@@ -526,13 +630,22 @@ def register(app, socketio=None):
 		"""Force logout a specific Socket.IO session id."""
 		try:
 			sid = (request.json or {}).get('sid') or request.form.get('sid')
-			uid = (request.json or {}).get('user_id') or request.form.get('user_id')
+			uid = (request.json
+				   or {}).get('user_id') or request.form.get('user_id')
 			if not sid and not uid:
-				return jsonify({'status': 'error', 'message': 'sid required'}), 400
+				return jsonify({
+					'status': 'error',
+					'message': 'sid required'
+				}), 400
 			# Emit to specific sid if provided
 			if socketio and sid:
 				try:
-					payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+					payload = {
+						'reason': 'admin',
+						'title': 'Сессия завершена',
+						'body':
+						'Сессия разорвана администратором. Войдите снова.'
+					}
 					socketio.emit('force-logout', payload, room=sid)
 				except Exception:
 					pass
@@ -541,11 +654,18 @@ def register(app, socketio=None):
 				try:
 					uid_int = int(uid)
 					presence = getattr(app, '_presence', {}) or {}
-					payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+					payload = {
+						'reason': 'admin',
+						'title': 'Сессия завершена',
+						'body':
+						'Сессия разорвана администратором. Войдите снова.'
+					}
 					for psid, info in list(presence.items()):
 						try:
 							if int(info.get('user_id') or -1) == uid_int:
-								socketio.emit('force-logout', payload, room=psid)
+								socketio.emit('force-logout',
+											  payload,
+											  room=psid)
 						except Exception:
 							pass
 				except Exception:
@@ -582,7 +702,8 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			try:
-				log_action('ADMIN_FORCE_LOGOUT', current_user.name, f'sid={sid} uid={uid}', request.remote_addr)
+				log_action('ADMIN_FORCE_LOGOUT', current_user.name,
+						   f'sid={sid} uid={uid}', request.remote_addr)
 			except Exception:
 				pass
 			return jsonify({'status': 'success'})
@@ -598,7 +719,11 @@ def register(app, socketio=None):
 		"""Force logout all currently tracked sessions and mark all users to re-login."""
 		try:
 			count = 0
-			payload = {'reason': 'admin', 'title': 'Сессия завершена', 'body': 'Сессия разорвана администратором. Войдите снова.'}
+			payload = {
+				'reason': 'admin',
+				'title': 'Сессия завершена',
+				'body': 'Сессия разорвана администратором. Войдите снова.'
+			}
 			if socketio:
 				try:
 					presence = getattr(app, '_presence', {}) or {}
@@ -618,8 +743,10 @@ def register(app, socketio=None):
 				for info in list(presence.values()):
 					uid = info.get('user_id')
 					if uid is not None:
-						try: app._force_logout_users.add(int(uid))
-						except Exception: pass
+						try:
+							app._force_logout_users.add(int(uid))
+						except Exception:
+							pass
 				# Clear tracked HTTP sessions immediately so UI updates at once
 				try:
 					if hasattr(app, '_sessions'):
@@ -637,7 +764,8 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			try:
-				log_action('ADMIN_FORCE_LOGOUT_ALL', current_user.name, f'count={count}', request.remote_addr)
+				log_action('ADMIN_FORCE_LOGOUT_ALL', current_user.name,
+						   f'count={count}', request.remote_addr)
 			except Exception:
 				pass
 			return jsonify({'status': 'success', 'count': count})
@@ -652,12 +780,19 @@ def register(app, socketio=None):
 	def admin_send_message():
 		"""Send a browser notification to a user, group, or everyone."""
 		try:
-			target = (request.json or {}).get('target') or request.form.get('target')
-			message = ((request.json or {}).get('message') or request.form.get('message') or '').strip()
+			target = (request.json
+					  or {}).get('target') or request.form.get('target')
+			message = ((request.json or {}).get('message')
+					   or request.form.get('message') or '').strip()
 			if not message:
-				return jsonify({'status': 'error', 'message': 'Текст сообщения пуст'}), 400
+				return jsonify({
+					'status': 'error',
+					'message': 'Текст сообщения пуст'
+				}), 400
 			try:
-				log_action('ADMIN_PUSH_REQUEST', current_user.name, f'target={target} text_len={len(message)}', request.remote_addr)
+				log_action('ADMIN_PUSH_REQUEST', current_user.name,
+						   f'target={target} text_len={len(message)}',
+						   request.remote_addr)
 			except Exception:
 				pass
 			# Resolve recipients
@@ -667,57 +802,75 @@ def register(app, socketio=None):
 				try:
 					rows = app._sql.execute_query(
 						f"SELECT DISTINCT user_id FROM {app._sql.config['db']['prefix']}_push_sub;",
-						[]
-					)
+						[])
 				except Exception:
 					rows = []
 				recipient_user_ids = [r[0] for r in (rows or []) if r and r[0]]
 			elif isinstance(target, str) and target.startswith('group:'):
-				gid = int(target.split(':',1)[1])
+				gid = int(target.split(':', 1)[1])
 				try:
 					rows = app._sql.execute_query(
 						f"SELECT DISTINCT u.id FROM {app._sql.config['db']['prefix']}_user u JOIN {app._sql.config['db']['prefix']}_push_sub s ON s.user_id=u.id WHERE u.gid=%s AND u.enabled=1;",
-						[gid]
-					)
+						[gid])
 				except Exception:
 					rows = []
 				recipient_user_ids = [r[0] for r in (rows or []) if r and r[0]]
 			elif isinstance(target, str) and target.startswith('user:'):
-				uid = int(target.split(':',1)[1])
+				uid = int(target.split(':', 1)[1])
 				recipient_user_ids = [uid]
 			else:
-				return jsonify({'status': 'error', 'message': 'Некорректная цель'}), 400
+				return jsonify({
+					'status': 'error',
+					'message': 'Некорректная цель'
+				}), 400
 
 			# Send using pywebpush
 			try:
 				from pywebpush import webpush, WebPushException
 			except Exception:
-				return jsonify({'status': 'error', 'message': 'pywebpush not installed'}), 501
+				return jsonify({
+					'status': 'error',
+					'message': 'pywebpush not installed'
+				}), 501
 			vapid_public = (app._sql.push_get_vapid_public() or '')
 			vapid_private = (app._sql.push_get_vapid_private() or '')
-			vapid_subject = (app._sql.push_get_vapid_subject() or 'mailto:admin@example.com')
+			vapid_subject = (app._sql.push_get_vapid_subject()
+							 or 'mailto:admin@example.com')
 			if not vapid_public or not vapid_private:
-				return jsonify({'status': 'error', 'message': 'VAPID keys not configured'}), 400
-			payload = {'title': 'Сообщение администратора', 'body': message, 'icon': '/static/images/notification-icon.png'}
+				return jsonify({
+					'status': 'error',
+					'message': 'VAPID keys not configured'
+				}), 400
+			payload = {
+				'title': 'Сообщение администратора',
+				'body': message,
+				'icon': '/static/images/notification-icon.png'
+			}
 			sent = 0
 			for uid in recipient_user_ids:
 				rows = app._sql.push_get_user_subscriptions(uid) or []
 				for row in rows:
 					endpoint, p256dh, auth = row[1], row[2], row[3]
-					sub_info = { 'endpoint': endpoint, 'keys': {'p256dh': p256dh, 'auth': auth} }
+					sub_info = {
+						'endpoint': endpoint,
+						'keys': {
+							'p256dh': p256dh,
+							'auth': auth
+						}
+					}
 					try:
-						webpush(
-							subscription_info=sub_info,
-							data=jsonify_payload(payload),
-							vapid_private_key=vapid_private,
-							vapid_claims={'sub': vapid_subject}
-						)
+						webpush(subscription_info=sub_info,
+								data=jsonify_payload(payload),
+								vapid_private_key=vapid_private,
+								vapid_claims={'sub': vapid_subject})
 						sent += 1
 					except WebPushException as we:
 						_log.error(f"Push send failed: {we}")
 						continue
 			try:
-				log_action('ADMIN_PUSH', current_user.name, f'target={target} sent={sent} text="{message}"', request.remote_addr)
+				log_action('ADMIN_PUSH', current_user.name,
+						   f'target={target} sent={sent} text="{message}"',
+						   request.remote_addr)
 			except Exception:
 				pass
 			return jsonify({'status': 'success', 'sent': sent})
@@ -733,8 +886,7 @@ def register(app, socketio=None):
 		try:
 			rows = app._sql.execute_query(
 				f"SELECT id, name FROM {app._sql.config['db']['prefix']}_user WHERE enabled=1 ORDER BY name;",
-				[]
-			)
+				[])
 			items = [{'id': r[0], 'name': r[1]} for r in rows or []]
 			return jsonify({'status': 'success', 'items': items})
 		except Exception as e:
@@ -747,19 +899,18 @@ def register(app, socketio=None):
 	def admin_logs_list():
 		"""Return list of files in the logs directory (name, size, mtime)."""
 		try:
-			import os, time
-			logs_dir = os.path.join(app.root_path, 'logs')
-			if not os.path.isdir(logs_dir):
+			logs_dir = path.join(app.root_path, 'logs')
+			if not path.isdir(logs_dir):
 				return jsonify({'status': 'success', 'items': []})
 			items = []
-			for name in os.listdir(logs_dir):
+			for name in listdir(logs_dir):
 				# skip hidden files and dirs
 				if name.startswith('.'):
 					continue
-				full = os.path.join(logs_dir, name)
-				if not os.path.isfile(full):
+				full = path.join(logs_dir, name)
+				if not path.isfile(full):
 					continue
-				st = os.stat(full)
+				st = stat(full)
 				items.append({
 					'name': name,
 					'size': int(st.st_size),
@@ -777,70 +928,76 @@ def register(app, socketio=None):
 	def admin_logs_view():
 		"""Serve a log file as text/plain in a new tab. Prevent path traversal."""
 		try:
-			import os
 			name = (request.args.get('name') or '').strip()
 			if not name:
 				return abort(400)
 			# sanitize to basename only
-			name = os.path.basename(name)
-			logs_dir = os.path.join(app.root_path, 'logs')
-			full = os.path.join(logs_dir, name)
+			name = path.basename(name)
+			logs_dir = path.join(app.root_path, 'logs')
+			full = path.join(logs_dir, name)
 			# ensure inside logs dir
-			if not full.startswith(os.path.abspath(logs_dir) + os.sep):
+			if not full.startswith(path.abspath(logs_dir) + path.sep):
 				return abort(403)
-			if not os.path.isfile(full):
+			if not path.isfile(full):
 				return abort(404)
 			with open(full, 'r', encoding='utf-8', errors='replace') as f:
 				data = f.read()
 			return Response(data, mimetype='text/plain; charset=utf-8')
 		except Exception as e:
 			app.flash_error(e)
-			return Response(str(e), status=500, mimetype='text/plain; charset=utf-8')
+			return Response(str(e),
+							status=500,
+							mimetype='text/plain; charset=utf-8')
 
 	@app.route('/admin/logs/download', methods=['GET'])
 	@require_permissions(ADMIN_VIEW_PAGE)
 	def admin_logs_download():
 		"""Download a single log file as attachment."""
 		try:
-			import os
 			name = (request.args.get('name') or '').strip()
 			if not name:
 				return abort(400)
-			name = os.path.basename(name)
-			logs_dir = os.path.join(app.root_path, 'logs')
-			full = os.path.join(logs_dir, name)
-			if not full.startswith(os.path.abspath(logs_dir) + os.sep):
+			name = path.basename(name)
+			logs_dir = path.join(app.root_path, 'logs')
+			full = path.join(logs_dir, name)
+			if not full.startswith(path.abspath(logs_dir) + path.sep):
 				return abort(403)
-			if not os.path.isfile(full):
+			if not path.isfile(full):
 				return abort(404)
 			return send_file(full, as_attachment=True, download_name=name)
 		except Exception as e:
 			app.flash_error(e)
-			return Response(str(e), status=500, mimetype='text/plain; charset=utf-8')
+			return Response(str(e),
+							status=500,
+							mimetype='text/plain; charset=utf-8')
 
 	@app.route('/admin/logs/download_all', methods=['GET'])
 	@require_permissions(ADMIN_VIEW_PAGE)
 	def admin_logs_download_all():
 		"""Zip all files in logs dir and send as attachment."""
 		try:
-			import os, io, zipfile, datetime
-			logs_dir = os.path.join(app.root_path, 'logs')
-			buf = io.BytesIO()
-			with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-				if os.path.isdir(logs_dir):
-					for name in os.listdir(logs_dir):
+			logs_dir = path.join(app.root_path, 'logs')
+			buf = BytesIO()
+			with ZipFile(buf, mode='w', compression=ZIP_DEFLATED) as zf:
+				if path.isdir(logs_dir):
+					for name in listdir(logs_dir):
 						if name.startswith('.'): continue
-						full = os.path.join(logs_dir, name)
-						if not os.path.isfile(full): continue
+						full = path.join(logs_dir, name)
+						if not path.isfile(full): continue
 						# Write file into zip under its filename
 						zf.write(full, arcname=name)
 			buf.seek(0)
-			ts = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-			fname = f'znv-logs-{ts}.zip'
-			return send_file(buf, as_attachment=True, download_name=fname, mimetype='application/zip')
+			ts = dt.now().strftime('%Y-%m-%d_%H-%M-%S')
+			fname = f'znf-logs-{ts}.zip'
+			return send_file(buf,
+							 as_attachment=True,
+							 download_name=fname,
+							 mimetype='application/zip')
 		except Exception as e:
 			app.flash_error(e)
-			return Response(str(e), status=500, mimetype='text/plain; charset=utf-8')
+			return Response(str(e),
+							status=500,
+							mimetype='text/plain; charset=utf-8')
 
 	# Registrators moved to routes/registrators.py
 
@@ -848,7 +1005,10 @@ def register(app, socketio=None):
 		try:
 			import json
 			from os import urandom
-			return json.dumps({ **obj, 'id': int(urandom(2).hex(), 16) }, ensure_ascii=False)
+			return json.dumps({
+				**obj, 'id': int(urandom(2).hex(), 16)
+			},
+							  ensure_ascii=False)
 		except Exception:
 			return '{"title":"Сообщение","body":""}'
 
@@ -864,7 +1024,9 @@ def register(app, socketio=None):
 				user = getattr(current_user, 'name', None) or 'unknown'
 				uid = getattr(current_user, 'id', None)
 				# Resolve client IP (respecting reverse proxy headers)
-				ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+				ip = request.headers.get(
+					'X-Forwarded-For',
+					'').split(',')[0].strip() or request.remote_addr
 				page = (data or {}).get('page')
 				ua = request.headers.get('User-Agent', '')
 				app._presence[request.sid] = {
@@ -877,7 +1039,10 @@ def register(app, socketio=None):
 				}
 				# Notify all listeners that presence changed
 				try:
-					socketio.emit('presence:changed', {'sid': request.sid, 'user': user})
+					socketio.emit('presence:changed', {
+						'sid': request.sid,
+						'user': user
+					})
 				except Exception:
 					pass
 			except Exception:
@@ -889,12 +1054,18 @@ def register(app, socketio=None):
 				# prune stale (older than 60s) and remove current sid
 				now_ts = int(datetime.utcnow().timestamp())
 				if hasattr(app, '_presence'):
-					stale = [sid for sid, info in app._presence.items() if (now_ts - int(info.get('updated_at') or 0)) > 60]
+					stale = [
+						sid for sid, info in app._presence.items()
+						if (now_ts - int(info.get('updated_at') or 0)) > 60
+					]
 					for sid in stale:
 						app._presence.pop(sid, None)
 					app._presence.pop(request.sid, None)
 					try:
-						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'disconnect'})
+						socketio.emit('presence:changed', {
+							'sid': request.sid,
+							'event': 'disconnect'
+						})
 					except Exception:
 						pass
 			except Exception:
@@ -907,9 +1078,11 @@ def register(app, socketio=None):
 				if hasattr(app, '_presence'):
 					app._presence.pop(request.sid, None)
 					try:
-						socketio.emit('presence:changed', {'sid': request.sid, 'event': 'leave'})
+						socketio.emit('presence:changed', {
+							'sid': request.sid,
+							'event': 'leave'
+						})
 					except Exception:
 						pass
 			except Exception:
 				pass
-

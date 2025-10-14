@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import requests
+from io import BytesIO
 from urllib.parse import urljoin
 
 
@@ -23,7 +24,8 @@ class DataFactory:
         cat_id = None
         for c in cats:
             try:
-                if str(c.get('display_name') or '').strip().lower() == cat_name.lower():
+                if str(c.get('display_name')
+                       or '').strip().lower() == cat_name.lower():
                     cat_id = c.get('id')
                     break
             except Exception:
@@ -36,9 +38,16 @@ class DataFactory:
                 'folder_name': cat_name.replace(' ', '_').lower(),
                 'enabled': 'on'
             }
-            for path in ['/admin/categories/add', '/categories/add', '/admin/category/add']:
+            for path in [
+                    '/admin/categories/add', '/categories/add',
+                    '/admin/category/add'
+            ]:
                 try:
-                    r = self.session.post(urljoin(self.base_url + '/', path.lstrip('/')), data=payload, allow_redirects=True, timeout=10)
+                    r = self.session.post(urljoin(self.base_url + '/',
+                                                  path.lstrip('/')),
+                                          data=payload,
+                                          allow_redirects=True,
+                                          timeout=10)
                     if r.status_code in (200, 201, 302):
                         break
                 except Exception:
@@ -49,7 +58,8 @@ class DataFactory:
             except Exception:
                 cats = []
             for c in cats:
-                if str(c.get('display_name') or '').strip().lower() == cat_name.lower():
+                if str(c.get('display_name')
+                       or '').strip().lower() == cat_name.lower():
                     cat_id = c.get('id')
                     break
 
@@ -63,7 +73,8 @@ class DataFactory:
             subs = []
         for s in subs:
             try:
-                if str(s.get('display_name') or '').strip().lower() == sub_name.lower():
+                if str(s.get('display_name')
+                       or '').strip().lower() == sub_name.lower():
                     return
             except Exception:
                 pass
@@ -73,26 +84,38 @@ class DataFactory:
             'folder_name': sub_name.replace(' ', '_').lower(),
             'enabled': 'on'
         }
-        for path in ['/admin/subcategories/add', '/subcategories/add', '/admin/subcategory/add']:
+        for path in [
+                '/admin/subcategories/add', '/subcategories/add',
+                '/admin/subcategory/add'
+        ]:
             try:
-                r = self.session.post(urljoin(self.base_url + '/', path.lstrip('/')), data=payload_sub, allow_redirects=True, timeout=10)
+                r = self.session.post(urljoin(self.base_url + '/',
+                                              path.lstrip('/')),
+                                      data=payload_sub,
+                                      allow_redirects=True,
+                                      timeout=10)
                 if r.status_code in (200, 201, 302):
                     break
             except Exception:
                 pass
 
-    def ensure_sample_file(self, did: int | None = None, sdid: int | None = None) -> None:
+    def ensure_sample_file(self,
+                           did: int | None = None,
+                           sdid: int | None = None) -> None:
         """Пытается загрузить тестовый файл через доступные маршруты. Если нет API — молча пропускает."""
         # Простой текст в качестве заглушки
-        import io
-        sample = io.BytesIO(b"sample test content")
+        sample = BytesIO(b"sample test content")
         files = {'file': ('sample.txt', sample, 'text/plain')}
         data = {}
         if did is not None: data['did'] = str(did)
         if sdid is not None: data['sdid'] = str(sdid)
         for path in ['/files/add', '/admin/files/add', '/api/files/upload']:
             try:
-                r = self.session.post(urljoin(self.base_url + '/', path.lstrip('/')), data=data, files=files, timeout=20)
+                r = self.session.post(urljoin(self.base_url + '/',
+                                              path.lstrip('/')),
+                                      data=data,
+                                      files=files,
+                                      timeout=20)
                 if r.status_code in (200, 201, 302):
                     return
             except Exception:
@@ -103,5 +126,3 @@ class DataFactory:
         r = self.session.get(url, timeout=10)
         r.raise_for_status()
         return r.json()
-
-
