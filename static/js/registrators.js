@@ -181,6 +181,12 @@
           };
           wrap.appendChild(addBtn);
         }
+        // Cache items globally for context menu lookup
+        try {
+          window.__registratorsItems = Array.isArray(items)
+            ? items.slice()
+            : [];
+        } catch (_) {}
         return items;
       }
     );
@@ -250,6 +256,113 @@
       hide();
     };
   }
+
+  // Helper to get currently selected registrator from the UI
+  function getCurrentRegistratorItem() {
+    try {
+      var activeBtn = document.querySelector(
+        "#registrators-nav .topbtn.active"
+      );
+      if (!activeBtn) return null;
+      var id = parseInt(
+        activeBtn.getAttribute("data-registrator-id") || "0",
+        10
+      );
+      if (!id) {
+        // Fallback to window.currentRegistratorId
+        id = parseInt(window.currentRegistratorId || 0, 10) || 0;
+      }
+      if (!id) return null;
+      var name = (activeBtn.textContent || "").trim();
+      var enabled = activeBtn.classList.contains("is-disabled") ? 0 : 1;
+      var url_template = "";
+      if (Array.isArray(window.__registratorsItems)) {
+        try {
+          var found = window.__registratorsItems.find(function (it) {
+            return String(it.id) === String(id);
+          });
+          if (found) {
+            name = name || found.name || "";
+            if (typeof found.enabled !== "undefined") enabled = found.enabled;
+            if (found.url_template) url_template = found.url_template;
+          }
+        } catch (_) {}
+      }
+      return {
+        id: id,
+        name: name,
+        enabled: enabled,
+        url_template: url_template,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Initialize global context menu for registrators page (open anywhere on page)
+  (function initRegistratorsContextMenu() {
+    function bindHandlers() {
+      try {
+        var menu = document.getElementById("registrators-context-menu");
+        if (!menu) return;
+
+        function handler(e) {
+          // Only act on registrators page, ignore clicks inside menu itself
+          if (!document.getElementById("registrators-context-menu")) return;
+          if (
+            e.target &&
+            e.target.closest &&
+            e.target.closest("#registrators-context-menu")
+          )
+            return;
+          // Don't interfere with inputs in modals
+          if (e.target && e.target.closest && e.target.closest(".modal.show"))
+            return;
+          e.preventDefault();
+          e.stopPropagation();
+          var current = getCurrentRegistratorItem();
+          if (!current) return;
+          var x = typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
+          var y = typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
+          openRegContextMenu(x, y, current);
+        }
+
+        // Bind on header like categories and also on document to allow anywhere
+        var header = document.querySelector(".app-topbar");
+        if (header && !header.__regCtxBound) {
+          header.__regCtxBound = true;
+          header.addEventListener("contextmenu", handler, { capture: true });
+          try {
+            header.querySelectorAll(".topbtn").forEach(function (btn) {
+              btn.addEventListener("contextmenu", handler, { capture: true });
+            });
+          } catch (_) {}
+        }
+        if (!document.__regCtxBound) {
+          document.__regCtxBound = true;
+          document.addEventListener("contextmenu", handler, true);
+        }
+
+        // Also bind to main content container if present for extra reliability
+        try {
+          var pageRoot = document.querySelector("body");
+          if (pageRoot && !pageRoot.__regCtxBound) {
+            pageRoot.__regCtxBound = true;
+            pageRoot.addEventListener("contextmenu", handler, true);
+          }
+        } catch (_) {}
+      } catch (_) {}
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function once() {
+        document.removeEventListener("DOMContentLoaded", once);
+        bindHandlers();
+      });
+    } else {
+      bindHandlers();
+    }
+  })();
 
   // Wire Add modal submit
   (function bindAddModal() {
@@ -828,9 +941,47 @@
     var idEl = document.getElementById("regEditId");
     var nameEl = document.getElementById("regEditName");
     var urlEl = document.getElementById("regEditUrl");
+    var enabledEl = document.getElementById("regEditEnabled");
     if (idEl) idEl.value = item.id;
     if (nameEl) nameEl.value = item.name || "";
     if (urlEl) urlEl.value = item.url_template || "";
+    if (enabledEl)
+      enabledEl.checked =
+        String(item.enabled || 0) === "1" || item.enabled === true;
+    // If url_template is not provided on the list item, fetch details
+    if ((!item.url_template || !String(item.url_template).trim()) && item.id) {
+      try {
+        fetch("/registrators/" + encodeURIComponent(item.id), {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          credentials: "same-origin",
+        })
+          .then(function (r) {
+            try {
+              return r.json();
+            } catch (_) {
+              return null;
+            }
+          })
+          .then(function (j) {
+            if (!j || typeof j !== "object") return;
+            try {
+              var tpl = j.url_template || (j.item && j.item.url_template);
+              var nm = j.name || (j.item && j.item.name);
+              var en = j.enabled;
+              if (typeof en === "undefined") en = j.item && j.item.enabled;
+              if (urlEl && tpl) urlEl.value = tpl;
+              if (nameEl && nm && !nameEl.value) nameEl.value = nm;
+              if (enabledEl && typeof en !== "undefined")
+                enabledEl.checked = String(en) === "1" || en === true;
+            } catch (_) {}
+          })
+          .catch(function () {});
+      } catch (_) {}
+    }
     showModalEl(modalEl);
   };
 

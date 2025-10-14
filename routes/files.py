@@ -159,6 +159,11 @@ def register(app, media_service, socketio=None) -> None:
         except Exception:
             max_file_size_mb = 500
         _dirs = dirs_by_permission(app, id, 'f')
+        try:
+            app.logger.info('[FILES] dirs_by_permission result count=%s',
+                            len(_dirs) if _dirs else 0)
+        except Exception:
+            pass
         # Guard: no available directories for this user
         if not _dirs or len(_dirs) == 0:
             resp = make_response(
@@ -179,8 +184,33 @@ def register(app, media_service, socketio=None) -> None:
         did, sdid = validate_directory_params(did, sdid, _dirs)
         dirs = list(_dirs[did].keys()) if (did is not None
                                            and did < len(_dirs)) else []
+
+        # Normalize potential duplicate-protected keys back to real folder names
+        def _unsuffix(k: str) -> str:
+            try:
+                if isinstance(k, str) and k.endswith(')') and '__dup_' in k:
+                    # not expected format; fallback
+                    return k
+                if isinstance(k, str) and '__dup_' in k:
+                    return k.split('__dup_')[0]
+            except Exception:
+                pass
+            return k
+
+        dirs = [_unsuffix(k) for k in dirs]
+        try:
+            app.logger.info('[FILES] did=%s sdid=%s root_keys=%s', did, sdid,
+                            dirs)
+        except Exception:
+            pass
         # Guard: if no subdirectories present, render with empty file list
         if not dirs or len(dirs) <= 1:
+            try:
+                app.logger.info(
+                    '[FILES] No subdirectories for did=%s (len(keys)=%s)', did,
+                    len(dirs) if dirs else 0)
+            except Exception:
+                pass
             resp = make_response(
                 render_template('files.j2.html',
                                 title='Файлы — Заявки-Наряды-Файлы',
@@ -391,7 +421,8 @@ def register(app, media_service, socketio=None) -> None:
                     'X-Requested-With') == 'XMLHttpRequest':
                 return {
                     'status': 'success',
-                    'message': 'Файл успешно загружен'
+                    'message': 'Файл успешно загружен',
+                    'id': int(id) if id else None
                 }, 200
             return redirect(url_for('files', did=did, sdid=sdid))
         except Exception as e:
@@ -662,9 +693,15 @@ def register(app, media_service, socketio=None) -> None:
             return abort(403)
         try:
             app._sql.file_delete([id])
-            log_action('FILE_DELETE', current_user.name,
-                       f'deleted file {file.name} (id={id})',
-                       (request.remote_addr or ''))
+            # Distinguish cleanup-initiated deletes for better tracing
+            if request.headers.get('X-Upload-Cleanup') == '1':
+                log_action('FILE_DELETE_CLEANUP', current_user.name,
+                           f'cleanup deleted file {file.name} (id={id})',
+                           (request.remote_addr or ''))
+            else:
+                log_action('FILE_DELETE', current_user.name,
+                           f'deleted file {file.name} (id={id})',
+                           (request.remote_addr or ''))
             # Remove converted file if exists
             try:
                 os.remove(path.join(file.path, file.real_name))

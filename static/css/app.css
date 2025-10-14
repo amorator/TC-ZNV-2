@@ -957,3 +957,51 @@ table th {
     opacity: 0.6;
     pointer-events: none;
 }
+
+/* Themed scrollbar for import modal */
+#popup-import-registrator .popup__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--btn-primary-bg) var(--sidebar-bg);
+}
+
+#popup-import-registrator .popup__body::-webkit-scrollbar {
+    width: 8px;
+}
+
+#popup-import-registrator .popup__body::-webkit-scrollbar-track {
+    background: var(--sidebar-bg);
+    border-radius: 4px;
+}
+
+#popup-import-registrator .popup__body::-webkit-scrollbar-thumb {
+    background: var(--btn-primary-bg);
+    border-radius: 4px;
+}
+
+#popup-import-registrator .popup__body::-webkit-scrollbar-thumb:hover {
+    background: var(--btn-primary-hover-bg);
+}
+
+/* File list scrollbar styling */
+.reg-file-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--btn-primary-bg) var(--sidebar-bg);
+}
+
+.reg-file-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.reg-file-list::-webkit-scrollbar-track {
+    background: var(--sidebar-bg);
+    border-radius: 3px;
+}
+
+.reg-file-list::-webkit-scrollbar-thumb {
+    background: var(--btn-primary-bg);
+    border-radius: 3px;
+}
+
+.reg-file-list::-webkit-scrollbar-thumb:hover {
+    background: var(--btn-primary-hover-bg);
+}

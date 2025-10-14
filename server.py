@@ -356,9 +356,63 @@ def static_files(filename):
 
 @app.route('/proxy' + '/<string:url>', methods=['GET'])
 def proxy(url: str) -> str:
-    """Simple proxy to fetch and parse links from remote HTML (internal use)."""
+    """Simple proxy to fetch and parse links from remote HTML (internal use only)."""
+
+    # Protection Layer 1: Check Referer header
+    referer = request.headers.get('Referer', '')
+    if not referer or '/files/' not in referer:
+        _log.warning('[proxy] Blocked request from invalid referer: %s',
+                     referer)
+        return ''
+
+    # Protection Layer 2: Check for special header from registrator import
+    registrator_header = request.headers.get('X-Registrator-Import', '')
+    if registrator_header != '1':
+        _log.warning(
+            '[proxy] Blocked request without registrator import header')
+        return ''
+
+    # Protection Layer 3: Check User-Agent (should be from browser, not direct calls)
+    user_agent = request.headers.get('User-Agent', '')
+    if not user_agent or len(user_agent) < 10:
+        _log.warning('[proxy] Blocked request with suspicious user-agent: %s',
+                     user_agent)
+        return ''
+
+    # Protection Layer 4: Rate limiting per IP
+    client_ip = request.environ.get('REMOTE_ADDR', 'unknown')
+    if not hasattr(app, '_proxy_rate_limit'):
+        app._proxy_rate_limit = {}
+
+    import time
+    current_time = time.time()
+    if client_ip in app._proxy_rate_limit:
+        last_request = app._proxy_rate_limit[client_ip]
+        if current_time - last_request < 1:  # Max 1 request per second per IP
+            _log.warning('[proxy] Rate limit exceeded for IP: %s', client_ip)
+            return ''
+
+    app._proxy_rate_limit[client_ip] = current_time
+
+    # Protection Layer 5: Validate URL format
+    if not url or len(url) < 3 or '!' not in url:
+        _log.warning('[proxy] Blocked request with invalid URL format: %s',
+                     url)
+        return ''
+
+    # Protection Layer 6: Check for suspicious patterns
+    suspicious_patterns = ['..', 'admin', 'config', 'system', 'etc', 'proc']
+    url_lower = url.lower()
+    for pattern in suspicious_patterns:
+        if pattern in url_lower:
+            _log.warning(
+                '[proxy] Blocked request with suspicious pattern "%s" in URL: %s',
+                pattern, url)
+            return ''
+
     try:
         target = 'http://' + url.replace('!', '/')
+
         _log.info('[proxy] fetch %s', target)
         raw = http.urlopen(target, timeout=15).read()
         html = bs(raw, features='html.parser') if bs else None

@@ -87,7 +87,17 @@ class Server(Flask):
 					self.dirs.append({cat.folder_name: cat.display_name})
 					# Add enabled subcategories
 					for sub in enabled_subs:
-						self.dirs[len(self.dirs) - 1].update({sub.folder_name: sub.display_name})
+						try:
+							# Avoid key collision when sub folder equals category folder
+							key = sub.folder_name
+							cat_key = list(self.dirs[len(self.dirs) - 1].keys())[0]
+							if str(key) == str(cat_key):
+								# Suffix with stable marker and id
+								key = f"{sub.folder_name}__dup_{sub.id}"
+							self.dirs[len(self.dirs) - 1].update({key: sub.display_name})
+						except Exception:
+							# Fallback without normalization
+							self.dirs[len(self.dirs) - 1].update({sub.folder_name: sub.display_name})
 				except Exception:
 					continue
 		except Exception as e:

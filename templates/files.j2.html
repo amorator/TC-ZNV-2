@@ -13,6 +13,15 @@
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
+<script>
+  // Make dirs data available before files.js executes
+  try { window.dirsData = {{ dirs | tojson }}; } catch(_) { window.dirsData = []; }
+  // Expose current category/subcategory ids as early as possible
+  try {
+    window.current_category_id = {{ (current_category_id or 0) | int }};
+    window.current_subcategory_id = {{ (current_subcategory_id or 0) | int }};
+  } catch(_) {}
+</script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}" defer="defer"></script>
 {% endblock %}
 
@@ -35,12 +44,13 @@
       <!-- Подкатегории (поддиректории выбранной категории) -->
       <div class="subbar subcat">
         <div class="subbar__group">
-          {% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > 1 %}
-            {% for i in range(1, dirs[did].keys() | length) %}
-              <a class="topbtn {{ 'active' if i == sdid else '' }}" href="{{ url_for('files', did=did, sdid=i) }}">{{ (dirs[did].values() | list)[i] }}</a>
-            {% endfor %}
-          {% else %}
-            <span class="topbtn disabled">Нет подкатегорий</span>
+          {% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}
+            {% set subvals = (dirs[did].values() | list)[1:] %}
+            {% if subvals and (subvals | length) > 0 %}
+              {% for i in range(1, (dirs[did].values() | list) | length) %}
+                <a class="topbtn {{ 'active' if i == sdid else '' }}" href="{{ url_for('files', did=did, sdid=i) }}">{{ (dirs[did].values() | list)[i] }}</a>
+              {% endfor %}
+            {% endif %}
           {% endif %}
         </div>
       </div>
@@ -235,7 +245,7 @@
   <div id="popup-import-registrator" class="overlay-container" data-testid="files-modal-import-registrator">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-import-registrator-title">
       <h1 class="popup__title mb-4" id="popup-import-registrator-title">Загрузка с регистратора</h1>
-      <div class="popup__body">
+      <div class="popup__body" style="max-height: 60vh; overflow-y: auto;">
         <div class="mb-3">
           <label class="form-control__label" for="reg-picker">Регистратор:</label>
           <select id="reg-picker" class="select form-control__control"></select>
@@ -264,11 +274,6 @@
             </div>
           </div>
           <small class="form-text text-muted">Поля появляются по мере выбора предыдущих.</small>
-        </div>
-        <div class="mb-3">
-          <label class="form-control__label">Файлы:</label>
-          <div id="reg-file-list" class="d-flex flex-column gap-1" style="max-height: 240px; overflow:auto"></div>
-          <small class="form-text text-muted">Отметьте файлы для загрузки (макс. <span id="reg-max-files">{{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}</span>).</small>
         </div>
       </div>
       <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
@@ -447,7 +452,16 @@
             <select class="form-control__control input" name="target_root" id="move-target-root">
               {% if dirs and (dirs | length) > 0 %}
                 {% for i in range(dirs | length) %}
-                  <option value="{{ (dirs[i].values() | list)[0] }}">{{ (dirs[i].values() | list)[0] }}</option>
+                  {% set keys = (dirs[i].keys() | list) %}
+                  {% set vals = (dirs[i].values() | list) %}
+                  {% set root_name = vals[0] %}
+                  {% set root_key = keys[0] %}
+                  {# Build subcategory mapping excluding root #}
+                  {% set subs = {} %}
+                  {% for j in range(1, (keys | length)) %}
+                    {% set _ = subs.update({ (keys[j]) : (vals[j]) }) %}
+                  {% endfor %}
+                  <option value="{{ root_name }}" data-root-key="{{ root_key }}" data-subs='{{ subs | tojson | safe }}'>{{ root_name }}</option>
                 {% endfor %}
               {% else %}
                 <option value="" disabled>Нет доступных категорий</option>
@@ -484,6 +498,13 @@ try {
   document.body.setAttribute('data-current-category-id', String(window.current_category_id||0));
   document.body.setAttribute('data-current-subcategory-id', String(window.current_subcategory_id||0));
 } catch(_) {}
+
+// Expose dirs data for move modal
+try {
+  window.dirsData = {{ dirs | tojson }};
+} catch(_) {
+  window.dirsData = [];
+}
 // Фокус-ловушка для модальных окон файловой страницы (кастомные попапы)
 (function setupFilesFocusTrap(){
   try {

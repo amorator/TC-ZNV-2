@@ -1,4 +1,84 @@
 /**
+ * Function to update subcategories when category changes in move modal
+ */
+function updateMoveSubcategories(selectedCategory, subSelect) {
+  try {
+    if (!subSelect) return;
+    const rootSel = document.getElementById("move-target-root");
+    // Prefer data-subs injected into selected option
+    let subsMap = null;
+    try {
+      const opt = rootSel && rootSel.options[rootSel.selectedIndex];
+      if (opt && opt.dataset && opt.dataset.subs) {
+        subsMap = JSON.parse(opt.dataset.subs);
+      }
+    } catch (_) {
+      subsMap = null;
+    }
+
+    if (!subsMap) {
+      // Fallback to global dirsData
+      if (!window.dirsData || !Array.isArray(window.dirsData)) {
+        subSelect.innerHTML =
+          '<option value="" disabled>Данные недоступны</option>';
+        return;
+      }
+      if (!selectedCategory) {
+        subSelect.innerHTML =
+          '<option value="" disabled>Выберите категорию</option>';
+        return;
+      }
+      // Find the category in dirs data: match by display name or folder key
+      let categoryData = null;
+      for (let i = 0; i < window.dirsData.length; i++) {
+        const categoryObj = window.dirsData[i];
+        const values = Object.values(categoryObj);
+        const keys = Object.keys(categoryObj);
+        const categoryName = values[0];
+        const categoryKey = keys[0];
+        if (
+          categoryName === selectedCategory ||
+          categoryKey === selectedCategory
+        ) {
+          categoryData = categoryObj;
+          break;
+        }
+      }
+      if (!categoryData) {
+        subSelect.innerHTML =
+          '<option value="" disabled>Категория не найдена</option>';
+        return;
+      }
+      subsMap = {};
+      const keys = Object.keys(categoryData);
+      for (let i = 1; i < keys.length; i++) {
+        const k = keys[i];
+        subsMap[k] = categoryData[k];
+      }
+    }
+
+    const subKeys = Object.keys(subsMap || {});
+    if (!subKeys.length) {
+      subSelect.innerHTML =
+        '<option value="" disabled>Нет подкатегорий</option>';
+      return;
+    }
+
+    subSelect.innerHTML = "";
+    subKeys.forEach(function (subKey) {
+      const subName = subsMap[subKey];
+      const option = document.createElement("option");
+      option.value = subKey;
+      option.textContent = subName;
+      subSelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error("Error updating move subcategories:", error);
+    subSelect.innerHTML = '<option value="" disabled>Ошибка загрузки</option>';
+  }
+}
+
+/**
  * Hydrate popup forms with values derived from the selected row.
  * - For add: wires filename -> name autofill.
  * - For edit/delete/note: fills inputs from row with given id.
@@ -134,6 +214,16 @@ function popupValues(form, id) {
     }
     try {
       form.dataset.rowId = String(id);
+    } catch (_) {}
+
+    // Initialize subcategories for the first selected category
+    try {
+      const rootSel = document.getElementById("move-target-root");
+      const subSel = document.getElementById("move-target-sub");
+      if (rootSel && subSel && rootSel.value) {
+        // Initialize subcategories for the currently selected category
+        updateMoveSubcategories(rootSel.value, subSel);
+      }
     } catch (_) {}
   } else if (form.id == "delete") {
     let target = form.parentElement.getElementsByTagName("b");
@@ -386,6 +476,9 @@ function validateForm(element) {
  * @param {HTMLFormElement} form The add form element
  */
 function startUploadWithProgress(form) {
+  // Initialize uploaded file IDs tracking for potential cleanup
+  window.uploadedFileIds = [];
+
   // Show progress bar and hide buttons
   const progressDiv = document.getElementById("upload-progress");
   const submitBtn = document.getElementById("add-submit-btn");
@@ -445,6 +538,9 @@ function startUploadWithProgress(form) {
   // Reset add form to initial state after successful upload
   function resetAfterUpload() {
     try {
+      // Clear uploaded file IDs tracking since upload completed successfully
+      window.uploadedFileIds = [];
+
       const form = document.getElementById("add");
       if (!form) return;
       // Native reset first to restore pristine state
@@ -810,6 +906,20 @@ function startUploadWithProgress(form) {
     // Handle successful upload
     xhr.addEventListener("load", function () {
       if (xhr.status >= 200 && xhr.status < 400) {
+        try {
+          // Try to parse response to get file ID
+          var response = JSON.parse(xhr.responseText);
+          if (response && response.id) {
+            // Initialize uploadedFileIds array if it doesn't exist
+            if (!window.uploadedFileIds) {
+              window.uploadedFileIds = [];
+            }
+            window.uploadedFileIds.push(response.id);
+          }
+        } catch (e) {
+          // If response is not JSON, that's okay - we just can't track the ID
+        }
+
         if (successCb) successCb();
       } else {
         if (errorCb) errorCb(`Ошибка загрузки: ${xhr.status}`);
@@ -961,6 +1071,12 @@ function cancelUpload() {
     window.currentUploadXHR = null;
   }
 
+  // Clean up any already uploaded files if they exist
+  if (window.uploadedFileIds && window.uploadedFileIds.length > 0) {
+    cleanupUploadedFiles(window.uploadedFileIds);
+    window.uploadedFileIds = []; // Clear the array
+  }
+
   // Reset UI
   const progressDiv = document.getElementById("upload-progress");
   const submitBtn = document.getElementById("add-submit-btn");
@@ -968,7 +1084,8 @@ function cancelUpload() {
   const statusText = progressDiv.querySelector(".upload-status small");
 
   if (statusText) {
-    statusText.textContent = "Загрузка отменена";
+    statusText.textContent =
+      "Загрузка отменена. Уже загруженные файлы удалены.";
     statusText.style.color = "var(--danger-color, #dc3545)";
   }
 
@@ -2949,10 +3066,26 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    // Move: compare selects to row data-root/data-sub
+    // Move: setup category/subcategory dynamic updates
     const moveForm = document.getElementById("move");
     if (moveForm && !moveForm._changeBound) {
       moveForm._changeBound = true;
+
+      // Setup category change handler to update subcategories
+      const rootSel = document.getElementById("move-target-root");
+      const subSel = document.getElementById("move-target-sub");
+
+      if (rootSel && subSel) {
+        rootSel.addEventListener("change", function () {
+          updateMoveSubcategories(rootSel.value, subSel);
+        });
+
+        // Initialize subcategories for the first selected category on page load
+        if (rootSel.value) {
+          updateMoveSubcategories(rootSel.value, subSel);
+        }
+      }
+
       moveForm.addEventListener("submit", function (e) {
         try {
           const rootSel = document.getElementById("move-target-root");
@@ -4240,8 +4373,13 @@ window.markViewedAjax = function (fileId) {
     if (!tpl) return "";
     try {
       var noScheme = tpl.replace(/^https?:\/\//i, "");
-      var brace = noScheme.indexOf("{");
-      var base = brace !== -1 ? noScheme.slice(0, brace) : noScheme;
+      var i1 = noScheme.indexOf("{");
+      var i2 = noScheme.indexOf("<");
+      var cutIdx = -1;
+      if (i1 !== -1 && i2 !== -1) cutIdx = Math.min(i1, i2);
+      else if (i1 !== -1) cutIdx = i1;
+      else if (i2 !== -1) cutIdx = i2;
+      var base = cutIdx !== -1 ? noScheme.slice(0, cutIdx) : noScheme;
       // ensure ends with '/'
       if (base[base.length - 1] !== "/") base += "/";
       return base;
@@ -4341,10 +4479,26 @@ window.markViewedAjax = function (fileId) {
         /* ignore */
       });
   }
+  // Global helper function for ensuring placeholder options
+  function ensurePlaceholder(selectEl, labelText) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    var opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = labelText
+      ? "— Выберите " + labelText + " —"
+      : "— Выберите —";
+    opt.selected = true;
+    opt.disabled = true;
+    selectEl.appendChild(opt);
+  }
+
   // Wire interactions when modal opens
   function onOpen() {
     ensureMaxFilesLimit();
     loadRegistrators();
+    // Initialize import button as disabled
+    updateImportButton();
   }
   // Expose to open button
   if (!window.openRegistratorImport) {
@@ -4378,23 +4532,11 @@ window.markViewedAjax = function (fileId) {
       // Map known placeholders to RU labels
       function toRuLabel(n) {
         var k = String(n || "").toLowerCase();
-        if (k === "date") return "Дату";
-        if (k === "user") return "Пользователя";
+        if (k === "date") return "Дата";
+        if (k === "user") return "Пользователь";
         if (k === "time") return "Время";
         if (k === "type") return "Тип";
         return n || "—";
-      }
-      function ensurePlaceholder(selectEl, labelText) {
-        if (!selectEl) return;
-        selectEl.innerHTML = "";
-        var opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = labelText
-          ? "— Выберите " + labelText + " —"
-          : "— Выберите —";
-        opt.selected = true;
-        opt.disabled = true;
-        selectEl.appendChild(opt);
       }
       function hideFrom(index) {
         [index, index + 1, index + 2, index + 3, index + 4].forEach(function (
@@ -4420,6 +4562,7 @@ window.markViewedAjax = function (fileId) {
         if (!wrap || !lab || !selp) return;
         if (names[i - 1]) {
           lab.textContent = toRuLabel(names[i - 1]);
+          console.log("[DEBUG] Set param", i, "label to:", lab.textContent);
           // only the first param should be visible right after choosing registrator
           if (i === 1) wrap.classList.remove("d-none");
           else wrap.classList.add("d-none");
@@ -4432,6 +4575,59 @@ window.markViewedAjax = function (fileId) {
       });
       // After changing registrator, ensure deeper params are hidden beyond the first
       hideFrom(2);
+
+      // Populate the FIRST param options from the base URL via proxy
+      try {
+        var base = getBaseFromTemplate();
+        var firstWrap = q("reg-param-1-wrap");
+        var firstSel = q("reg-param-1");
+        var firstLab = q("reg-param-1-label");
+        if (base && firstWrap && firstSel && firstLab) {
+          var prox =
+            "/proxy/" +
+            encodeURIComponent(base.replace(/\/+$/g, "/").replace(/\//g, "!"));
+          console.log("[DEBUG] Base URL:", base);
+          console.log("[DEBUG] Proxy URL:", prox);
+          // Reset to placeholder before fetch
+          ensurePlaceholder(
+            firstSel,
+            firstLab.textContent && firstLab.textContent !== "—"
+              ? firstLab.textContent
+              : ""
+          );
+          fetch(prox, {
+            headers: {
+              Accept: "text/plain",
+              "X-Registrator-Import": "1", // Special header to identify registrator import requests
+            },
+          })
+            .then(function (r) {
+              return r.text();
+            })
+            .then(function (txt) {
+              console.log("[DEBUG] Proxy response:", txt);
+              var names = (txt || "")
+                .split("|")
+                .map(function (s) {
+                  return s.trim();
+                })
+                .filter(Boolean);
+              console.log("[DEBUG] Parsed names:", names);
+              // Keep placeholder, then append options
+              names.forEach(function (n) {
+                var optEl = document.createElement("option");
+                optEl.value = n;
+                optEl.textContent = n;
+                firstSel.appendChild(optEl);
+              });
+              // Show only the first parameter select
+              firstWrap.classList.remove("d-none");
+            })
+            .catch(function () {
+              /* ignore */
+            });
+        }
+      } catch (_) {}
     });
   } catch (_) {}
   function wireParamChain() {
@@ -4440,6 +4636,7 @@ window.markViewedAjax = function (fileId) {
       if (!sel) return;
       sel.addEventListener("change", function () {
         var val = sel.value || "";
+        console.log("[DEBUG] Param", i, "changed to:", val);
         // Hide all following selects and reset them to placeholder
         for (var j = i + 1; j <= 5; j++) {
           var wrapJ = q("reg-param-" + j + "-wrap");
@@ -4457,6 +4654,12 @@ window.markViewedAjax = function (fileId) {
         var nextWrap = q("reg-param-" + nextIdx + "-wrap");
         var nextLab = q("reg-param-" + nextIdx + "-label");
         var nextSel = q("reg-param-" + nextIdx);
+        console.log("[DEBUG] Next param", nextIdx, "elements:", {
+          wrap: !!nextWrap,
+          lab: !!nextLab,
+          sel: !!nextSel,
+          labText: nextLab ? nextLab.textContent : "no lab",
+        });
         if (
           val &&
           nextWrap &&
@@ -4465,13 +4668,602 @@ window.markViewedAjax = function (fileId) {
           nextLab.textContent &&
           nextLab.textContent !== "—"
         ) {
-          ensurePlaceholder(nextSel, nextLab.textContent);
-          nextWrap.classList.remove("d-none");
+          console.log("[DEBUG] Showing next param", nextIdx);
+
+          // Check if this is the last parameter (should show files)
+          if (nextIdx >= 5) {
+            // This is the last parameter - show files
+            nextLab.textContent = "Файлы";
+            ensurePlaceholder(nextSel, "Файлы");
+            nextWrap.classList.remove("d-none");
+            // Fetch files for the last parameter
+            fetchNextParamOptions(i, val, nextSel);
+          } else {
+            ensurePlaceholder(nextSel, nextLab.textContent);
+            nextWrap.classList.remove("d-none");
+            // Fetch options for the next parameter
+            fetchNextParamOptions(i, val, nextSel);
+          }
+        } else {
+          console.log("[DEBUG] Not showing next param", nextIdx, "because:", {
+            hasVal: !!val,
+            hasWrap: !!nextWrap,
+            hasLab: !!nextLab,
+            hasSel: !!nextSel,
+            labText: nextLab ? nextLab.textContent : "no lab",
+            labNotDash: nextLab ? nextLab.textContent !== "—" : false,
+          });
         }
       });
     }
     [1, 2, 3, 4, 5].forEach(onParamChange);
   }
+
+  function fetchNextParamOptions(paramIndex, selectedValue, nextSelect) {
+    try {
+      var sel = q("reg-picker");
+      if (!sel) return;
+      var opt = sel.options && sel.options[sel.selectedIndex];
+      var tpl = (opt && opt.getAttribute("data-template")) || "";
+      if (!tpl) return;
+
+      // Get all selected values from previous parameters
+      var selectedValues = [];
+      for (var i = 1; i <= paramIndex; i++) {
+        var paramSel = q("reg-param-" + i);
+        if (paramSel && paramSel.value) {
+          selectedValues.push(paramSel.value);
+        }
+      }
+
+      // Extract placeholders from template
+      var names = [];
+      try {
+        (tpl.match(/\{\s*([a-zA-Z0-9_\-]+)\s*\}/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^{]*\{\s*|\s*\}[^}]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+        (tpl.match(/<\s*([a-zA-Z0-9_\-]+)\s*>/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^<]*<\s*|\s*>[^>]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+      } catch (_) {}
+
+      // Build URL by replacing placeholders with selected values
+      var url = tpl;
+      for (var j = 0; j < Math.min(selectedValues.length, names.length); j++) {
+        var placeholder = "{" + names[j] + "}";
+        var altPlaceholder = "<" + names[j] + ">";
+        url = url.replace(placeholder, selectedValues[j]);
+        url = url.replace(altPlaceholder, selectedValues[j]);
+      }
+
+      // Cut URL at the next placeholder
+      var nextPlaceholderIdx = -1;
+      for (var k = selectedValues.length; k < names.length; k++) {
+        var nextPlaceholder = "{" + names[k] + "}";
+        var altNextPlaceholder = "<" + names[k] + ">";
+        var idx1 = url.indexOf(nextPlaceholder);
+        var idx2 = url.indexOf(altNextPlaceholder);
+        if (idx1 !== -1) nextPlaceholderIdx = idx1;
+        if (
+          idx2 !== -1 &&
+          (nextPlaceholderIdx === -1 || idx2 < nextPlaceholderIdx)
+        ) {
+          nextPlaceholderIdx = idx2;
+        }
+        if (nextPlaceholderIdx !== -1) break;
+      }
+
+      if (nextPlaceholderIdx !== -1) {
+        url = url.slice(0, nextPlaceholderIdx);
+      }
+
+      // Remove scheme and ensure URL ends with '/'
+      url = url.replace(/^https?:\/\//i, "");
+      if (url[url.length - 1] !== "/") url += "/";
+
+      console.log("[DEBUG] Next param URL:", url);
+
+      // Fetch via proxy
+      var prox = "/proxy/" + encodeURIComponent(url.replace(/\//g, "!"));
+      console.log("[DEBUG] Next param proxy URL:", prox);
+
+      fetch(prox, {
+        headers: {
+          Accept: "text/plain",
+          "X-Registrator-Import": "1", // Special header to identify registrator import requests
+        },
+      })
+        .then(function (r) {
+          return r.text();
+        })
+        .then(function (txt) {
+          console.log("[DEBUG] Next param response:", txt);
+          var names = (txt || "")
+            .split("|")
+            .map(function (s) {
+              return s.trim();
+            })
+            .filter(Boolean);
+          console.log("[DEBUG] Next param parsed names:", names);
+
+          // Check if this is the last parameter and items look like files
+          var isLastParam = paramIndex + 1 >= 5; // Assuming max 5 params
+          var isFiles = names.some(function (n) {
+            return /\.[a-z0-9]{2,5}$/i.test(n);
+          });
+
+          if (isLastParam || isFiles) {
+            // This is the files level - show file list with checkboxes
+            showFileList(names, nextSelect);
+          } else {
+            // Keep placeholder, then append options
+            names.forEach(function (n) {
+              var optEl = document.createElement("option");
+              optEl.value = n;
+              optEl.textContent = n;
+              nextSelect.appendChild(optEl);
+            });
+          }
+        })
+        .catch(function (err) {
+          console.log("[DEBUG] Next param fetch error:", err);
+        });
+    } catch (err) {
+      console.log("[DEBUG] Next param error:", err);
+    }
+  }
+
+  function showFileList(fileNames, nextSelect) {
+    try {
+      // Hide the select and show file list instead
+      var nextWrap = nextSelect.closest(".d-none")
+        ? nextSelect.parentElement
+        : nextSelect.parentElement;
+      if (nextWrap) {
+        nextWrap.classList.remove("d-none");
+
+        // Change label to "Файлы"
+        var label = nextWrap.querySelector("label");
+        if (label) {
+          label.textContent = "Файлы";
+        }
+
+        // Hide the select
+        nextSelect.style.display = "none";
+
+        // Create file list container if it doesn't exist
+        var fileListId =
+          "reg-file-list-" + nextSelect.id.replace("reg-param-", "");
+        var fileListContainer = document.getElementById(fileListId);
+        if (!fileListContainer) {
+          fileListContainer = document.createElement("div");
+          fileListContainer.id = fileListId;
+          fileListContainer.className = "reg-file-list";
+          fileListContainer.style.maxHeight = "200px";
+          fileListContainer.style.overflowY = "auto";
+          fileListContainer.style.border = "1px solid #ccc";
+          fileListContainer.style.padding = "8px";
+          fileListContainer.style.marginTop = "4px";
+          nextWrap.appendChild(fileListContainer);
+        }
+
+        // Clear and populate file list
+        fileListContainer.innerHTML = "";
+
+        // Add instruction text
+        var instructionDiv = document.createElement("div");
+        instructionDiv.className = "mb-2 text-muted small";
+        instructionDiv.textContent =
+          "Отметьте файлы для загрузки (макс. " +
+          (window.maxFilesLimit || 5) +
+          ").";
+        fileListContainer.appendChild(instructionDiv);
+
+        fileNames.forEach(function (fileName) {
+          var checkboxDiv = document.createElement("div");
+          checkboxDiv.className = "form-check";
+
+          var checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.className = "form-check-input reg-file-checkbox";
+          checkbox.value = fileName;
+          checkbox.id = "file-" + fileName.replace(/[^a-zA-Z0-9]/g, "-");
+
+          var label = document.createElement("label");
+          label.className = "form-check-label";
+          label.htmlFor = checkbox.id;
+          label.textContent = fileName;
+
+          checkboxDiv.appendChild(checkbox);
+          checkboxDiv.appendChild(label);
+          fileListContainer.appendChild(checkboxDiv);
+        });
+
+        // Add change listeners to checkboxes for limit enforcement
+        var checkboxes =
+          fileListContainer.querySelectorAll(".reg-file-checkbox");
+        checkboxes.forEach(function (checkbox) {
+          checkbox.addEventListener("change", function () {
+            enforceFileLimit();
+            updateImportButton();
+          });
+        });
+
+        console.log("[DEBUG] Showed file list with", fileNames.length, "files");
+      }
+    } catch (err) {
+      console.log("[DEBUG] Error showing file list:", err);
+    }
+  }
+
+  function enforceFileLimit() {
+    try {
+      var maxFiles = window.maxFilesLimit || 5;
+      var checkedBoxes = document.querySelectorAll(
+        ".reg-file-checkbox:checked"
+      );
+
+      if (checkedBoxes.length >= maxFiles) {
+        // Disable unchecked boxes
+        var uncheckedBoxes = document.querySelectorAll(
+          ".reg-file-checkbox:not(:checked)"
+        );
+        uncheckedBoxes.forEach(function (checkbox) {
+          checkbox.disabled = true;
+        });
+      } else {
+        // Enable all boxes
+        var allBoxes = document.querySelectorAll(".reg-file-checkbox");
+        allBoxes.forEach(function (checkbox) {
+          checkbox.disabled = false;
+        });
+      }
+    } catch (err) {
+      console.log("[DEBUG] Error enforcing file limit:", err);
+    }
+  }
+
+  function updateImportButton() {
+    try {
+      var checkedBoxes = document.querySelectorAll(
+        ".reg-file-checkbox:checked"
+      );
+      var importButton = document.querySelector(
+        'button[onclick*="submitRegistratorImport"]'
+      );
+
+      if (importButton) {
+        if (checkedBoxes.length > 0) {
+          importButton.disabled = false;
+          importButton.classList.remove("btn-secondary");
+          importButton.classList.add("btn-primary");
+        } else {
+          importButton.disabled = true;
+          importButton.classList.remove("btn-primary");
+          importButton.classList.add("btn-secondary");
+        }
+      }
+    } catch (err) {
+      console.log("[DEBUG] Error updating import button:", err);
+    }
+  }
+
+  // Submit selected files for import
+  window.submitRegistratorImport = function () {
+    try {
+      var checkedBoxes = document.querySelectorAll(
+        ".reg-file-checkbox:checked"
+      );
+      if (checkedBoxes.length === 0) {
+        alert("Выберите хотя бы один файл для загрузки");
+        return;
+      }
+
+      var selectedFiles = Array.from(checkedBoxes).map(function (cb) {
+        return cb.value;
+      });
+
+      // Get registrator info
+      var sel = q("reg-picker");
+      var opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+      var registratorName = opt ? opt.textContent : "Неизвестный регистратор";
+
+      // Build full URLs for selected files
+      var fileUrls = selectedFiles.map(function (fileName) {
+        return buildFileUrl(fileName);
+      });
+
+      // Show progress and block modal
+      showImportProgress(selectedFiles.length);
+
+      // Start downloading files
+      downloadFiles(fileUrls, selectedFiles, registratorName);
+    } catch (err) {
+      console.log("[DEBUG] Error in submitRegistratorImport:", err);
+      alert("Ошибка при загрузке файлов");
+    }
+  };
+
+  function buildFileUrl(fileName) {
+    try {
+      var sel = q("reg-picker");
+      var opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+      var tpl = (opt && opt.getAttribute("data-template")) || "";
+      if (!tpl) return "";
+
+      // Get all selected values from parameters
+      var selectedValues = [];
+      for (var i = 1; i <= 5; i++) {
+        var paramSel = q("reg-param-" + i);
+        if (paramSel && paramSel.value) {
+          selectedValues.push(paramSel.value);
+        }
+      }
+
+      // Extract placeholders from template
+      var names = [];
+      try {
+        (tpl.match(/\{\s*([a-zA-Z0-9_\-]+)\s*\}/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^{]*\{\s*|\s*\}[^}]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+        (tpl.match(/<\s*([a-zA-Z0-9_\-]+)\s*>/g) || []).forEach(function (m) {
+          var n = m.replace(/^[^<]*<\s*|\s*>[^>]*$/g, "");
+          if (n && names.indexOf(n) === -1) names.push(n);
+        });
+      } catch (_) {}
+
+      // Build URL by replacing placeholders with selected values
+      var url = tpl;
+      for (var j = 0; j < Math.min(selectedValues.length, names.length); j++) {
+        var placeholder = "{" + names[j] + "}";
+        var altPlaceholder = "<" + names[j] + ">";
+        url = url.replace(placeholder, selectedValues[j]);
+        url = url.replace(altPlaceholder, selectedValues[j]);
+      }
+
+      // Replace file placeholder with actual filename
+      var filePlaceholder = "{file}";
+      var altFilePlaceholder = "<file>";
+      if (url.includes(filePlaceholder)) {
+        url = url.replace(filePlaceholder, fileName);
+      } else if (url.includes(altFilePlaceholder)) {
+        url = url.replace(altFilePlaceholder, fileName);
+      } else {
+        // If no file placeholder, append filename
+        url = url.replace(/\/+$/, "") + "/" + fileName;
+      }
+
+      return url;
+    } catch (err) {
+      console.log("[DEBUG] Error building file URL:", err);
+      return "";
+    }
+  }
+
+  function showImportProgress(totalFiles) {
+    try {
+      // Block modal closing
+      var modal = document.getElementById("popup-import-registrator");
+      var cancelBtn = modal.querySelector('button[onclick*="popupToggle"]');
+      var importBtn = modal.querySelector(
+        'button[onclick*="submitRegistratorImport"]'
+      );
+
+      if (cancelBtn) cancelBtn.disabled = true;
+      if (importBtn) importBtn.disabled = true;
+
+      // Create progress container
+      var progressContainer = document.createElement("div");
+      progressContainer.id = "import-progress-container";
+      progressContainer.className = "mt-3";
+      progressContainer.innerHTML = `
+        <div class="mb-2">
+          <small class="text-muted">Загрузка файлов: <span id="import-progress-text">0/${totalFiles}</span></small>
+        </div>
+        <div class="progress" style="height: 20px;">
+          <div id="import-progress-bar" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <div class="mt-2">
+          <small id="import-current-file" class="text-muted">Подготовка...</small>
+        </div>
+        <div class="mt-2">
+          <button type="button" class="btn btn-danger btn-sm" onclick="cancelImport()">Отменить загрузку</button>
+        </div>
+      `;
+
+      // Insert progress after the last parameter
+      var lastParam = document.getElementById("reg-param-5-wrap");
+      if (lastParam && lastParam.parentElement) {
+        lastParam.parentElement.appendChild(progressContainer);
+      } else {
+        modal.querySelector(".popup__body").appendChild(progressContainer);
+      }
+    } catch (err) {
+      console.log("[DEBUG] Error showing import progress:", err);
+    }
+  }
+
+  function updateImportProgress(current, total, fileName) {
+    try {
+      var progressText = document.getElementById("import-progress-text");
+      var progressBar = document.getElementById("import-progress-bar");
+      var currentFile = document.getElementById("import-current-file");
+
+      if (progressText) progressText.textContent = `${current}/${total}`;
+      if (progressBar) {
+        var percentage = Math.round((current / total) * 100);
+        progressBar.style.width = percentage + "%";
+        progressBar.setAttribute("aria-valuenow", percentage);
+      }
+      if (currentFile) currentFile.textContent = fileName || "Обработка...";
+    } catch (err) {
+      console.log("[DEBUG] Error updating import progress:", err);
+    }
+  }
+
+  function downloadFiles(fileUrls, fileNames, registratorName) {
+    try {
+      var totalFiles = fileUrls.length;
+      var completedFiles = 0;
+      var cancelled = false;
+      var uploadedFileIds = []; // Track uploaded file IDs for cleanup
+
+      // Store cancellation function globally
+      window.cancelImport = function () {
+        cancelled = true;
+
+        // Clean up already uploaded files
+        if (uploadedFileIds.length > 0) {
+          cleanupUploadedFiles(uploadedFileIds);
+        }
+
+        hideImportProgress();
+        alert("Загрузка отменена. Уже загруженные файлы удалены.");
+      };
+
+      // Process files sequentially
+      function processNextFile(index) {
+        if (cancelled || index >= fileUrls.length) {
+          if (!cancelled) {
+            hideImportProgress();
+            alert("Все файлы успешно загружены!");
+            // Close modal
+            if (window.popupToggle)
+              window.popupToggle("popup-import-registrator");
+          }
+          return;
+        }
+
+        var fileUrl = fileUrls[index];
+        var fileName = fileNames[index];
+
+        updateImportProgress(completedFiles, totalFiles, fileName);
+
+        // Download file via proxy
+        fetch(
+          "/proxy/" +
+            encodeURIComponent(
+              fileUrl.replace(/^https?:\/\//, "").replace(/\//g, "!")
+            ),
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/octet-stream",
+              "X-Registrator-Import": "1",
+            },
+          }
+        )
+          .then(function (response) {
+            if (!response.ok) throw new Error("Download failed");
+            return response.blob();
+          })
+          .then(function (blob) {
+            // Create FormData for file upload
+            var formData = new FormData();
+            formData.append("file", blob, fileName);
+            formData.append(
+              "description",
+              "[Регистратор - " + registratorName + "]"
+            );
+
+            // Upload file to server
+            // Get current directory context from the page
+            var did = window.location.pathname.match(/\/files\/(\d+)\/(\d+)/);
+            var currentDid = did ? did[1] : "0";
+            var currentSdid = did ? did[2] : "1";
+
+            return fetch("/files/add/" + currentDid + "/" + currentSdid, {
+              method: "POST",
+              headers: { "X-Requested-With": "XMLHttpRequest" },
+              body: formData,
+            });
+          })
+          .then(function (response) {
+            if (!response.ok) throw new Error("Upload failed");
+            return response.json();
+          })
+          .then(function (result) {
+            // Track uploaded file ID for potential cleanup
+            if (result && result.id) {
+              uploadedFileIds.push(result.id);
+            }
+
+            completedFiles++;
+            updateImportProgress(completedFiles, totalFiles, fileName + " ✓");
+
+            // Process next file after a short delay
+            setTimeout(function () {
+              processNextFile(index + 1);
+            }, 500);
+          })
+          .catch(function (err) {
+            completedFiles++;
+            updateImportProgress(completedFiles, totalFiles, fileName + " ✗");
+
+            // Continue with next file
+            setTimeout(function () {
+              processNextFile(index + 1);
+            }, 500);
+          });
+      }
+
+      // Start processing
+      processNextFile(0);
+    } catch (err) {
+      hideImportProgress();
+      alert("Ошибка при загрузке файлов");
+    }
+  }
+
+  function cleanupUploadedFiles(fileIds) {
+    try {
+      // Get current directory context from the page
+      var did = window.location.pathname.match(/\/files\/(\d+)\/(\d+)/);
+      var currentDid = did ? did[1] : "0";
+      var currentSdid = did ? did[2] : "1";
+
+      // Delete each uploaded file
+      fileIds.forEach(function (fileId) {
+        fetch(
+          "/files/delete/" + currentDid + "/" + currentSdid + "/" + fileId,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Upload-Cleanup": "1",
+            },
+          }
+        )
+          .then(function (response) {})
+          .catch(function (err) {});
+      });
+    } catch (err) {}
+  }
+
+  function hideImportProgress() {
+    try {
+      var progressContainer = document.getElementById(
+        "import-progress-container"
+      );
+      if (progressContainer) {
+        progressContainer.remove();
+      }
+
+      // Re-enable modal controls
+      var modal = document.getElementById("popup-import-registrator");
+      var cancelBtn = modal.querySelector('button[onclick*="popupToggle"]');
+      var importBtn = modal.querySelector(
+        'button[onclick*="submitRegistratorImport"]'
+      );
+
+      if (cancelBtn) cancelBtn.disabled = false;
+      if (importBtn) importBtn.disabled = false;
+    } catch (err) {}
+  }
+
   try {
     wireParamChain();
   } catch (_) {}
