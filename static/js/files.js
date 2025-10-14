@@ -2324,7 +2324,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let refreshTimeout = null;
   function triggerImmediateFilesRefresh() {
     if (isRefreshing) {
-      console.log("triggerImmediateFilesRefresh already in progress, skipping");
+      // suppressed debug log
       return;
     }
 
@@ -2335,14 +2335,14 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     isRefreshing = true;
-    console.log("triggerImmediateFilesRefresh called");
+    // suppressed debug log
     try {
       const input = document.getElementById("searchinp");
       const q =
         input && typeof input.value === "string" ? input.value.trim() : "";
-      console.log("Search query:", q);
+      // suppressed debug log
       if (q && typeof window.filesDoFilter === "function") {
-        console.log("Using filesDoFilter for search");
+        // suppressed debug log
         window
           .filesDoFilter(q)
           .then(function () {
@@ -2350,18 +2350,14 @@ document.addEventListener("DOMContentLoaded", function () {
               afterRefresh();
             } catch (_) {}
             isRefreshing = false;
-            console.log(
-              "triggerImmediateFilesRefresh completed (filesDoFilter)"
-            );
+            // suppressed debug log
           })
           .catch(function () {
             try {
               afterRefresh();
             } catch (_) {}
             isRefreshing = false;
-            console.log(
-              "triggerImmediateFilesRefresh completed (filesDoFilter error)"
-            );
+            // suppressed debug log
           });
         return;
       }
@@ -2370,47 +2366,42 @@ document.addEventListener("DOMContentLoaded", function () {
         typeof window.filesPager.readPage === "function" &&
         typeof window.filesPager.renderPage === "function"
       ) {
-        console.log("Using filesPager.renderPage");
+        // suppressed debug log
         try {
           // Force reload page data from server instead of using cached data
           if (typeof window.filesPager.loadPage === "function") {
-            console.log("Forcing filesPager.loadPage to get fresh data");
+            // suppressed debug log
             window.filesPager
               .loadPage(window.filesPager.readPage())
               .then(function (pageData) {
-                console.log("Fresh page data loaded:", pageData);
+                // suppressed debug log
                 window.filesPager.renderPage(pageData);
-                console.log("filesPager.renderPage completed with fresh data");
+                // suppressed debug log
                 try {
                   afterRefresh();
                 } catch (e) {
                   console.error("Error in afterRefresh:", e);
                 }
                 isRefreshing = false;
-                console.log(
-                  "triggerImmediateFilesRefresh completed (loadPage)"
-                );
+                // suppressed debug log
               })
               .catch(function (e) {
                 console.error("Error loading fresh page data:", e);
                 // Fallback to cached data
                 const currentPage = window.filesPager.readPage();
-                console.log("Fallback to cached page data:", currentPage);
                 window.filesPager.renderPage(currentPage);
-                console.log("filesPager.renderPage completed with cached data");
+                // suppressed debug log
                 try {
                   afterRefresh();
                 } catch (e) {
                   console.error("Error in afterRefresh:", e);
                 }
                 isRefreshing = false;
-                console.log(
-                  "triggerImmediateFilesRefresh completed (loadPage fallback)"
-                );
+                // suppressed debug log
               });
           } else {
             // No loadPage method, force AJAX refresh instead of using cached data
-            console.log("No loadPage method, forcing AJAX refresh");
+            // suppressed debug log
             const url = window.location.pathname + window.location.search;
             fetch(url, {
               method: "GET",
@@ -2421,10 +2412,7 @@ document.addEventListener("DOMContentLoaded", function () {
             })
               .then((response) => response.text())
               .then((html) => {
-                console.log(
-                  "AJAX refresh response received, length:",
-                  html.length
-                );
+                // suppressed debug log
                 // Parse and update table
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, "text/html");
@@ -2444,10 +2432,7 @@ document.addEventListener("DOMContentLoaded", function () {
                   newTable = doc.querySelector(selector);
                   currentTable = document.querySelector(selector);
                   if (newTable && currentTable) {
-                    console.log(
-                      "Found table elements with selector:",
-                      selector
-                    );
+                    // suppressed debug log
                     break;
                   }
                 }
@@ -2455,7 +2440,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (newTable && currentTable) {
                   // Force replace on socket-triggered refreshes to avoid FF diff glitches
                   currentTable.innerHTML = newTable.innerHTML;
-                  console.log("Table updated via AJAX (forced replace)");
+                  // suppressed debug log
                   try {
                     afterRefresh();
                   } catch (e) {
@@ -2466,17 +2451,10 @@ document.addEventListener("DOMContentLoaded", function () {
                     "Could not find table elements for update. Tried selectors:",
                     selectors
                   );
-                  console.log(
-                    "Available elements in response:",
-                    doc.querySelectorAll("table, tbody, .table")
-                  );
-                  console.log(
-                    "Available elements in current page:",
-                    document.querySelectorAll("table, tbody, .table")
-                  );
+                  // suppressed debug logs
 
                   // Fallback: try to update the entire page content
-                  console.log("Trying fallback: updating entire page content");
+                  // suppressed debug log
                   const newBody = doc.querySelector("body");
                   if (newBody) {
                     // Find the main content area and update it
@@ -2488,36 +2466,28 @@ document.addEventListener("DOMContentLoaded", function () {
                     );
                     if (newContent && currentContent) {
                       currentContent.innerHTML = newContent.innerHTML;
-                      console.log("Page content updated via fallback");
+                      // suppressed debug log
                     } else {
-                      console.log(
-                        "Could not find content areas for fallback update"
-                      );
+                      // suppressed debug log
                     }
                   }
                 }
                 isRefreshing = false;
-                console.log("triggerImmediateFilesRefresh completed (AJAX)");
+                // suppressed debug log
               })
               .catch((e) => {
                 console.error("AJAX refresh failed:", e);
                 // Ultimate fallback to cached data
                 const currentPage = window.filesPager.readPage();
-                console.log(
-                  "Ultimate fallback to cached page data:",
-                  currentPage
-                );
                 window.filesPager.renderPage(currentPage);
-                console.log("filesPager.renderPage completed with cached data");
+                // suppressed debug log
                 try {
                   afterRefresh();
                 } catch (e) {
                   console.error("Error in afterRefresh:", e);
                 }
                 isRefreshing = false;
-                console.log(
-                  "triggerImmediateFilesRefresh completed (AJAX fallback)"
-                );
+                // suppressed debug log
               });
           }
         } catch (e) {
@@ -2525,7 +2495,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return;
       }
-      console.log("Fallback: using softRefreshFilesTable");
+      // suppressed debug log
       try {
         softRefreshFilesTable();
       } catch (e) {
@@ -2533,7 +2503,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       // Ultimate fallback: force AJAX refresh
-      console.log("Ultimate fallback: forcing AJAX refresh");
+      // suppressed debug log
       try {
         const url = window.location.pathname + window.location.search;
         fetch(url, {
@@ -2545,7 +2515,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
           .then((response) => response.text())
           .then((html) => {
-            console.log("AJAX refresh response received, length:", html.length);
+            // suppressed debug log
             // Parse and update table
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
@@ -2553,7 +2523,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const currentTable = document.querySelector("#files-table tbody");
             if (newTable && currentTable) {
               currentTable.innerHTML = newTable.innerHTML;
-              console.log("Table updated via AJAX fallback");
+              // suppressed debug log
             }
           })
           .catch((e) => console.error("AJAX fallback failed:", e));
@@ -2564,7 +2534,7 @@ document.addEventListener("DOMContentLoaded", function () {
       console.error("Error in triggerImmediateFilesRefresh:", e);
     } finally {
       isRefreshing = false;
-      console.log("triggerImmediateFilesRefresh completed");
+      // suppressed debug log
     }
   }
 

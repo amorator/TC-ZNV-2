@@ -3,8 +3,8 @@
  * Provides common search functionality for files and users pages
  */
 
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   /**
    * Search Manager Class
@@ -13,7 +13,7 @@
     constructor() {
       this.searchInputs = new Map();
       this.searchHistory = new Map();
-      this.currentQuery = '';
+      this.currentQuery = "";
       this.init();
     }
 
@@ -22,12 +22,12 @@
      */
     init() {
       // Listen for global search events
-      document.addEventListener('search-query', (e) => {
+      document.addEventListener("search-query", (e) => {
         this.handleSearch(e.detail.query, e.detail.options);
       });
 
       // Listen for clear search events
-      document.addEventListener('search-clear', () => {
+      document.addEventListener("search-clear", () => {
         this.clearSearch();
       });
     }
@@ -42,20 +42,20 @@
       if (!input) return false;
 
       const config = {
-        tableId: options.tableId || 'maintable',
+        tableId: options.tableId || "maintable",
         searchColumns: options.searchColumns || null,
         maxResults: options.maxResults || 30,
         caseSensitive: options.caseSensitive || false,
         debounceMs: options.debounceMs || 300,
         onSearch: options.onSearch || null,
         onClear: options.onClear || null,
-        ...options
+        ...options,
       };
 
       this.searchInputs.set(inputId, {
         element: input,
         config: config,
-        debounceTimer: null
+        debounceTimer: null,
       });
 
       // Bind input events
@@ -75,7 +75,7 @@
       const { element: input, config } = searchData;
 
       // Input event with debouncing
-      input.addEventListener('input', (e) => {
+      input.addEventListener("input", (e) => {
         clearTimeout(searchData.debounceTimer);
         searchData.debounceTimer = setTimeout(() => {
           this.handleSearch(e.target.value, config);
@@ -83,16 +83,16 @@
       });
 
       // Clear button
-      const clearBtn = input.parentElement.querySelector('.search-clear');
+      const clearBtn = input.parentElement.querySelector(".search-clear");
       if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
+        clearBtn.addEventListener("click", () => {
           this.clearSearch(inputId);
         });
       }
 
       // Enter key
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
           e.preventDefault();
           this.handleSearch(e.target.value, config);
         }
@@ -106,11 +106,11 @@
      */
     handleSearch(query, options = {}) {
       const {
-        tableId = 'maintable',
+        tableId = "maintable",
         searchColumns = null,
         maxResults = 30,
         caseSensitive = false,
-        onSearch = null
+        onSearch = null,
       } = options;
 
       this.currentQuery = query;
@@ -125,7 +125,7 @@
         window.tableManager.filterTable(tableId, query, {
           maxResults,
           searchColumns,
-          caseSensitive
+          caseSensitive,
         });
       } else {
         // Fallback to direct DOM manipulation
@@ -138,9 +138,11 @@
       }
 
       // Trigger search event
-      document.dispatchEvent(new CustomEvent('search-performed', {
-        detail: { query, options }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("search-performed", {
+          detail: { query, options },
+        })
+      );
     }
 
     /**
@@ -156,41 +158,45 @@
       const {
         searchColumns = null,
         maxResults = 30,
-        caseSensitive = false
+        caseSensitive = false,
       } = options;
 
-      const tbody = table.querySelector('tbody');
+      const tbody = table.querySelector("tbody");
       if (!tbody) return;
 
-      const rows = Array.from(tbody.querySelectorAll('tr.table__body_row'));
+      const rows = Array.from(tbody.querySelectorAll("tr.table__body_row"));
       const searchQuery = caseSensitive ? query : query.toUpperCase();
       let shown = 0;
 
       rows.forEach((row) => {
         let match = false;
-        
+
         if (searchColumns) {
           // Search specific columns
-          searchColumns.forEach(colIndex => {
+          searchColumns.forEach((colIndex) => {
             const cell = row.children[colIndex];
             if (cell) {
-              const cellText = caseSensitive ? cell.innerText : cell.innerText.toUpperCase();
+              const cellText = caseSensitive
+                ? cell.innerText
+                : cell.innerText.toUpperCase();
               if (cellText.includes(searchQuery)) match = true;
             }
           });
         } else {
           // Search all columns
           Array.from(row.children).forEach((cell) => {
-            const cellText = caseSensitive ? cell.innerText : cell.innerText.toUpperCase();
+            const cellText = caseSensitive
+              ? cell.innerText
+              : cell.innerText.toUpperCase();
             if (cellText.includes(searchQuery)) match = true;
           });
         }
 
         if (match && shown < maxResults) {
-          row.style.display = 'table-row';
+          row.style.display = "table-row";
           shown++;
         } else {
-          row.style.display = 'none';
+          row.style.display = "none";
         }
       });
 
@@ -209,21 +215,21 @@
         // Clear specific input
         const searchData = this.searchInputs.get(inputId);
         if (searchData) {
-          searchData.element.value = '';
-          this.handleSearch('', searchData.config);
+          searchData.element.value = "";
+          this.handleSearch("", searchData.config);
         }
       } else {
         // Clear all registered inputs
         this.searchInputs.forEach((searchData, id) => {
-          searchData.element.value = '';
-          this.handleSearch('', searchData.config);
+          searchData.element.value = "";
+          this.handleSearch("", searchData.config);
         });
       }
 
-      this.currentQuery = '';
+      this.currentQuery = "";
 
       // Trigger clear event
-      document.dispatchEvent(new CustomEvent('search-cleared'));
+      document.dispatchEvent(new CustomEvent("search-cleared"));
     }
 
     /**
@@ -233,7 +239,7 @@
     addToHistory(query) {
       if (!query.trim()) return;
 
-      const history = this.searchHistory.get('global') || [];
+      const history = this.searchHistory.get("global") || [];
       const trimmedQuery = query.trim();
 
       // Remove if already exists
@@ -250,7 +256,7 @@
         history.splice(10);
       }
 
-      this.searchHistory.set('global', history);
+      this.searchHistory.set("global", history);
       this.saveHistory();
     }
 
@@ -259,7 +265,7 @@
      * @param {string} key - History key (default: 'global')
      * @returns {Array} Search history
      */
-    getHistory(key = 'global') {
+    getHistory(key = "global") {
       return this.searchHistory.get(key) || [];
     }
 
@@ -268,10 +274,11 @@
      */
     saveHistory() {
       try {
-        localStorage.setItem('searchHistory', JSON.stringify(Array.from(this.searchHistory.entries())));
-      } catch (e) {
-        console.warn('Could not save search history:', e);
-      }
+        localStorage.setItem(
+          "searchHistory",
+          JSON.stringify(Array.from(this.searchHistory.entries()))
+        );
+      } catch (e) {}
     }
 
     /**
@@ -279,13 +286,11 @@
      */
     loadHistory() {
       try {
-        const saved = localStorage.getItem('searchHistory');
+        const saved = localStorage.getItem("searchHistory");
         if (saved) {
           this.searchHistory = new Map(JSON.parse(saved));
         }
-      } catch (e) {
-        console.warn('Could not load search history:', e);
-      }
+      } catch (e) {}
     }
 
     /**
@@ -301,7 +306,7 @@
       const container = input.parentElement;
 
       // Remove existing suggestions
-      const existing = container.querySelector('.search-suggestions');
+      const existing = container.querySelector(".search-suggestions");
       if (existing) {
         existing.remove();
       }
@@ -309,15 +314,18 @@
       if (suggestions.length === 0) return;
 
       // Create suggestions container
-      const suggestionsEl = document.createElement('div');
-      suggestionsEl.className = 'search-suggestions';
-      suggestionsEl.innerHTML = suggestions.map(suggestion => 
-        `<div class="suggestion-item" data-value="${suggestion}">${suggestion}</div>`
-      ).join('');
+      const suggestionsEl = document.createElement("div");
+      suggestionsEl.className = "search-suggestions";
+      suggestionsEl.innerHTML = suggestions
+        .map(
+          (suggestion) =>
+            `<div class="suggestion-item" data-value="${suggestion}">${suggestion}</div>`
+        )
+        .join("");
 
       // Add click handlers
-      suggestionsEl.addEventListener('click', (e) => {
-        const item = e.target.closest('.suggestion-item');
+      suggestionsEl.addEventListener("click", (e) => {
+        const item = e.target.closest(".suggestion-item");
         if (item) {
           input.value = item.dataset.value;
           this.handleSearch(item.dataset.value, searchData.config);
@@ -328,10 +336,10 @@
       container.appendChild(suggestionsEl);
 
       // Hide suggestions when clicking outside
-      document.addEventListener('click', function hideSuggestions(e) {
+      document.addEventListener("click", function hideSuggestions(e) {
         if (!container.contains(e.target)) {
           suggestionsEl.remove();
-          document.removeEventListener('click', hideSuggestions);
+          document.removeEventListener("click", hideSuggestions);
         }
       });
     }
@@ -357,15 +365,16 @@
      * @param {string} tableId - Table element ID
      * @returns {number} Number of visible rows
      */
-    getResultsCount(tableId = 'maintable') {
+    getResultsCount(tableId = "maintable") {
       const table = document.getElementById(tableId);
       if (!table) return 0;
 
-      const tbody = table.querySelector('tbody');
+      const tbody = table.querySelector("tbody");
       if (!tbody) return 0;
 
-      return Array.from(tbody.querySelectorAll('tr.table__body_row'))
-        .filter(row => row.style.display !== 'none').length;
+      return Array.from(tbody.querySelectorAll("tr.table__body_row")).filter(
+        (row) => row.style.display !== "none"
+      ).length;
     }
   }
 
@@ -376,4 +385,3 @@
   // Load history on initialization
   window.searchManager.loadHistory();
 })();
-

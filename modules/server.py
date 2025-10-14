@@ -101,7 +101,10 @@ class Server(Flask):
 				except Exception:
 					continue
 		except Exception as e:
-			print(f"Warning: Could not load categories from database: {e}")
+			try:
+				self.logger.warning("Could not load categories from database: %s", e)
+			except Exception:
+				pass
 			self.dirs = []
 
 	def run_debug(self) -> None:

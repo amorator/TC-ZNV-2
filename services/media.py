@@ -15,7 +15,11 @@ class MediaService:
     interested parties (DB and Socket.IO) upon completion.
     """
 
-    def __init__(self, thread_pool: ThreadPool, files_root: str, sql_utils: Any, socketio: Optional[Any] = None) -> None:
+    def __init__(self,
+                 thread_pool: ThreadPool,
+                 files_root: str,
+                 sql_utils: Any,
+                 socketio: Optional[Any] = None) -> None:
         """Initialize media service.
 
         Args:
@@ -34,7 +38,8 @@ class MediaService:
             import logging as _pylog
             self._log = _pylog.getLogger(__name__)
 
-    def convert_async(self, src_path: str, dst_path: str, entity: Tuple[str, int]) -> None:
+    def convert_async(self, src_path: str, dst_path: str,
+                      entity: Tuple[str, int]) -> None:
         """Schedule asynchronous conversion from src to dst for the given entity.
 
         Args:
@@ -53,14 +58,18 @@ class MediaService:
         old, new, entity = args
         etype, entity_id = entity
         # noisy during normal operation; keep only errors in logs
-        
+
         # Check if source file exists
         if not path.exists(old):
-            print(f"Source file not found: {old}")
+            try:
+                from flask import current_app as app
+                app.logger.warning("Source file not found: %s", old)
+            except Exception:
+                pass
             if etype == 'file':
                 self._sql.file_ready([entity_id])
             return
-            
+
         if old == new:
             # If destination equals source, force a default target extension
             # Default to mp4; audio pipeline below will override when needed
@@ -70,31 +79,53 @@ class MediaService:
         dst_ext = (os.path.splitext(new)[1] or '').lower()
         if dst_ext == '.m4a':
             # Audio-only: convert to AAC in M4A container
-            process = Popen([
-                "ffmpeg", "-hide_banner", "-y", "-i", old,
-                "-vn",               # drop video
-                "-c:a", "aac",
-                "-b:a", "192k",
-                new
-            ], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+            process = Popen(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-y",
+                    "-i",
+                    old,
+                    "-vn",  # drop video
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    new
+                ],
+                stdout=PIPE,
+                stderr=PIPE,
+                universal_newlines=True)
         else:
             # Video: H.264 in MP4 with scaling/CRF
             process = Popen([
-                "ffmpeg", "-hide_banner", "-y", "-i", old,
-                "-c:v", "libx264", "-preset", "slow", "-crf", "28",
-                "-b:v", "250k", "-vf", "scale=800:600",
-                new
-            ], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                "ffmpeg", "-hide_banner", "-y", "-i", old, "-c:v", "libx264",
+                "-preset", "slow", "-crf", "28", "-b:v", "250k", "-vf",
+                "scale=800:600", new
+            ],
+                            stdout=PIPE,
+                            stderr=PIPE,
+                            universal_newlines=True)
         try:
             out, err = process.communicate(timeout=300)  # 5 minute timeout
             if process.returncode != 0:
-                print(f"FFmpeg failed for {old} -> {new}: {err}")
+                try:
+                    from flask import current_app as app
+                    app.logger.error("FFmpeg failed for %s -> %s: %s", old,
+                                     new, err)
+                except Exception:
+                    pass
                 # Still mark as ready but with error indication
                 if etype == 'file':
                     self._sql.file_ready([entity_id])
                 return
         except Exception as e:
-            print(f"FFmpeg timeout or error for {old} -> {new}: {e}")
+            try:
+                from flask import current_app as app
+                app.logger.error("FFmpeg timeout or error for %s -> %s: %s",
+                                 old, new, e)
+            except Exception:
+                pass
             process.kill()
             # Mark as ready even on error to prevent hanging
             if etype == 'file':
@@ -106,10 +137,12 @@ class MediaService:
         if etype == 'file':
             self._sql.file_ready([entity_id])
             try:
-                self._sql.file_update_metadata([length_seconds, size_mb, entity_id])
+                self._sql.file_update_metadata(
+                    [length_seconds, size_mb, entity_id])
                 # Ensure DB real_name matches actual target extension (mp4/m4a)
                 try:
-                    self._sql.file_update_real_name([path.basename(new), entity_id])
+                    self._sql.file_update_real_name(
+                        [path.basename(new), entity_id])
                 except Exception:
                     pass
             except Exception:
@@ -117,20 +150,30 @@ class MediaService:
             # Notify clients about conversion completion
             if self.socketio:
                 try:
-                    payload = {'reason': 'processing-complete', 'id': entity_id, 'meta': {'length': length_seconds, 'size': size_mb}}
+                    payload = {
+                        'reason': 'processing-complete',
+                        'id': entity_id,
+                        'meta': {
+                            'length': length_seconds,
+                            'size': size_mb
+                        }
+                    }
                     # event emitted; avoid verbose logs
                     # Default namespace emit
                     self.socketio.emit('files:changed', payload)
                     self.socketio.sleep(0)
                     # Also emit with explicit namespace for some clients
                     try:
-                        self.socketio.emit('files:changed', payload, namespace='/')
+                        self.socketio.emit('files:changed',
+                                           payload,
+                                           namespace='/')
                     except Exception:
                         pass
                     self.socketio.sleep(0)
                 except Exception:
                     try:
-                        self._log.exception('MEDIA_EMIT_ERROR id=%s', entity_id)
+                        self._log.exception('MEDIA_EMIT_ERROR id=%s',
+                                            entity_id)
                     except Exception:
                         pass
                     pass
@@ -138,7 +181,8 @@ class MediaService:
             ord = self._sql.order_by_id([entity_id])
             ord.attachments.remove(path.basename(old))
             ord.attachments.append(path.basename(new))
-            self._sql.order_edit_attachments(['|'.join(ord.attachments), entity_id])
+            self._sql.order_edit_attachments(
+                ['|'.join(ord.attachments), entity_id])
         remove(old)
 
     def _probe_length_and_size(self, target: str) -> Tuple[int, float]:
@@ -154,12 +198,19 @@ class MediaService:
         # Size
         try:
             size_bytes = os.path.getsize(target)
-            size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else 0.0
+            size_mb = round(size_bytes /
+                            (1024 * 1024), 1) if size_bytes else 0.0
         except Exception:
             pass
         # 1) format.duration
         try:
-            p = Popen(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", target], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+            p = Popen([
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", target
+            ],
+                      stdout=PIPE,
+                      stderr=PIPE,
+                      universal_newlines=True)
             sout, _ = p.communicate(timeout=10)
             length_seconds = int(float((sout or '0').strip()) or 0)
         except Exception:
@@ -167,7 +218,14 @@ class MediaService:
         # 2) stream.duration
         if not length_seconds:
             try:
-                p = Popen(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=noprint_wrappers=1:nokey=1", target], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                p = Popen([
+                    "ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=duration", "-of",
+                    "default=noprint_wrappers=1:nokey=1", target
+                ],
+                          stdout=PIPE,
+                          stderr=PIPE,
+                          universal_newlines=True)
                 sout, _ = p.communicate(timeout=10)
                 length_seconds = int(float((sout or '0').strip()) or 0)
             except Exception:
@@ -175,7 +233,15 @@ class MediaService:
         # 3) nb_frames / r_frame_rate
         if not length_seconds:
             try:
-                p = Popen(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames,nb_frames,r_frame_rate", "-of", "json", target], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                p = Popen([
+                    "ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-count_frames", "-show_entries",
+                    "stream=nb_read_frames,nb_frames,r_frame_rate", "-of",
+                    "json", target
+                ],
+                          stdout=PIPE,
+                          stderr=PIPE,
+                          universal_newlines=True)
                 sout, _ = p.communicate(timeout=10)
                 data = json.loads(sout or '{}')
                 frames = 0
@@ -183,7 +249,8 @@ class MediaService:
                 streams = data.get('streams') or []
                 if streams:
                     st = streams[0]
-                    frames_str = st.get('nb_read_frames') or st.get('nb_frames') or '0'
+                    frames_str = st.get('nb_read_frames') or st.get(
+                        'nb_frames') or '0'
                     try:
                         frames = int(frames_str)
                     except Exception:
@@ -211,6 +278,8 @@ class MediaService:
             if hasattr(self.thread_pool, 'stop'):
                 self.thread_pool.stop()
         except Exception as e:
-            print(f'Error stopping media service: {e}')
-
-
+            try:
+                from flask import current_app as app
+                app.logger.error('Error stopping media service: %s', e)
+            except Exception:
+                pass

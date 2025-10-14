@@ -160,8 +160,8 @@ def register(app, media_service, socketio=None) -> None:
             max_file_size_mb = 500
         _dirs = dirs_by_permission(app, id, 'f')
         try:
-            app.logger.info('[FILES] dirs_by_permission result count=%s',
-                            len(_dirs) if _dirs else 0)
+            app.logger.debug('[FILES] dirs_by_permission result count=%s',
+                             len(_dirs) if _dirs else 0)
         except Exception:
             pass
         # Guard: no available directories for this user
@@ -199,14 +199,14 @@ def register(app, media_service, socketio=None) -> None:
 
         dirs = [_unsuffix(k) for k in dirs]
         try:
-            app.logger.info('[FILES] did=%s sdid=%s root_keys=%s', did, sdid,
-                            dirs)
+            app.logger.debug('[FILES] did=%s sdid=%s root_keys=%s', did, sdid,
+                             dirs)
         except Exception:
             pass
         # Guard: if no subdirectories present, render with empty file list
         if not dirs or len(dirs) <= 1:
             try:
-                app.logger.info(
+                app.logger.debug(
                     '[FILES] No subdirectories for did=%s (len(keys)=%s)', did,
                     len(dirs) if dirs else 0)
             except Exception:

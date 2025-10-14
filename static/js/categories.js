@@ -915,14 +915,7 @@ function updateGroupPermissionLevel(groupId, action, level) {
     const isAdminGroup =
       groupCell && groupCell.getAttribute("data-admin") === "true";
 
-    console.log("Group permission check:", {
-      groupId: groupId,
-      isAdminGroup: isAdminGroup,
-      level: level,
-    });
-
     if (isAdminGroup && level !== "all") {
-      console.log("Preventing admin group from being disabled");
       // Re-check the "all" radio button
       setTimeout(() => {
         const allRadio = document.querySelector(
@@ -981,19 +974,8 @@ function updateUserPermissionLevel(userId, action, level) {
     const permStr =
       (userCell && userCell.getAttribute("data-permission")) || "";
 
-    console.log("Debug userCell:", {
-      userCell: userCell,
-      textContent: userCell ? userCell.textContent : "no cell",
-      dataPermission: userCell
-        ? userCell.getAttribute("data-permission")
-        : "no cell",
-      login: login,
-      permStr: permStr,
-    });
-
     // Check if admin user
     if (login === "admin" && level !== "all") {
-      console.log("Preventing admin user from being disabled");
       // Re-check the "all" radio button
       setTimeout(() => {
         const allRadio = document.querySelector(
@@ -1015,16 +997,7 @@ function updateUserPermissionLevel(userId, action, level) {
     // Check if user has file permissions that affect categories
     const hasFilePermissions = checkFilePermissions(permStr);
 
-    console.log("User permission check:", {
-      login: login,
-      permStr: permStr,
-      level: level,
-      isFullAccess: isFullAccess,
-      hasFilePermissions: hasFilePermissions,
-    });
-
     if (isFullAccess && level !== "all") {
-      console.log("Preventing full-access user from being disabled");
       // Re-check the "all" radio button
       setTimeout(() => {
         const allRadio = document.querySelector(
@@ -1037,7 +1010,6 @@ function updateUserPermissionLevel(userId, action, level) {
 
     // Block users with file permissions that affect categories
     if (hasFilePermissions && level !== "all") {
-      console.log("Preventing user with file permissions from being disabled");
       // Re-check the "all" radio button
       setTimeout(() => {
         const allRadio = document.querySelector(

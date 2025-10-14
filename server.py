@@ -241,7 +241,7 @@ def login():
         log_action('LOGIN',
                    'unknown',
                    'login failed: user not found',
-                   request.remote_addr,
+                   request.remote_addr or '',
                    success=False)
         return render_template('login.j2.html')
     if not user.is_enabled():
@@ -249,7 +249,7 @@ def login():
         log_action('LOGIN',
                    user.name,
                    'login failed: user disabled',
-                   request.remote_addr,
+                   request.remote_addr or '',
                    success=False)
         return render_template('login.j2.html')
     if app.hash(request.form['password']) != user.password:
@@ -257,11 +257,12 @@ def login():
         log_action('LOGIN',
                    user.name,
                    'login failed: bad password',
-                   request.remote_addr,
+                   request.remote_addr or '',
                    success=False)
         return render_template('login.j2.html')
     login_user(user)
-    log_action('LOGIN', user.name, f'user logged in', request.remote_addr)
+    log_action('LOGIN', user.name, f'user logged in', request.remote_addr
+               or '')
     target = session['redirected_from'] if 'redirected_from' in session.keys(
     ) else '/'
     # Mark that user just logged in to trigger one-time push permission prompt
@@ -283,7 +284,8 @@ def logout():
     """Terminate session and redirect to home."""
     user_name = current_user.name if current_user.is_authenticated else 'unknown'
     logout_user()
-    log_action('LOGOUT', user_name, f'user logged out', request.remote_addr)
+    log_action('LOGOUT', user_name, f'user logged out', request.remote_addr
+               or '')
     if session.get('was_once_logged_in'):
         del session['was_once_logged_in']
     return redirect('/')
@@ -361,43 +363,48 @@ def proxy(url: str) -> str:
     # Protection Layer 1: Check Referer header
     referer = request.headers.get('Referer', '')
     if not referer or '/files/' not in referer:
-        _log.warning('[proxy] Blocked request from invalid referer: %s',
-                     referer)
+        _log.warning(f'[proxy] blocked: bad referer: {referer}')
         return ''
 
     # Protection Layer 2: Check for special header from registrator import
     registrator_header = request.headers.get('X-Registrator-Import', '')
     if registrator_header != '1':
-        _log.warning(
-            '[proxy] Blocked request without registrator import header')
+        _log.warning('[proxy] blocked: missing import header')
         return ''
 
     # Protection Layer 3: Check User-Agent (should be from browser, not direct calls)
     user_agent = request.headers.get('User-Agent', '')
     if not user_agent or len(user_agent) < 10:
-        _log.warning('[proxy] Blocked request with suspicious user-agent: %s',
-                     user_agent)
+        _log.warning(f'[proxy] blocked: suspicious user-agent: {user_agent}')
         return ''
 
     # Protection Layer 4: Rate limiting per IP
-    client_ip = request.environ.get('REMOTE_ADDR', 'unknown')
-    if not hasattr(app, '_proxy_rate_limit'):
-        app._proxy_rate_limit = {}
+    client_ip = request.environ.get('REMOTE_ADDR', '') or ''
+    if not hasattr(app, '_proxy_rate_limit') or not isinstance(
+            getattr(app, '_proxy_rate_limit'), dict):
+        try:
+            setattr(app, '_proxy_rate_limit', {})
+        except Exception:
+            pass
 
     import time
     current_time = time.time()
-    if client_ip in app._proxy_rate_limit:
-        last_request = app._proxy_rate_limit[client_ip]
+    rate_limiter = getattr(app, '_proxy_rate_limit', {})
+    if client_ip in rate_limiter:
+        last_request = rate_limiter[client_ip]
         if current_time - last_request < 1:  # Max 1 request per second per IP
-            _log.warning('[proxy] Rate limit exceeded for IP: %s', client_ip)
+            _log.warning(f'[proxy] rate limit exceeded for {client_ip}')
             return ''
 
-    app._proxy_rate_limit[client_ip] = current_time
+    try:
+        rate_limiter[client_ip] = current_time
+        setattr(app, '_proxy_rate_limit', rate_limiter)
+    except Exception:
+        pass
 
     # Protection Layer 5: Validate URL format
     if not url or len(url) < 3 or '!' not in url:
-        _log.warning('[proxy] Blocked request with invalid URL format: %s',
-                     url)
+        _log.warning(f'[proxy] blocked: bad url format: {url}')
         return ''
 
     # Protection Layer 6: Check for suspicious patterns
@@ -405,21 +412,24 @@ def proxy(url: str) -> str:
     url_lower = url.lower()
     for pattern in suspicious_patterns:
         if pattern in url_lower:
-            _log.warning(
-                '[proxy] Blocked request with suspicious pattern "%s" in URL: %s',
-                pattern, url)
+            _log.warning(f'[proxy] blocked: suspicious pattern in {url}')
             return ''
 
     try:
         target = 'http://' + url.replace('!', '/')
 
-        _log.info('[proxy] fetch %s', target)
+        _log.debug('[proxy] fetch')
         raw = http.urlopen(target, timeout=15).read()
         html = bs(raw, features='html.parser') if bs else None
-        if not html or not getattr(html, 'body', None):
-            _log.warning('[proxy] no HTML body for %s', target)
+        body = getattr(html, 'body', None) if html is not None else None
+        if not body:
+            _log.warning(f'[proxy] no HTML body for {target}')
             return ''
-        links = list(reversed([i for i in html.body.findAll('a')]))
+        links = []
+        try:
+            links = list(reversed([i for i in body.find_all('a')]))
+        except Exception:
+            links = []
         if links:
             try:
                 links.pop()
@@ -429,14 +439,11 @@ def proxy(url: str) -> str:
         # Filter empty and service anchors
         texts = [t for t in texts if t and t not in ('..', '.')]
         out = '|'.join(texts)
-        try:
-            _log.info('[proxy] %d links: %s', len(texts),
-                      ', '.join(texts[:20]))
-        except Exception:
-            pass
+        # do not log extracted texts to avoid leaking remote content
+        _log.debug(f'[proxy] links={len(texts)}')
         return out
     except Exception as e:
-        _log.error('[proxy] error for %s: %s', url, e)
+        _log.error(f'[proxy] error for {url}: {e}')
         return ''
 
 
@@ -482,7 +489,11 @@ if __name__ == '__main__':
     try:
         # Development only
         register_all(app, tp, media_service, socketio)
-        print('Приложение запущено. Нажмите Ctrl+C для остановки.')
+        try:
+            app.logger.info(
+                'Приложение запущено. Нажмите Ctrl+C для остановки.')
+        except Exception:
+            pass
         app.run_debug()
     except KeyboardInterrupt:
         signal.signal(signal.SIGINT, signal_handler)

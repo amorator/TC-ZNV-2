@@ -165,6 +165,8 @@ def register(app, socketio=None):
     def category_add():
         """Добавить новую категорию."""
         try:
+            log_action('CATEGORY_ADD_START', current_user.name,
+                       'start add category', (request.remote_addr or ''))
             # Normalize display_name: trim and collapse internal spaces
             raw_display = request.form.get('display_name', '')
             display_name = ' '.join(raw_display.split())
@@ -245,10 +247,18 @@ def register(app, socketio=None):
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Категория "{display_name}" успешно добавлена', 'success')
+            log_action('CATEGORY_ADD', current_user.name,
+                       f'added category {display_name} ({folder_name})',
+                       (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error adding category: {e}")
             flash(f'Ошибка при добавлении категории: {e}', 'error')
+            log_action('CATEGORY_ADD',
+                       current_user.name,
+                       f'failed add category: {str(e)}',
+                       (request.remote_addr or ''),
+                       success=False)
 
         return redirect(url_for('categories_admin'))
 
@@ -259,6 +269,9 @@ def register(app, socketio=None):
     def category_edit(category_id):
         """Изменить категорию (имя папки неизменно)."""
         try:
+            log_action('CATEGORY_EDIT_START', current_user.name,
+                       f'start edit category id={category_id}',
+                       (request.remote_addr or ''))
             # Normalize display_name: trim and collapse internal spaces
             raw_display = request.form.get('display_name', '')
             display_name = ' '.join(raw_display.split())
@@ -332,10 +345,19 @@ def register(app, socketio=None):
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Категория "{display_name}" успешно обновлена', 'success')
+            log_action(
+                'CATEGORY_EDIT', current_user.name,
+                f'edited category id={category_id} name={display_name} enabled={enabled}',
+                (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error editing category {category_id}: {e}")
             flash(f'Ошибка при обновлении категории: {e}', 'error')
+            log_action('CATEGORY_EDIT',
+                       current_user.name,
+                       f'failed edit category id={category_id}: {str(e)}',
+                       (request.remote_addr or ''),
+                       success=False)
 
         return redirect(url_for('categories_admin'))
 
@@ -346,6 +368,9 @@ def register(app, socketio=None):
     def category_delete(category_id):
         """Удалить категорию (если нет подкатегорий)."""
         try:
+            log_action('CATEGORY_DELETE_START', current_user.name,
+                       f'start delete category id={category_id}',
+                       (request.remote_addr or ''))
             category = app._sql.category_by_id([category_id])
             if not category:
                 if _wants_json_response():
@@ -388,10 +413,18 @@ def register(app, socketio=None):
                 return jsonify({'success': True})
             flash(f'Категория "{category.display_name}" успешно удалена',
                   'success')
+            log_action('CATEGORY_DELETE', current_user.name,
+                       f'deleted category id={category_id}',
+                       (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error deleting category {category_id}: {e}")
             flash(f'Ошибка при удалении категории: {e}', 'error')
+            log_action('CATEGORY_DELETE',
+                       current_user.name,
+                       f'failed delete category id={category_id}: {str(e)}',
+                       (request.remote_addr or ''),
+                       success=False)
 
         return redirect(url_for('categories_admin'))
 
@@ -402,6 +435,8 @@ def register(app, socketio=None):
     def subcategory_add():
         """Добавить новую подкатегорию."""
         try:
+            log_action('SUBCATEGORY_ADD_START', current_user.name,
+                       'start add subcategory', (request.remote_addr or ''))
             category_id = int(request.form.get('category_id', 0))
             # Normalize display_name and validate folder_name
             raw_display = request.form.get('display_name', '')
@@ -478,10 +513,19 @@ def register(app, socketio=None):
                 return jsonify({'success': True})
             flash(f'Подкатегория "{display_name}" успешно добавлена',
                   'success')
+            log_action(
+                'SUBCATEGORY_ADD', current_user.name,
+                f'added subcategory {display_name} ({folder_name}) for category {category_id}',
+                (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error adding subcategory: {e}")
             flash(f'Ошибка при добавлении подкатегории: {e}', 'error')
+            log_action('SUBCATEGORY_ADD',
+                       current_user.name,
+                       f'failed add subcategory: {str(e)}',
+                       (request.remote_addr or ''),
+                       success=False)
 
         return redirect(url_for('categories_admin'))
 
@@ -492,6 +536,9 @@ def register(app, socketio=None):
     def subcategory_edit(subcategory_id):
         """Изменить подкатегорию (имя папки неизменно)."""
         try:
+            log_action('SUBCATEGORY_EDIT_START', current_user.name,
+                       f'start edit subcategory id={subcategory_id}',
+                       (request.remote_addr or ''))
             category_id = int(request.form.get('category_id', 0))
             raw_display = request.form.get('display_name', '')
             display_name = ' '.join(raw_display.split())
@@ -540,10 +587,20 @@ def register(app, socketio=None):
                 return jsonify({'success': True})
             flash(f'Подкатегория "{display_name}" успешно обновлена',
                   'success')
+            log_action(
+                'SUBCATEGORY_EDIT', current_user.name,
+                f'edited subcategory id={subcategory_id} name={display_name} enabled={enabled}',
+                (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error editing subcategory {subcategory_id}: {e}")
             flash(f'Ошибка при обновлении подкатегории: {e}', 'error')
+            log_action(
+                'SUBCATEGORY_EDIT',
+                current_user.name,
+                f'failed edit subcategory id={subcategory_id}: {str(e)}',
+                (request.remote_addr or ''),
+                success=False)
 
         return redirect(url_for('categories_admin'))
 
@@ -554,6 +611,9 @@ def register(app, socketio=None):
     def subcategory_delete(subcategory_id):
         """Удалить подкатегорию (если нет файлов)."""
         try:
+            log_action('SUBCATEGORY_DELETE_START', current_user.name,
+                       f'start delete subcategory id={subcategory_id}',
+                       (request.remote_addr or ''))
             subcategory = app._sql.subcategory_by_id([subcategory_id])
             if not subcategory:
                 if _wants_json_response():
@@ -586,10 +646,19 @@ def register(app, socketio=None):
                 return jsonify({'success': True})
             flash(f'Подкатегория "{subcategory.display_name}" успешно удалена',
                   'success')
+            log_action('SUBCATEGORY_DELETE', current_user.name,
+                       f'deleted subcategory id={subcategory_id}',
+                       (request.remote_addr or ''))
 
         except Exception as e:
             _log.error(f"Error deleting subcategory {subcategory_id}: {e}")
             flash(f'Ошибка при удалении подкатегории: {e}', 'error')
+            log_action(
+                'SUBCATEGORY_DELETE',
+                current_user.name,
+                f'failed delete subcategory id={subcategory_id}: {str(e)}',
+                (request.remote_addr or ''),
+                success=False)
 
         return redirect(url_for('categories_admin'))
 

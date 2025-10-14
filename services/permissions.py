@@ -25,12 +25,9 @@ def dirs_by_permission(app, page_id: int, perm: str):
         has_admin_any = False
         has_display_all = False
 
+    # Keep security-related logs concise and non-sensitive
     try:
-        app.logger.info(
-            '[DIRS] user=%s gid=%s has_admin_any=%s has_display_all=%s group=%s',
-            getattr(current_user, 'name', '?'),
-            getattr(current_user, 'gid', '?'), has_admin_any, has_display_all,
-            group_name)
+        app.logger.debug('[DIRS] check permissions')
     except Exception:
         pass
 
@@ -41,13 +38,7 @@ def dirs_by_permission(app, page_id: int, perm: str):
         except Exception:
             only_group = False
 
-        # Debug specific roots (e.g., '2' and '3')
-        try:
-            if str(root_key) in ('2', '3'):
-                app.logger.info('[DIRS] root=%s only_group=%s keys=%s',
-                                root_key, only_group, list(entry.keys()))
-        except Exception:
-            pass
+        # Avoid verbose dumps of keys in logs
 
         # Hydrate missing subcategories from DB if this root has none (defensive)
         try:
@@ -74,11 +65,9 @@ def dirs_by_permission(app, page_id: int, perm: str):
                 or current_user.is_allowed(page_id, 'f') or has_display_all
                 or not only_group):
             dirs.append(entry)
+            # concise log only
             try:
-                if str(root_key) in ('2', '3'):
-                    app.logger.info(
-                        '[DIRS] grant full root=%s (reason: admin/display_all/not only_group)',
-                        root_key)
+                app.logger.debug('[DIRS] grant full root')
             except Exception:
                 pass
             continue
@@ -89,9 +78,7 @@ def dirs_by_permission(app, page_id: int, perm: str):
             # Admin sees all subcategories
             dirs.append(entry)
             try:
-                if str(root_key) in ('2', '3'):
-                    app.logger.info('[DIRS] admin override full root=%s',
-                                    root_key)
+                app.logger.debug('[DIRS] admin override full root')
             except Exception:
                 pass
         else:
@@ -102,21 +89,9 @@ def dirs_by_permission(app, page_id: int, perm: str):
                     filtered[k] = v
             dirs.append(filtered)
             try:
-                if str(root_key) in ('2', '3'):
-                    app.logger.info('[DIRS] filtered root=%s -> keys=%s',
-                                    root_key, list(filtered.keys()))
+                app.logger.debug('[DIRS] filtered root')
             except Exception:
                 pass
 
-    try:
-        # Final summary for debug roots
-        debug = []
-        for e in dirs:
-            rk = list(e.keys())[0]
-            if str(rk) in ('2', '3'):
-                debug.append((rk, list(e.keys())))
-        if debug:
-            app.logger.info('[DIRS] final roots summary: %s', debug)
-    except Exception:
-        pass
+    # Avoid final verbose summaries with root lists
     return dirs

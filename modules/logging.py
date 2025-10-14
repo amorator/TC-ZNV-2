@@ -13,8 +13,12 @@ class LoggingConfig:
     
     def __init__(self, config_path: str = "config.ini"):
         """Initialize logging configuration from config file."""
+        import os
+        # Allow overriding config path via env var for deployments
+        env_cfg = os.environ.get('ZNV2_CONFIG') or os.environ.get('LOG_CONFIG')
+        cfg_path = env_cfg if env_cfg else config_path
         self.config = ConfigParser()
-        self.config.read(config_path, encoding='utf-8')
+        self.config.read(cfg_path, encoding='utf-8')
         
         # Create logs directory if it doesn't exist
         self.logs_dir = path.join(path.dirname(path.realpath(__file__)), '..', 'logs')
@@ -26,10 +30,23 @@ class LoggingConfig:
         # Log levels
         self.file_level = self.config.get('logging', 'file_level', fallback='INFO')
         self.console_level = self.config.get('logging', 'console_level', fallback='INFO')
+        self.actions_level = self.config.get('logging', 'actions_level', fallback='INFO')
+        self.access_level = self.config.get('logging', 'access_level', fallback='INFO')
         
         # Rotation settings
         self.max_bytes = self.config.getint('logging', 'max_bytes', fallback=10*1024*1024)  # 10MB
         self.backup_count = self.config.getint('logging', 'backup_count', fallback=5)
+
+        # Formats
+        self.console_format = self.config.get(
+            'logging', 'console_format', fallback='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+        self.file_format = self.config.get(
+            'logging', 'file_format', fallback='%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s')
+        self.actions_format = self.config.get(
+            'logging', 'actions_format', fallback='%(asctime)s [%(levelname)s] %(message)s')
+        self.access_format = self.config.get(
+            'logging', 'access_format', fallback='%(asctime)s %(message)s')
+        self.date_format = self.config.get('logging', 'date_format', fallback='%Y-%m-%d %H:%M:%S')
         
         self._setup_loggers()
     
@@ -62,8 +79,8 @@ class LoggingConfig:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(getattr(logging, self.console_level))
         console_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            self.console_format,
+            datefmt=self.date_format
         )
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
@@ -77,8 +94,8 @@ class LoggingConfig:
         )
         error_handler.setLevel(logging.ERROR)
         error_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            self.file_format,
+            datefmt=self.date_format
         )
         error_handler.setFormatter(error_formatter)
         class _GWSKeyErrorFilter(logging.Filter):
@@ -98,10 +115,10 @@ class LoggingConfig:
             backupCount=self.backup_count,
             encoding='utf-8'
         )
-        access_handler.setLevel(logging.INFO)
+        access_handler.setLevel(getattr(logging, self.access_level))
         access_formatter = logging.Formatter(
-            '%(asctime)s %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            self.access_format,
+            datefmt=self.date_format
         )
         access_handler.setFormatter(access_formatter)
         
@@ -120,10 +137,10 @@ class LoggingConfig:
             backupCount=self.backup_count,
             encoding='utf-8'
         )
-        actions_handler.setLevel(logging.INFO)
+        actions_handler.setLevel(getattr(logging, self.actions_level))
         actions_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            self.actions_format,
+            datefmt=self.date_format
         )
         actions_handler.setFormatter(actions_formatter)
         
@@ -144,8 +161,8 @@ class LoggingConfig:
         )
         file_handler.setLevel(getattr(logging, self.file_level))
         file_formatter = logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            self.file_format,
+            datefmt=self.date_format
         )
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
