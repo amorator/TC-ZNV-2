@@ -2,7 +2,9 @@ from flask import render_template, request, jsonify, Response, abort, send_file,
 from flask_login import current_user, login_required
 from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
 from modules.logging import get_logger, log_action
+from modules.sync_manager import emit_admin_changed
 from datetime import datetime
+import os
 import time
 from functools import wraps
 from modules.registrators import Registrator, parse_directory_listing
@@ -51,7 +53,8 @@ def register(app, socketio=None):
         # Log page view in actions log
         try:
             log_action('ADMIN_VIEW', current_user.name,
-                       f'ip={request.remote_addr}', request.remote_addr)
+                       f'ip={request.remote_addr}',
+                       (request.remote_addr or ''))
         except Exception:
             pass
 
@@ -165,7 +168,7 @@ def register(app, socketio=None):
                 log_action(
                     'ADMIN_PUSH_MAINTAIN', current_user.name,
                     f'deleted={deleted} tested={tested} removed={removed}',
-                    request.remote_addr)
+                    (request.remote_addr or ''))
             except Exception:
                 pass
             # include cooldown info in response
@@ -516,7 +519,11 @@ def register(app, socketio=None):
                 pass
             try:
                 log_action('ADMIN_FORCE_LOGOUT_SESSION', current_user.name,
-                           f'sid={sid}', request.remote_addr)
+                           f'sid={sid}', (request.remote_addr or ''))
+            except Exception:
+                pass
+            try:
+                emit_admin_changed(socketio, 'presence-updated')
             except Exception:
                 pass
             return jsonify({'status': 'success'})
@@ -637,6 +644,10 @@ def register(app, socketio=None):
                         'Сессия разорвана администратором. Войдите снова.'
                     }
                     socketio.emit('force-logout', payload, room=sid)
+                    try:
+                        emit_admin_changed(socketio, 'force-logout', sid=sid)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
             # Additionally, emit to all sockets of the user if user_id provided
@@ -693,7 +704,7 @@ def register(app, socketio=None):
                 pass
             try:
                 log_action('ADMIN_FORCE_LOGOUT', current_user.name,
-                           f'sid={sid} uid={uid}', request.remote_addr)
+                           f'sid={sid} uid={uid}', (request.remote_addr or ''))
             except Exception:
                 pass
             return jsonify({'status': 'success'})
@@ -720,6 +731,12 @@ def register(app, socketio=None):
                     for psid in list(presence.keys()):
                         try:
                             socketio.emit('force-logout', payload, room=psid)
+                            try:
+                                emit_admin_changed(socketio,
+                                                   'force-logout',
+                                                   sid=psid)
+                            except Exception:
+                                pass
                             count += 1
                         except Exception:
                             pass
@@ -755,7 +772,7 @@ def register(app, socketio=None):
                 pass
             try:
                 log_action('ADMIN_FORCE_LOGOUT_ALL', current_user.name,
-                           f'count={count}', request.remote_addr)
+                           f'count={count}', (request.remote_addr or ''))
             except Exception:
                 pass
             return jsonify({'status': 'success', 'count': count})
@@ -782,7 +799,7 @@ def register(app, socketio=None):
             try:
                 log_action('ADMIN_PUSH_REQUEST', current_user.name,
                            f'target={target} text_len={len(message)}',
-                           request.remote_addr)
+                           (request.remote_addr or ''))
             except Exception:
                 pass
             # Resolve recipients
@@ -860,7 +877,7 @@ def register(app, socketio=None):
             try:
                 log_action('ADMIN_PUSH', current_user.name,
                            f'target={target} sent={sent} text="{message}"',
-                           request.remote_addr)
+                           (request.remote_addr or ''))
             except Exception:
                 pass
             return jsonify({'status': 'success', 'sent': sent})
@@ -1023,24 +1040,28 @@ def register(app, socketio=None):
                 # Use Redis-based presence if available
                 if hasattr(app, 'presence_manager') and app.presence_manager:
                     app.presence_manager.update_presence(
-                        request.sid, uid, user, ip, page, ua)
+                        request.environ.get('flask_socketio.sid', ''), uid,
+                        user, ip, page, ua)
                 else:
                     # Fallback to in-memory presence
-                    app._presence[request.sid] = {
-                        'user': user,
-                        'user_id': uid,
-                        'ip': ip,
-                        'page': page,
-                        'ua': ua,
-                        'updated_at': int(datetime.utcnow().timestamp())
-                    }
+                    app._presence[request.environ.get(
+                        'flask_socketio.sid', '')] = {
+                            'user': user,
+                            'user_id': uid,
+                            'ip': ip,
+                            'page': page,
+                            'ua': ua,
+                            'updated_at': int(datetime.utcnow().timestamp())
+                        }
 
                 # Notify all listeners that presence changed
                 try:
-                    socketio.emit('presence:changed', {
-                        'sid': request.sid,
-                        'user': user
-                    })
+                    socketio.emit(
+                        'presence:changed', {
+                            'sid': request.environ.get('flask_socketio.sid',
+                                                       ''),
+                            'user': user
+                        })
                 except Exception:
                     pass
             except Exception:
@@ -1051,7 +1072,8 @@ def register(app, socketio=None):
             try:
                 # Use Redis-based presence if available
                 if hasattr(app, 'presence_manager') and app.presence_manager:
-                    app.presence_manager.remove_presence(request.sid)
+                    app.presence_manager.remove_presence(
+                        request.environ.get('flask_socketio.sid', ''))
                     # Cleanup stale entries
                     app.presence_manager.cleanup_stale_presence()
                 else:
@@ -1064,13 +1086,17 @@ def register(app, socketio=None):
                         ]
                         for sid in stale:
                             app._presence.pop(sid, None)
-                        app._presence.pop(request.sid, None)
+                        app._presence.pop(
+                            request.environ.get('flask_socketio.sid', ''),
+                            None)
 
                 try:
-                    socketio.emit('presence:changed', {
-                        'sid': request.sid,
-                        'event': 'disconnect'
-                    })
+                    socketio.emit(
+                        'presence:changed', {
+                            'sid': request.environ.get('flask_socketio.sid',
+                                                       ''),
+                            'event': 'disconnect'
+                        })
                 except Exception:
                     pass
             except Exception:
@@ -1082,17 +1108,22 @@ def register(app, socketio=None):
             try:
                 # Use Redis-based presence if available
                 if hasattr(app, 'presence_manager') and app.presence_manager:
-                    app.presence_manager.remove_presence(request.sid)
+                    app.presence_manager.remove_presence(
+                        request.environ.get('flask_socketio.sid', ''))
                 else:
                     # Fallback to in-memory presence
                     if hasattr(app, '_presence'):
-                        app._presence.pop(request.sid, None)
+                        app._presence.pop(
+                            request.environ.get('flask_socketio.sid', ''),
+                            None)
 
                 try:
-                    socketio.emit('presence:changed', {
-                        'sid': request.sid,
-                        'event': 'leave'
-                    })
+                    socketio.emit(
+                        'presence:changed', {
+                            'sid': request.environ.get('flask_socketio.sid',
+                                                       ''),
+                            'event': 'leave'
+                        })
                 except Exception:
                     pass
             except Exception:

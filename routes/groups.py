@@ -6,6 +6,7 @@ from flask import render_template, request, redirect, url_for, flash, jsonify, m
 from flask_login import current_user
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
 from modules.logging import get_logger, log_action
+from modules.sync_manager import emit_groups_changed
 from classes.group import Group
 import time
 from functools import wraps
@@ -325,8 +326,15 @@ def register(app):
             group_id = app._sql.group_add([name, description])
             log_action('GROUP_ADD', current_user.name,
                        f'added group {name} (id={group_id})',
-                       request.remote_addr)
+                       (request.remote_addr or ''))
 
+            # Notify clients via unified sync manager
+            try:
+                emit_groups_changed(getattr(app, 'socketio', None),
+                                    'added',
+                                    id=group_id)
+            except Exception:
+                pass
             # Return JSON for AJAX requests, redirect for traditional forms
             if (request.headers.get('Content-Type') == 'application/json'
                     or request.headers.get('X-Requested-With')
@@ -342,7 +350,7 @@ def register(app):
             log_action('GROUP_ADD',
                        current_user.name,
                        f'failed to add group {name}: {str(e)}',
-                       request.remote_addr,
+                       (request.remote_addr or ''),
                        success=False)
 
             if (request.headers.get('Content-Type') == 'application/json'
@@ -379,7 +387,15 @@ def register(app):
             # Update group
             app._sql.group_edit([name, description, id])
             log_action('GROUP_EDIT', current_user.name,
-                       f'edited group {name} (id={id})', request.remote_addr)
+                       f'edited group {name} (id={id})',
+                       (request.remote_addr or ''))
+            # Notify clients via unified sync manager
+            try:
+                emit_groups_changed(getattr(app, 'socketio', None),
+                                    'edited',
+                                    id=id)
+            except Exception:
+                pass
             # Return JSON for AJAX requests, redirect for traditional forms
             if (request.headers.get('Content-Type') == 'application/json'
                     or request.headers.get('X-Requested-With')
@@ -395,7 +411,7 @@ def register(app):
             log_action('GROUP_EDIT',
                        current_user.name,
                        f'failed to edit group (id={id}): {str(e)}',
-                       request.remote_addr,
+                       (request.remote_addr or ''),
                        success=False)
 
             if (request.headers.get('Content-Type') == 'application/json'
@@ -430,7 +446,14 @@ def register(app):
             app._sql.group_delete([id])
             log_action('GROUP_DELETE', current_user.name,
                        f'deleted group {group_name} (id={id})',
-                       request.remote_addr)
+                       (request.remote_addr or ''))
+            # Notify clients via unified sync manager
+            try:
+                emit_groups_changed(getattr(app, 'socketio', None),
+                                    'deleted',
+                                    id=id)
+            except Exception:
+                pass
             # Return JSON for AJAX requests, redirect for traditional forms
             if (request.headers.get('Content-Type') == 'application/json'
                     or request.headers.get('X-Requested-With')
@@ -446,7 +469,7 @@ def register(app):
             log_action('GROUP_DELETE',
                        current_user.name,
                        f'failed to delete group (id={id}): {str(e)}',
-                       request.remote_addr,
+                       (request.remote_addr or ''),
                        success=False)
 
             if (request.headers.get('Content-Type') == 'application/json'

@@ -139,6 +139,24 @@ if (document.readyState === "loading") {
 
 // Additional users page functionality
 (function () {
+  // Ensure stable per-tab client id as early as possible; persist across reloads for consistency
+  try {
+    if (!window.__usersClientId) {
+      try {
+        const saved = localStorage.getItem("users:clientId");
+        if (saved && typeof saved === "string" && saved.trim()) {
+          window.__usersClientId = saved.trim();
+        }
+      } catch (_) {}
+      if (!window.__usersClientId) {
+        window.__usersClientId =
+          Math.random().toString(36).slice(2) + Date.now();
+        try {
+          localStorage.setItem("users:clientId", window.__usersClientId);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
   // Persist and auto-apply search like files page
   (function initUsersSearchPersistence() {
     try {
@@ -1225,7 +1243,21 @@ if (document.readyState === "loading") {
           const rowId = row.id;
           if (!rowId) return;
           const toggleUrl = `${window.location.origin}/users/toggle/${rowId}`;
-          fetch(toggleUrl, { method: "GET", credentials: "same-origin" })
+          const req = {
+            method: "GET",
+            credentials: "same-origin",
+            headers: {
+              "X-Requested-With": "fetch",
+              Accept: "application/json",
+              "X-Client-Id": window.__usersClientId || "",
+            },
+            keepalive: true,
+          };
+          const run =
+            typeof fetchWithTimeout === "function"
+              ? fetchWithTimeout(toggleUrl, req, 15000, "users-toggle")
+              : fetch(toggleUrl, req);
+          run
             .then(function (response) {
               if (!response.ok) return;
               const currentEnabled = row.dataset.enabled === "1";
@@ -1243,6 +1275,12 @@ if (document.readyState === "loading") {
                   newEnabled ? "bi-toggle-on" : "bi-toggle-off"
                 );
               }
+              // Local soft refresh so initiating tab updates immediately
+              try {
+                if (typeof window.softRefreshUsersTable === "function") {
+                  window.softRefreshUsersTable();
+                }
+              } catch (_) {}
               // Reinitialize context menu after state change
               try {
                 setTimeout(function () {
@@ -1343,11 +1381,34 @@ if (document.readyState === "loading") {
       submitBtn.disabled = true;
       submitBtn.textContent = "Отправка...";
     }
-    return fetch(form.action, {
+    const tag =
+      form.id === "add"
+        ? "users-add"
+        : form.id === "edit"
+        ? "users-edit"
+        : form.id === "perm"
+        ? "users-perm"
+        : form.id === "delete"
+        ? "users-delete"
+        : form.id === "reset"
+        ? "users-reset"
+        : "users-form";
+    const req = {
       method: "POST",
       body: formData,
       credentials: "include",
-    })
+      keepalive: true,
+      headers: {
+        "X-Requested-With": "fetch",
+        Accept: "application/json",
+        "X-Client-Id": window.__usersClientId || "",
+      },
+    };
+    const doFetch =
+      typeof fetchWithTimeout === "function"
+        ? fetchWithTimeout(form.action, req, 15000, tag)
+        : fetch(form.action, req);
+    return doFetch
       .then((response) => {
         if (!response.ok) {
           return response.text().then((text) => {
@@ -1379,6 +1440,18 @@ if (document.readyState === "loading") {
         if (!window.__usersClientId)
           window.__usersClientId =
             Math.random().toString(36).slice(2) + Date.now();
+      } catch (_) {}
+      try {
+        if (
+          window.__syncDebug &&
+          window.SyncManager &&
+          typeof window.SyncManager.setDebug === "function"
+        ) {
+          window.SyncManager.setDebug(true);
+          try {
+            console.debug("[users] sync debug enabled");
+          } catch (_) {}
+        }
       } catch (_) {}
       // Initialize a dedicated socket for Users page to avoid cross-page interference
       function destroyUsersSocket() {
@@ -1529,7 +1602,51 @@ if (document.readyState === "loading") {
             // Do not attempt upgrade; polling-only
           }
         } catch (_) {}
+        // Prefer SyncManager if available; otherwise fallback to direct socket
+        if (window.SyncManager && typeof window.SyncManager.on === "function") {
+          try {
+            // Avoid duplicate registration
+            if (!window.__usersSyncBound) {
+              window.__usersSyncBound = true;
+              window.SyncManager.on("users:changed", function (evt) {
+                try {
+                  if (window.__syncDebug)
+                    console.debug("[user-sync-recv] users:changed", evt);
+                } catch (_) {}
+                try {
+                  const fromSelf = !!(
+                    evt &&
+                    evt.originClientId &&
+                    window.__usersClientId &&
+                    evt.originClientId === window.__usersClientId
+                  );
+                  if (fromSelf) return;
+                } catch (_) {}
+                if (document.hidden) {
+                  try {
+                    window.__usersHadBackgroundEvent = true;
+                  } catch (_) {}
+                  try {
+                    backgroundImmediateUsersRefresh();
+                  } catch (_) {}
+                } else {
+                  try {
+                    softRefreshUsersTable();
+                  } catch (_) {}
+                }
+              });
+            }
+          } catch (_) {}
+        }
+        // Always bind a direct socket fallback to guarantee delivery across pages
+        try {
+          sock.off && sock.off("users:changed");
+        } catch (_) {}
         sock.on("users:changed", function (evt) {
+          try {
+            if (window.__syncDebug)
+              console.debug("[users] socket users:changed", evt);
+          } catch (_) {}
           try {
             const fromSelf = !!(
               evt &&
@@ -1537,7 +1654,13 @@ if (document.readyState === "loading") {
               window.__usersClientId &&
               evt.originClientId === window.__usersClientId
             );
-            if (fromSelf) return;
+            if (fromSelf) {
+              try {
+                if (window.__syncDebug)
+                  console.debug("[user-sync-ignore-self] users:changed", evt);
+              } catch (_) {}
+              return;
+            }
           } catch (_) {}
           if (document.hidden) {
             try {
@@ -1795,6 +1918,21 @@ if (document.readyState === "loading") {
     // removed debug fallback refresh
   })();
 
+  // Register global resume soft refresh via SyncManager
+  try {
+    if (
+      window.SyncManager &&
+      typeof window.SyncManager.onResume === "function"
+    ) {
+      window.SyncManager.onResume(function () {
+        try {
+          if (typeof window.softRefreshUsersTable === "function")
+            window.softRefreshUsersTable();
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
+
   /**
    * Reinitialize context menu after table update
    */
@@ -1959,18 +2097,7 @@ if (document.readyState === "loading") {
             }
           } catch (_) {}
           submitUserFormAjax(permForm);
-          // Notify others explicitly (mirror files page pattern)
-          try {
-            if (window.socket && window.socket.emit) {
-              window.socket.emit("users:changed", {
-                reason: "perm",
-                originClientId:
-                  window.__usersClientId ||
-                  (window.__usersClientId =
-                    Math.random().toString(36).slice(2) + Date.now()),
-              });
-            }
-          } catch (_) {}
+          // Server emits users:changed; no client-side emit needed
         });
       }
     });
@@ -2554,21 +2681,7 @@ if (document.readyState === "loading") {
             try {
               window.softRefreshUsersTable && window.softRefreshUsersTable();
             } catch (_) {}
-            // Emit users:changed with group for groups counter update
-            try {
-              const groupSelect = form.querySelector('select[name="group"]');
-              const gid = groupSelect ? String(groupSelect.value) : undefined;
-              if (window.socket && window.socket.emit) {
-                window.socket.emit("users:changed", {
-                  reason: "user-added",
-                  gid: gid,
-                  originClientId:
-                    window.__usersClientId ||
-                    (window.__usersClientId =
-                      Math.random().toString(36).slice(2) + Date.now()),
-                });
-              }
-            } catch (_) {}
+            // Server emits users:changed; no client-side emit
           } else if (form.id === "edit") {
             // Update existing row locally and dataset to reflect latest changes
             const userId = form.dataset.rowId;
@@ -2615,26 +2728,7 @@ if (document.readyState === "loading") {
               try {
                 window.softRefreshUsersTable && window.softRefreshUsersTable();
               } catch (_) {}
-              // Emit detailed users:changed if group changed to update groups counters
-              try {
-                if (
-                  groupSelect &&
-                  String(form.dataset.origGid || "") !==
-                    String(groupSelect.value || "")
-                ) {
-                  if (window.socket && window.socket.emit) {
-                    window.socket.emit("users:changed", {
-                      reason: "user-moved",
-                      prevGid: String(form.dataset.origGid || ""),
-                      newGid: String(groupSelect.value || ""),
-                      originClientId:
-                        window.__usersClientId ||
-                        (window.__usersClientId =
-                          Math.random().toString(36).slice(2) + Date.now()),
-                    });
-                  }
-                }
-              } catch (_) {}
+              // Server emits users:changed; no client-side emit
             }
           } else if (form.id === "perm") {
             // Soft refresh to update computed labels
@@ -2657,19 +2751,7 @@ if (document.readyState === "loading") {
                 gidForDelete = row ? String(row.dataset.gid || "") : undefined;
               } catch (_) {}
               removeUserRowLocally(userId);
-              // Emit users:changed with gid for groups counter update
-              try {
-                if (window.socket && window.socket.emit) {
-                  window.socket.emit("users:changed", {
-                    reason: "user-deleted",
-                    gid: gidForDelete,
-                    originClientId:
-                      window.__usersClientId ||
-                      (window.__usersClientId =
-                        Math.random().toString(36).slice(2) + Date.now()),
-                  });
-                }
-              } catch (_) {}
+              // Server emits users:changed; no client-side emit
             } else {
               try {
                 window.softRefreshUsersTable && window.softRefreshUsersTable();
@@ -2688,19 +2770,7 @@ if (document.readyState === "loading") {
           } catch (_) {}
         }
 
-        // Generic emit for other cases (perm etc.)
-        try {
-          if (window.socket && window.socket.emit) {
-            window.socket.emit("users:changed", {
-              reason: "form-submit",
-              formId: form.id,
-              originClientId:
-                window.__usersClientId ||
-                (window.__usersClientId =
-                  Math.random().toString(36).slice(2) + Date.now()),
-            });
-          }
-        } catch (e) {}
+        // Server emits users:changed; no client-side emit
       })
       .catch((err) => {
         try {

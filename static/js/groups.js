@@ -944,19 +944,7 @@ if (document.readyState === "loading") {
           } catch (_) {}
         }
 
-        // Emit socket event for other users
-        try {
-          if (window.socket && window.socket.emit) {
-            window.socket.emit("groups:changed", {
-              reason: "form-submit",
-              formId: form.id,
-              originClientId:
-                window.__groupsClientId ||
-                (window.__groupsClientId =
-                  Math.random().toString(36).slice(2) + Date.now()),
-            });
-          }
-        } catch (e) {}
+        // Server emits groups:changed; no client-side emit
       })
       .catch((err) => {
         // Close modal on error as well (e.g., attempt to delete non-empty or system group)
@@ -970,10 +958,20 @@ if (document.readyState === "loading") {
       });
   };
 
-  // Live soft refresh via Socket.IO
+  // Live soft refresh via SyncManager (fallback to raw socket already present below if any)
   (function initGroupsLiveUpdates() {
     // Reuse global socket (like files/users) to avoid breaking other listeners
     try {
+      if (window.SyncManager && typeof window.SyncManager.on === "function") {
+        if (!window.__groupsSyncBound) {
+          window.__groupsSyncBound = true;
+          window.SyncManager.on("groups:changed", function () {
+            try {
+              softRefreshGroupsTable && softRefreshGroupsTable();
+            } catch (_) {}
+          });
+        }
+      }
       if (!window.io) return;
       // Ensure a stable per-tab client id for deduplicating our own events
       try {
@@ -1347,6 +1345,20 @@ if (document.readyState === "loading") {
         window.softRefreshGroupsTable && window.softRefreshGroupsTable();
       } catch (_) {}
     });
+  } catch (_) {}
+
+  // Register global resume soft refresh via SyncManager
+  try {
+    if (
+      window.SyncManager &&
+      typeof window.SyncManager.onResume === "function"
+    ) {
+      window.SyncManager.onResume(function () {
+        try {
+          window.softRefreshGroupsTable && window.softRefreshGroupsTable();
+        } catch (_) {}
+      });
+    }
   } catch (_) {}
 
   /**

@@ -2,7 +2,7 @@ from flask import request, jsonify, send_from_directory
 from flask_login import current_user
 from modules.logging import get_logger, log_action
 from pywebpush import webpush, WebPushException
-from os import path
+from os import path, urandom
 from json import dumps
 
 _log = get_logger(__name__)
@@ -164,15 +164,14 @@ def register(app):
                     }
                 }
                 try:
-                    webpush(
-                        subscription_info=sub_info,
-                        data=dumps(
-                            {
-                                **payload, 'id': int(os.urandom(2).hex(), 16)
-                            },
-                            ensure_ascii=False),
-                        vapid_private_key=vapid_private,
-                        vapid_claims={"sub": vapid_subject})
+                    webpush(subscription_info=sub_info,
+                            data=dumps(
+                                {
+                                    **payload, 'id': int(urandom(2).hex(), 16)
+                                },
+                                ensure_ascii=False),
+                            vapid_private_key=vapid_private,
+                            vapid_claims={"sub": vapid_subject})
                     sent += 1
                     try:
                         app._sql.push_mark_success(endpoint)

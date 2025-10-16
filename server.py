@@ -41,6 +41,7 @@ except Exception:
 
 import signal
 from os import path, listdir
+import os
 from datetime import datetime as dt, timedelta
 import urllib.request as http
 try:
@@ -58,6 +59,7 @@ from modules.upload_manager import RedisUploadManager
 from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
 from flask_login import login_user, logout_user, current_user
 from flask_socketio import SocketIO
+from socketio import RedisManager as _SioRedisManager
 
 from modules.server import Server
 from modules.threadpool import ThreadPool
@@ -65,10 +67,7 @@ from utils.common import make_dir
 from services.media import MediaService
 from services.permissions import dirs_by_permission
 from routes import register_all
-try:
-    from werkzeug.middleware.proxy_fix import ProxyFix
-except Exception:
-    ProxyFix = None
+from werkzeug.middleware.proxy_fix import ProxyFix
 from modules.middleware import init_middleware
 
 # Initialize logging first
@@ -157,106 +156,66 @@ except Exception:
     pass
 
 # Respect proxy headers to keep original scheme/host/port (avoids forced 443 redirects)
-try:
-    if ProxyFix:
-        app.wsgi_app = ProxyFix(app.wsgi_app,
-                                x_for=1,
-                                x_proto=1,
-                                x_host=1,
-                                x_port=1)
-except Exception:
-    pass
-# Optional cross-process message queue (e.g., Redis) to deliver emits across workers
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+# Always build cross-process Redis manager from [redis] config (force Redis client_manager)
 _socketio_kwargs = {}
+_client_manager = None
+_client_manager_url = None
 try:
-    mq = None
-    # Prefer dict-style access if available
+    mq = None  # legacy/broker url (unused now)
+    cm_url = None  # client manager url for python-socketio RedisManager
+    # Build from [redis]
     try:
-        mq = app._sql.config['socketio']['message_queue']
-    except Exception:
-        # Fallback to ConfigParser-style access
+        redis_cfg = None
         try:
-            mq = app._sql.config.get('socketio',
-                                     'message_queue',
-                                     fallback=None)
+            redis_cfg = app._sql.config['redis']
         except Exception:
-            mq = None
-    # If Socket.IO message_queue not configured, try fallback to [redis]
-    if not mq:
-        try:
-            # Try dict-style first
             redis_cfg = None
+        if redis_cfg and isinstance(redis_cfg, dict):
+            host = redis_cfg.get('server') or redis_cfg.get('host') or None
+            port = int(redis_cfg.get('port') or 6379)
+            password = redis_cfg.get('password') or None
+            socket_path = redis_cfg.get('socket') or None
+            db = str(redis_cfg.get('db') or '0')
+        else:
+            host = app._sql.config.get('redis', 'server', fallback=None)
+            port = app._sql.config.get('redis', 'port', fallback=None)
+            password = app._sql.config.get('redis', 'password', fallback=None)
+            socket_path = app._sql.config.get('redis', 'socket', fallback=None)
+            db = app._sql.config.get('redis', 'db', fallback='0')
             try:
-                redis_cfg = app._sql.config['redis']
+                port = int(port) if port else 6379
             except Exception:
-                redis_cfg = None
-            if not redis_cfg:
-                try:
-                    # Access via ConfigParser interface
-                    host = app._sql.config.get('redis',
-                                               'server',
-                                               fallback=None)
-                    port = app._sql.config.get('redis', 'port', fallback=None)
-                    password = app._sql.config.get('redis',
-                                                   'password',
-                                                   fallback=None)
-                    socket_path = app._sql.config.get('redis',
-                                                      'socket',
-                                                      fallback=None)
-                    db = app._sql.config.get('redis', 'db', fallback='0')
-                    # Prefer unix socket if provided
-                    if socket_path:
-                        if password:
-                            mq = f"redis+unix://:{password}@{socket_path}?db={db}"
-                        else:
-                            mq = f"redis+unix:///{socket_path}?db={db}"
-                    elif host:
-                        if password:
-                            mq = f"redis://:{password}@{host}:{port or 6379}/{db}"
-                        else:
-                            mq = f"redis://{host}:{port or 6379}/{db}"
-                except Exception:
-                    mq = None
-            else:
-                # Dict-style config
-                host = redis_cfg.get('server') or redis_cfg.get(
-                    'host') or '127.0.0.1'
-                port = redis_cfg.get('port') or 6379
-                password = redis_cfg.get('password') or None
-                socket_path = redis_cfg.get('socket') or None
-                db = str(redis_cfg.get('db') or '0')
-                try:
-                    port = int(port)
-                except Exception:
-                    port = 6379
-                if socket_path:
-                    if password:
-                        mq = f"redis+unix://:{password}@{socket_path}?db={db}"
-                    else:
-                        mq = f"redis+unix:///{socket_path}?db={db}"
-                else:
-                    if password:
-                        mq = f"redis://:{password}@{host}:{port}/{db}"
-                    else:
-                        mq = f"redis://{host}:{port}/{db}"
-        except Exception:
-            mq = None
-    if mq:
-        _socketio_kwargs['message_queue'] = mq
+                port = 6379
+        if socket_path:
+            # Valid for python-socketio RedisManager
+            cm_url = (f"unix://:{password}@{socket_path}?db={db}"
+                      if password else f"unix:///{socket_path}?db={db}")
+            # Keep legacy form only for logging compatibility if needed
+            mq = (f"redis+unix://:{password}@{socket_path}?db={db}"
+                  if password else f"redis+unix:///{socket_path}?db={db}")
+        elif host:
+            cm_url = (f"redis://:{password}@{host}:{port}/{db}"
+                      if password else f"redis://{host}:{port}/{db}")
+            mq = cm_url
+    except Exception:
+        mq = None
+    if cm_url:
         try:
-            # Mask password in logs if present
-            safe_mq = mq
-            try:
-                if '://' in safe_mq and '@' in safe_mq and '://' in safe_mq:
-                    scheme_sep = safe_mq.find('://') + 3
-                    at_pos = safe_mq.find('@', scheme_sep)
-                    if at_pos != -1 and safe_mq[scheme_sep] == ':':
-                        safe_mq = f"{safe_mq[:scheme_sep]}:***{safe_mq[at_pos:]}"
-            except Exception:
-                safe_mq = mq
-            _log.debug('Socket.IO using message_queue=%s', safe_mq)
-        except Exception:
-            pass
+            # Force Redis client manager to avoid accidental KombuManager selection
+            _client_manager = _SioRedisManager(cm_url)
+            _socketio_kwargs['client_manager'] = _client_manager
+            safe_mq = cm_url
+            if '://' in safe_mq and '@' in safe_mq:
+                scheme_sep = safe_mq.find('://') + 3
+                at_pos = safe_mq.find('@', scheme_sep)
+                if at_pos != -1 and safe_mq[scheme_sep] == ':':
+                    safe_mq = f"{safe_mq[:scheme_sep]}:***{safe_mq[at_pos:]}"
+            _log.info('Socket.IO using Redis (client_manager) url=%s', safe_mq)
+        except Exception as e:
+            _log.error(f"Failed to initialize Redis client manager: {e}")
+    else:
+        _log.info('Socket.IO message_queue disabled (single-process/dev mode)')
 except Exception:
     pass
 
@@ -275,6 +234,18 @@ _socketio = socketio  # Store globally for shutdown
 # Expose Socket.IO on app for route modules that look up app.socketio
 try:
     setattr(app, 'socketio', socketio)
+except Exception:
+    pass
+try:
+    manager_obj = getattr(getattr(socketio, 'server', None), 'manager', None)
+    manager_name = manager_obj.__class__.__name__ if manager_obj is not None else 'None'
+    if _client_manager is not None:
+        _log.info('Socket.IO client manager=%s, Redis configured',
+                  manager_name)
+    else:
+        _log.info(
+            'Socket.IO client manager=%s, message_queue not configured (single-process/dev)',
+            manager_name)
 except Exception:
     pass
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))

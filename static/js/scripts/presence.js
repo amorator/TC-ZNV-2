@@ -6,15 +6,38 @@
     var presenceTimer = null;
     var heartbeatTimer = null;
     var left = false; // prevent duplicate leave signals
-    // Reuse a single app-wide socket if available
-    var sock = window.socket;
+    // Use SyncManager socket to avoid multiple connections
+    function getSock() {
+      try {
+        if (
+          window.SyncManager &&
+          typeof window.SyncManager.getSocket === "function"
+        ) {
+          return window.SyncManager.getSocket();
+        }
+      } catch (_) {}
+      return null;
+    }
+    var sock = getSock();
     if (!sock) {
-      sock = window.io(window.location.origin, {
-        transports: ["websocket", "polling"],
-        path: "/socket.io/",
-        withCredentials: true,
-      });
-      window.socket = sock;
+      // Retry a few times until SyncManager initializes
+      var attempts = 0;
+      var waitTimer = setInterval(function () {
+        attempts++;
+        try {
+          sock = getSock();
+        } catch (_) {
+          sock = null;
+        }
+        if (sock || attempts > 50) {
+          clearInterval(waitTimer);
+          if (sock) {
+            try {
+              bindSocketHandlers();
+            } catch (_) {}
+          }
+        }
+      }, 200);
     }
 
     function emitPresence() {
@@ -77,29 +100,36 @@
       } catch (_) {}
     }
 
-    sock.on &&
-      sock.on("connect", function () {
-        emitPresence();
-      });
-    // Support admin-force logout for every open session
-    sock.on &&
-      sock.on("force-logout", function () {
-        try {
-          forced = true;
-        } catch (_) {}
-        try {
-          if (presenceTimer) clearInterval(presenceTimer);
-        } catch (_) {}
-        try {
-          if (heartbeatTimer) clearInterval(heartbeatTimer);
-        } catch (_) {}
-        try {
-          sock && sock.disconnect && sock.disconnect();
-        } catch (_) {}
-        try {
-          location.replace("/logout");
-        } catch (_) {}
-      });
+    function bindSocketHandlers() {
+      try {
+        if (!sock || !sock.on) return;
+        sock.on("connect", function () {
+          emitPresence();
+        });
+        // Support admin-force logout for every open session
+        sock.on("force-logout", function () {
+          try {
+            forced = true;
+          } catch (_) {}
+          try {
+            if (presenceTimer) clearInterval(presenceTimer);
+          } catch (_) {}
+          try {
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+          } catch (_) {}
+          try {
+            sock && sock.disconnect && sock.disconnect();
+          } catch (_) {}
+          try {
+            location.replace("/logout");
+          } catch (_) {}
+        });
+      } catch (_) {}
+    }
+
+    if (sock) {
+      bindSocketHandlers();
+    }
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState === "visible") emitPresence();
     });

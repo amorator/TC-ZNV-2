@@ -2,7 +2,7 @@
 worker_class = "geventwebsocket.gunicorn.workers.GeventWebSocketWorker"
 
 # Кастомный логгер с ротацией
-logger_class = "gunicorn_logger.RotatingLogger"
+logger_class = "modules.gunicorn_logger.RotatingLogger"
 
 # Количество воркеров (рекомендуется: 2 * CPU cores + 1)
 workers = 5

@@ -1518,4 +1518,27 @@
     setInterval(fetchSessions, 7000);
     onScopeChangeModal();
   });
+
+  // Global resume: refresh presence and sessions, reload logs list
+  try {
+    if (
+      window.SyncManager &&
+      typeof window.SyncManager.onResume === "function"
+    ) {
+      window.SyncManager.onResume(function () {
+        try {
+          fetchPresence();
+        } catch (_) {}
+        try {
+          fetchSessions();
+        } catch (_) {}
+        try {
+          loadLogs();
+        } catch (_) {}
+        try {
+          loadLogsList();
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
 })();

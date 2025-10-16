@@ -7,6 +7,7 @@ is protected from modifications except password reset.
 from flask import render_template, url_for, request, redirect, jsonify, make_response
 from flask_login import login_user, logout_user, current_user
 from modules.logging import get_logger, log_action
+from modules.sync_manager import emit_users_changed
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
 import time
 from functools import wraps
@@ -235,23 +236,19 @@ def register(app):
                        request.remote_addr,
                        success=False)
         finally:
-            # notify sockets for soft refresh
+            # notify sockets for soft refresh (via sync manager)
             try:
-                if hasattr(app, 'socketio') and app.socketio:
-                    app.socketio.emit('users:changed', {'reason': 'created'})
-                    try:
-                        app.socketio.emit('users:changed',
-                                          {'reason': 'created'},
-                                          namespace='/')
-                    except Exception:
-                        pass
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_users_changed(app.socketio,
+                                   'created',
+                                   originClientId=origin)
             except Exception:
                 pass
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            xrq = (request.headers.get('X-Requested-With') or '').lower()
+            is_ajax = xrq in ('xmlhttprequest', 'fetch') or \
+                (request.headers.get('Content-Type') == 'application/json')
+            if is_ajax:
                 if ok:
                     return {
                         'status': 'success',
@@ -331,26 +328,18 @@ def register(app):
                        success=False)
         finally:
             try:
-                if hasattr(app, 'socketio') and app.socketio:
-                    app.socketio.emit('users:changed', {
-                        'reason': 'edited',
-                        'id': id
-                    })
-                    try:
-                        app.socketio.emit('users:changed', {
-                            'reason': 'edited',
-                            'id': id
-                        },
-                                          namespace='/')
-                    except Exception:
-                        pass
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_users_changed(app.socketio,
+                                   'edited',
+                                   id=id,
+                                   originClientId=origin)
             except Exception:
                 pass
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            xrq = (request.headers.get('X-Requested-With') or '').lower()
+            is_ajax = xrq in ('xmlhttprequest', 'fetch') or \
+                (request.headers.get('Content-Type') == 'application/json')
+            if is_ajax:
                 if ok:
                     return {
                         'status': 'success',
@@ -418,26 +407,18 @@ def register(app):
                        success=False)
         finally:
             try:
-                if hasattr(app, 'socketio') and app.socketio:
-                    app.socketio.emit('users:changed', {
-                        'reason': 'reset',
-                        'id': id
-                    })
-                    try:
-                        app.socketio.emit('users:changed', {
-                            'reason': 'reset',
-                            'id': id
-                        },
-                                          namespace='/')
-                    except Exception:
-                        pass
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_users_changed(app.socketio,
+                                   'reset',
+                                   id=id,
+                                   originClientId=origin)
             except Exception:
                 pass
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            xrq = (request.headers.get('X-Requested-With') or '').lower()
+            is_ajax = xrq in ('xmlhttprequest', 'fetch') or \
+                (request.headers.get('Content-Type') == 'application/json')
+            if is_ajax:
                 if ok:
                     return {
                         'status': 'success',
@@ -458,6 +439,12 @@ def register(app):
         ok = True
         error_message = ''
         try:
+            try:
+                _log.info(
+                    f"[users] toggle-entry id={id} origin={(request.headers.get('X-Client-Id') or '').strip()}"
+                )
+            except Exception:
+                pass
             u = app._sql.user_by_id([id])
             if u and u.login and u.login.strip().lower() == 'admin':
                 app.flash_error('Нельзя отключать администратора')
@@ -485,26 +472,22 @@ def register(app):
                        success=False)
         finally:
             try:
-                if hasattr(app, 'socketio') and app.socketio:
-                    app.socketio.emit('users:changed', {
-                        'reason': 'toggled',
-                        'id': id
-                    })
-                    try:
-                        app.socketio.emit('users:changed', {
-                            'reason': 'toggled',
-                            'id': id
-                        },
-                                          namespace='/')
-                    except Exception:
-                        pass
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_users_changed(app.socketio,
+                                   'toggled',
+                                   id=id,
+                                   originClientId=origin)
+                try:
+                    _log.info(f"[users] toggle-exit id={id} origin={origin}")
+                except Exception:
+                    pass
             except Exception:
                 pass
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            xrq = (request.headers.get('X-Requested-With') or '').lower()
+            is_ajax = xrq in ('xmlhttprequest', 'fetch') or \
+                (request.headers.get('Content-Type') == 'application/json')
+            if is_ajax:
                 if ok:
                     return {
                         'status': 'success',
@@ -544,26 +527,18 @@ def register(app):
                        success=False)
         finally:
             try:
-                if hasattr(app, 'socketio') and app.socketio:
-                    app.socketio.emit('users:changed', {
-                        'reason': 'deleted',
-                        'id': id
-                    })
-                    try:
-                        app.socketio.emit('users:changed', {
-                            'reason': 'deleted',
-                            'id': id
-                        },
-                                          namespace='/')
-                    except Exception:
-                        pass
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_users_changed(app.socketio,
+                                   'deleted',
+                                   id=id,
+                                   originClientId=origin)
             except Exception:
                 pass
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            xrq = (request.headers.get('X-Requested-With') or '').lower()
+            is_ajax = xrq in ('xmlhttprequest', 'fetch') or \
+                (request.headers.get('Content-Type') == 'application/json')
+            if is_ajax:
                 if ok:
                     return {
                         'status': 'success',
