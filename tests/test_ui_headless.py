@@ -6,10 +6,15 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 import socket
 from urllib.parse import urlparse
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
-LOGIN = os.getenv('LOGIN', 'admin')
-PASSWORD = os.getenv('PASSWORD', 'admin')
+from tests.config import (
+    BASE_URL as BASE,
+    LOGIN,
+    PASSWORD,
+    PAGE_LOAD_TIMEOUT_SEC,
+    SCRIPT_TIMEOUT_SEC,
+    HEADLESS,
+    ACCEPT_INSECURE_CERTS,
+)
 
 
 def _ensure_host_resolves_or_skip():
@@ -21,39 +26,32 @@ def _ensure_host_resolves_or_skip():
     except Exception:
         pytest.skip(f"Host does not resolve in this environment: {host}")
     try:
-        # Проверяем только доступность сервера, не HTTP статус
+        # Мягкая проверка: допускаем self-signed
         import requests
-        requests.head(BASE, timeout=5, allow_redirects=True)
-        # Если получили любой HTTP ответ (даже 400, 401, 403, 500) - сервер работает
-        # Пропускаем только при network errors (connection refused, timeout)
-        pass
-    except requests.exceptions.ConnectionError:
-        pytest.skip(f'Server not reachable: {BASE}')
-    except requests.exceptions.Timeout:
-        pytest.skip(f'Server timeout: {BASE}')
-    except Exception as e:
-        # Для других ошибок (DNS, SSL) тоже пропускаем
-        pytest.skip(f'Network error: {e}')
+        requests.get(BASE, timeout=8, allow_redirects=True, verify=True)
+    except Exception:
+        # Не скипаем — позволим тесту отработать предметно
+        return
 
 
 def make_chrome():
     _ensure_host_resolves_or_skip()
     opts = Options()
     for f in [
-            '--headless=new', '--disable-gpu', '--no-sandbox',
-            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
-            '--no-zygote', '--single-process', '--ignore-certificate-errors'
+            '--headless=new' if HEADLESS else '', '--disable-gpu',
+            '--no-sandbox', '--disable-dev-shm-usage',
+            '--disable-setuid-sandbox', '--no-zygote', '--single-process',
+            '--ignore-certificate-errors'
     ]:
-        opts.add_argument(f)
+        if f:
+            opts.add_argument(f)
     # TLS: strict if CERT_FILE defined else accept self-signed
-    if os.getenv('CERT_FILE'):
-        pass
-    else:
+    if not os.getenv('CERT_FILE') and ACCEPT_INSECURE_CERTS:
         opts.set_capability('acceptInsecureCerts', True)
     # Используем Selenium Manager (автоподбор chromedriver под Chromium)
     driver = webdriver.Chrome(options=opts)
-    driver.set_page_load_timeout(30)
-    driver.set_script_timeout(30)
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT_SEC)
+    driver.set_script_timeout(SCRIPT_TIMEOUT_SEC)
     return driver
 
 

@@ -9,6 +9,35 @@ import tempfile
 from typing import Dict, Tuple, Optional
 from user_manager import TestUserManager
 from data_factory import DataFactory
+from tests.config import BASE_URL as BASE
+
+
+@pytest.fixture(scope='session', autouse=True)
+def seed_minimal_data(user_manager):
+    """Автосоздание минимальных данных для UI-тестов.
+
+    Если прогрев не удаётся, тесты должны корректно отработать сценарии пустого состояния.
+    """
+    try:
+        df = DataFactory(BASE, user_manager.session)
+        # Минимальная категория/подкатегория
+        try:
+            df.ensure_category_with_sub('QA Категория', 'QA Подкатегория')
+        except Exception:
+            pass
+        # Минимальная группа и пользователь (если поддерживается DataFactory)
+        try:
+            df.ensure_group('qa_readers')
+        except Exception:
+            pass
+        # Пробный файл (если доступен endpoint)
+        try:
+            df.ensure_sample_file()
+        except Exception:
+            pass
+    except Exception:
+        # Без падений/skip — тесты сами проверят пустые состояния
+        pass
 
 
 @pytest.fixture(scope='session')
@@ -17,28 +46,28 @@ def user_manager():
     try:
         manager = TestUserManager()
         manager._ensure_server_reachable()
-        
+
         if not manager.login_admin():
-            pytest.skip("Failed to login as admin - skipping user-dependent tests")
-        
+            pytest.xfail("Failed to login as admin")
+
         # Создаём полный набор тестовых пользователей
         users = manager.create_test_users_suite()
         # Минимальные данные для UI: категория и подкатегория
         try:
-            df = DataFactory(os.getenv('BASE_URL', 'http://localhost:5000'), manager.session)
+            df = DataFactory(BASE, manager.session)
             df.ensure_category_with_sub('QA Категория', 'QA Подкатегория')
             # Попробуем загрузить пробный файл (если доступно API)
             df.ensure_sample_file()
         except Exception:
             pass
-        
+
         yield manager
-        
+
         # Очищаем созданных пользователей после всех тестов
         manager.cleanup_all_users()
-        
+
     except Exception as e:
-        pytest.skip(f"Failed to setup user manager: {e}")
+        pytest.xfail(f"Failed to setup user manager: {e}")
 
 
 @pytest.fixture(scope='session')
@@ -143,7 +172,7 @@ def get_user_role(username: str) -> str:
 def should_have_access(username: str, resource: str) -> bool:
     """Определяет, должен ли пользователь иметь доступ к ресурсу."""
     role = get_user_role(username)
-    
+
     access_matrix = {
         'admin': {
             'admin': True,
@@ -181,7 +210,7 @@ def should_have_access(username: str, resource: str) -> bool:
             'categories': False
         }
     }
-    
+
     return access_matrix.get(role, {}).get(resource, False)
 
 
@@ -232,5 +261,3 @@ def user_access_matrix():
             'categories': False
         }
     }
-
-

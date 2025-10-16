@@ -240,109 +240,128 @@ if (document.readyState === "loading") {
         const url = new URL(window.location.origin + "/groups/page");
         url.searchParams.set("page", String(page));
         url.searchParams.set("page_size", String(pageSize));
-        url.searchParams.set("t", String(Date.now()));
-        fetch(String(url), {
-          credentials: "same-origin",
-          headers: {
-            "X-Requested-With": "XMLHttpRequest",
-            Accept: "application/json",
-          },
-        })
-          .then((r) =>
-            r.ok ? r.json() : Promise.resolve({ html: "", total: 0, page: 1 })
-          )
-          .then((j) => {
-            if (!j || typeof j.html !== "string") return;
-            const searchRow = tbody.querySelector("tr#search");
-            const temp = document.createElement("tbody");
-            temp.innerHTML = j.html;
-            Array.from(tbody.querySelectorAll("tr")).forEach(function (tr) {
-              if (!searchRow || tr !== searchRow) tr.remove();
-            });
-            Array.from(temp.children).forEach(function (tr) {
-              tbody.appendChild(tr);
-            });
-            // Fallback: if empty, attempt a background refresh of current page
-            if (!temp.children.length) {
+        (function () {
+          var ctrl =
+            typeof AbortController !== "undefined"
+              ? new AbortController()
+              : null;
+          if (ctrl)
+            setTimeout(function () {
               try {
-                if (typeof backgroundImmediateGroupsRefresh === "function")
-                  backgroundImmediateGroupsRefresh();
+                ctrl.abort();
               } catch (_) {}
-            }
-            // build pager like files
-            const total = j.total || 0;
-            const pages = Math.max(1, Math.ceil(total / pageSize));
-            const pageCur = j.page || 1;
-            const btn = (
-              label,
-              targetPage,
-              disabled = false,
-              extraClass = ""
-            ) =>
-              `<li class=\"page-item ${extraClass} ${
-                disabled ? "disabled" : ""
-              }\"><a class=\"page-link\" href=\"#\" data-page=\"${targetPage}\">${label}</a></li>`;
-            const items = [];
-            items.push(btn("⏮", 1, pageCur === 1, "first"));
-            items.push(
-              btn("‹", Math.max(1, pageCur - 1), pageCur === 1, "prev")
-            );
-            items.push(
-              `<li class=\"page-item ${
-                pageCur === 1 ? "active" : ""
-              }\"><a class=\"page-link\" href=\"#\" data-page=\"1\">1</a></li>`
-            );
-            const leftStart = Math.max(2, pageCur - 2);
-            const leftGap = leftStart - 2;
-            if (leftGap >= 1)
-              items.push(
-                `<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`
-              );
-            const midStart = Math.max(2, pageCur - 2);
-            const midEnd = Math.min(pages - 1, pageCur + 2);
-            for (let p = midStart; p <= midEnd; p++)
-              items.push(
-                `<li class=\"page-item ${
-                  p === pageCur ? "active" : ""
-                }\"><a class=\"page-link\" href=\"#\" data-page=\"${p}\">${p}</a></li>`
-              );
-            const rightEnd = Math.min(pages - 1, pageCur + 2);
-            const rightGap = pages - 1 - rightEnd;
-            if (rightGap >= 1)
-              items.push(
-                `<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`
-              );
-            if (pages > 1)
-              items.push(
-                `<li class=\"page-item ${
-                  pageCur === pages ? "active" : ""
-                }\"><a class=\"page-link\" href=\"#\" data-page=\"${pages}\">${pages}</a></li>`
-              );
-            items.push(
-              btn("›", Math.min(pages, pageCur + 1), pageCur === pages, "next")
-            );
-            items.push(btn("⏭", pages, pageCur === pages, "last"));
-            pager.innerHTML = `<nav><ul class=\"pagination mb-0\">${items.join(
-              ""
-            )}</ul></nav>`;
-            if (!pager._clickBound) {
-              pager.addEventListener("click", function (e) {
-                const a = e.target && e.target.closest("[data-page]");
-                if (!a) return;
-                e.preventDefault();
-                const p = parseInt(a.getAttribute("data-page"), 10) || 1;
-                render(p);
-              });
-              pager._clickBound = true;
-            }
-            try {
-              reinitializeContextMenu();
-            } catch (_) {}
-            try {
-              if (window.rebindGroupsTable) window.rebindGroupsTable();
-            } catch (_) {}
+            }, 7000);
+          fetch(String(url), {
+            credentials: "same-origin",
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              Accept: "application/json",
+              "Cache-Control": "no-store",
+            },
+            cache: "no-store",
+            signal: ctrl ? ctrl.signal : undefined,
           })
-          .catch(function () {});
+            .then((r) =>
+              r.ok ? r.json() : Promise.resolve({ html: "", total: 0, page: 1 })
+            )
+            .then((j) => {
+              if (!j || typeof j.html !== "string") return;
+              const searchRow = tbody.querySelector("tr#search");
+              const temp = document.createElement("tbody");
+              temp.innerHTML = j.html;
+              Array.from(tbody.querySelectorAll("tr")).forEach(function (tr) {
+                if (!searchRow || tr !== searchRow) tr.remove();
+              });
+              Array.from(temp.children).forEach(function (tr) {
+                tbody.appendChild(tr);
+              });
+              // Fallback: if empty, attempt a background refresh of current page
+              if (!temp.children.length) {
+                try {
+                  if (typeof backgroundImmediateGroupsRefresh === "function")
+                    backgroundImmediateGroupsRefresh();
+                } catch (_) {}
+              }
+              // build pager like files
+              const total = j.total || 0;
+              const pages = Math.max(1, Math.ceil(total / pageSize));
+              const pageCur = j.page || 1;
+              const btn = (
+                label,
+                targetPage,
+                disabled = false,
+                extraClass = ""
+              ) =>
+                `<li class=\"page-item ${extraClass} ${
+                  disabled ? "disabled" : ""
+                }\"><a class=\"page-link\" href=\"#\" data-page=\"${targetPage}\">${label}</a></li>`;
+              const items = [];
+              items.push(btn("⏮", 1, pageCur === 1, "first"));
+              items.push(
+                btn("‹", Math.max(1, pageCur - 1), pageCur === 1, "prev")
+              );
+              items.push(
+                `<li class=\"page-item ${
+                  pageCur === 1 ? "active" : ""
+                }\"><a class=\"page-link\" href=\"#\" data-page=\"1\">1</a></li>`
+              );
+              const leftStart = Math.max(2, pageCur - 2);
+              const leftGap = leftStart - 2;
+              if (leftGap >= 1)
+                items.push(
+                  `<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`
+                );
+              const midStart = Math.max(2, pageCur - 2);
+              const midEnd = Math.min(pages - 1, pageCur + 2);
+              for (let p = midStart; p <= midEnd; p++)
+                items.push(
+                  `<li class=\"page-item ${
+                    p === pageCur ? "active" : ""
+                  }\"><a class=\"page-link\" href=\"#\" data-page=\"${p}\">${p}</a></li>`
+                );
+              const rightEnd = Math.min(pages - 1, pageCur + 2);
+              const rightGap = pages - 1 - rightEnd;
+              if (rightGap >= 1)
+                items.push(
+                  `<li class=\"page-item disabled\"><span class=\"page-link\">…</span></li>`
+                );
+              if (pages > 1)
+                items.push(
+                  `<li class=\"page-item ${
+                    pageCur === pages ? "active" : ""
+                  }\"><a class=\"page-link\" href=\"#\" data-page=\"${pages}\">${pages}</a></li>`
+                );
+              items.push(
+                btn(
+                  "›",
+                  Math.min(pages, pageCur + 1),
+                  pageCur === pages,
+                  "next"
+                )
+              );
+              items.push(btn("⏭", pages, pageCur === pages, "last"));
+              pager.innerHTML = `<nav><ul class=\"pagination mb-0\">${items.join(
+                ""
+              )}</ul></nav>`;
+              if (!pager._clickBound) {
+                pager.addEventListener("click", function (e) {
+                  const a = e.target && e.target.closest("[data-page]");
+                  if (!a) return;
+                  e.preventDefault();
+                  const p = parseInt(a.getAttribute("data-page"), 10) || 1;
+                  render(p);
+                });
+                pager._clickBound = true;
+              }
+              try {
+                reinitializeContextMenu();
+              } catch (_) {}
+              try {
+                if (window.rebindGroupsTable) window.rebindGroupsTable();
+              } catch (_) {}
+            })
+            .catch(function () {});
+        })();
       }
       window.groupsPager = {
         renderPage: render,
@@ -367,34 +386,50 @@ if (document.readyState === "loading") {
         url.searchParams.set("q", q);
         url.searchParams.set("page", "1");
         url.searchParams.set("page_size", "30");
-        url.searchParams.set("t", String(Date.now()));
-        return fetch(String(url), {
-          credentials: "same-origin",
-          headers: { "X-Requested-With": "XMLHttpRequest" },
-        })
-          .then((r) => (r.ok ? r.json() : { html: "" }))
-          .then((j) => {
-            if (!j || !j.html) return false;
-            const searchRow = tbodyEl.querySelector("tr#search");
-            const temp = document.createElement("tbody");
-            temp.innerHTML = j.html;
-            Array.from(tbodyEl.querySelectorAll("tr")).forEach(function (tr) {
-              if (!searchRow || tr !== searchRow) tr.remove();
-            });
-            Array.from(temp.children).forEach(function (tr) {
-              tbodyEl.appendChild(tr);
-            });
-            try {
-              if (window.rebindGroupsTable) window.rebindGroupsTable();
-            } catch (_) {}
-            try {
-              reinitializeContextMenu();
-            } catch (_) {}
-            return true;
+        return (function () {
+          var ctrl =
+            typeof AbortController !== "undefined"
+              ? new AbortController()
+              : null;
+          if (ctrl)
+            setTimeout(function () {
+              try {
+                ctrl.abort();
+              } catch (_) {}
+            }, 7000);
+          return fetch(String(url), {
+            credentials: "same-origin",
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              "Cache-Control": "no-store",
+            },
+            cache: "no-store",
+            signal: ctrl ? ctrl.signal : undefined,
           })
-          .catch(function () {
-            return false;
-          });
+            .then((r) => (r.ok ? r.json() : { html: "" }))
+            .then((j) => {
+              if (!j || !j.html) return false;
+              const searchRow = tbodyEl.querySelector("tr#search");
+              const temp = document.createElement("tbody");
+              temp.innerHTML = j.html;
+              Array.from(tbodyEl.querySelectorAll("tr")).forEach(function (tr) {
+                if (!searchRow || tr !== searchRow) tr.remove();
+              });
+              Array.from(temp.children).forEach(function (tr) {
+                tbodyEl.appendChild(tr);
+              });
+              try {
+                if (window.rebindGroupsTable) window.rebindGroupsTable();
+              } catch (_) {}
+              try {
+                reinitializeContextMenu();
+              } catch (_) {}
+              return true;
+            })
+            .catch(function () {
+              return false;
+            });
+        })();
       } else {
         if (pager) pager.classList.remove("d-none");
         if (

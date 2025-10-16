@@ -5,9 +5,7 @@ from urllib.parse import urlparse
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
+from tests.config import BASE_URL as BASE, ACCEPT_INSECURE_CERTS
 
 
 def _ensure_target_or_skip():
@@ -26,11 +24,13 @@ def make_chrome():
     _ensure_target_or_skip()
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
-    opts.set_capability('acceptInsecureCerts', True)
+    if ACCEPT_INSECURE_CERTS:
+        opts.set_capability('acceptInsecureCerts', True)
     d = webdriver.Chrome(options=opts)
     d.set_page_load_timeout(45)
     d.set_script_timeout(45)
@@ -102,9 +102,12 @@ def test_realtime_reconnect_after_network_flap(qa_regular_credentials):
 
 
 @pytest.mark.ui
-def test_realtime_notification_dedup(qa_admin_credentials, qa_regular_credentials):
+def test_realtime_notification_dedup(qa_admin_credentials,
+                                     qa_regular_credentials):
     """Отправляем два одинаковых уведомления подряд — ожидаем не дублировать визуально (если реализовано)."""
-    pytest.skip('Dedup behavior varies by UI; skipping until deterministic signal is available')
+    pytest.skip(
+        'Dedup behavior varies by UI; skipping until deterministic signal is available'
+    )
     admin_user, admin_pwd = qa_admin_credentials
     user, pwd = qa_regular_credentials
     from tests.test_realtime_ui import send_admin_broadcast, wait_user_notification
@@ -132,5 +135,3 @@ def test_realtime_notification_dedup(qa_admin_credentials, qa_regular_credential
     finally:
         d_admin.quit()
         d_user.quit()
-
-

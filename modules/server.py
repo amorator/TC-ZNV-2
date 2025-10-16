@@ -8,6 +8,7 @@ from re import sub
 from flask import Flask, flash, abort
 from flask_cors import CORS
 from flask_login import LoginManager, current_user
+from flask_session import Session
 
 from modules.SQLUtils import SQLUtils
 
@@ -15,13 +16,21 @@ from modules.SQLUtils import SQLUtils
 class Server(Flask):
 	"""Flask app with login manager, DB access, and helpers."""
 
-	def __init__(self, root, name=__name__):
+	def __init__(self, root, name=__name__, redis_client=None):
 		super().__init__(name, root_path=root)
 		CORS(self, resources={r'*': {'origins': '*'}}, supports_credentials=True)
 		# Prefer env-provided secret for sessions; fallback to static default
 		self.config['SECRET_KEY'] = getenv('SECRET_KEY', 'achudwshoiqxjqi@eowe1J2')
 		self.config['TEMPLATES_AUTO_RELOAD'] = True
-		self.config['SESSION_TYPE'] = 'filesystem'
+		
+		# Configure session storage
+		if redis_client:
+			self.config['SESSION_TYPE'] = 'redis'
+			self.config['SESSION_REDIS'] = redis_client.client
+			self.config['SESSION_KEY_PREFIX'] = 'znf:session:'
+		else:
+			self.config['SESSION_TYPE'] = 'filesystem'
+		
 		self.config['SESSION_PERMANENT'] = True
 		self.config['PERMANENT_SESSION_LIFETIME'] = 86400
 		self.config['SESSION_COOKIE_HTTPONLY'] = False
@@ -30,6 +39,10 @@ class Server(Flask):
 		self.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 		self.config['REMEMBER_COOKIE_SECURE'] = True
 		self.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+		
+		# Store Redis client for other components
+		self.redis_client = redis_client
+		
 		self.init()
 		self.get_dirs()
 

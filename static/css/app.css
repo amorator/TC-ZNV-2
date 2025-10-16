@@ -453,8 +453,11 @@
 
 .subbar .topbtn.active,
 .subbar a.topbtn.active {
-    background: rgba(255, 255, 255, .3);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+    background: rgba(255, 255, 255, .35);
+    box-shadow: 0 0 0 2px var(--btn-focus, #ffcc00) inset, 0 2px 6px rgba(0, 0, 0, .12);
+    border-color: var(--btn-focus, #ffcc00);
+    color: var(--topbar-text, #111827);
+    font-weight: 700;
 }
 
 .theme-dark .subbar .topbtn,
@@ -469,6 +472,15 @@
     background: rgba(255, 255, 255, .2);
 }
 
+.theme-dark .subbar .topbtn.active,
+.theme-dark .subbar a.topbtn.active {
+    background: rgba(255, 255, 255, .18);
+    color: var(--btn-focus, #ffd43b);
+    border-color: var(--btn-focus, #ffd43b);
+    box-shadow: 0 0 0 2px var(--btn-focus, #ffd43b) inset, 0 2px 6px rgba(0, 0, 0, .35);
+    font-weight: 700;
+}
+
 .theme-dark-hc .subbar .topbtn,
 .theme-dark-hc .subbar a.topbtn {
     color: var(--brand-green, #00ff00);
@@ -479,6 +491,70 @@
 .theme-dark-hc .subbar .topbtn:hover,
 .theme-dark-hc .subbar a.topbtn:hover {
     background: #111;
+}
+
+.theme-dark-hc .subbar .topbtn.active,
+.theme-dark-hc .subbar a.topbtn.active {
+    background: #000;
+    color: var(--brand-green, #00ff00);
+    border-color: var(--brand-green, #00ff00);
+    box-shadow: 0 0 0 2px var(--brand-green, #00ff00) inset, 0 0 0 4px rgba(0, 255, 0, .15);
+    font-weight: 800;
+}
+
+/* Disabled state for any submenu buttons (categories, subcategories, registrators) */
+.subbar .topbtn.is-disabled,
+.subbar a.topbtn.is-disabled {
+    opacity: .5;
+    filter: grayscale(0.8);
+    background: var(--bg-tertiary, #e9ecef) !important;
+    color: var(--text-muted, #6c757d) !important;
+    border-color: var(--border-color, #dee2e6) !important;
+    font-style: italic;
+}
+
+.subbar .topbtn.is-disabled.active,
+.subbar a.topbtn.is-disabled.active {
+    background: var(--border-color, #dee2e6);
+    color: var(--text-color, #212529);
+    box-shadow: 0 0 0 2px var(--btn-focus, #ffcc00) inset, 0 2px 6px rgba(0, 0, 0, .12);
+    border-color: var(--btn-focus, #ffcc00);
+    font-weight: 700;
+}
+
+.theme-dark .subbar .topbtn.is-disabled,
+.theme-dark .subbar a.topbtn.is-disabled {
+    background: rgba(255, 255, 255, .06) !important;
+    color: rgba(255, 255, 255, .4) !important;
+    border-color: rgba(255, 255, 255, .1) !important;
+    font-style: italic;
+}
+
+.theme-dark .subbar .topbtn.is-disabled.active,
+.theme-dark .subbar a.topbtn.is-disabled.active {
+    background: rgba(255, 255, 255, .08);
+    color: rgba(255, 255, 255, .85);
+    border-color: var(--btn-focus, #ffd43b);
+    box-shadow: 0 0 0 2px var(--btn-focus, #ffd43b) inset, 0 2px 6px rgba(0, 0, 0, .35);
+    font-weight: 700;
+}
+
+.theme-dark-hc .subbar .topbtn.is-disabled,
+.theme-dark-hc .subbar a.topbtn.is-disabled {
+    background: #000 !important;
+    color: #666 !important;
+    border-color: #333 !important;
+    box-shadow: 0 0 0 1px #333 inset;
+    font-style: italic;
+}
+
+.theme-dark-hc .subbar .topbtn.is-disabled.active,
+.theme-dark-hc .subbar a.topbtn.is-disabled.active {
+    background: #000;
+    color: #b0b0b0;
+    border-color: var(--brand-green, #00ff00);
+    box-shadow: 0 0 0 2px var(--brand-green, #00ff00) inset, 0 0 0 4px rgba(0, 255, 0, .15);
+    font-weight: 800;
 }
 
 /* High-contrast backgrounds for submenu bars */

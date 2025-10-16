@@ -7,9 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 import requests
+from tests.config import BASE_URL as BASE, ACCEPT_INSECURE_CERTS
 
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
 ADMIN_LOGIN = os.getenv('LOGIN', 'admin')
 ADMIN_PASSWORD = os.getenv('PASSWORD', 'admin')
 
@@ -17,8 +16,9 @@ ADMIN_PASSWORD = os.getenv('PASSWORD', 'admin')
 def make_chrome():
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
     opts.set_capability('acceptInsecureCerts', True)
@@ -45,10 +45,14 @@ def test_groups_table_and_add_modal():
         d.get(f'{BASE}/groups')
         time.sleep(0.2)
         # Таблица групп должна быть видна по ARIA
-        tables = d.find_elements('css selector', "table[role='table'][aria-label='Таблица групп']")
+        tables = d.find_elements(
+            'css selector', "table[role='table'][aria-label='Таблица групп']")
         assert tables and tables[0].is_displayed()
         # Открываем модалку добавления группы
-        add_selectors = ["#add-group-button", "[data-action='add-group']", "button.btn-primary"]
+        add_selectors = [
+            "#add-group-button", "[data-action='add-group']",
+            "button.btn-primary"
+        ]
         opener = None
         for sel in add_selectors:
             els = d.find_elements('css selector', sel)
@@ -58,7 +62,8 @@ def test_groups_table_and_add_modal():
         if not opener:
             pytest.skip('Add group control not found')
         # Скролл + JS-клик как fallback
-        d.execute_script("arguments[0].scrollIntoView({block:'center'});", opener)
+        d.execute_script("arguments[0].scrollIntoView({block:'center'});",
+                         opener)
         time.sleep(0.05)
         try:
             opener.click()
@@ -66,7 +71,9 @@ def test_groups_table_and_add_modal():
             d.execute_script("arguments[0].click();", opener)
         time.sleep(0.2)
         # Проверяем, что модалка появилась и фокус внутри
-        modal_candidates = ["#popup-add", ".modal.show", "#groupModal", "#addGroupModal"]
+        modal_candidates = [
+            "#popup-add", ".modal.show", "#groupModal", "#addGroupModal"
+        ]
         modal = None
         for sel in modal_candidates:
             els = d.find_elements('css selector', sel)
@@ -77,7 +84,10 @@ def test_groups_table_and_add_modal():
         active = d.switch_to.active_element
         assert active is not None
         # Закрываем модалку
-        close_selectors = [".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close", ".modal.show .modal-footer .btn-secondary"]
+        close_selectors = [
+            ".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close",
+            ".modal.show .modal-footer .btn-secondary"
+        ]
         for sel in close_selectors:
             els = d.find_elements('css selector', sel)
             if els:
@@ -100,7 +110,11 @@ def test_groups_context_menu_and_modals():
         time.sleep(0.3)
         # Ищем строку
         row = None
-        for sel in ["[data-testid='groups-table'] tbody tr", "table[role='table'] tbody tr", "#grouptable tbody tr", "table tbody tr"]:
+        for sel in [
+                "[data-testid='groups-table'] tbody tr",
+                "table[role='table'] tbody tr", "#grouptable tbody tr",
+                "table tbody tr"
+        ]:
             els = d.find_elements('css selector', sel)
             if els:
                 row = els[0]
@@ -112,7 +126,10 @@ def test_groups_context_menu_and_modals():
         try:
             ActionChains(d).context_click(row).perform()
         except Exception:
-            togglers = row.find_elements('css selector', "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle")
+            togglers = row.find_elements(
+                'css selector',
+                "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle"
+            )
             if togglers:
                 d.execute_script("arguments[0].click();", togglers[0])
             else:
@@ -120,7 +137,10 @@ def test_groups_context_menu_and_modals():
         time.sleep(0.1)
         # Меню и модалки
         menu = None
-        for sel in ["[data-testid='groups-context-menu']", ".dropdown-menu.show", ".context-menu.show", ".dropdown-menu[style*='display: block']"]:
+        for sel in [
+                "[data-testid='groups-context-menu']", ".dropdown-menu.show",
+                ".context-menu.show", ".dropdown-menu[style*='display: block']"
+        ]:
             els = d.find_elements('css selector', sel)
             if els:
                 menu = els[0]
@@ -128,8 +148,23 @@ def test_groups_context_menu_and_modals():
         if not menu:
             pytest.skip('Context menu not visible')
         actions = [
-            {"name": "edit", "selectors": ["[data-testid='groups-cm-edit']", "[data-action='edit']", "a[href*='edit']", "[data-bs-target='#popup-edit']"]},
-            {"name": "delete", "selectors": ["[data-testid='groups-cm-delete']", "[data-action='delete']", "a[href*='delete']", "[data-bs-target='#popup-delete']"]},
+            {
+                "name":
+                "edit",
+                "selectors": [
+                    "[data-testid='groups-cm-edit']", "[data-action='edit']",
+                    "a[href*='edit']", "[data-bs-target='#popup-edit']"
+                ]
+            },
+            {
+                "name":
+                "delete",
+                "selectors": [
+                    "[data-testid='groups-cm-delete']",
+                    "[data-action='delete']", "a[href*='delete']",
+                    "[data-bs-target='#popup-delete']"
+                ]
+            },
         ]
         opened = 0
         for act in actions:
@@ -149,7 +184,12 @@ def test_groups_context_menu_and_modals():
                 d.execute_script("arguments[0].click();", item)
             time.sleep(0.2)
             modal = None
-            for sel in ["[data-testid='groups-modal-edit'] .popup", "[data-testid='groups-modal-delete'] .popup", "#popup-edit.modal.show", "#popup-delete.modal.show", ".modal.show[role='dialog']"]:
+            for sel in [
+                    "[data-testid='groups-modal-edit'] .popup",
+                    "[data-testid='groups-modal-delete'] .popup",
+                    "#popup-edit.modal.show", "#popup-delete.modal.show",
+                    ".modal.show[role='dialog']"
+            ]:
                 els = d.find_elements('css selector', sel)
                 if els and els[0].is_displayed():
                     modal = els[0]
@@ -158,7 +198,13 @@ def test_groups_context_menu_and_modals():
                 continue
             opened += 1
             # Закрыть модалку
-            for sel in ["[data-testid='groups-edit-cancel']", "[data-testid='groups-delete-cancel']", ".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close", ".modal.show .modal-footer .btn-secondary"]:
+            for sel in [
+                    "[data-testid='groups-edit-cancel']",
+                    "[data-testid='groups-delete-cancel']",
+                    ".modal.show [data-bs-dismiss='modal']",
+                    ".modal.show .btn-close",
+                    ".modal.show .modal-footer .btn-secondary"
+            ]:
                 els = d.find_elements('css selector', sel)
                 if els:
                     try:
@@ -171,12 +217,18 @@ def test_groups_context_menu_and_modals():
             try:
                 ActionChains(d).context_click(row).perform()
             except Exception:
-                togglers = row.find_elements('css selector', "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle")
+                togglers = row.find_elements(
+                    'css selector',
+                    "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle"
+                )
                 if togglers:
                     d.execute_script("arguments[0].click();", togglers[0])
             time.sleep(0.1)
             menu = None
-            for sel in [".dropdown-menu.show", ".context-menu.show", ".dropdown-menu[style*='display: block']"]:
+            for sel in [
+                    ".dropdown-menu.show", ".context-menu.show",
+                    ".dropdown-menu[style*='display: block']"
+            ]:
                 els = d.find_elements('css selector', sel)
                 if els:
                     menu = els[0]
@@ -211,6 +263,3 @@ def _ensure_target_or_skip():
     except Exception as e:
         # Для других ошибок (DNS, SSL) тоже пропускаем
         pytest.skip(f'Network error: {e}')
-
-
-

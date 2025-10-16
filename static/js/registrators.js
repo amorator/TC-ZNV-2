@@ -99,6 +99,16 @@
       return r.json();
     });
   }
+  function putJson(url, data) {
+    return fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(data),
+    }).then(function (r) {
+      return r.json();
+    });
+  }
 
   function loadRegistrators(page = 1) {
     return fetchJson(`/api/registrators?page=${page}&page_size=10`).then(
@@ -219,6 +229,13 @@
     }
     menu.classList.remove("d-none");
     menu.style.display = "block";
+    // Set toggle item label
+    try {
+      var list = menu.querySelector(".context-menu__list");
+      var tgl = list && list.querySelector('[data-action="toggle"]');
+      if (tgl)
+        tgl.textContent = item && item.enabled ? "Отключить" : "Включить";
+    } catch (_) {}
     var hide = function () {
       menu.classList.add("d-none");
       menu.style.display = "none";
@@ -252,6 +269,8 @@
         if (window.openAddRegistratorModalUI)
           return window.openAddRegistratorModalUI();
         openAddRegistratorModal();
+      } else if (action === "toggle") {
+        toggleRegistrator(item);
       }
       hide();
     };
@@ -418,6 +437,31 @@
   }
 
   function toggleRegistrator(item) {
+    try {
+      if (!item || !item.id) return;
+      var newEnabled = !(item.enabled === 1 || item.enabled === true);
+      putJson("/registrators/" + encodeURIComponent(item.id), {
+        name: item.name || "",
+        url_template: item.url_template || "",
+        enabled: newEnabled ? 1 : 0,
+      }).then(function (r) {
+        if (r && r.status === "success") {
+          loadRegistrators();
+          try {
+            if (window.socket)
+              window.socket.emit("registrators:changed", {
+                id: item.id,
+                reason: "toggled",
+              });
+          } catch (_) {}
+        } else if (r && r.message) {
+          alert(r.message);
+        }
+      });
+    } catch (_) {}
+  }
+
+  function toggleRegistrator(item) {
     var next = item.enabled ? 0 : 1;
     postJson("/registrators/" + encodeURIComponent(item.id), {
       name: item.name,
@@ -437,8 +481,16 @@
         return r.json();
       })
       .then(function (j) {
-        if (j && j.status === "success") loadRegistrators();
-        else if (j && j.message) alert(j.message);
+        if (j && j.status === "success") {
+          loadRegistrators();
+          try {
+            if (window.socket)
+              window.socket.emit("registrators:changed", {
+                id: item.id,
+                reason: "deleted",
+              });
+          } catch (_) {}
+        } else if (j && j.message) alert(j.message);
       });
   }
 
@@ -982,6 +1034,38 @@
           .catch(function () {});
       } catch (_) {}
     }
+    // Ensure Save button is bound even if initial bind happened before DOM existed
+    try {
+      var btnSave = document.getElementById("regEditSubmit");
+      if (btnSave && !btnSave.__boundDynamic) {
+        btnSave.__boundDynamic = true;
+        btnSave.addEventListener("click", function () {
+          try {
+            var id = (document.getElementById("regEditId") || {}).value;
+            var name =
+              (document.getElementById("regEditName") || {}).value || "";
+            var url = (document.getElementById("regEditUrl") || {}).value || "";
+            if (!id) return;
+            putJson("/registrators/" + encodeURIComponent(id), {
+              name: name.trim(),
+              url_template: url.trim(),
+            }).then(function (r) {
+              if (r && r.status === "success") {
+                try {
+                  var modalEl2 = document.getElementById(
+                    "editRegistratorModal"
+                  );
+                  if (modalEl2) hideModalEl(modalEl2);
+                } catch (_) {}
+                loadRegistrators();
+              } else if (r && r.message) {
+                alert(r.message);
+              }
+            });
+          } catch (_) {}
+        });
+      }
+    } catch (_) {}
     showModalEl(modalEl);
   };
 
@@ -997,7 +1081,7 @@
           var name = (document.getElementById("regEditName") || {}).value || "";
           var url = (document.getElementById("regEditUrl") || {}).value || "";
           if (!id) return;
-          postJson("/registrators/" + encodeURIComponent(id), {
+          putJson("/registrators/" + encodeURIComponent(id), {
             name: name.trim(),
             url_template: url.trim(),
           }).then(function (r) {
@@ -1205,4 +1289,65 @@
     safeOn(q("filesList"), "change", updateImportButton);
     safeOn(q("btnImportSelected"), "click", importSelected);
   });
+
+  // Socket-based soft refresh similar to files
+  (function setupRegistratorsSocket() {
+    try {
+      if (!window.io) return;
+      const sock =
+        window.socket && typeof window.socket.on === "function"
+          ? window.socket
+          : window.io(window.location.origin, {
+              path: "/socket.io",
+              withCredentials: true,
+              transports: ["websocket", "polling"],
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 1000,
+              reconnectionDelayMax: 5000,
+              timeout: 20000,
+            });
+      try {
+        sock.on &&
+          sock.on("connect", function () {
+            try {
+              console.debug("[registrators] socket connected");
+            } catch (_) {}
+          });
+      } catch (_) {}
+      try {
+        sock.on &&
+          sock.on("disconnect", function (reason) {
+            try {
+              console.debug("[registrators] socket disconnect:", reason);
+            } catch (_) {}
+            if (reason !== "io client disconnect") {
+              try {
+                sock.connect();
+              } catch (_) {}
+            }
+          });
+      } catch (_) {}
+      if (!window.socket) window.socket = sock;
+      try {
+        sock.off && sock.off("registrators:changed");
+      } catch (_) {}
+      sock.on &&
+        sock.on("registrators:changed", function (evt) {
+          try {
+            console.debug("[registrators] socket registrators:changed", evt);
+          } catch (_) {}
+          try {
+            loadRegistrators();
+          } catch (_) {}
+          try {
+            setTimeout(function () {
+              try {
+                loadRegistrators();
+              } catch (_) {}
+            }, 300);
+          } catch (_) {}
+        });
+    } catch (_) {}
+  })();
 })();

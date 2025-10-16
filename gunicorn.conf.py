@@ -1,6 +1,9 @@
 # Worker класс (для WebSocket через gevent-websocket)
 worker_class = "geventwebsocket.gunicorn.workers.GeventWebSocketWorker"
 
+# Кастомный логгер с ротацией
+logger_class = "gunicorn_logger.RotatingLogger"
+
 # Количество воркеров (рекомендуется: 2 * CPU cores + 1)
 workers = 5
 
@@ -15,8 +18,9 @@ keepalive = 120  # HTTP keep-alive timeout
 # Логи
 capture_output = True
 loglevel = "info"  # Изменено с debug на info для production
-#accesslog = "logs/gaccess.log"  # access log из-за конфигурации gunicorn не пишется, альтернатива - accesslog - настроено в middleware.py
+# Используем кастомный логгер с ротацией
 errorlog = "logs/gerror.log"
+#accesslog = "logs/gaccess.log"  # access log из-за конфигурации gunicorn не пишется, альтернатива - accesslog - настроено в middleware.py
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # Сокет
@@ -30,12 +34,12 @@ preload_app = True  # Загрузка приложения до форка во
 
 # Обработка сигналов для корректного завершения
 def worker_int_handler(worker):
-	"""Handle worker interrupt signal gracefully."""
-	try:
-		worker.alive = False
-		worker.kill()
-	except:
-		pass
+    """Handle worker interrupt signal gracefully."""
+    try:
+        worker.alive = False
+        worker.kill()
+    except:
+        pass
 
 
 worker_int = worker_int_handler
@@ -52,8 +56,8 @@ umask = 0o007  # Права доступа для создаваемых фай�
 
 # Переменные окружения (Python 3.13 в виртуальном окружении)
 raw_env = [
-	'PYTHONPATH=/usr/share/znf',
-	'PWD=/usr/share/znf',
+    'PYTHONPATH=/usr/share/znf',
+    'PWD=/usr/share/znf',
 ]
 
 # Обработка сигналов

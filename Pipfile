@@ -16,6 +16,7 @@ yapf = "*"
 pywebpush = "*"
 werkzeug = "*"
 flask-socketio = "*"
+redis = "*"
 
 [dev-packages]
 

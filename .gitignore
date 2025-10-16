@@ -9,6 +9,7 @@ logs/
 artifacts/
 server.sock
 Pipfile.lock
+.coverage
 *.log
 *.log.*
 *.zsh

@@ -5,9 +5,7 @@ from urllib.parse import urlparse
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
+from tests.config import BASE_URL as BASE
 
 
 def _ensure_target_or_skip():
@@ -31,8 +29,9 @@ def make_chrome():
     _ensure_target_or_skip()
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
     if os.getenv('CERT_FILE'):
@@ -66,7 +65,8 @@ def _click_js(d, el):
 
 
 @pytest.mark.ui
-def test_admin_force_logout_kicks_active_user(qa_admin_credentials, qa_regular_credentials):
+def test_admin_force_logout_kicks_active_user(qa_admin_credentials,
+                                              qa_regular_credentials):
     """Админ принудительно разлогинивает: активная пользовательская сессия теряет доступ."""
     admin_user, admin_pass = qa_admin_credentials
     regular_user, regular_pass = qa_regular_credentials
@@ -103,14 +103,16 @@ def test_admin_force_logout_kicks_active_user(qa_admin_credentials, qa_regular_c
         # Пользовательский драйвер должен потерять доступ/перенаправиться на /login
         d_user.refresh()
         time.sleep(0.5)
-        assert ('/login' in d_user.current_url.lower()) or ('вход' in d_user.page_source.lower())
+        assert ('/login' in d_user.current_url.lower()) or (
+            'вход' in d_user.page_source.lower())
     finally:
         d_admin.quit()
         d_user.quit()
 
 
 @pytest.mark.ui
-def test_admin_maintenance_blocks_user_actions(qa_admin_credentials, qa_reader_credentials):
+def test_admin_maintenance_blocks_user_actions(qa_admin_credentials,
+                                               qa_reader_credentials):
     """Режим обслуживания блокирует действия пользователя (минимальная проверка)."""
     admin_user, admin_pass = qa_admin_credentials
     user, pwd = qa_reader_credentials
@@ -154,5 +156,3 @@ def test_admin_maintenance_blocks_user_actions(qa_admin_credentials, qa_reader_c
     finally:
         d_admin.quit()
         d_user.quit()
-
-

@@ -58,7 +58,7 @@
       <div id="empty-subcategories" class="empty-state" style="display: none;">
         <i class="fas fa-folder-plus"></i>
         <h4>Нет подкатегорий</h4>
-        <p>Создайте подкатегории для более детальной организации файлов</p>
+        <p>Создайте первую подкатегорию</p>
         <button class="btn btn-primary" onclick="showAddSubcategoryModal()">
           <i class="fas fa-plus"></i> Создать подкатегорию
         </button>
@@ -229,34 +229,26 @@
       </div>
       <form method="POST" action="{{ url_for('subcategory_add') }}">
         <div class="modal-body">
-          <div class="row">
-            <div class="col-md-6">
-              <input type="hidden" id="add_subcategory_category" name="category_id">
-              <div class="mb-3">
-                <label for="add_subcategory_display_name" class="form-label">Отображаемое имя *</label>
-                <input type="text" class="form-control" id="add_subcategory_display_name" name="display_name" required>
-              </div>
-              <div class="mb-3">
-                <label for="add_subcategory_folder_name" class="form-label">Имя папки *</label>
-                <input type="text" class="form-control" id="add_subcategory_folder_name" name="folder_name" required>
-                <div class="form-text">Создается внутри папки категории</div>
-              </div>
-              <div class="mb-3">
-                <label for="add_subcategory_display_order" class="form-label">Порядок отображения</label>
-                <select class="form-select" id="add_subcategory_display_order" name="display_order">
-                  <!-- Options will be populated by JavaScript -->
-                </select>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="add_subcategory_enabled" name="enabled" checked>
-                <label class="form-check-label" for="add_subcategory_enabled">
-                  Включена
-                </label>
-              </div>
-            </div>
-            <div class="col-md-6">
-              <!-- Права при создании подкатегории убраны по требованию -->
-            </div>
+          <input type="hidden" id="add_subcategory_category" name="category_id">
+          <div class="mb-3">
+            <label for="add_subcategory_display_name" class="form-label">Отображаемое имя *</label>
+            <input type="text" class="form-control" id="add_subcategory_display_name" name="display_name" required>
+          </div>
+          <div class="mb-3">
+            <label for="add_subcategory_folder_name" class="form-label">Имя папки *</label>
+            <input type="text" class="form-control" id="add_subcategory_folder_name" name="folder_name" required>
+            <div class="form-text">Создается внутри папки категории</div>
+          </div>
+          <div class="mb-3">
+            <label for="add_subcategory_display_order" class="form-label">Порядок отображения</label>
+            <select class="form-select" id="add_subcategory_display_order" name="display_order">
+            </select>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="add_subcategory_enabled" name="enabled" checked>
+            <label class="form-check-label" for="add_subcategory_enabled">
+              Включена
+            </label>
           </div>
         </div>
         <div class="modal-footer">
@@ -421,6 +413,18 @@ try {
   window.__canSubsManage = {{ (can_subs_manage|default(False))|tojson }};
 } catch(_) {}
 </script>
-<script src="{{ url_for('static', filename='js/categories.js') }}" defer></script>
+<script>
+// Debug marker to verify template executed
+try { console.debug('[categories] inline template hook'); } catch(_) {}
+// Dynamically load categories.js with cache-busting to defeat SW/browser cache
+(function(){
+  try {
+    var s = document.createElement('script');
+    s.src = "{{ url_for('static', filename='js/categories.js') }}?v=" + Date.now();
+    s.defer = true;
+    document.head.appendChild(s);
+  } catch(_) {}
+})();
+</script>
 
 {% endblock %}

@@ -1,4 +1,15 @@
 let currentCategoryId = null;
+try {
+  console.debug("[categories] script loaded");
+} catch (_) {}
+// Generate a short per-tab id to distinguish logs between tabs
+try {
+  if (!window.__categoriesTabId) {
+    const r = Math.random().toString(36).slice(2, 6);
+    const t = Date.now().toString(36).slice(-4);
+    window.__categoriesTabId = r + t;
+  }
+} catch (_) {}
 let currentSubcategoryId = null;
 let currentPermissionsDraft = { user: {}, group: {} };
 let lastSavedPermissions = { user: {}, group: {} };
@@ -7,26 +18,142 @@ let isDirtyUsers = false;
 let categoriesCache = [];
 let subcategoriesCache = [];
 
-document.addEventListener("DOMContentLoaded", function () {
+function initCategoriesPage() {
+  try {
+    console.debug("[categories] init");
+  } catch (_) {}
   try {
     if (!window.__categoriesClientId)
       window.__categoriesClientId =
         Math.random().toString(36).slice(2) + "-" + Date.now();
   } catch (_) {}
-  setupTabNavigation();
-  setupModalAccessibility();
-  document.getElementById("categories-tab").style.display = "block";
-  loadCategories();
-  setupSaveCancelButtons();
-  setupSocket();
-  wireSearchbar("groups");
-  wireSearchbar("users");
-  const delCat = document.getElementById("delete-category-btn");
-  const delSub = document.getElementById("delete-subcategory-btn");
-  if (delCat) delCat.onclick = tryDeleteCategory;
-  if (delSub) delSub.onclick = tryDeleteSubcategory;
-  initCategoriesContextMenu();
+  try {
+    setupTabNavigation();
+  } catch (_) {}
+  try {
+    setupModalAccessibility();
+  } catch (_) {}
+  try {
+    document.getElementById("categories-tab").style.display = "block";
+  } catch (_) {}
+  try {
+    loadCategories();
+  } catch (_) {}
+  try {
+    setupSaveCancelButtons();
+  } catch (_) {}
+  try {
+    setupSocket();
+  } catch (_) {}
+  try {
+    wireSearchbar("groups");
+  } catch (_) {}
+  try {
+    wireSearchbar("users");
+  } catch (_) {}
+  try {
+    const delCat = document.getElementById("delete-category-btn");
+    const delSub = document.getElementById("delete-subcategory-btn");
+    if (delCat) delCat.onclick = tryDeleteCategory;
+    if (delSub) delSub.onclick = tryDeleteSubcategory;
+  } catch (_) {}
+  try {
+    initCategoriesContextMenu();
+  } catch (_) {}
+  try {
+    if (!window.__categoriesWatchdog) {
+      window.__categoriesWatchdog = setInterval(function () {
+        try {
+          var s = window.socket;
+          var connected = !!(s && s.connected);
+          var available = !!s;
+          var state = connected + ":" + available;
+          var now = Date.now();
+          if (
+            state !== window.__categoriesLastWatchdogState ||
+            now - (window.__categoriesLastWatchdogAt || 0) > 30000
+          ) {
+            console.debug(
+              "[categories] watchdog[" +
+                (window.__categoriesTabId || "tab") +
+                "]: socket",
+              available,
+              connected
+            );
+            window.__categoriesLastWatchdogState = state;
+            window.__categoriesLastWatchdogAt = now;
+          }
+        } catch (_) {}
+      }, 5000);
+    }
+  } catch (_) {}
+  // removed light periodic refresh fallback
+  try {
+    if (!window.softRefreshCategories) {
+      window.softRefreshCategories = function () {
+        try {
+          loadCategories();
+        } catch (_) {}
+        try {
+          if (currentCategoryId) loadSubcategories(currentCategoryId);
+        } catch (_) {}
+        try {
+          setTimeout(function () {
+            try {
+              if (currentCategoryId) loadSubcategories(currentCategoryId);
+            } catch (_) {}
+          }, 300);
+        } catch (_) {}
+      };
+    }
+  } catch (_) {}
+
+  // Debounced soft refresh helpers (mirror files.js behavior)
+  try {
+    if (!window.__categoriesRefreshTimeout)
+      window.__categoriesRefreshTimeout = null;
+    if (!window.triggerImmediateCategoriesRefresh) {
+      window.triggerImmediateCategoriesRefresh = function () {
+        try {
+          if (typeof window.softRefreshCategories === "function") {
+            window.softRefreshCategories();
+          } else {
+            loadCategories();
+          }
+        } catch (_) {}
+      };
+    }
+    if (!window.scheduleCategoriesRefreshFromSocket) {
+      window.scheduleCategoriesRefreshFromSocket = function (evt) {
+        try {
+          if (window.__categoriesRefreshTimeout) {
+            clearTimeout(window.__categoriesRefreshTimeout);
+          }
+        } catch (_) {}
+        try {
+          window.__categoriesRefreshTimeout = setTimeout(function () {
+            try {
+              window.triggerImmediateCategoriesRefresh();
+            } catch (_) {}
+          }, 250);
+        } catch (_) {}
+      };
+    }
+  } catch (_) {}
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  try {
+    console.debug("[categories] DOMContentLoaded");
+  } catch (_) {}
+  initCategoriesPage();
 });
+
+try {
+  if (document.readyState !== "loading") {
+    initCategoriesPage();
+  }
+} catch (_) {}
 
 function setupModalAccessibility() {
   const modals = [
@@ -135,19 +262,79 @@ function setupTabNavigation() {
 }
 
 function loadCategories() {
-  fetch("/api/categories")
-    .then((response) => response.json())
+  try {
+    var url = new URL("/api/categories", window.location.origin);
+    try {
+      url.searchParams.set("t", String(Date.now()));
+    } catch (_) {}
+  } catch (_) {
+    var url = "/api/categories";
+  }
+  try {
+    var ctrl =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    if (ctrl)
+      setTimeout(function () {
+        try {
+          ctrl.abort();
+        } catch (_) {}
+      }, 7000);
+  } catch (_) {
+    var ctrl = null;
+  }
+  fetch(String(url), {
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    signal: ctrl ? ctrl.signal : undefined,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        try {
+          const text = await response.text();
+          console.error(
+            "[categories] /api/categories HTTP " + response.status,
+            text && text.slice(0, 200)
+          );
+        } catch (_) {}
+        throw new Error("categories-http-status-" + response.status);
+      }
+      try {
+        return await response.json();
+      } catch (e) {
+        try {
+          const text = await response.text();
+          console.error(
+            "[categories] JSON parse error, got:",
+            text && text.slice(0, 200)
+          );
+        } catch (_) {}
+        throw e;
+      }
+    })
     .then((categories) => {
-      categoriesCache = Array.isArray(categories)
-        ? categories.slice().sort((a, b) => {
-            const ao = Number((a && a.display_order) || 0);
-            const bo = Number((b && b.display_order) || 0);
-            if (ao !== bo) return ao - bo;
-            const an = String((a && a.display_name) || "");
-            const bn = String((b && b.display_name) || "");
-            return an.localeCompare(bn);
-          })
-        : [];
+      // Normalize types: ensure enabled is boolean for consistent UI logic
+      const normalized = (Array.isArray(categories) ? categories : []).map(
+        (c) => {
+          try {
+            c.enabled = Number(c && c.enabled) === 1;
+          } catch (_) {
+            c.enabled = !!(c && c.enabled);
+          }
+          return c;
+        }
+      );
+      categoriesCache = normalized.slice().sort((a, b) => {
+        const ao = Number((a && a.display_order) || 0);
+        const bo = Number((b && b.display_order) || 0);
+        if (ao !== bo) return ao - bo;
+        const an = String((a && a.display_name) || "");
+        const bn = String((b && b.display_name) || "");
+        return an.localeCompare(bn);
+      });
       if (categoriesCache.length === 0) {
         showEmptyCategories();
         return;
@@ -161,7 +348,26 @@ function loadCategories() {
         selectCategory(toSelect.id);
       }
     })
-    .catch(() => {
+    .catch((err) => {
+      try {
+        console.error(
+          "[categories] loadCategories failed:",
+          err && (err.message || err)
+        );
+      } catch (_) {}
+      // Keep last known categories to avoid flicker/empty UI on transient errors
+      try {
+        if (Array.isArray(categoriesCache) && categoriesCache.length > 0) {
+          console.debug("[categories] using cached categories due to error");
+          showCategoryTabs(categoriesCache);
+          const savedCat = localStorage.getItem("admin_cat_active_category_id");
+          const toSelect =
+            categoriesCache.find((c) => String(c.id) === String(savedCat)) ||
+            categoriesCache[0];
+          if (toSelect && toSelect.id) selectCategory(toSelect.id);
+          return;
+        }
+      } catch (_) {}
       showEmptyCategories();
     });
 }
@@ -188,6 +394,8 @@ function showCategoryTabs(categories) {
   if (sorted.length === 0) {
     const addBtn = document.createElement("button");
     addBtn.className = "topbtn";
+    addBtn.setAttribute("data-action", "add-category");
+    addBtn.id = "add-category-button";
     addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
     addBtn.title = "Добавить категорию";
     addBtn.onclick = () => showAddCategoryModal();
@@ -203,6 +411,8 @@ function showCategoryTabs(categories) {
     });
     const addBtn = document.createElement("button");
     addBtn.className = "topbtn";
+    addBtn.setAttribute("data-action", "add-category");
+    addBtn.id = "add-category-button";
     addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
     addBtn.title = "Добавить категорию";
     addBtn.onclick = () => showAddCategoryModal();
@@ -232,10 +442,74 @@ function selectCategory(categoryId) {
 }
 
 function loadSubcategories(categoryId) {
-  fetch(`/api/subcategories/${categoryId}`)
-    .then((response) => response.json())
+  try {
+    var url = new URL(
+      `/api/subcategories/${categoryId}`,
+      window.location.origin
+    );
+    try {
+      url.searchParams.set("t", String(Date.now()));
+    } catch (_) {}
+  } catch (_) {
+    var url = `/api/subcategories/${categoryId}`;
+  }
+  try {
+    var ctrl =
+      typeof AbortController !== "undefined" ? new AbortController() : null;
+    if (ctrl)
+      setTimeout(function () {
+        try {
+          ctrl.abort();
+        } catch (_) {}
+      }, 7000);
+  } catch (_) {
+    var ctrl = null;
+  }
+  fetch(String(url), {
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    signal: ctrl ? ctrl.signal : undefined,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        try {
+          const text = await response.text();
+          console.error(
+            "[categories] /api/subcategories HTTP " + response.status,
+            text && text.slice(0, 200)
+          );
+        } catch (_) {}
+        throw new Error("subcategories-http-status-" + response.status);
+      }
+      try {
+        return await response.json();
+      } catch (e) {
+        try {
+          const text = await response.text();
+          console.error(
+            "[categories] subcategories JSON parse error, got:",
+            text && text.slice(0, 200)
+          );
+        } catch (_) {}
+        throw e;
+      }
+    })
     .then((subcategories) => {
-      subcategoriesCache = Array.isArray(subcategories) ? subcategories : [];
+      // Normalize types: ensure enabled is boolean for consistent UI logic
+      subcategoriesCache = (
+        Array.isArray(subcategories) ? subcategories : []
+      ).map((s) => {
+        try {
+          s.enabled = Number(s && s.enabled) === 1;
+        } catch (_) {
+          s.enabled = !!(s && s.enabled);
+        }
+        return s;
+      });
       if (subcategories.length === 0) {
         showEmptySubcategories();
         return;
@@ -251,7 +525,31 @@ function loadSubcategories(categoryId) {
         selectSubcategory(toSelect.id);
       }
     })
-    .catch(() => {
+    .catch((err) => {
+      try {
+        console.error(
+          "[categories] loadSubcategories failed:",
+          err && (err.message || err)
+        );
+      } catch (_) {}
+      // Keep last known subcategories to avoid flicker/empty UI on transient errors
+      try {
+        if (
+          Array.isArray(subcategoriesCache) &&
+          subcategoriesCache.length > 0
+        ) {
+          console.debug("[categories] using cached subcategories due to error");
+          showSubcategoryTabs(subcategoriesCache);
+          const savedSub = localStorage.getItem(
+            "admin_cat_active_subcategory_id"
+          );
+          const toSelect =
+            subcategoriesCache.find((s) => String(s.id) === String(savedSub)) ||
+            subcategoriesCache[0];
+          if (toSelect && toSelect.id) selectSubcategory(toSelect.id);
+          return;
+        }
+      } catch (_) {}
       showEmptySubcategories();
     });
 }
@@ -269,6 +567,8 @@ function showSubcategoryTabs(subcategories) {
   if (subcategories.length === 0) {
     const addBtn = document.createElement("button");
     addBtn.className = "topbtn";
+    addBtn.setAttribute("data-action", "add-subcategory");
+    addBtn.id = "add-subcategory-button";
     addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
     addBtn.title = "Добавить подкатегорию";
     addBtn.onclick = () => showAddSubcategoryModal();
@@ -284,6 +584,8 @@ function showSubcategoryTabs(subcategories) {
     });
     const addBtn = document.createElement("button");
     addBtn.className = "topbtn";
+    addBtn.setAttribute("data-action", "add-subcategory");
+    addBtn.id = "add-subcategory-button";
     addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
     addBtn.title = "Добавить подкатегорию";
     addBtn.onclick = () => showAddSubcategoryModal();
@@ -1188,10 +1490,15 @@ function setupSocket() {
           : null;
       const socket =
         existing ||
-        window.io("/", {
+        window.io(window.location.origin, {
           path: "/socket.io",
           withCredentials: true,
           transports: ["websocket", "polling"],
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          timeout: 20000,
         });
       if (!existing) {
         try {
@@ -1199,55 +1506,209 @@ function setupSocket() {
         } catch (_) {}
       }
       socket.on("connect_error", (err) => {
-        console.warn("Socket.IO connect_error:", err && (err.message || err));
         try {
-          socket.close();
+          console.warn(
+            "[categories] socket connect_error:",
+            err && (err.message || err)
+          );
+        } catch (_) {}
+        try {
+          socket.connect();
         } catch (_) {}
       });
       socket.on("error", (err) => {
-        console.warn("Socket.IO error:", err && (err.message || err));
+        try {
+          console.warn(
+            "[categories] socket error:",
+            err && (err.message || err)
+          );
+        } catch (_) {}
       });
       try {
-        socket.off && socket.off("subcategory_permissions_updated");
-        socket.off && socket.off("category_updated");
-        socket.off && socket.off("subcategory_updated");
+        socket.on("connect", function () {
+          try {
+            console.debug("[categories] socket connected");
+          } catch (_) {}
+          try {
+            socket.off && socket.off("categories:changed");
+          } catch (_) {}
+          try {
+            bindCategoriesSocketHandlers(socket);
+          } catch (_) {}
+          try {
+            window.scheduleCategoriesRefreshFromSocket &&
+              window.scheduleCategoriesRefreshFromSocket({
+                reason: "server-update",
+              });
+          } catch (_) {}
+        });
       } catch (_) {}
-      socket.on("subcategory_permissions_updated", (data) => {
-        if (!data || !data.subcategory_id) return;
+      try {
+        socket.on("disconnect", function (reason) {
+          try {
+            console.debug("[categories] socket disconnect:", reason);
+          } catch (_) {}
+          // auto-reconnect handled by Socket.IO
+        });
+      } catch (_) {}
+      function bindCategoriesSocketHandlers(sock) {
         try {
-          const fromSelf = !!(
-            data.originClientId &&
-            window.__categoriesClientId &&
-            data.originClientId === window.__categoriesClientId
-          );
-          if (fromSelf) return;
+          console.debug("[categories] binding socket handlers");
         } catch (_) {}
-        if (String(data.subcategory_id) !== String(currentSubcategoryId))
-          return;
-        if (isDirtyGroups || isDirtyUsers) {
-          return;
-        }
-        const which =
-          data.which === "groups" || data.which === "users" ? data.which : null;
-        if (which === "groups") {
-          const qg = (getSearchInput("groups")?.value || "").trim();
-          loadPage("groups", 1, qg);
-        } else if (which === "users") {
-          const qu = (getSearchInput("users")?.value || "").trim();
-          loadPage("users", 1, qu);
-        } else {
-          const qg = (getSearchInput("groups")?.value || "").trim();
-          const qu = (getSearchInput("users")?.value || "").trim();
-          loadPage("groups", 1, qg);
-          loadPage("users", 1, qu);
-        }
-      });
-      socket.on("category_updated", () => {
-        loadCategories();
-      });
-      socket.on("subcategory_updated", () => {
-        if (currentCategoryId) loadSubcategories(currentCategoryId);
-      });
+        // Debug: log any socket event reaching this page
+        try {
+          if (!sock.__categoriesOnAnyBound && sock.onAny) {
+            sock.__categoriesOnAnyBound = true;
+            sock.onAny(function (event, payload) {
+              try {
+                if (
+                  event === "categories:changed" ||
+                  event === "category_updated" ||
+                  event === "subcategory_updated" ||
+                  event === "subcategory_permissions_updated"
+                ) {
+                  console.debug("[categories] onAny:", event, payload);
+                }
+              } catch (_) {}
+            });
+          }
+        } catch (_) {}
+        sock.on && sock.off && sock.off("subcategory_permissions_updated");
+        sock.on && sock.off && sock.off("category_updated");
+        sock.on && sock.off && sock.off("subcategory_updated");
+        sock.on && sock.off && sock.off("categories:changed");
+        sock.on &&
+          sock.on("subcategory_permissions_updated", (data) => {
+            if (!data || !data.subcategory_id) return;
+            try {
+              const fromSelf = !!(
+                data.originClientId &&
+                window.__categoriesClientId &&
+                data.originClientId === window.__categoriesClientId
+              );
+              if (fromSelf) return;
+            } catch (_) {}
+            if (String(data.subcategory_id) !== String(currentSubcategoryId)) {
+              try {
+                console.debug(
+                  "[categories] skip perms sync: subcategory mismatch",
+                  {
+                    incoming: String(data.subcategory_id),
+                    current: String(currentSubcategoryId),
+                  }
+                );
+              } catch (_) {}
+              return;
+            }
+            if (isDirtyGroups || isDirtyUsers) {
+              try {
+                console.debug("[categories] skip perms sync: dirty state", {
+                  isDirtyGroups,
+                  isDirtyUsers,
+                });
+              } catch (_) {}
+              return;
+            }
+            const which =
+              data.which === "groups" || data.which === "users"
+                ? data.which
+                : null;
+            if (which === "groups") {
+              const qg = (getSearchInput("groups")?.value || "").trim();
+              loadPage("groups", 1, qg);
+            } else if (which === "users") {
+              const qu = (getSearchInput("users")?.value || "").trim();
+              loadPage("users", 1, qu);
+            } else {
+              const qg = (getSearchInput("groups")?.value || "").trim();
+              const qu = (getSearchInput("users")?.value || "").trim();
+              loadPage("groups", 1, qg);
+              loadPage("users", 1, qu);
+            }
+          });
+        sock.on &&
+          sock.on("category_updated", () => {
+            try {
+              console.debug("[categories] socket category_updated");
+            } catch (_) {}
+            try {
+              window.triggerImmediateCategoriesRefresh &&
+                window.triggerImmediateCategoriesRefresh();
+              window.scheduleCategoriesRefreshFromSocket &&
+                window.scheduleCategoriesRefreshFromSocket({
+                  reason: "server-update",
+                });
+            } catch (_) {}
+          });
+        sock.on &&
+          sock.on("subcategory_updated", () => {
+            try {
+              console.debug("[categories] socket subcategory_updated");
+            } catch (_) {}
+            try {
+              window.triggerImmediateCategoriesRefresh &&
+                window.triggerImmediateCategoriesRefresh();
+              window.scheduleCategoriesRefreshFromSocket &&
+                window.scheduleCategoriesRefreshFromSocket({
+                  reason: "server-update",
+                });
+            } catch (_) {}
+          });
+        // Backend-broadcasted sync for any categories/subcategories changes
+        sock.on &&
+          sock.on("categories:changed", (evt) => {
+            try {
+              console.debug("[categories] socket categories:changed", evt);
+            } catch (_) {}
+            try {
+              window.triggerImmediateCategoriesRefresh &&
+                window.triggerImmediateCategoriesRefresh();
+              window.scheduleCategoriesRefreshFromSocket &&
+                window.scheduleCategoriesRefreshFromSocket(
+                  evt || { reason: "server-update" }
+                );
+              if (evt && evt.reason === "sub-delete") {
+                if (
+                  evt.subcategory_id &&
+                  String(evt.subcategory_id) === String(currentSubcategoryId)
+                ) {
+                  window.currentSubcategoryId = null;
+                }
+              }
+              if (evt && evt.reason === "delete") {
+                if (
+                  evt.category_id &&
+                  String(evt.category_id) === String(currentCategoryId)
+                ) {
+                  window.currentCategoryId = null;
+                  window.currentSubcategoryId = null;
+                }
+              }
+            } catch (_) {}
+          });
+      }
+      // initial bind
+      try {
+        bindCategoriesSocketHandlers(socket);
+      } catch (_) {}
+      // also rebind on reconnect
+      try {
+        socket.on &&
+          socket.on("reconnect", function () {
+            try {
+              socket.off && socket.off("categories:changed");
+            } catch (_) {}
+            try {
+              bindCategoriesSocketHandlers(socket);
+            } catch (_) {}
+            try {
+              window.scheduleCategoriesRefreshFromSocket &&
+                window.scheduleCategoriesRefreshFromSocket({
+                  reason: "server-update",
+                });
+            } catch (_) {}
+          });
+      } catch (_) {}
     }
   } catch (e) {
     console.warn("Socket.IO not available:", e);
@@ -1419,6 +1880,10 @@ function tryDeleteCategory() {
             action: "deleted",
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "delete",
+          category_id: currentCategoryId,
+        });
       } catch (_) {}
       loadCategories();
     })
@@ -1454,6 +1919,10 @@ function tryDeleteSubcategory() {
             action: "deleted",
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "sub-delete",
+          subcategory_id: currentSubcategoryId,
+        });
       } catch (_) {}
       if (currentCategoryId) loadSubcategories(currentCategoryId);
     })
@@ -1627,6 +2096,17 @@ function initCategoriesContextMenu() {
       el.classList.add("disabled");
     }
   }
+  function setItemVisible(action, visible) {
+    const el = menu.querySelector(
+      '.context-menu__item[data-action="' + action + '"]'
+    );
+    if (!el) return;
+    if (visible) {
+      el.classList.remove("d-none");
+    } else {
+      el.classList.add("d-none");
+    }
+  }
   function applyContextPermissions(target) {
     const canCats = !!window.__canCatsManage;
     const canSubs = !!window.__canSubsManage;
@@ -1673,12 +2153,12 @@ function initCategoriesContextMenu() {
     );
     setItemEnabled("add-category", true);
     setItemEnabled("edit-category", !!catId);
+    // delete-category: скрывать, если есть подкатегории или системная категория
+    setItemVisible("delete-category", !!catId && canDelete && !isRegistrators);
     setItemEnabled("delete-category", !!catId && canDelete && !isRegistrators);
     const hasEnabledSub = subsOfCat.some((s) => !!s.enabled);
-    setItemEnabled(
-      "toggle-category",
-      !!catId && !hasEnabledSub && !isRegistrators
-    );
+    // Разрешаем пункт всегда (кроме системной категории), а блокировку покажем в модальном окне/тосте
+    setItemEnabled("toggle-category", !!catId && !isRegistrators);
     const toggleCat = menu.querySelector(
       '.context-menu__item[data-action="toggle-category"]'
     );
@@ -1686,6 +2166,11 @@ function initCategoriesContextMenu() {
       toggleCat.textContent =
         cat && cat.enabled ? "Отключить категорию" : "Включить категорию";
     setItemEnabled("add-subcategory", !!catId);
+    const hasAnySub = subsOfCat.length > 0;
+    // Hide subcategory actions (except create) when there are no subcategories
+    setItemVisible("edit-subcategory", hasAnySub);
+    setItemVisible("delete-subcategory", hasAnySub);
+    setItemVisible("toggle-subcategory", hasAnySub);
     setItemEnabled("edit-subcategory", false);
     setItemEnabled("delete-subcategory", false);
     setItemEnabled("toggle-subcategory", false);
@@ -1697,6 +2182,11 @@ function initCategoriesContextMenu() {
     const sub = (subcategoriesCache || []).find(
       (s) => String(s.id) === String(subId)
     );
+    // Если подкатегория не найдена, переключаемся на конфигурацию категории
+    if (!sub) {
+      configureForCategory(currentCategoryId);
+      return;
+    }
     const catId = sub ? sub.category_id : currentCategoryId;
     setItemEnabled("add-category", true);
     setItemEnabled("edit-category", !!catId);
@@ -1704,14 +2194,36 @@ function initCategoriesContextMenu() {
       (s) => String(s.category_id) === String(catId)
     );
     const canDeleteCat = subsOfCat.length === 0;
+    // delete-category в контексте подкатегории: скрывать, если у категории есть подкатегории
+    setItemVisible("delete-category", !!catId && canDeleteCat);
     setItemEnabled("delete-category", !!catId && canDeleteCat);
-    const hasEnabledSub = subsOfCat.some((s) => !!s.enabled);
-    setItemEnabled("toggle-category", !!catId && !hasEnabledSub);
+    const cat = (categoriesCache || []).find(
+      (c) => String(c.id) === String(catId)
+    );
+    const isRegistrators = !!(
+      cat && String(cat.folder_name || "").toLowerCase() === "registrators"
+    );
+    // Не блокируем пункт в меню (кроме системной категории)
+    setItemEnabled("toggle-category", !!catId && !isRegistrators);
     setItemEnabled("add-subcategory", !!catId);
+    // Для контекста конкретной подкатегории — показываем действия подкатегории
+    setItemVisible("edit-subcategory", true);
+    // delete-subcategory: видимость зависит от наличия файлов (см. ниже)
+    // временно скрываем до получения статистики
+    setItemVisible("delete-subcategory", false);
+    setItemVisible("toggle-subcategory", true);
     setItemEnabled("edit-subcategory", !!subId);
     setItemEnabled("delete-subcategory", !!subId);
     setItemEnabled("toggle-subcategory", !!subId);
     applyContextPermissions("subcategory");
+    // Обновляем текст пункта переключения категории в контекстном меню
+    const toggleCat = menu.querySelector(
+      '.context-menu__item[data-action="toggle-category"]'
+    );
+    if (toggleCat)
+      toggleCat.textContent =
+        cat && cat.enabled ? "Отключить категорию" : "Включить категорию";
+
     const toggleSub = menu.querySelector(
       '.context-menu__item[data-action="toggle-subcategory"]'
     );
@@ -1723,7 +2235,10 @@ function initCategoriesContextMenu() {
         .then((r) => r.json())
         .then((stats) => {
           const files = (stats && stats.files_count) || 0;
-          setItemEnabled("delete-subcategory", !!subId && files === 0);
+          const canDeleteSub = !!subId && files === 0;
+          // скрываем пункт удаления, если есть файлы; показываем, если можно удалять
+          setItemVisible("delete-subcategory", canDeleteSub);
+          setItemEnabled("delete-subcategory", canDeleteSub);
         })
         .catch(() => {});
     } catch (_) {}
@@ -2079,15 +2594,7 @@ function submitEditCategoryAjax() {
       return;
     }
   }
-  if (!enabled) {
-    const hasEnabledSub = (subcategoriesCache || []).some(
-      (s) => String(s.category_id) === String(currentCategoryId) && !!s.enabled
-    );
-    if (hasEnabledSub) {
-      alert("Нельзя отключить категорию: в ней есть включённые подкатегории");
-      return;
-    }
-  }
+  // Разрешаем отключение независимо от состояния подкатегорий
   const body = new URLSearchParams();
   if (name) body.set("display_name", name);
   if (order) body.set("display_order", String(order));
@@ -2124,6 +2631,10 @@ function submitEditCategoryAjax() {
             action: "edited",
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "edited",
+          category_id: currentCategoryId,
+        });
       } catch (_) {}
       loadCategories();
       try {
@@ -2164,6 +2675,10 @@ function submitEditSubcategoryAjax() {
   if (name) body.set("display_name", name);
   if (order) body.set("display_order", String(order));
   if (enabled) body.set("enabled", "on");
+  // Always include category_id for subcategory edit
+  if (orig && orig.category_id) {
+    body.set("category_id", String(orig.category_id));
+  }
   fetch(`/subcategories/edit/${currentSubcategoryId}`, {
     method: "POST",
     credentials: "include",
@@ -2196,6 +2711,10 @@ function submitEditSubcategoryAjax() {
             action: "edited",
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "sub-edited",
+          subcategory_id: currentSubcategoryId,
+        });
       } catch (_) {}
       if (currentCategoryId) loadSubcategories(currentCategoryId);
       try {
@@ -2207,7 +2726,8 @@ function submitEditSubcategoryAjax() {
     .catch(() => {});
 }
 
-function openConfirmDeleteCategory() {
+function openConfirmDeleteCategory(id) {
+  if (id) currentCategoryId = id;
   if (!currentCategoryId) return;
   if (!window.__canCatsManage) return;
   const btn = document.getElementById("confirmDeleteCategoryBtn");
@@ -2216,7 +2736,8 @@ function openConfirmDeleteCategory() {
     document.getElementById("confirmDeleteCategoryModal")
   ).show();
 }
-function openConfirmDeleteSubcategory() {
+function openConfirmDeleteSubcategory(id) {
+  if (id) currentSubcategoryId = id;
   if (!currentSubcategoryId) return;
   if (!window.__canSubsManage) return;
   const btn = document.getElementById("confirmDeleteSubcategoryBtn");
@@ -2225,11 +2746,18 @@ function openConfirmDeleteSubcategory() {
     document.getElementById("confirmDeleteSubcategoryModal")
   ).show();
 }
-function openConfirmToggleCategory() {
-  if (!currentCategoryId) return;
+function openConfirmToggleCategory(id) {
+  if (id) currentCategoryId = id;
+  if (!currentCategoryId) {
+    try {
+      notify("Сначала выберите категорию", "warning");
+    } catch (_) {}
+    return;
+  }
   const cat = (categoriesCache || []).find(
     (c) => String(c.id) === String(currentCategoryId)
   );
+  // Разрешаем отключение независимо от состояния подкатегорий
   if (cat && String(cat.folder_name || "").toLowerCase() === "registrators") {
     notify("Системную категорию «Регистраторы» нельзя отключать", "warning");
     return;
@@ -2251,7 +2779,8 @@ function openConfirmToggleCategory() {
     document.getElementById("confirmToggleCategoryModal")
   ).show();
 }
-function openConfirmToggleSubcategory() {
+function openConfirmToggleSubcategory(id) {
+  if (id) currentSubcategoryId = id;
   if (!currentSubcategoryId) return;
   const sub = (subcategoriesCache || []).find(
     (s) => String(s.id) === String(currentSubcategoryId)
@@ -2280,7 +2809,7 @@ function confirmDeleteCategory() {
     .then((stats) => {
       const cnt = (stats && stats.subcategory_count) || 0;
       if (cnt > 0) throw new Error("blocked");
-      return fetch(`/admin/categories/delete/${currentCategoryId}`, {
+      return fetch(`/categories/delete/${currentCategoryId}`, {
         method: "POST",
         credentials: "include",
         headers: { "X-Requested-With": "fetch" },
@@ -2332,7 +2861,7 @@ function confirmDeleteSubcategory() {
     .then((stats) => {
       const cnt = (stats && stats.files_count) || 0;
       if (cnt > 0) throw new Error("blocked");
-      return fetch(`/admin/subcategories/delete/${currentSubcategoryId}`, {
+      return fetch(`/subcategories/delete/${currentSubcategoryId}`, {
         method: "POST",
         credentials: "include",
         headers: { "X-Requested-With": "fetch" },
@@ -2378,8 +2907,10 @@ function confirmDeleteSubcategory() {
 
 function confirmToggleCategory(targetEnabled) {
   const body = new URLSearchParams();
-  if (targetEnabled) body.set("enabled", "on");
-  fetch(`/admin/categories/edit/${currentCategoryId}`, {
+  // Always include 'enabled' key to trigger partial update branch server-side.
+  // Use empty string for disabled to evaluate falsy; 'on' for enabled.
+  body.set("enabled", targetEnabled ? "on" : "");
+  fetch(`/categories/edit/${currentCategoryId}`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -2415,6 +2946,11 @@ function confirmToggleCategory(targetEnabled) {
             enabled: targetEnabled,
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "toggled",
+          category_id: currentCategoryId,
+          enabled: targetEnabled,
+        });
       } catch (_) {}
       loadCategories();
       try {
@@ -2428,8 +2964,9 @@ function confirmToggleCategory(targetEnabled) {
 
 function confirmToggleSubcategory(targetEnabled) {
   const body = new URLSearchParams();
-  if (targetEnabled) body.set("enabled", "on");
-  fetch(`/admin/subcategories/edit/${currentSubcategoryId}`, {
+  // Always include 'enabled' key to trigger partial update branch server-side.
+  body.set("enabled", targetEnabled ? "on" : "");
+  fetch(`/subcategories/edit/${currentSubcategoryId}`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -2465,6 +3002,11 @@ function confirmToggleSubcategory(targetEnabled) {
             enabled: targetEnabled,
             originClientId: window.__categoriesClientId,
           });
+        broadcastLocalCategoriesChanged({
+          reason: "sub-toggled",
+          subcategory_id: currentSubcategoryId,
+          enabled: targetEnabled,
+        });
       } catch (_) {}
       if (currentCategoryId) loadSubcategories(currentCategoryId);
       try {

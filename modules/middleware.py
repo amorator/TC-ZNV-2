@@ -66,37 +66,56 @@ def init_middleware(app):
 			uid = getattr(current_user, 'id', None)
 			cookie_name = getattr(app, 'session_cookie_name', 'session')
 			sid = request.cookies.get(cookie_name) or request.cookies.get('session')
-			if is_authenticated and (uid in getattr(app, '_force_logout_users', set()) or (sid and sid in getattr(app, '_force_logout_sessions', set()))):
+			
+			# Check Redis-based force logout first
+			force_logout = False
+			if hasattr(app, 'force_logout_manager') and app.force_logout_manager:
+				if is_authenticated and uid:
+					if app.force_logout_manager.is_user_forced_logout(uid):
+						force_logout = True
+						app.force_logout_manager.remove_user_logout(uid)
+				if sid and app.force_logout_manager.is_session_forced_logout(sid):
+					force_logout = True
+					app.force_logout_manager.remove_session_logout(sid)
+			else:
+				# Fallback to in-memory force logout
+				if is_authenticated and (uid in getattr(app, '_force_logout_users', set()) or (sid and sid in getattr(app, '_force_logout_sessions', set()))):
+					force_logout = True
+					try:
+						app._force_logout_users.discard(uid)
+					except Exception:
+						pass
+					try:
+						if sid:
+							app._force_logout_sessions.discard(sid)
+							if hasattr(app, '_sessions'):
+								app._sessions.pop(sid, None)
+					except Exception:
+						pass
+			
+			if force_logout:
 				logout_user()
 				g.force_logout = True
-				# Clear the flag so that subsequent re-login is not immediately logged out again
-				try:
-					app._force_logout_users.discard(uid)
-				except Exception:
-					pass
-				try:
-					if sid:
-						app._force_logout_sessions.discard(sid)
-						if hasattr(app, '_sessions'):
-							app._sessions.pop(sid, None)
-				except Exception:
-					pass
-				# Also purge presence and HB for this user to avoid stale rows across the app
-				try:
-					presence = getattr(app, '_presence', {}) or {}
-					for psid, info in list(presence.items()):
-						try:
-							if int(info.get('user_id') or -1) == int(uid or -2):
-								app._presence.pop(psid, None)
-						except Exception:
-							pass
-					presence_hb = getattr(app, '_presence_hb', {}) or {}
-					prefix = f"hb:{uid}:"
-					for key in list(presence_hb.keys()):
-						if isinstance(key, str) and key.startswith(prefix):
-							app._presence_hb.pop(key, None)
-				except Exception:
-					pass
+				# Also purge presence for this user
+				if hasattr(app, 'presence_manager') and app.presence_manager and uid:
+					app.presence_manager.remove_user_presence(uid)
+				else:
+					# Fallback to in-memory presence cleanup
+					try:
+						presence = getattr(app, '_presence', {}) or {}
+						for psid, info in list(presence.items()):
+							try:
+								if int(info.get('user_id') or -1) == int(uid or -2):
+									app._presence.pop(psid, None)
+							except Exception:
+								pass
+						presence_hb = getattr(app, '_presence_hb', {}) or {}
+						prefix = f"hb:{uid}:"
+						for key in list(presence_hb.keys()):
+							if isinstance(key, str) and key.startswith(prefix):
+								app._presence_hb.pop(key, None)
+					except Exception:
+						pass
 		except Exception:
 			pass
 	

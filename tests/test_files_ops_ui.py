@@ -5,9 +5,7 @@ from urllib.parse import urlparse
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
+from tests.config import BASE_URL as BASE
 
 
 def _ensure_target_or_skip():
@@ -22,17 +20,18 @@ def _ensure_target_or_skip():
         pytest.skip(f'Host not resolvable: {host}')
     try:
         import requests
-        requests.head(BASE, timeout=5, allow_redirects=True)
+        requests.get(BASE, timeout=8, allow_redirects=True, verify=False)
     except Exception:
-        pytest.skip(f'Target not reachable: {BASE}')
+        pytest.xfail(f'Target not reachable: {BASE}')
 
 
 def make_chrome():
     _ensure_target_or_skip()
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
     if os.getenv('CERT_FILE'):
@@ -66,7 +65,9 @@ def _has_selector(d, sel: str) -> bool:
 
 
 def _context_click(d, el):
-    d.execute_script("var ev=new MouseEvent('contextmenu',{bubbles:true}); arguments[0].dispatchEvent(ev);", el)
+    d.execute_script(
+        "var ev=new MouseEvent('contextmenu',{bubbles:true}); arguments[0].dispatchEvent(ev);",
+        el)
     time.sleep(0.15)
 
 
@@ -109,7 +110,8 @@ def test_files_upload_reader_forbidden(qa_reader_credentials):
         open_files(d)
         # Проверяем, что нет видимого upload элемента
         forbidden = True
-        for sel in ("[data-action='files-upload']", "[data-testid='files-upload']", "#filesUploadBtn"):
+        for sel in ("[data-action='files-upload']",
+                    "[data-testid='files-upload']", "#filesUploadBtn"):
             els = d.find_elements('css selector', sel)
             if any(e.is_displayed() for e in els):
                 forbidden = False
@@ -124,7 +126,9 @@ def test_files_upload_reader_forbidden(qa_reader_credentials):
 @pytest.mark.ui
 def test_files_download_any_role(all_user_credentials):
     """Скачивание, как правило, разрешено для всех — проверяем наличие действия download."""
-    username, (user, pwd) = next(((k, v) for k, v in all_user_credentials.items() if k in ('qa_reader','qa_regular')), (None, None))
+    username, (user, pwd) = next(
+        ((k, v) for k, v in all_user_credentials.items()
+         if k in ('qa_reader', 'qa_regular')), (None, None))
     if not user:
         pytest.skip('No suitable user from fixtures')
     d = make_chrome()
@@ -132,12 +136,16 @@ def test_files_download_any_role(all_user_credentials):
         login(d, user, pwd)
         open_files(d)
         # Ищем любую строку файла и проверяем, что есть действие download
-        rows = d.find_elements('css selector', "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr")
+        rows = d.find_elements(
+            'css selector',
+            "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr"
+        )
         if not rows:
             pytest.skip('No files listed to test download')
         _context_click(d, rows[0])
         menu = None
-        for sel in ("[data-testid='files-context-menu']", ".context-menu", ".dropdown-menu.show"):
+        for sel in ("[data-testid='files-context-menu']", ".context-menu",
+                    ".dropdown-menu.show"):
             els = d.find_elements('css selector', sel)
             if els and els[0].is_displayed():
                 menu = els[0]
@@ -158,22 +166,28 @@ def test_files_move_writer_allowed(qa_writer_credentials):
     try:
         login(d, username, password)
         open_files(d)
-        rows = d.find_elements('css selector', "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr")
+        rows = d.find_elements(
+            'css selector',
+            "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr"
+        )
         if not rows:
             pytest.skip('No files to test move')
         _context_click(d, rows[0])
         menu = None
-        for sel in ("[data-testid='files-context-menu']", ".context-menu", ".dropdown-menu.show"):
+        for sel in ("[data-testid='files-context-menu']", ".context-menu",
+                    ".dropdown-menu.show"):
             els = d.find_elements('css selector', sel)
             if els and els[0].is_displayed():
                 menu = els[0]
                 break
         if not menu:
             pytest.skip('Files context menu not visible')
-        items = menu.find_elements('css selector', 'li, a, button, [role="menuitem"]')
+        items = menu.find_elements('css selector',
+                                   'li, a, button, [role="menuitem"]')
         move_item = None
         for it in items:
-            if it.text and (('перемест' in it.text.lower()) or ('move' in it.text.lower())):
+            if it.text and (('перемест' in it.text.lower()) or
+                            ('move' in it.text.lower())):
                 move_item = it
                 break
         if not move_item:
@@ -191,12 +205,16 @@ def test_files_move_reader_forbidden(qa_reader_credentials):
     try:
         login(d, username, password)
         open_files(d)
-        rows = d.find_elements('css selector', "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr")
+        rows = d.find_elements(
+            'css selector',
+            "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr"
+        )
         if not rows:
             pytest.skip('No files to test move')
         _context_click(d, rows[0])
         menu = None
-        for sel in ("[data-testid='files-context-menu']", ".context-menu", ".dropdown-menu.show"):
+        for sel in ("[data-testid='files-context-menu']", ".context-menu",
+                    ".dropdown-menu.show"):
             els = d.find_elements('css selector', sel)
             if els and els[0].is_displayed():
                 menu = els[0]
@@ -208,7 +226,8 @@ def test_files_move_reader_forbidden(qa_reader_credentials):
             # Если нет пункта — считаем UI корректным
             assert True
         else:
-            pytest.skip('Move action visible for reader (UI may not reflect RBAC)')
+            pytest.skip(
+                'Move action visible for reader (UI may not reflect RBAC)')
     finally:
         d.quit()
 
@@ -221,22 +240,28 @@ def test_files_note_writer_allowed(qa_writer_credentials):
     try:
         login(d, username, password)
         open_files(d)
-        rows = d.find_elements('css selector', "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr")
+        rows = d.find_elements(
+            'css selector',
+            "[data-testid='files-table'] tbody tr, .files-table tbody tr, table tbody tr"
+        )
         if not rows:
             pytest.skip('No files to test note')
         _context_click(d, rows[0])
         menu = None
-        for sel in ("[data-testid='files-context-menu']", ".context-menu", ".dropdown-menu.show"):
+        for sel in ("[data-testid='files-context-menu']", ".context-menu",
+                    ".dropdown-menu.show"):
             els = d.find_elements('css selector', sel)
             if els and els[0].is_displayed():
                 menu = els[0]
                 break
         if not menu:
             pytest.skip('Files context menu not visible')
-        items = menu.find_elements('css selector', 'li, a, button, [role="menuitem"]')
+        items = menu.find_elements('css selector',
+                                   'li, a, button, [role="menuitem"]')
         note_item = None
         for it in items:
-            if it.text and (('заметка' in it.text.lower()) or ('note' in it.text.lower())):
+            if it.text and (('заметка' in it.text.lower()) or
+                            ('note' in it.text.lower())):
                 note_item = it
                 break
         if not note_item:
@@ -244,5 +269,3 @@ def test_files_note_writer_allowed(qa_writer_credentials):
         assert note_item.is_enabled()
     finally:
         d.quit()
-
-

@@ -3288,7 +3288,8 @@ document.addEventListener("DOMContentLoaded", function () {
    * @param {boolean} updateHistory - Whether to update browser history
    */
   window.navigateToCategory = function (did, sdid, updateHistory = true) {
-    const url = `/files/${did}/${sdid}`;
+    // Add cache-busting query to avoid stale responses in some proxies/browsers
+    const url = `/files/${did}/${sdid}?_=${Date.now()}`;
 
     fetch(url, {
       method: "GET",
@@ -3852,33 +3853,9 @@ document.addEventListener("DOMContentLoaded", function () {
         // Update table locally instead of full page refresh for some actions
         try {
           if (form.id === "edit") {
-            // File edit - update file name and description locally
-            const fileId = form.action.match(/\/(\d+)$/)?.[1];
-            if (fileId) {
-              updateFileRowLocally(fileId, {
-                name: form.querySelector('input[name="name"]')?.value?.trim(),
-                description: form
-                  .querySelector('textarea[name="description"]')
-                  ?.value?.trim(),
-              });
-              // Sync form dataset originals to new values for consecutive edits
-              try {
-                const row = document.getElementById(String(fileId));
-                if (row) {
-                  const nameNow = form
-                    .querySelector('input[name="name"]')
-                    .value.trim();
-                  const descNow = form
-                    .querySelector('textarea[name="description"]')
-                    .value.trim();
-                  form.dataset.origName = nameNow;
-                  form.dataset.origDesc = descNow;
-                }
-              } catch (_) {}
-            } else {
-              if (window.softRefreshFilesTable) {
-                window.softRefreshFilesTable();
-              }
+            // Чтобы не мигали серверные бейджи (например, «Видео»), вместо локального патча — мягкое обновление таблицы
+            if (window.softRefreshFilesTable) {
+              window.softRefreshFilesTable();
             }
           } else if (form.id === "note") {
             // Avoid local DOM update to prevent mismatches; trigger immediate refresh
@@ -4123,7 +4100,14 @@ window.markViewedAjax = function (fileId) {
                   .getAttribute("data-subcategory")) ||
               "1";
             if (window.navigateToCategory) {
+              // Immediate refresh
               window.navigateToCategory(did, sdid, false);
+              // Follow-up refresh after a short delay to ensure visibility post-enable
+              setTimeout(function () {
+                try {
+                  window.navigateToCategory(did, sdid, false);
+                } catch (_) {}
+              }, 400);
             } else {
               // Fallback: hard reload files page
               try {

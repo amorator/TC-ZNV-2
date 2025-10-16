@@ -7,9 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 import requests
+from tests.config import BASE_URL as BASE, ACCEPT_INSECURE_CERTS
 
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
 ADMIN_LOGIN = os.getenv('LOGIN', 'admin')
 ADMIN_PASSWORD = os.getenv('PASSWORD', 'admin')
 
@@ -17,8 +16,9 @@ ADMIN_PASSWORD = os.getenv('PASSWORD', 'admin')
 def make_chrome():
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
     opts.set_capability('acceptInsecureCerts', True)
@@ -43,7 +43,9 @@ def close_push_consent_if_any(d):
         d.execute_script("$('#pushConsentModal').modal('hide');")
         time.sleep(0.1)
         if modal.is_displayed():
-            d.execute_script("document.getElementById('pushConsentModal').classList.remove('show');")
+            d.execute_script(
+                "document.getElementById('pushConsentModal').classList.remove('show');"
+            )
             d.execute_script("document.body.classList.remove('modal-open');")
     except Exception:
         pass
@@ -58,10 +60,16 @@ def test_files_table_and_add_modal():
         time.sleep(0.2)
         close_push_consent_if_any(d)
         # Таблица файлов должна быть видна по ARIA / data-testid
-        tables = d.find_elements('css selector', "[data-testid='files-table'], table[role='table'][aria-label='Таблица файлов'], #maintable")
+        tables = d.find_elements(
+            'css selector',
+            "[data-testid='files-table'], table[role='table'][aria-label='Таблица файлов'], #maintable"
+        )
         assert tables and tables[0].is_displayed()
         # Открываем модалку добавления файла
-        add_selectors = ["#add-file-button", "[data-action='add-file']", "button.btn-primary"]
+        add_selectors = [
+            "#add-file-button", "[data-action='add-file']",
+            "button.btn-primary"
+        ]
         opener = None
         for sel in add_selectors:
             els = d.find_elements('css selector', sel)
@@ -71,7 +79,8 @@ def test_files_table_and_add_modal():
         if not opener:
             pytest.skip('Add file control not found')
         # Скролл + JS-клик как fallback
-        d.execute_script("arguments[0].scrollIntoView({block:'center'});", opener)
+        d.execute_script("arguments[0].scrollIntoView({block:'center'});",
+                         opener)
         time.sleep(0.05)
         try:
             opener.click()
@@ -79,7 +88,10 @@ def test_files_table_and_add_modal():
             d.execute_script("arguments[0].click();", opener)
         time.sleep(0.2)
         # Проверяем модалку и фокус
-        modal_candidates = ["[data-testid='files-modal-add'] .popup", "#popup-add", ".modal.show", "#addFileModal"]
+        modal_candidates = [
+            "[data-testid='files-modal-add'] .popup", "#popup-add",
+            ".modal.show", "#addFileModal"
+        ]
         modal = None
         for sel in modal_candidates:
             els = d.find_elements('css selector', sel)
@@ -90,7 +102,11 @@ def test_files_table_and_add_modal():
         active = d.switch_to.active_element
         assert active is not None
         # Закрываем модалку
-        close_selectors = ["[data-testid='files-add-cancel']", ".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close", ".modal.show .modal-footer .btn-secondary"]
+        close_selectors = [
+            "[data-testid='files-add-cancel']",
+            ".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close",
+            ".modal.show .modal-footer .btn-secondary"
+        ]
         for sel in close_selectors:
             els = d.find_elements('css selector', sel)
             if els:
@@ -114,8 +130,7 @@ def test_files_context_menu_and_modals():
         close_push_consent_if_any(d)
         # Ищем строку в таблице
         row_selectors = [
-            "table[role='table'] tbody tr",
-            "#maintable tbody tr",
+            "table[role='table'] tbody tr", "#maintable tbody tr",
             "table tbody tr"
         ]
         row = None
@@ -133,7 +148,10 @@ def test_files_context_menu_and_modals():
             ActionChains(d).context_click(row).perform()
         except Exception:
             # fallback: открыть кнопкой меню в строке, если есть
-            togglers = row.find_elements('css selector', "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle")
+            togglers = row.find_elements(
+                'css selector',
+                "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle"
+            )
             if togglers:
                 d.execute_script("arguments[0].click();", togglers[0])
             else:
@@ -141,7 +159,10 @@ def test_files_context_menu_and_modals():
         time.sleep(0.1)
         # Меню
         menu = None
-        for sel in ["[data-testid='files-context-menu']", ".dropdown-menu.show", ".context-menu.show", ".dropdown-menu[style*='display: block']"]:
+        for sel in [
+                "[data-testid='files-context-menu']", ".dropdown-menu.show",
+                ".context-menu.show", ".dropdown-menu[style*='display: block']"
+        ]:
             els = d.find_elements('css selector', sel)
             if els:
                 menu = els[0]
@@ -150,10 +171,39 @@ def test_files_context_menu_and_modals():
             pytest.skip('Context menu not visible')
         # Попробуем по очереди открыть модалки через пункты меню
         actions = [
-            {"name": "edit", "selectors": ["[data-testid='files-cm-edit']", "[data-action='edit']", "a[href*='edit']", "[data-bs-target='#popup-edit']"]},
-            {"name": "move", "selectors": ["[data-testid='files-cm-move']", "[data-action='move']", "a[href*='move']", "[data-bs-target='#popup-move']"]},
-            {"name": "note", "selectors": ["[data-testid='files-cm-note']", "[data-action='note']", "a[href*='note']", "[data-bs-target='#popup-note']"]},
-            {"name": "delete", "selectors": ["[data-testid='files-cm-delete']", "[data-action='delete']", "a[href*='delete']", "[data-bs-target='#popup-delete']"]},
+            {
+                "name":
+                "edit",
+                "selectors": [
+                    "[data-testid='files-cm-edit']", "[data-action='edit']",
+                    "a[href*='edit']", "[data-bs-target='#popup-edit']"
+                ]
+            },
+            {
+                "name":
+                "move",
+                "selectors": [
+                    "[data-testid='files-cm-move']", "[data-action='move']",
+                    "a[href*='move']", "[data-bs-target='#popup-move']"
+                ]
+            },
+            {
+                "name":
+                "note",
+                "selectors": [
+                    "[data-testid='files-cm-note']", "[data-action='note']",
+                    "a[href*='note']", "[data-bs-target='#popup-note']"
+                ]
+            },
+            {
+                "name":
+                "delete",
+                "selectors": [
+                    "[data-testid='files-cm-delete']",
+                    "[data-action='delete']", "a[href*='delete']",
+                    "[data-bs-target='#popup-delete']"
+                ]
+            },
         ]
         opened = 0
         for act in actions:
@@ -175,8 +225,13 @@ def test_files_context_menu_and_modals():
             # Проверяем модалку
             modal = None
             for sel in [
-                "[data-testid='files-modal-edit'] .popup", "[data-testid='files-modal-move'] .popup", "[data-testid='files-modal-note'] .popup", "[data-testid='files-modal-delete'] .popup",
-                "#popup-edit.modal.show", "#popup-move.modal.show", "#popup-note.modal.show", "#popup-delete.modal.show", ".modal.show[role='dialog']"
+                    "[data-testid='files-modal-edit'] .popup",
+                    "[data-testid='files-modal-move'] .popup",
+                    "[data-testid='files-modal-note'] .popup",
+                    "[data-testid='files-modal-delete'] .popup",
+                    "#popup-edit.modal.show", "#popup-move.modal.show",
+                    "#popup-note.modal.show", "#popup-delete.modal.show",
+                    ".modal.show[role='dialog']"
             ]:
                 els = d.find_elements('css selector', sel)
                 if els and els[0].is_displayed():
@@ -190,7 +245,15 @@ def test_files_context_menu_and_modals():
             assert active is not None
             # Закрываем модалку
             closed = False
-            for sel in ["[data-testid='files-edit-cancel']", "[data-testid='files-move-cancel']", "[data-testid='files-note-cancel']", "[data-testid='files-delete-cancel']", ".modal.show [data-bs-dismiss='modal']", ".modal.show .btn-close", ".modal.show .modal-footer .btn-secondary"]:
+            for sel in [
+                    "[data-testid='files-edit-cancel']",
+                    "[data-testid='files-move-cancel']",
+                    "[data-testid='files-note-cancel']",
+                    "[data-testid='files-delete-cancel']",
+                    ".modal.show [data-bs-dismiss='modal']",
+                    ".modal.show .btn-close",
+                    ".modal.show .modal-footer .btn-secondary"
+            ]:
                 els = d.find_elements('css selector', sel)
                 if els:
                     try:
@@ -201,18 +264,26 @@ def test_files_context_menu_and_modals():
                     break
             if not closed:
                 # по ESC
-                d.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}));")
+                d.execute_script(
+                    "document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}));"
+                )
             time.sleep(0.15)
             # Переоткрыть меню для следующего пункта
             try:
                 ActionChains(d).context_click(row).perform()
             except Exception:
-                togglers = row.find_elements('css selector', "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle")
+                togglers = row.find_elements(
+                    'css selector',
+                    "[data-bs-toggle='dropdown'], .dropdown-toggle, .context-toggle"
+                )
                 if togglers:
                     d.execute_script("arguments[0].click();", togglers[0])
             time.sleep(0.1)
             menu = None
-            for sel in [".dropdown-menu.show", ".context-menu.show", ".dropdown-menu[style*='display: block']"]:
+            for sel in [
+                    ".dropdown-menu.show", ".context-menu.show",
+                    ".dropdown-menu[style*='display: block']"
+            ]:
                 els = d.find_elements('css selector', sel)
                 if els:
                     menu = els[0]
@@ -248,6 +319,3 @@ def _ensure_target_or_skip():
     except Exception as e:
         # Для других ошибок (DNS, SSL) тоже пропускаем
         pytest.skip(f'Network error: {e}')
-
-
-

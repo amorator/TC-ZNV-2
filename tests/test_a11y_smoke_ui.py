@@ -5,9 +5,7 @@ from urllib.parse import urlparse
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-
-
-BASE = os.getenv('BASE_URL', 'http://localhost:5000')
+from tests.config import BASE_URL as BASE, ACCEPT_INSECURE_CERTS
 
 
 def _ensure_target_or_skip():
@@ -26,11 +24,13 @@ def make_chrome():
     _ensure_target_or_skip()
     opts = Options()
     for f in [
-        '--headless=new','--disable-gpu','--no-sandbox','--disable-dev-shm-usage',
-        '--disable-setuid-sandbox','--no-zygote','--single-process','--ignore-certificate-errors'
+            '--headless=new', '--disable-gpu', '--no-sandbox',
+            '--disable-dev-shm-usage', '--disable-setuid-sandbox',
+            '--no-zygote', '--single-process', '--ignore-certificate-errors'
     ]:
         opts.add_argument(f)
-    opts.set_capability('acceptInsecureCerts', True)
+    if ACCEPT_INSECURE_CERTS:
+        opts.set_capability('acceptInsecureCerts', True)
     d = webdriver.Chrome(options=opts)
     d.set_page_load_timeout(45)
     d.set_script_timeout(45)
@@ -48,7 +48,9 @@ def login(d, user: str, password: str):
 def inject_axe(d):
     # Вставляем axe-core из CDN
     src = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.9.1/axe.min.js'
-    d.execute_script(f"var s=document.createElement('script'); s.src='{src}'; document.head.appendChild(s);")
+    d.execute_script(
+        f"var s=document.createElement('script'); s.src='{src}'; document.head.appendChild(s);"
+    )
     end = time.time() + 5
     while time.time() < end:
         ready = d.execute_script("return !!window.axe")
@@ -59,7 +61,8 @@ def inject_axe(d):
 
 
 def run_axe(d) -> dict:
-    return d.execute_script("return axe.run(document, { runOnly: ['wcag2a','wcag2aa'] });")
+    return d.execute_script(
+        "return axe.run(document, { runOnly: ['wcag2a','wcag2aa'] });")
 
 
 @pytest.mark.ui
@@ -77,10 +80,11 @@ def test_a11y_tables_and_modals_smoke(qa_admin_credentials):
             res = run_axe(d)
             # Допускаем наличие нарушений, но собираем smoke-индикатор: не должно быть критичных (serious/critical) > N
             violations = res.get('violations', [])
-            serious = [v for v in violations if v.get('impact') in ('serious','critical')]
+            serious = [
+                v for v in violations
+                if v.get('impact') in ('serious', 'critical')
+            ]
             if len(serious) > 20:
                 pytest.skip(f'Too many serious a11y issues on {path}')
     finally:
         d.quit()
-
-
