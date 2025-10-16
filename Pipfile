@@ -17,6 +17,7 @@ pywebpush = "*"
 werkzeug = "*"
 flask-socketio = "*"
 redis = "*"
+kombu = "*"
 
 [dev-packages]
 
