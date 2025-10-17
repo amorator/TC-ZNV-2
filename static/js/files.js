@@ -1906,6 +1906,11 @@ document.addEventListener("DOMContentLoaded", function () {
               "server-update",
               "note",
               "edited",
+              "deleted",
+              "uploaded",
+              "init",
+              "metadata",
+              "recorded",
             ];
             const isServerReason = !!(
               evt &&
@@ -1978,6 +1983,11 @@ document.addEventListener("DOMContentLoaded", function () {
               "server-update",
               "note",
               "edited",
+              "deleted",
+              "uploaded",
+              "init",
+              "metadata",
+              "recorded",
             ];
             const isServerReason = !!(
               evt &&
@@ -2072,6 +2082,11 @@ document.addEventListener("DOMContentLoaded", function () {
             "server-update",
             "note",
             "edited",
+            "deleted",
+            "uploaded",
+            "init",
+            "metadata",
+            "recorded",
           ];
           const isServerReason = !!(
             evt &&
@@ -2609,6 +2624,11 @@ document.addEventListener("DOMContentLoaded", function () {
         "server-update",
         "note",
         "edited",
+        "recorded",
+        "uploaded",
+        "init",
+        "metadata",
+        "added",
       ];
       const isServerReason = !!(
         evt &&
@@ -4130,14 +4150,30 @@ window.markViewedAjax = function (fileId) {
               if (window.__syncDebug) {
                 console.debug("[files-sync-recv] files:changed", evt);
               }
-              // Check if this event is from ourselves
               const fromSelf = !!(
                 evt &&
                 evt.originClientId &&
                 window.__filesClientId &&
                 evt.originClientId === window.__filesClientId
               );
-              if (fromSelf) {
+              const serverReasons = [
+                "conversion-complete",
+                "processing-complete",
+                "server-update",
+                "note",
+                "edited",
+                "deleted",
+                "uploaded",
+                "init",
+                "metadata",
+                "recorded",
+              ];
+              const isServerReason = !!(
+                evt &&
+                evt.reason &&
+                serverReasons.indexOf(String(evt.reason)) !== -1
+              );
+              if (fromSelf && !isServerReason) {
                 if (window.__syncDebug) {
                   console.debug("[files-sync-ignore-self] files:changed", evt);
                 }

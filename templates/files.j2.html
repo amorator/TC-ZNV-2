@@ -22,7 +22,7 @@
     window.current_subcategory_id = {{ (current_subcategory_id or 0) | int }};
   } catch(_) {}
 </script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}" defer="defer"></script>
 {% endblock %}
 
