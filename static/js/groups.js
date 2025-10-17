@@ -1355,7 +1355,11 @@ if (document.readyState === "loading") {
     ) {
       window.SyncManager.onResume(function () {
         try {
-          window.softRefreshGroupsTable && window.softRefreshGroupsTable();
+          if (typeof window.scheduleGroupsRefreshFromSocket === "function") {
+            window.scheduleGroupsRefreshFromSocket({ reason: "resume" });
+          } else if (window.softRefreshGroupsTable) {
+            window.softRefreshGroupsTable();
+          }
         } catch (_) {}
       });
     }

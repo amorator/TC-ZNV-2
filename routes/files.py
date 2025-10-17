@@ -9,6 +9,7 @@ from services.permissions import dirs_by_permission
 from modules.SQLUtils import SQLUtils
 from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
+from modules.sync_manager import emit_files_changed
 import time
 from functools import wraps
 import os
@@ -428,10 +429,11 @@ def register(app, media_service, socketio=None) -> None:
             # notify all clients about new pending file
             if socketio:
                 try:
-                    socketio.emit('files:changed', {
-                        'reason': 'added',
-                        'id': id
-                    })
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'added',
+                                       id=id,
+                                       originClientId=origin)
                 except Exception:
                     pass
 
@@ -542,10 +544,11 @@ def register(app, media_service, socketio=None) -> None:
                 return {'error': 'Не удалось создать запись файла'}, 400
             if socketio:
                 try:
-                    socketio.emit('files:changed', {
-                        'reason': 'init',
-                        'id': fid
-                    })
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'init',
+                                       id=fid,
+                                       originClientId=origin)
                 except Exception:
                     pass
             log_action('FILE_UPLOAD_INIT_END', current_user.name,
@@ -612,15 +615,13 @@ def register(app, media_service, socketio=None) -> None:
                 app._sql.file_update_metadata([length_seconds, size_mb, id])
                 if socketio:
                     try:
-                        socketio.emit(
-                            'files:changed', {
-                                'reason': 'metadata',
-                                'id': id,
-                                'meta': {
-                                    'length': length_seconds,
-                                    'size': size_mb
-                                }
-                            })
+                        emit_files_changed(socketio,
+                                           'metadata',
+                                           id=id,
+                                           meta={
+                                               'length': length_seconds,
+                                               'size': size_mb
+                                           })
                     except Exception:
                         pass
             except Exception:
@@ -634,10 +635,11 @@ def register(app, media_service, socketio=None) -> None:
                 ('file', id))
             if socketio:
                 try:
-                    socketio.emit('files:changed', {
-                        'reason': 'uploaded',
-                        'id': id
-                    })
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'uploaded',
+                                       id=id,
+                                       originClientId=origin)
                 except Exception:
                     pass
             log_action('FILE_UPLOAD_BIN_END', current_user.name,
@@ -661,6 +663,9 @@ def register(app, media_service, socketio=None) -> None:
         try:
             name = (request.form.get('name') or '').strip()
             desc = (request.form.get('description') or '').strip()
+            _log.info(
+                f"[files] edit processing id={id} name='{name}' desc='{desc[:50]}...'"
+            )
             # Prevent editing system-generated registrator description
             try:
                 if file and isinstance(
@@ -671,17 +676,11 @@ def register(app, media_service, socketio=None) -> None:
                 pass
             app._sql.file_edit([name, desc, id])
             log_action('FILE_EDIT', current_user.name,
-                       f'edited file {file.name} (id={id})',
+                       f'edited file {name} (id={id})',
                        (request.remote_addr or ''))
-            if socketio:
-                try:
-                    socketio.emit('files:changed', {
-                        'reason': 'edited',
-                        'id': id
-                    })
-                except Exception:
-                    pass
+            _log.info(f"[files] edit success id={id}")
         except Exception as e:
+            _log.error(f"[files] edit error id={id}: {e}")
             app.flash_error(e)
             log_action('FILE_EDIT',
                        current_user.name,
@@ -689,15 +688,37 @@ def register(app, media_service, socketio=None) -> None:
                        (request.remote_addr or ''),
                        success=False)
         finally:
+            # Emit sync event (always, regardless of success/failure)
+            if socketio:
+                try:
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    _log.info(
+                        f"[files] edit emitting files:changed id={id} origin={origin}"
+                    )
+                    emit_files_changed(socketio,
+                                       'edited',
+                                       id=id,
+                                       originClientId=origin)
+                except Exception as e:
+                    _log.error(f"[files] edit emit error: {e}")
+
             # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
-                return {
-                    'status': 'success',
-                    'message': 'File updated successfully'
-                }, 200
+            try:
+                accept = (request.headers.get('Accept') or '').lower()
+                xrw = (request.headers.get('X-Requested-With') or '').lower()
+                _log.info(
+                    f"[files] edit headers: accept='{accept}' xrw='{xrw}'")
+                if 'application/json' in accept or xrw in ('xmlhttprequest',
+                                                           'fetch'):
+                    _log.info(f"[files] edit returning JSON response")
+                    return {
+                        'status': 'success',
+                        'message': 'File updated successfully'
+                    }, 200
+                else:
+                    _log.info(f"[files] edit returning redirect (not AJAX)")
+            except Exception as e:
+                _log.error(f"[files] edit header check error: {e}")
             return redirect(url_for('files', did=did, sdid=sdid))
 
     @app.route('/files' + '/delete' + '/<int:did>' + '/<int:sdid>' +
@@ -745,11 +766,11 @@ def register(app, media_service, socketio=None) -> None:
                 pass
             if socketio:
                 try:
-                    # server-originated event, no originClientId so all clients refresh
-                    socketio.emit('files:changed', {
-                        'reason': 'deleted',
-                        'id': id
-                    })
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'deleted',
+                                       id=id,
+                                       originClientId=origin)
                 except Exception:
                     pass
         except Exception as e:
@@ -975,6 +996,16 @@ def register(app, media_service, socketio=None) -> None:
             log_action('FILE_MARK_VIEWED', current_user.name,
                        f'marked viewed id={id} (viewers updated)',
                        (request.remote_addr or ''))
+            # Broadcast change so other tabs refresh
+            if socketio:
+                try:
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'edited',
+                                       id=id,
+                                       originClientId=origin)
+                except Exception:
+                    pass
         except Exception as e:
             app.flash_error(e)
             log_action('FILE_MARK_VIEWED',
@@ -982,6 +1013,19 @@ def register(app, media_service, socketio=None) -> None:
                        f'failed to mark viewed id={id}: {str(e)}',
                        (request.remote_addr or ''),
                        success=False)
+        # Return JSON for AJAX/fetch callers; otherwise redirect
+        try:
+            accept = (request.headers.get('Accept') or '').lower()
+            xrw = (request.headers.get('X-Requested-With') or '').lower()
+            if 'application/json' in accept or xrw in ('xmlhttprequest',
+                                                       'fetch'):
+                return {
+                    'status': 'success',
+                    'message': 'marked viewed',
+                    'id': id
+                }
+        except Exception:
+            pass
         return redirect(url_for('files', did=did, sdid=sdid))
 
     @app.route('/files' + '/move' + '/<int:did>' + '/<int:sdid>' + '/<int:id>',
@@ -1078,11 +1122,12 @@ def register(app, media_service, socketio=None) -> None:
             # Notify clients
             if socketio:
                 try:
-                    socketio.emit('files:changed', {
-                        'reason': 'moved',
-                        'id': id,
-                        'file_exists': file.exists
-                    })
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'moved',
+                                       id=id,
+                                       file_exists=file.exists,
+                                       originClientId=origin)
                 except Exception:
                     pass
         except Exception as e:
@@ -1138,16 +1183,15 @@ def register(app, media_service, socketio=None) -> None:
             log_action('FILE_NOTE', current_user.name,
                        f'updated note for file (id={id})',
                        (request.remote_addr or ''))
-            # Notify clients about note update
+            # Notify clients about note update via SyncManager
             if socketio:
                 try:
-                    payload = {'reason': 'note', 'id': id}
-                    socketio.emit('files:changed', payload)
-                    try:
-                        socketio.emit('files:changed', payload, namespace='/')
-                    except Exception:
-                        pass
-                except Exception as e:
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'note',
+                                       id=id,
+                                       originClientId=origin)
+                except Exception:
                     pass
         except Exception as e:
             app.flash_error(e)
@@ -1193,11 +1237,10 @@ def register(app, media_service, socketio=None) -> None:
                 # Notify clients that file is missing
                 if socketio:
                     try:
-                        socketio.emit('files:changed', {
-                            'reason': 'metadata',
-                            'id': id,
-                            'file_exists': False
-                        })
+                        emit_files_changed(socketio,
+                                           'metadata',
+                                           id=id,
+                                           file_exists=False)
                     except Exception:
                         pass
                 # Return 200 so UI can update gracefully even when file is missing
@@ -1473,22 +1516,14 @@ def register(app, media_service, socketio=None) -> None:
                     (request.remote_addr or ''))
             except Exception:
                 pass
-            # Notify clients about new file
+            # Notify clients about new file via SyncManager
             if socketio:
                 try:
-                    socketio.emit('files:changed', {
-                        'reason': 'recorded',
-                        'id': id
-                    })
-                    # Also emit with explicit namespace for some clients
-                    try:
-                        socketio.emit('files:changed', {
-                            'reason': 'recorded',
-                            'id': id
-                        },
-                                      namespace='/')
-                    except Exception:
-                        pass
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(socketio,
+                                       'recorded',
+                                       id=id,
+                                       originClientId=origin)
                 except Exception:
                     pass
             return {200: 'OK'}

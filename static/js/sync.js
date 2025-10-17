@@ -21,6 +21,10 @@ window.SyncManager = (function () {
           console.debug("[sync] initializing");
         } catch (_) {}
       }
+      // Always log initialization for debugging
+      try {
+        console.debug("[sync] SyncManager initializing...");
+      } catch (_) {}
       // Авто-включение дебага, если выставлен глобальный флаг до загрузки
       try {
         if (typeof window.__syncDebug !== "undefined") {

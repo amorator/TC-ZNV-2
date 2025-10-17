@@ -1,3 +1,6 @@
+// Enable debug logging for users page
+window.__syncDebug = true;
+
 // Initialize unified context menu for users page
 function initUsersContextMenu() {
   const table = document.getElementById("maintable");
@@ -1435,13 +1438,58 @@ if (document.readyState === "loading") {
   (function initUsersLiveUpdates() {
     try {
       if (!window.io) return;
+
+      // Debouncing for sync events
+      let syncTimeout = null;
+      let pendingSync = false;
+
+      // Debounced sync function
+      function debouncedSync() {
+        if (syncTimeout) {
+          clearTimeout(syncTimeout);
+        }
+        pendingSync = true;
+        syncTimeout = setTimeout(function () {
+          if (pendingSync) {
+            pendingSync = false;
+            try {
+              if (document.hidden) {
+                backgroundImmediateUsersRefresh();
+              } else {
+                softRefreshUsersTable();
+              }
+            } catch (e) {
+              console.error("[users] sync error:", e);
+            }
+          }
+        }, 300); // 300ms debounce
+      }
+
       // Ensure a stable per-tab client id for deduplicating our own events
       try {
-        if (!window.__usersClientId)
-          window.__usersClientId =
-            Math.random().toString(36).slice(2) + Date.now();
+        if (!window.__usersClientId) {
+          // Try to restore from localStorage first
+          try {
+            const stored = localStorage.getItem("__usersClientId");
+            if (stored) {
+              window.__usersClientId = stored;
+            }
+          } catch (_) {}
+          // Generate new if not found or failed to restore
+          if (!window.__usersClientId) {
+            window.__usersClientId =
+              Math.random().toString(36).slice(2) + Date.now();
+            // Store for persistence
+            try {
+              localStorage.setItem("__usersClientId", window.__usersClientId);
+            } catch (_) {}
+          }
+        }
       } catch (_) {}
       try {
+        if (window.__syncDebug) {
+          console.debug("[users] clientId=", window.__usersClientId);
+        }
         if (
           window.__syncDebug &&
           window.SyncManager &&
@@ -1605,6 +1653,7 @@ if (document.readyState === "loading") {
         // Prefer SyncManager if available; otherwise fallback to direct socket
         if (window.SyncManager && typeof window.SyncManager.on === "function") {
           try {
+            console.debug("[users] SyncManager available, binding handlers");
             // Avoid duplicate registration
             if (!window.__usersSyncBound) {
               window.__usersSyncBound = true;
@@ -1622,21 +1671,19 @@ if (document.readyState === "loading") {
                   );
                   if (fromSelf) return;
                 } catch (_) {}
-                if (document.hidden) {
-                  try {
+                try {
+                  if (document.hidden) {
                     window.__usersHadBackgroundEvent = true;
-                  } catch (_) {}
-                  try {
-                    backgroundImmediateUsersRefresh();
-                  } catch (_) {}
-                } else {
-                  try {
-                    softRefreshUsersTable();
-                  } catch (_) {}
-                }
+                  }
+                  debouncedSync();
+                } catch (_) {}
               });
             }
           } catch (_) {}
+        } else {
+          console.debug(
+            "[users] SyncManager not available, using direct socket fallback"
+          );
         }
         // Always bind a direct socket fallback to guarantee delivery across pages
         try {
@@ -1662,18 +1709,12 @@ if (document.readyState === "loading") {
               return;
             }
           } catch (_) {}
-          if (document.hidden) {
-            try {
+          try {
+            if (document.hidden) {
               window.__usersHadBackgroundEvent = true;
-            } catch (_) {}
-            try {
-              backgroundImmediateUsersRefresh();
-            } catch (_) {}
-          } else {
-            try {
-              softRefreshUsersTable();
-            } catch (_) {}
-          }
+            }
+            debouncedSync();
+          } catch (_) {}
         });
       }
       bindSocketHandlers(socket);
@@ -1926,8 +1967,7 @@ if (document.readyState === "loading") {
     ) {
       window.SyncManager.onResume(function () {
         try {
-          if (typeof window.softRefreshUsersTable === "function")
-            window.softRefreshUsersTable();
+          debouncedSync();
         } catch (_) {}
       });
     }

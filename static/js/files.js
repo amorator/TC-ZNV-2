@@ -1,3 +1,9 @@
+// Auto-enable debug logging for files sync (set early)
+try {
+  window.__syncDebug = true;
+  console.debug("[files] debug logging enabled");
+} catch (_) {}
+
 /**
  * Function to update subcategories when category changes in move modal
  */
@@ -824,15 +830,7 @@ function startUploadWithProgress(form) {
             try {
               window.softRefreshFilesTable && window.softRefreshFilesTable();
             } catch (e) {}
-            // Emit socket event for other users
-            try {
-              if (window.socket && window.socket.emit) {
-                window.socket.emit("files:changed", {
-                  reason: "upload-complete",
-                  originClientId: window.__filesClientId,
-                });
-              }
-            } catch (e) {}
+            // Server emits files:changed; no client-side emit
           }, 1000);
         },
         function onErr(msg) {
@@ -859,15 +857,7 @@ function startUploadWithProgress(form) {
         try {
           window.softRefreshFilesTable && window.softRefreshFilesTable();
         } catch (e) {}
-        // Emit socket event for other users
-        try {
-          if (window.socket && window.socket.emit) {
-            window.socket.emit("files:changed", {
-              reason: "upload-complete",
-              originClientId: window.__filesClientId,
-            });
-          }
-        } catch (e) {}
+        // Server emits files:changed; no client-side emit
       }, 1000);
       return;
     }
@@ -1893,7 +1883,9 @@ document.addEventListener("DOMContentLoaded", function () {
        */
       if (!socket._filesBound) {
         socket._filesBound = true;
+        console.debug("[files] binding direct socket handlers");
         socket.on("connect", function () {
+          console.debug("[files] socket connected");
           // Re-register files:changed events on reconnect
           socket.off("files:changed");
           socket.on("files:changed", function (evt) {
@@ -2045,6 +2037,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         socket.on("files:changed", function (evt) {
           try {
+            if (window.__syncDebug) {
+              console.debug("[files-socket-recv] files:changed", evt);
+            }
             const fromSelf = !!(
               evt &&
               evt.originClientId &&
@@ -2052,6 +2047,9 @@ document.addEventListener("DOMContentLoaded", function () {
               evt.originClientId === window.__filesClientId
             );
             if (fromSelf) {
+              if (window.__syncDebug) {
+                console.debug("[files-socket-ignore-self] files:changed", evt);
+              }
               return;
             }
           } catch (_) {}
@@ -2179,10 +2177,28 @@ document.addEventListener("DOMContentLoaded", function () {
         smoothUpdate: true,
       });
   } catch (_) {}
-  // Per-tab client id to mark our own socket emissions
+  // Per-tab client id to mark our own socket emissions (persist like users.js)
   try {
-    if (!window.__filesClientId)
-      window.__filesClientId = Math.random().toString(36).slice(2) + Date.now();
+    if (!window.__filesClientId) {
+      try {
+        const saved = localStorage.getItem("files:clientId");
+        if (saved && typeof saved === "string" && saved.trim()) {
+          window.__filesClientId = saved.trim();
+        }
+      } catch (_) {}
+      if (!window.__filesClientId) {
+        window.__filesClientId =
+          Math.random().toString(36).slice(2) + Date.now();
+        try {
+          localStorage.setItem("files:clientId", window.__filesClientId);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  // Auto-enable debug logging for files sync
+  try {
+    window.__syncDebug = true;
   } catch (_) {}
   // Prevent overlapping refreshes and recover from errors
   let __filesRefreshBusy = false;
@@ -2228,24 +2244,18 @@ document.addEventListener("DOMContentLoaded", function () {
   try {
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) {
-        // After returning to tab, defer heavy work briefly to let the page settle
         __filesCooldownUntil = Date.now() + 1500;
         markActive();
         try {
-          if (window.socket && !window.socket.connected) {
-            try {
-              window.socket.connect();
-            } catch (_) {}
-          }
-          // Re-register handlers in case socket instance changed
-          try {
-            if (typeof window.registerFilesSocketHandlers === "function")
-              window.registerFilesSocketHandlers(window.socket);
-          } catch (_) {}
-          // Trigger one soft refresh to resync
-          try {
-            softRefreshFilesTable();
-          } catch (_) {}
+          if (window.socket && !window.socket.connected)
+            window.socket.connect();
+        } catch (_) {}
+        try {
+          if (typeof window.registerFilesSocketHandlers === "function")
+            window.registerFilesSocketHandlers(window.socket);
+        } catch (_) {}
+        try {
+          softRefreshFilesTable();
         } catch (_) {}
       }
     });
@@ -2270,6 +2280,20 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (_) {}
       } catch (_) {}
     });
+  } catch (_) {}
+
+  // Register global resume soft refresh via SyncManager
+  try {
+    if (
+      window.SyncManager &&
+      typeof window.SyncManager.onResume === "function"
+    ) {
+      window.SyncManager.onResume(function () {
+        try {
+          scheduleFilesRefreshFromSocket({ reason: "resume" });
+        } catch (_) {}
+      });
+    }
   } catch (_) {}
 
   function isIdle(maxMs) {
@@ -3751,7 +3775,11 @@ document.addEventListener("DOMContentLoaded", function () {
       method: "POST",
       body: formData,
       credentials: "include",
-      headers: { "X-Requested-With": "XMLHttpRequest" },
+      headers: {
+        "X-Requested-With": "fetch",
+        Accept: "application/json",
+        "X-Client-Id": window.__filesClientId || "",
+      },
     })
       .then(async (response) => {
         const contentType = response.headers.get("Content-Type") || "";
@@ -3793,6 +3821,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Function to submit file forms via AJAX
   window.submitFileFormAjax = function (form) {
+    // Prevent duplicate submissions
+    if (form._submitting) {
+      return;
+    }
+    form._submitting = true;
+
     // Ensure action URL carries the current rowId before any request
     try {
       const rowId = form && form.dataset ? form.dataset.rowId : "";
@@ -3863,6 +3897,11 @@ document.addEventListener("DOMContentLoaded", function () {
               if (typeof triggerImmediateFilesRefresh === "function")
                 triggerImmediateFilesRefresh();
             } catch (_) {}
+            // Extra: follow up with soft refresh for initiating tab repaint
+            try {
+              if (typeof softRefreshFilesTable === "function")
+                softRefreshFilesTable();
+            } catch (_) {}
           } else if (form.id === "delete") {
             // File delete - remove row locally
             const fileId = form.action.match(/\/(\d+)$/)?.[1];
@@ -3907,8 +3946,7 @@ document.addEventListener("DOMContentLoaded", function () {
               originClientId: window.__filesClientId,
             };
             if (fileId) payload.id = fileId;
-            console.log("Emitting files:changed event from client:", payload);
-            window.socket.emit("files:changed", payload);
+            // Server emits files:changed; no client-side emit
           }
         } catch (e) {
           console.error("Error emitting files:changed from client:", e);
@@ -3923,6 +3961,10 @@ document.addEventListener("DOMContentLoaded", function () {
               "error"
             );
         } catch (_) {}
+      })
+      .finally(() => {
+        // Reset submission flag
+        form._submitting = false;
       });
   };
 
@@ -3993,7 +4035,15 @@ window.markViewedAjax = function (fileId) {
               .querySelector("#maintable")
               ?.getAttribute("data-subcategory") || "1"
           }`;
-    fetch(markUrl, { method: "GET", credentials: "include" })
+    fetch(markUrl, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        Accept: "application/json",
+        "X-Client-Id": window.__filesClientId || "",
+      },
+    })
       .then((r) => {
         if (!r.ok) throw new Error("HTTP " + r.status);
       })
@@ -4054,16 +4104,7 @@ window.markViewedAjax = function (fileId) {
             }
           } catch (_) {}
         }
-        // Notify others and optionally soft refresh
-        try {
-          if (window.socket && window.socket.emit) {
-            window.socket.emit("files:changed", {
-              reason: "mark-viewed",
-              id: fileId,
-              originClientId: window.__filesClientId,
-            });
-          }
-        } catch (_) {}
+        // Server emits files:changed; no client-side emit
         try {
           window.softRefreshFilesTable && window.softRefreshFilesTable();
         } catch (_) {}
@@ -4078,45 +4119,91 @@ window.markViewedAjax = function (fileId) {
 
 (function () {
   try {
-    if (window.io) {
-      var sock = window.socket || window.io(window.location.origin);
-      if (sock && sock.on) {
+    if (window.SyncManager && typeof window.SyncManager.on === "function") {
+      // React to files updates via SyncManager (debounced)
+      try {
+        if (!window.__filesSyncBound) {
+          window.__filesSyncBound = true;
+          console.debug("[files] binding SyncManager handlers");
+          window.SyncManager.on("files:changed", function (evt) {
+            try {
+              if (window.__syncDebug) {
+                console.debug("[files-sync-recv] files:changed", evt);
+              }
+              // Check if this event is from ourselves
+              const fromSelf = !!(
+                evt &&
+                evt.originClientId &&
+                window.__filesClientId &&
+                evt.originClientId === window.__filesClientId
+              );
+              if (fromSelf) {
+                if (window.__syncDebug) {
+                  console.debug("[files-sync-ignore-self] files:changed", evt);
+                }
+                return;
+              }
+              if (document.hidden) {
+                window.__filesHadBackgroundEvent = true;
+                triggerImmediateFilesRefresh();
+              } else {
+                triggerImmediateFilesRefresh();
+                scheduleFilesRefreshFromSocket(
+                  evt || { reason: "server-update" }
+                );
+              }
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+      window.SyncManager.on("categories:changed", function (evt) {
         try {
-          sock.off("categories:changed");
-        } catch (_) {}
-        sock.on("categories:changed", function (evt) {
-          try {
-            // Reload current category/subcategory navigation and files page
-            var did =
-              (document.querySelector("#maintable") &&
-                document
-                  .querySelector("#maintable")
-                  .getAttribute("data-category")) ||
-              "0";
-            var sdid =
-              (document.querySelector("#maintable") &&
-                document
-                  .querySelector("#maintable")
-                  .getAttribute("data-subcategory")) ||
-              "1";
-            if (window.navigateToCategory) {
-              // Immediate refresh
-              window.navigateToCategory(did, sdid, false);
-              // Follow-up refresh after a short delay to ensure visibility post-enable
-              setTimeout(function () {
-                try {
-                  window.navigateToCategory(did, sdid, false);
-                } catch (_) {}
-              }, 400);
-            } else {
-              // Fallback: hard reload files page
+          var did =
+            (document.querySelector("#maintable") &&
+              document
+                .querySelector("#maintable")
+                .getAttribute("data-category")) ||
+            "0";
+          var sdid =
+            (document.querySelector("#maintable") &&
+              document
+                .querySelector("#maintable")
+                .getAttribute("data-subcategory")) ||
+            "1";
+          if (window.navigateToCategory) {
+            window.navigateToCategory(did, sdid, false);
+            setTimeout(function () {
               try {
-                window.location.reload();
+                window.navigateToCategory(did, sdid, false);
               } catch (_) {}
-            }
-          } catch (e) {}
-        });
-      }
+            }, 400);
+          }
+        } catch (_) {}
+      });
+      window.SyncManager.on("subcategories:changed", function (evt) {
+        try {
+          var did =
+            (document.querySelector("#maintable") &&
+              document
+                .querySelector("#maintable")
+                .getAttribute("data-category")) ||
+            "0";
+          var sdid =
+            (document.querySelector("#maintable") &&
+              document
+                .querySelector("#maintable")
+                .getAttribute("data-subcategory")) ||
+            "1";
+          if (window.navigateToCategory) {
+            window.navigateToCategory(did, sdid, false);
+            setTimeout(function () {
+              try {
+                window.navigateToCategory(did, sdid, false);
+              } catch (_) {}
+            }, 400);
+          }
+        } catch (_) {}
+      });
     }
   } catch (_) {}
 })();
