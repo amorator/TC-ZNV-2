@@ -41,7 +41,7 @@
       </td>
       <td class="table__body_action">
         {% if current_user.is_allowed(id, 'b') %}
-        <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="popupToggle('popup-add');"><i class="bi bi-plus-lg"></i></button>
+        <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center add-button" onclick="openModal('popup-add');"><i class="bi bi-plus-lg"></i></button>
         {% endif %}
       </td>
     </tr>
@@ -84,7 +84,7 @@
               <span class="approval__object_title">Согласование</span>
               <div class="approval__object_actions">
                   <a class="approval__object_action approval__object_action--aprove" href="{{ url_for('requests_approve', id=req.id) }}"><i class="bi bi-check2-circle"></i></a>
-                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="popupToggle('popup-reason', {{ req.id }});"><i class="bi bi-x-lg"></i></a>
+                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="openModal('popup-reason', {{ req.id }});"><i class="bi bi-x-lg"></i></a>
               </div>
             </div>
             {% endif %}
@@ -101,7 +101,7 @@
                   <a class="approval__object_action approval__object_action--aprove" href="{{ url_for('requests_allow', id=req.id) }}">
                    <i class="bi bi-check2-circle"></i>
                   </a>
-                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="document.getElementById('popup-reason').getElementsByTagName('form')[0].action = '{{ url_for('requests_deny', id='0') }}'; popupToggle('popup-reason', {{ req.id }});"">
+                  <a class="approval__object_action approval__object_action--reject" href="#" onclick="document.getElementById('popup-reason').getElementsByTagName('form')[0].action = '{{ url_for('requests_deny', id='0') }}'; openModal('popup-reason', {{ req.id }});"">
 
                     <i class="bi bi-x-lg"></i>
                   </a>
@@ -122,13 +122,13 @@
               <div class="actions">
 
                 {% if (current_user.name + ' (' in req.account or current_user.is_allowed(id, 'c')) and req.status_edit() == 1 or current_user.is_allowed(id, 'z') %}
-                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit1', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="openModal('popup-edit1', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
                 {% endif %}
                 {% if current_user.is_allowed(id, 'c') and req.status_edit() == -1 or current_user.is_allowed(id, 'z') %}
-                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="popupToggle('popup-edit2', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center"  onclick="openModal('popup-edit2', {{ req.id }});"><i class="bi bi-pencil-square"></i></button>
                 {% endif %}
                 {% if (current_user.is_allowed(id, 'd') or req.account == current_user.name + ' (' in req.account) and req.status_edit() == 1 or current_user.is_allowed(id, 'z') %}
-                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ req.id }});"><i class="bi bi-trash3"></i></button>
+                <button type="button" class="actions__item btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ req.id }});"><i class="bi bi-trash3"></i></button>
                 {% endif %}
               </div>
             </td>
@@ -152,7 +152,7 @@
           </div>
           <div class="popup__actions d-flex gap-2">
             <button type="submit" class="btn btn-success" onclick="validateForm(this.parentElement);">Ок</button>
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="popupToggle('popup-reason');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('popup-reason');">Отмена</button>
           </div>
         </form>
       </div>
@@ -176,7 +176,7 @@
           </div>
           <div class="popup__actions">
             <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Создать</button>
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-add');">Отмена</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('popup-add');">Отмена</button>
           </div>
         </form>
       </div>
@@ -202,7 +202,7 @@
           </div>
           <div class="popup__actions">
             <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit1');">Отмена</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('popup-edit1');">Отмена</button>
           </div>
         </form>
       </div>
@@ -232,7 +232,7 @@
           </div>
           <div class="popup__actions">
             <button type="submit" class="btn btn-primary" onclick="validateForm(this.parentElement);">Сохранить</button>
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-edit2');">Отмена</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('popup-edit2');">Отмена</button>
           </div>
         </form>
       </div>
@@ -247,7 +247,7 @@
         <form class="popup__form" id="delete" action="{{ url_for('requests_delete', id='0') }}" method="post">
           <div class="popup__actions">
             <button type="submit" class="btn btn-danger" onclick="validateForm(this.parentElement);">Удалить</button>
-            <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-delete');">Отмена</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('popup-delete');">Отмена</button>
           </div>
         </form>
       </div>

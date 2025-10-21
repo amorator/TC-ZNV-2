@@ -551,6 +551,36 @@ if (document.readyState === "loading") {
   // Change-detection initialization
   (function initGroupsChangeDetection() {
     document.addEventListener("DOMContentLoaded", function () {
+      try {
+        if (
+          window.SyncManager &&
+          typeof window.SyncManager.joinRoom === "function"
+        ) {
+          window.SyncManager.joinRoom("groups");
+        }
+      } catch (_) {}
+      // Idle guard: soft refresh groups if idle
+      try {
+        var idleSec = 30;
+        try {
+          idleSec =
+            parseInt(
+              (window.__config && window.__config.syncIdleSeconds) || idleSec,
+              10
+            ) || idleSec;
+        } catch (_) {}
+        if (
+          window.SyncManager &&
+          typeof window.SyncManager.startIdleGuard === "function"
+        ) {
+          window.SyncManager.startIdleGuard(function () {
+            try {
+              typeof softRefreshGroupsTable === "function" &&
+                softRefreshGroupsTable();
+            } catch (_) {}
+          }, idleSec);
+        }
+      } catch (_) {}
       // Edit modal save
       const editForm = document.getElementById("edit");
       if (editForm) {
@@ -841,11 +871,17 @@ if (document.readyState === "loading") {
 
   // Function to submit group forms via AJAX
   window.submitGroupFormAjax = function (form) {
-    if (!window.submitFormAjax) {
+    // Prefer CommonAjax if available; fallback to ModalManager.submitForm
+    if (
+      !window.submitFormAjax &&
+      !(window.CommonAjax && window.CommonAjax.submitForm) &&
+      !(window.modalManager && window.modalManager.submitForm)
+    ) {
       console.error("submitFormAjax helper not found");
-      if (window.showToast) {
-        window.showToast("Внутренняя ошибка: нет AJAX помощника", "error");
-      }
+      try {
+        window.showToast &&
+          window.showToast("Внутренняя ошибка: нет AJAX помощника", "error");
+      } catch (_) {}
       return false;
     }
 
@@ -864,8 +900,40 @@ if (document.readyState === "loading") {
       return;
     }
 
-    window
-      .submitFormAjax(form)
+    var submitFn = window.submitFormAjax
+      ? function (f) {
+          return window.submitFormAjax(f);
+        }
+      : window.CommonAjax && window.CommonAjax.submitForm
+      ? function (f) {
+          return new Promise(function (resolve, reject) {
+            try {
+              window.CommonAjax.submitForm(f, {
+                onSuccess: function () {
+                  resolve(true);
+                },
+                onError: function (err) {
+                  reject(err);
+                },
+              });
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }
+      : window.modalManager && window.modalManager.submitForm
+      ? function (f) {
+          return window.modalManager.submitForm(f);
+        }
+      : null;
+    if (!submitFn) {
+      try {
+        window.showToast &&
+          window.showToast("Нет функции отправки формы", "error");
+      } catch (_) {}
+      return false;
+    }
+    submitFn(form)
       .then(() => {
         // Close modal first
         const modal = form.closest(".overlay-container");

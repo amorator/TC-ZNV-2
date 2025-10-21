@@ -1,14 +1,22 @@
+"""
+Модуль push-уведомлений
+Обеспечивает регистрацию подписок и отправку уведомлений через Web Push API
+"""
+
+from json import dumps
+from os import path, urandom
+from typing import Any, Dict, List, Tuple, Optional
+
 from flask import request, jsonify, send_from_directory
 from flask_login import current_user
-from modules.logging import get_logger, log_action
 from pywebpush import webpush, WebPushException
-from os import path, urandom
-from json import dumps
+
+from modules.logging import get_logger, log_action
 
 _log = get_logger(__name__)
 
 
-def register(app):
+def register(app: Any) -> None:
     """Register push notification routes and service worker endpoint."""
 
     @app.route('/sw.js')
@@ -27,6 +35,11 @@ def register(app):
         """Return VAPID public key for client subscription (Base64 URL-safe)."""
         try:
             key = (app._sql.push_get_vapid_public() or '')
+            # normalize: trim and remove surrounding quotes/whitespace
+            try:
+                key = str(key).strip().strip('"').strip("'")
+            except Exception:
+                pass
             if not key:
                 return jsonify({
                     'status': 'error',
@@ -57,34 +70,25 @@ def register(app):
                     'message': 'Invalid subscription'
                 }), 400
             # Capture user agent for diagnostics
-            try:
-                ua = request.headers.get('User-Agent') or ''
-                setattr(app._sql, 'config', {
-                    **getattr(app._sql, 'config', {}), 'user_agent': ua
-                })
-            except Exception:
-                pass
+            ua = request.headers.get('User-Agent') or ''
+            setattr(app._sql, 'config', {
+                **getattr(app._sql, 'config', {}), 'user_agent': ua
+            })
             app._sql.push_add_subscription(current_user.id, endpoint, p256dh,
                                            auth)
-            try:
-                log_action('PUSH_SUBSCRIBE', current_user.name,
-                           f'subscribed endpoint={endpoint[:32]}...',
-                           request.remote_addr)
-            except Exception:
-                pass
+            log_action('PUSH_SUBSCRIBE', current_user.name,
+                       f'subscribed endpoint={endpoint[:32]}...',
+                       request.remote_addr)
             return jsonify({'status': 'success'}), 200
         except Exception as e:
             app.flash_error(e)
-            try:
-                log_action('PUSH_SUBSCRIBE',
-                           current_user.name if getattr(
-                               current_user, 'is_authenticated', False) else
-                           'anonymous',
-                           f'failed subscribe: {str(e)}',
-                           request.remote_addr,
-                           success=False)
-            except Exception:
-                pass
+            log_action(
+                'PUSH_SUBSCRIBE',
+                current_user.name if getattr(current_user, 'is_authenticated',
+                                             False) else 'anonymous',
+                f'failed subscribe: {str(e)}',
+                request.remote_addr,
+                success=False)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.route('/push/unsubscribe', methods=['POST'])
@@ -99,27 +103,21 @@ def register(app):
                     'message': 'Invalid endpoint'
                 }), 400
             app._sql.push_remove_subscription(endpoint)
-            try:
-                log_action(
-                    'PUSH_UNSUBSCRIBE', current_user.name if getattr(
-                        current_user, 'is_authenticated', False) else
-                    'anonymous', f'unsubscribed endpoint={endpoint[:32]}...',
-                    request.remote_addr)
-            except Exception:
-                pass
+            log_action(
+                'PUSH_UNSUBSCRIBE', current_user.name if getattr(
+                    current_user, 'is_authenticated', False) else 'anonymous',
+                f'unsubscribed endpoint={endpoint[:32]}...',
+                request.remote_addr)
             return jsonify({'status': 'success'}), 200
         except Exception as e:
             app.flash_error(e)
-            try:
-                log_action('PUSH_UNSUBSCRIBE',
-                           current_user.name if getattr(
-                               current_user, 'is_authenticated', False) else
-                           'anonymous',
-                           f'failed unsubscribe: {str(e)}',
-                           request.remote_addr,
-                           success=False)
-            except Exception:
-                pass
+            log_action(
+                'PUSH_UNSUBSCRIBE',
+                current_user.name if getattr(current_user, 'is_authenticated',
+                                             False) else 'anonymous',
+                f'failed unsubscribe: {str(e)}',
+                request.remote_addr,
+                success=False)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.route('/push/test', methods=['POST'])
@@ -152,8 +150,8 @@ def register(app):
                 'body': 'Тестовое уведомление',
                 'icon': '/static/images/notification-icon.png'
             }
-            sent = 0
-            removed = 0
+            sent: int = 0
+            removed: int = 0
             for row in rows:
                 endpoint, p256dh, auth = row[1], row[2], row[3]
                 sub_info = {
@@ -173,39 +171,30 @@ def register(app):
                             vapid_private_key=vapid_private,
                             vapid_claims={"sub": vapid_subject})
                     sent += 1
-                    try:
-                        app._sql.push_mark_success(endpoint)
-                    except Exception:
-                        pass
+                    app._sql.push_mark_success(endpoint)
                 except WebPushException as we:
                     # Remove expired/invalid subscriptions (410 Gone / No such subscription)
                     code = None
                     body_text = ''
                     try:
-                        code = we.response.status_code if getattr(
-                            we, 'response', None) is not None else None
-                        body_text = we.response.text if getattr(
-                            we, 'response', None) is not None else str(we)
+                        resp = getattr(we, 'response', None)
+                        if resp is not None:
+                            code = getattr(resp, 'status_code', None)
+                            body_text = getattr(resp, 'text',
+                                                str(we)) or str(we)
+                        else:
+                            body_text = str(we)
                     except Exception:
                         body_text = str(we)
                     if code == 410 or 'No such subscription' in body_text or 'Gone' in body_text:
-                        try:
-                            app._sql.push_remove_subscription(endpoint)
-                            removed += 1
-                        except Exception:
-                            pass
-                    try:
-                        app._sql.push_mark_error(endpoint, str(code or '410'))
-                    except Exception:
-                        pass
+                        app._sql.push_remove_subscription(endpoint)
+                        removed += 1
+                    app._sql.push_mark_error(endpoint, str(code or '410'))
                     _log.error(f"Push send failed: {we}")
                     continue
-            try:
-                log_action('PUSH_TEST', current_user.name,
-                           f'sent test to {sent} subs, removed {removed}',
-                           request.remote_addr)
-            except Exception:
-                pass
+            log_action('PUSH_TEST', current_user.name,
+                       f'sent test to {sent} subs, removed {removed}',
+                       request.remote_addr)
             return jsonify({
                 'status': 'success',
                 'sent': sent,
@@ -213,16 +202,13 @@ def register(app):
             }), 200
         except Exception as e:
             app.flash_error(e)
-            try:
-                log_action('PUSH_TEST',
-                           current_user.name if getattr(
-                               current_user, 'is_authenticated', False) else
-                           'anonymous',
-                           f'failed to send test: {str(e)}',
-                           request.remote_addr,
-                           success=False)
-            except Exception:
-                pass
+            log_action(
+                'PUSH_TEST',
+                current_user.name if getattr(current_user, 'is_authenticated',
+                                             False) else 'anonymous',
+                f'failed to send test: {str(e)}',
+                request.remote_addr,
+                success=False)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.route('/push/delivered', methods=['POST'])

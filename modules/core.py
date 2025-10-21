@@ -51,4 +51,4 @@ class Config:
 			self.config['videos']['max_threads'] = getenv('VIDEOS_MAX_THREADS', self.config['videos'].get('max_threads', '2'))
 		if 'web' in self.config:
 			self.config['web']['session_lifetime'] = getenv('WEB_SESSION_LIFETIME', self.config['web'].get('session_lifetime', '86400'))
-			self.config['web']['passive_poll_seconds'] = getenv('WEB_PASSIVE_POLL_SECONDS', self.config['web'].get('passive_poll_seconds', '20'))
+			# passive_poll_seconds removed: replaced by sync_idle_seconds idle-guard

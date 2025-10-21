@@ -53,7 +53,20 @@ def redis_rate_limit(max_calls: int = 60, window_sec: int = 60, redis_client=Non
                         
                         if current_count > max_calls:
                             _log.warning(f"Rate limit exceeded for {client_ip}:{endpoint} ({current_count}/{max_calls})")
-                            
+
+                            # For login endpoint, avoid redirects to break potential loops
+                            if endpoint == 'login':
+                                # Prefer JSON if requested
+                                accept = request.headers.get('Accept', '')
+                                if 'application/json' in accept:
+                                    return jsonify({'error': 'Слишком много попыток входа, попробуйте позже'}), 429
+                                # Minimal HTML/text response to stop redirect chains
+                                return (
+                                    'Слишком много попыток входа, попробуйте позже',
+                                    429,
+                                    {'Content-Type': 'text/plain; charset=utf-8'}
+                                )
+
                             # Check if client expects JSON response
                             if request.headers.get('Accept', '').find('application/json') != -1:
                                 return jsonify({

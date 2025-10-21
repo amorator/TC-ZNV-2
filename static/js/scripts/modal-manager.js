@@ -3,8 +3,8 @@
  * Provides common modal functionality for files and users pages
  */
 
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   /**
    * Modal Manager Class
@@ -21,52 +21,74 @@
      */
     init() {
       // Listen for escape key
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && this.activeModal) {
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && this.activeModal) {
           // Intercept recorder ESC to guard close
-          if (this.activeModal === 'popup-rec') {
+          if (this.activeModal === "popup-rec") {
             try {
-              const iframe = document.getElementById('rec-iframe');
+              const iframe = document.getElementById("rec-iframe");
               if (iframe && iframe.contentWindow) {
                 window.__recCloseRequested = true;
-                try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-                iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
-                window.__recStateTimer = setTimeout(function() {
+                try {
+                  if (window.__recStateTimer) {
+                    clearTimeout(window.__recStateTimer);
+                    window.__recStateTimer = null;
+                  }
+                } catch (_) {}
+                iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+                window.__recStateTimer = setTimeout(function () {
                   // No fallback confirm for recorder on ESC; do nothing if iframe silent
-                  try { window.__recCloseRequested = false; } catch(_) {}
-                  try { window.__recStateTimer = null; } catch(_) {}
+                  try {
+                    window.__recCloseRequested = false;
+                  } catch (_) {}
+                  try {
+                    window.__recStateTimer = null;
+                  } catch (_) {}
                 }, 300);
                 e.preventDefault();
                 e.stopPropagation();
                 return;
               }
-            } catch(_) {}
+            } catch (_) {}
           }
           this.closeModal(this.activeModal);
         }
       });
 
       // Listen for clicks outside modal
-      document.addEventListener('click', (e) => {
-        if (this.activeModal && e.target.classList && e.target.classList.contains('popup-overlay')) {
+      document.addEventListener("click", (e) => {
+        if (
+          this.activeModal &&
+          e.target.classList &&
+          e.target.classList.contains("popup-overlay")
+        ) {
           // Intercept recorder overlay click to guard close
-          if (this.activeModal === 'popup-rec') {
+          if (this.activeModal === "popup-rec") {
             try {
-              const iframe = document.getElementById('rec-iframe');
+              const iframe = document.getElementById("rec-iframe");
               if (iframe && iframe.contentWindow) {
                 window.__recCloseRequested = true;
-                try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-                iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
-                window.__recStateTimer = setTimeout(function() {
+                try {
+                  if (window.__recStateTimer) {
+                    clearTimeout(window.__recStateTimer);
+                    window.__recStateTimer = null;
+                  }
+                } catch (_) {}
+                iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+                window.__recStateTimer = setTimeout(function () {
                   // No fallback confirm for recorder on overlay click; do nothing if iframe silent
-                  try { window.__recCloseRequested = false; } catch(_) {}
-                  try { window.__recStateTimer = null; } catch(_) {}
+                  try {
+                    window.__recCloseRequested = false;
+                  } catch (_) {}
+                  try {
+                    window.__recStateTimer = null;
+                  } catch (_) {}
                 }, 300);
                 e.preventDefault();
                 e.stopPropagation();
                 return;
               }
-            } catch(_) {}
+            } catch (_) {}
           }
           this.closeModal(this.activeModal);
         }
@@ -88,12 +110,12 @@
         closeOnOverlay: options.closeOnOverlay !== false,
         onOpen: options.onOpen || null,
         onClose: options.onClose || null,
-        ...options
+        ...options,
       };
 
       this.modals.set(modalId, {
         element: modal,
-        config: config
+        config: config,
       });
 
       return true;
@@ -107,8 +129,10 @@
      */
     openModal(modalId, data = null, rowId = null) {
       const modalData = this.modals.get(modalId);
-      const modal = modalData ? modalData.element : document.getElementById(modalId);
-      
+      const modal = modalData
+        ? modalData.element
+        : document.getElementById(modalId);
+
       if (!modal) {
         console.error(`Modal ${modalId} not found`);
         return false;
@@ -124,15 +148,71 @@
         this.populateModal(modal, data, rowId);
       }
 
-      // Show modal
-      modal.classList.add('show');
-      modal.classList.remove('d-none');
-      modal.style.display = 'flex';
-      
+      // Show modal: support both custom overlays (.overlay-container) and Bootstrap (.modal)
+      try {
+        window.modlog &&
+          window.modlog("openModal start", {
+            modalId,
+            hasBootstrap: !!window.bootstrap,
+            classes: modal.className,
+          });
+      } catch (_) {}
+      if (modal.classList.contains("modal")) {
+        try {
+          var inst = bootstrap.Modal.getOrCreateInstance(modal);
+          inst.show();
+          try {
+            window.modlog &&
+              window.modlog("openModal bootstrap.show()", modal.id);
+          } catch (_) {}
+        } catch (_) {
+          // Fallback display if bootstrap not available
+          modal.classList.add("show");
+          modal.classList.remove("d-none");
+          modal.style.display = "block";
+          try {
+            window.modlog &&
+              window.modlog(
+                "openModal bootstrap fallback display:block",
+                modal.id
+              );
+          } catch (_) {}
+        }
+      } else {
+        // Custom overlay
+        modal.classList.add("show");
+        modal.classList.add("visible");
+        modal.classList.remove("d-none");
+        modal.style.display = "flex";
+        // Recorder iframe lazy-load: assign data-src -> src on first open
+        try {
+          if (modalId === "popup-rec") {
+            const iframe = document.getElementById("rec-iframe");
+            if (iframe) {
+              const currentSrc = (iframe.getAttribute("src") || "").trim();
+              const dataSrc = (iframe.getAttribute("data-src") || "").trim();
+              if ((currentSrc === "" || currentSrc === "about:blank") && dataSrc) {
+                iframe.setAttribute("src", dataSrc);
+              }
+            }
+          }
+        } catch (_) {}
+        try {
+          document.body.style.overflow = "hidden";
+        } catch (_) {}
+        try {
+          window.modlog && window.modlog("openModal overlay show", modal.id);
+        } catch (_) {}
+      }
+
       // Focus first input
-      const firstInput = modal.querySelector('input, textarea, select');
+      const firstInput = modal.querySelector("input, textarea, select");
       if (firstInput) {
-        setTimeout(() => firstInput.focus(), 100);
+        setTimeout(() => {
+          try {
+            firstInput.focus();
+          } catch (_) {}
+        }, 100);
       }
 
       // Update active modal
@@ -145,9 +225,14 @@
       }
 
       // Trigger custom event
-      document.dispatchEvent(new CustomEvent('modal-opened', {
-        detail: { modalId, data, rowId }
-      }));
+      try {
+        window.modlog && window.modlog("modal-opened event", modalId);
+      } catch (_) {}
+      document.dispatchEvent(
+        new CustomEvent("modal-opened", {
+          detail: { modalId, data, rowId },
+        })
+      );
 
       return true;
     }
@@ -158,17 +243,50 @@
      */
     closeModal(modalId) {
       const modalData = this.modals.get(modalId);
-      const modal = modalData ? modalData.element : document.getElementById(modalId);
-      
+      const modal = modalData
+        ? modalData.element
+        : document.getElementById(modalId);
+
       if (!modal) return false;
 
-      // Hide modal
-      modal.classList.remove('show');
-      modal.classList.add('d-none');
-      modal.style.display = 'none';
+      // Hide modal: support Bootstrap and custom overlay
+      try {
+        window.modlog && window.modlog("closeModal start", { modalId });
+      } catch (_) {}
+      if (modal.classList.contains("modal")) {
+        try {
+          var inst =
+            bootstrap.Modal.getInstance(modal) ||
+            bootstrap.Modal.getOrCreateInstance(modal);
+          inst.hide();
+          try {
+            window.modlog &&
+              window.modlog("closeModal bootstrap.hide()", modal.id);
+          } catch (_) {}
+        } catch (_) {
+          modal.classList.remove("show");
+          modal.classList.add("d-none");
+          modal.style.display = "none";
+          try {
+            window.modlog &&
+              window.modlog("closeModal bootstrap fallback hide", modal.id);
+          } catch (_) {}
+        }
+      } else {
+        modal.classList.remove("show");
+        modal.classList.remove("visible");
+        modal.classList.add("d-none");
+        modal.style.display = "none";
+        try {
+          document.body.style.overflow = "";
+        } catch (_) {}
+        try {
+          window.modlog && window.modlog("closeModal overlay hide", modal.id);
+        } catch (_) {}
+      }
 
       // Clear form if it's a form modal
-      const form = modal.querySelector('form');
+      const form = modal.querySelector("form");
       if (form) {
         form.reset();
       }
@@ -185,9 +303,14 @@
       }
 
       // Trigger custom event
-      document.dispatchEvent(new CustomEvent('modal-closed', {
-        detail: { modalId }
-      }));
+      try {
+        window.modlog && window.modlog("modal-closed event", modalId);
+      } catch (_) {}
+      document.dispatchEvent(
+        new CustomEvent("modal-closed", {
+          detail: { modalId },
+        })
+      );
 
       return true;
     }
@@ -201,7 +324,9 @@
     populateModal(modal, data = null, rowId = null) {
       if (rowId && !data) {
         // Get data from row
-        const row = document.getElementById(rowId) || document.querySelector(`tr[data-id="${rowId}"]`);
+        const row =
+          document.getElementById(rowId) ||
+          document.querySelector(`tr[data-id="${rowId}"]`);
         if (row) {
           data = this.extractRowData(row);
         }
@@ -210,19 +335,21 @@
       if (!data) return;
 
       // Populate form fields
-      const form = modal.querySelector('form');
+      const form = modal.querySelector("form");
       if (form) {
         this.populateForm(form, data);
       }
 
       // Set modal title if data has name/title
-      const titleElement = modal.querySelector('.modal-title, .popup-title');
+      const titleElement = modal.querySelector(".modal-title, .popup-title");
       if (titleElement && data.name) {
         titleElement.textContent = data.name;
       }
 
       // Set hidden ID field if exists
-      const idField = modal.querySelector('input[name="id"], input[name="row_id"]');
+      const idField = modal.querySelector(
+        'input[name="id"], input[name="row_id"]'
+      );
       if (idField && rowId) {
         idField.value = rowId;
       }
@@ -246,9 +373,11 @@
       });
 
       // Extract data attributes
-      Array.from(row.attributes).forEach(attr => {
-        if (attr.name.startsWith('data-')) {
-          const key = attr.name.replace('data-', '').replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+      Array.from(row.attributes).forEach((attr) => {
+        if (attr.name.startsWith("data-")) {
+          const key = attr.name
+            .replace("data-", "")
+            .replace(/-([a-z])/g, (g) => g[1].toUpperCase());
           data[key] = attr.value;
         }
       });
@@ -268,11 +397,12 @@
      * @param {Object} data - Data object
      */
     populateForm(form, data) {
-      Object.keys(data).forEach(key => {
+      Object.keys(data).forEach((key) => {
         const field = form.querySelector(`[name="${key}"]`);
         if (field) {
-          if (field.type === 'checkbox' || field.type === 'radio') {
-            field.checked = data[key] === '1' || data[key] === 'true' || data[key] === true;
+          if (field.type === "checkbox" || field.type === "radio") {
+            field.checked =
+              data[key] === "1" || data[key] === "true" || data[key] === true;
           } else {
             field.value = data[key];
           }
@@ -280,8 +410,8 @@
       });
 
       // Special handling for select elements
-      const selects = form.querySelectorAll('select');
-      selects.forEach(select => {
+      const selects = form.querySelectorAll("select");
+      selects.forEach((select) => {
         const value = data[select.name];
         if (value) {
           select.value = value;
@@ -302,15 +432,17 @@
       const errors = [];
 
       // Trim all text inputs
-      const textInputs = form.querySelectorAll('input[type="text"], input[type="email"], input[type="password"], textarea');
-      textInputs.forEach(input => {
+      const textInputs = form.querySelectorAll(
+        'input[type="text"], input[type="email"], input[type="password"], textarea'
+      );
+      textInputs.forEach((input) => {
         if (input.value) {
           input.value = input.value.trim();
         }
       });
 
       // Apply custom validation rules
-      Object.keys(rules).forEach(fieldName => {
+      Object.keys(rules).forEach((fieldName) => {
         const field = form.querySelector(`[name="${fieldName}"]`);
         if (!field) return;
 
@@ -323,12 +455,20 @@
         }
 
         if (value && rule.minLength && value.length < rule.minLength) {
-          errors.push(`${rule.label || fieldName} must be at least ${rule.minLength} characters`);
+          errors.push(
+            `${rule.label || fieldName} must be at least ${
+              rule.minLength
+            } characters`
+          );
           isValid = false;
         }
 
         if (value && rule.maxLength && value.length > rule.maxLength) {
-          errors.push(`${rule.label || fieldName} must be no more than ${rule.maxLength} characters`);
+          errors.push(
+            `${rule.label || fieldName} must be no more than ${
+              rule.maxLength
+            } characters`
+          );
           isValid = false;
         }
 
@@ -358,15 +498,17 @@
       this.clearValidationErrors(form);
 
       // Create error container
-      let errorContainer = form.querySelector('.validation-errors');
+      let errorContainer = form.querySelector(".validation-errors");
       if (!errorContainer) {
-        errorContainer = document.createElement('div');
-        errorContainer.className = 'validation-errors alert alert-danger';
+        errorContainer = document.createElement("div");
+        errorContainer.className = "validation-errors alert alert-danger";
         form.insertBefore(errorContainer, form.firstChild);
       }
 
       // Add error messages
-      errorContainer.innerHTML = errors.map(error => `<div>${error}</div>`).join('');
+      errorContainer.innerHTML = errors
+        .map((error) => `<div>${error}</div>`)
+        .join("");
     }
 
     /**
@@ -374,7 +516,7 @@
      * @param {HTMLFormElement} form - Form element
      */
     clearValidationErrors(form) {
-      const errorContainer = form.querySelector('.validation-errors');
+      const errorContainer = form.querySelector(".validation-errors");
       if (errorContainer) {
         errorContainer.remove();
       }
@@ -389,23 +531,23 @@
       if (!form) return false;
 
       const {
-        method = 'POST',
+        method = "POST",
         endpoint = form.action || window.location.href,
         onSuccess = null,
         onError = null,
-        onComplete = null
+        onComplete = null,
       } = options;
 
       try {
         const formData = new FormData(form);
-        
+
         const response = await fetch(endpoint, {
           method: method,
           body: formData,
-          credentials: 'include',
+          credentials: "include",
           headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
+            "X-Requested-With": "XMLHttpRequest",
+          },
         });
 
         if (response.ok) {
@@ -418,7 +560,7 @@
           throw new Error(error);
         }
       } catch (error) {
-        console.error('Form submission error:', error);
+        console.error("Form submission error:", error);
         if (onError) onError(error);
         throw error;
       } finally {
@@ -443,14 +585,17 @@
       // Check both internal state and DOM state
       const isActive = this.activeModal === modalId;
       const modal = document.getElementById(modalId);
-      const isVisible = modal && modal.classList.contains('show') && modal.style.display !== 'none';
-      
+      const isVisible =
+        modal &&
+        modal.classList.contains("show") &&
+        modal.style.display !== "none";
+
       // If internal state says it's open but DOM says it's closed, sync the state
       if (isActive && !isVisible) {
         this.activeModal = null;
         return false;
       }
-      
+
       return isActive && isVisible;
     }
   }
@@ -458,9 +603,9 @@
   // Create global instance
   window.ModalManager = ModalManager;
   window.modalManager = new ModalManager();
-  
+
   // Sync state on page load
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener("DOMContentLoaded", () => {
     // Reset any stale modal states
     window.modalManager.activeModal = null;
   });
@@ -477,22 +622,33 @@
   window.popupToggle = (modalId, rowId = null, data = null) => {
     const isOpen = window.modalManager.isModalOpen(modalId);
     // Intercept recorder modal close to query iframe state and confirm
-    if (modalId === 'popup-rec' && isOpen) {
+    if (modalId === "popup-rec" && isOpen) {
       try {
-        const iframe = document.getElementById('rec-iframe');
+        const iframe = document.getElementById("rec-iframe");
         if (iframe && iframe.contentWindow) {
           window.__recCloseRequested = true;
-          try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
-          iframe.contentWindow.postMessage({ type: 'rec:state?' }, '*');
+          try {
+            if (window.__recStateTimer) {
+              clearTimeout(window.__recStateTimer);
+              window.__recStateTimer = null;
+            }
+          } catch (_) {}
+          iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
           // Fallback if no response arrives
-          window.__recStateTimer = setTimeout(function() {
-            try { window.__recCloseRequested = false; } catch(_) {}
-            try { if (window.showRecConfirmDialog) window.showRecConfirmDialog(); } catch(_) {}
-            try { window.__recStateTimer = null; } catch(_) {}
+          window.__recStateTimer = setTimeout(function () {
+            try {
+              window.__recCloseRequested = false;
+            } catch (_) {}
+            try {
+              if (window.showRecConfirmDialog) window.showRecConfirmDialog();
+            } catch (_) {}
+            try {
+              window.__recStateTimer = null;
+            } catch (_) {}
           }, 300);
           return true;
         }
-      } catch(_) {}
+      } catch (_) {}
       // If no iframe, just close
       return window.modalManager.closeModal(modalId);
     }
@@ -503,21 +659,26 @@
       return window.modalManager.openModal(modalId, data, rowId);
     }
   };
-  
+
   // Recorder close control (mirror of legacy handler) but using modalManager
-  window.addEventListener('message', function(ev) {
+  window.addEventListener("message", function (ev) {
     try {
       const data = ev.data || {};
-      if (!data || typeof data !== 'object') return;
-      if (data.type === 'rec:state' && window.__recCloseRequested) {
+      if (!data || typeof data !== "object") return;
+      if (data.type === "rec:state" && window.__recCloseRequested) {
         window.__recCloseRequested = false;
-        try { if (window.__recStateTimer) { clearTimeout(window.__recStateTimer); window.__recStateTimer = null; } } catch(_) {}
+        try {
+          if (window.__recStateTimer) {
+            clearTimeout(window.__recStateTimer);
+            window.__recStateTimer = null;
+          }
+        } catch (_) {}
         const st = data.state || {};
         const isRecording = !!st.recording;
         const isPaused = !!st.paused;
         const hasData = !!st.hasData;
         if (isRecording) {
-          alert('Остановите запись перед закрытием окна.');
+          alert("Остановите запись перед закрытием окна.");
           return;
         }
         if (!window.__recSaving && (hasData || isPaused)) {
@@ -526,20 +687,25 @@
         }
         // Safe to close: notify iframe to cleanup then close via manager
         try {
-          const iframe = document.getElementById('rec-iframe');
+          const iframe = document.getElementById("rec-iframe");
           if (iframe && iframe.contentWindow) {
-            iframe.contentWindow.postMessage({ type: 'rec:close' }, '*');
+            iframe.contentWindow.postMessage({ type: "rec:close" }, "*");
           }
-        } catch(_) {}
-        try { window.modalManager.closeModal('popup-rec'); } catch(_) {}
-      } else if (data.type === 'rec:discarded') {
-        try { window.modalManager.closeModal('popup-rec'); } catch(_) {}
+        } catch (_) {}
+        try {
+          window.modalManager.closeModal("popup-rec");
+        } catch (_) {}
+      } else if (data.type === "rec:discarded") {
+        try {
+          window.modalManager.closeModal("popup-rec");
+        } catch (_) {}
         window.__recSaving = false;
-      } else if (data.type === 'rec:saved') {
+      } else if (data.type === "rec:saved") {
         window.__recSaving = false;
-        try { window.softRefreshFilesTable && window.softRefreshFilesTable(); } catch(e) {}
+        try {
+          window.softRefreshFilesTable && window.softRefreshFilesTable();
+        } catch (e) {}
       }
-    } catch(_) {}
+    } catch (_) {}
   });
 })();
-

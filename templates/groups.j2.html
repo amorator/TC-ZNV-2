@@ -2,7 +2,7 @@
 {% block css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/search.css') }}"/>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/groups.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/groups.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/popup.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/input.css') }}"/>
 {% endblock %}
@@ -25,7 +25,7 @@
             <div class="d-flex justify-content-between align-items-center gap-2">
               {% include 'components/searchbar.html' %}
               {% if current_user.has('users.manage') %}
-              <button type="button" id="add-group-button" class="btn btn-primary" data-testid="groups-add-open" data-action="add-group" onclick="popupToggle('popup-add');">
+              <button type="button" id="add-group-button" class="btn btn-primary" data-testid="groups-add-open" data-action="add-group" onclick="openModal('popup-add');">
                 <i class="bi bi-plus-lg"></i> Добавить
               </button>
               {% endif %}
@@ -69,7 +69,7 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="groups-add-cancel" onclick="popupToggle('popup-add');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="groups-add-cancel" onclick="closeModal('popup-add');">Отмена</button>
             <button type="button" class="btn btn-primary" data-testid="groups-add-submit" onclick="validateForm(this);">Добавить</button>
           </div>
         </form>
@@ -101,7 +101,7 @@
             <textarea id="edit-description" name="description" class="input form-control__control" placeholder="Введите описание группы..." autocomplete="one-time-code"></textarea>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button class="btn btn-secondary" type="button" data-testid="groups-edit-cancel" onclick="popupToggle('popup-edit');">Отмена</button>
+            <button class="btn btn-secondary" type="button" data-testid="groups-edit-cancel" onclick="closeModal('popup-edit');">Отмена</button>
             <button class="btn btn-primary" type="button" data-testid="groups-edit-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
@@ -116,7 +116,7 @@
         <p>Вы действительно хотите удалить группу <b>gname</b>?</p>
         <form class="popup__form" id="delete" name="delete" action="{{ url_for('groups_delete', id='0') }}" method="post" onsubmit="return false;">
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="groups-delete-cancel" onclick="popupToggle('popup-delete');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="groups-delete-cancel" onclick="closeModal('popup-delete');">Отмена</button>
             <button type="button" class="btn btn-danger" data-testid="groups-delete-confirm" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
@@ -131,11 +131,10 @@
   // Pass admin group name to JavaScript
   window.adminGroupName = '{{ admin_group_name }}';
 </script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}" defer="defer"></script>
-<script src="{{ url_for('static', filename='js/groups.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/pages/groups.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
 // Фокус-ловушка для модальных окон (кастомные попапы Groups)
 (function setupGroupsFocusTrap(){

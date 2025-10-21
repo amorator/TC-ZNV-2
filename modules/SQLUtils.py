@@ -535,7 +535,16 @@ class SQLUtils(SQL):
 			return os.path.join(base, 'files', cat_folder, sub_folder)
 		except Exception:
 			# Never use a relative CWD fallback; ensure absolute path
-			cfg_root = self.config.get('files', {}).get('root', '/var/lib/znf-files')
+			try:
+				# dict-like config
+				files_cfg = self.config['files']
+				cfg_root = files_cfg.get('root', '/var/lib/znf-files')
+			except Exception:
+				# ConfigParser-style
+				try:
+					cfg_root = self.config.get('files', 'root', fallback='/var/lib/znf-files')
+				except Exception:
+					cfg_root = '/var/lib/znf-files'
 			safe_root = cfg_root if os.path.isabs(str(cfg_root)) else os.path.abspath(str(cfg_root))
 			return os.path.join(safe_root, 'files')
 
@@ -1053,7 +1062,7 @@ class SQLUtils(SQL):
 		Returns:
 			List of User objects or None if no users found
 		"""
-		data = self.execute_query(f"SELECT {self._USER_SELECT_FIELDS} FROM {self.config['db']['prefix']}_user;")
+		data = self.execute_query(f"SELECT {self._USER_SELECT_FIELDS} FROM {self.config['db']['prefix']}_user ORDER BY login, name;")
 		return [User(*d) for d in data] if data else None
 
 	def user_by_id(self, args):
@@ -1130,7 +1139,7 @@ class SQLUtils(SQL):
 		Returns:
 			dict: Dictionary mapping group IDs to names, or None if no groups found
 		"""
-		data = self.execute_query(f"SELECT id, name FROM {self.config['db']['prefix']}_group;")
+		data = self.execute_query(f"SELECT id, name FROM {self.config['db']['prefix']}_group ORDER BY name;")
 		return {d[0]: d[1] for d in data} if data else None
 
 	def group_all_full(self):
@@ -1139,7 +1148,7 @@ class SQLUtils(SQL):
 		Returns:
 			list: List of (id, name, description) tuples, or None if no groups found
 		"""
-		data = self.execute_query(f"SELECT {self._GROUP_SELECT_FIELDS} FROM {self.config['db']['prefix']}_group;")
+		data = self.execute_query(f"SELECT {self._GROUP_SELECT_FIELDS} FROM {self.config['db']['prefix']}_group ORDER BY name;")
 		return data if data else None
 
 	def group_by_id(self, args):

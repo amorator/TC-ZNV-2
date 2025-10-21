@@ -61,6 +61,9 @@ def init_middleware(app):
 			pass
 		# Enforce server-side force-logout if flagged by admin (by user or session)
 		try:
+			# Temporarily disable Redis force-logout checks if flag set
+			if getattr(app.config, 'get', lambda *_: False)('FORCE_LOGOUT_DISABLED') or app.config.get('FORCE_LOGOUT_DISABLED'):
+				return
 			is_auth_attr = getattr(current_user, 'is_authenticated', False)
 			is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 			uid = getattr(current_user, 'id', None)

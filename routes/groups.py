@@ -10,12 +10,25 @@ from modules.sync_manager import emit_groups_changed
 from classes.group import Group
 import time
 from functools import wraps
+from flask_socketio import join_room
 import traceback
 
 _log = get_logger(__name__)
 
 
 def register(app):
+    # Socket.IO room join for groups page
+    try:
+        if hasattr(app, 'socketio') and app.socketio:
+
+            @app.socketio.on('groups:join')
+            def _groups_join(_data=None):
+                try:
+                    join_room('groups')
+                except Exception:
+                    pass
+    except Exception:
+        pass
     """Register all `/groups` routes on the provided Flask app.
 	
 	Args:

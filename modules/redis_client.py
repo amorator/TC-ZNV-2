@@ -3,7 +3,7 @@
 import redis
 import time
 import json
-from typing import Any, Optional, Dict, List, Union
+from typing import Any, Optional, Dict, List, Union, Set, TypeVar, Callable, cast
 from modules.logging import get_logger
 
 _log = get_logger(__name__)
@@ -86,6 +86,20 @@ class RedisClient:
                 return self._connect()
             return False
     
+    # --- Internal helper to deduplicate guards/try/except ---
+    T = TypeVar('T')
+    def _call(self, func: Callable[[redis.Redis], T], default: T) -> T:
+        if not self._ensure_connection():
+            return default
+        try:
+            client = self.client
+            if client is None:
+                return default
+            return func(client)
+        except Exception as e:
+            _log.warning(f"Redis call failed: {e}")
+            return default
+
     def shutdown(self):
         """Mark client as shutting down to prevent reconnection attempts."""
         self._shutdown = True
@@ -95,181 +109,76 @@ class RedisClient:
             except Exception:
                 pass
     
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> Optional[Any]:
         """Get value by key with fallback."""
-        if not self._ensure_connection():
-            return None
-        
-        try:
-            return self.client.get(key)
-        except Exception as e:
-            _log.warning(f"Redis GET failed for key {key}: {e}")
-            return None
+        return self._call(lambda c: c.get(key), None)
     
     def set(self, key: str, value: str, ex: Optional[int] = None) -> bool:
         """Set value with optional expiration."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.set(key, value, ex=ex))
-        except Exception as e:
-            _log.warning(f"Redis SET failed for key {key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.set(key, value, ex=ex)), False)
     
     def delete(self, key: str) -> bool:
         """Delete key."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.delete(key))
-        except Exception as e:
-            _log.warning(f"Redis DELETE failed for key {key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.delete(key)), False)
     
     def exists(self, key: str) -> bool:
         """Check if key exists."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.exists(key))
-        except Exception as e:
-            _log.warning(f"Redis EXISTS failed for key {key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.exists(key)), False)
     
     def expire(self, key: str, seconds: int) -> bool:
         """Set expiration for key."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.expire(key, seconds))
-        except Exception as e:
-            _log.warning(f"Redis EXPIRE failed for key {key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.expire(key, seconds)), False)
     
-    def hget(self, name: str, key: str) -> Optional[str]:
+    def hget(self, name: str, key: str) -> Optional[Any]:
         """Get hash field value."""
-        if not self._ensure_connection():
-            return None
-        
-        try:
-            return self.client.hget(name, key)
-        except Exception as e:
-            _log.warning(f"Redis HGET failed for {name}:{key}: {e}")
-            return None
+        return self._call(lambda c: c.hget(name, key), None)
     
     def hset(self, name: str, key: str, value: str) -> bool:
         """Set hash field value."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.hset(name, key, value))
-        except Exception as e:
-            _log.warning(f"Redis HSET failed for {name}:{key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.hset(name, key, value)), False)
     
-    def hgetall(self, name: str) -> Dict[str, str]:
+    def hgetall(self, name: str) -> Dict[str, Any]:
         """Get all hash fields."""
-        if not self._ensure_connection():
-            return {}
-        
-        try:
-            return self.client.hgetall(name)
-        except Exception as e:
-            _log.warning(f"Redis HGETALL failed for {name}: {e}")
-            return {}
+        result = self._call(lambda c: c.hgetall(name), {}) or {}
+        return cast(Dict[str, Any], result)
     
     def hdel(self, name: str, key: str) -> bool:
         """Delete hash field."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.hdel(name, key))
-        except Exception as e:
-            _log.warning(f"Redis HDEL failed for {name}:{key}: {e}")
-            return False
+        return self._call(lambda c: bool(c.hdel(name, key)), False)
     
     def lpush(self, name: str, value: str) -> bool:
         """Push value to list."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.lpush(name, value))
-        except Exception as e:
-            _log.warning(f"Redis LPUSH failed for {name}: {e}")
-            return False
+        return self._call(lambda c: bool(c.lpush(name, value)), False)
     
-    def lrange(self, name: str, start: int, end: int) -> List[str]:
+    def lrange(self, name: str, start: int, end: int) -> List[Any]:
         """Get list range."""
-        if not self._ensure_connection():
-            return []
-        
-        try:
-            return self.client.lrange(name, start, end)
-        except Exception as e:
-            _log.warning(f"Redis LRANGE failed for {name}: {e}")
-            return []
+        data = self._call(lambda c: c.lrange(name, start, end), [])
+        if isinstance(data, list):
+            return cast(List[Any], data)
+        return []
     
     def ltrim(self, name: str, start: int, end: int) -> bool:
         """Trim list to range."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.ltrim(name, start, end))
-        except Exception as e:
-            _log.warning(f"Redis LTRIM failed for {name}: {e}")
-            return False
+        return self._call(lambda c: bool(c.ltrim(name, start, end)), False)
     
     def sadd(self, name: str, value: str) -> bool:
         """Add value to set."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.sadd(name, value))
-        except Exception as e:
-            _log.warning(f"Redis SADD failed for {name}: {e}")
-            return False
+        return self._call(lambda c: bool(c.sadd(name, value)), False)
     
     def srem(self, name: str, value: str) -> bool:
         """Remove value from set."""
-        if not self._ensure_connection():
-            return False
-        
-        try:
-            return bool(self.client.srem(name, value))
-        except Exception as e:
-            _log.warning(f"Redis SREM failed for {name}: {e}")
-            return False
+        return self._call(lambda c: bool(c.srem(name, value)), False)
     
-    def smembers(self, name: str) -> set:
+    def smembers(self, name: str) -> Set[Any]:
         """Get all set members."""
-        if not self._ensure_connection():
-            return set()
-        
-        try:
-            return self.client.smembers(name)
-        except Exception as e:
-            _log.warning(f"Redis SMEMBERS failed for {name}: {e}")
-            return set()
+        data = self._call(lambda c: c.smembers(name), set())
+        if isinstance(data, set):
+            return cast(Set[Any], data)
+        return set()
     
     def pipeline(self):
         """Get Redis pipeline for batch operations."""
-        if not self._ensure_connection():
-            return None
-        
-        try:
-            return self.client.pipeline()
-        except Exception as e:
-            _log.warning(f"Redis PIPELINE failed: {e}")
-            return None
+        return self._call(lambda c: c.pipeline(), None)
 
 
 def init_redis_client(config: Dict[str, Any]) -> Optional[RedisClient]:
@@ -288,14 +197,10 @@ def init_redis_client(config: Dict[str, Any]) -> Optional[RedisClient]:
             test_key = "znf:test:connection"
             if client.set(test_key, "test", ex=10):
                 client.delete(test_key)
-                _log.info("Redis connection test successful")
                 return client
             else:
-                _log.error("Redis write test failed")
                 return None
         else:
-            _log.error("Redis connection failed during initialization")
             return None
-    except Exception as e:
-        _log.error(f"Redis initialization failed: {e}")
+    except Exception:
         return None

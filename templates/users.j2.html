@@ -2,7 +2,7 @@
 {% block css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/search.css') }}"/>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/users.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/users.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/popup.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/select.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/input.css') }}"/>
@@ -28,7 +28,7 @@
             <div class="d-flex justify-content-between align-items-center gap-2">
               {% include 'components/searchbar.html' %}
               {% if current_user.has('users.manage') %}
-              <button type="button" id="add-user-button" class="btn btn-primary" data-testid="users-add-open" data-action="add-user" onclick="popupToggle('popup-add');">
+              <button type="button" id="add-user-button" class="btn btn-primary" data-testid="users-add-open" data-action="add-user" onclick="openModal('popup-add');">
                 <i class="bi bi-plus-lg"></i> Добавить
               </button>
               {% endif %}
@@ -172,7 +172,7 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="users-add-cancel" onclick="popupToggle('popup-add');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-add-cancel" onclick="closeModal('popup-add');">Отмена</button>
             <button type="button" class="btn btn-primary" data-testid="users-add-submit" onclick="validateForm(this);">Добавить</button>
           </div>
         </form>
@@ -212,7 +212,7 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button class="btn btn-secondary" type="button" data-testid="users-perm-cancel" onclick="popupToggle('popup-perm');">Отмена</button>
+            <button class="btn btn-secondary" type="button" data-testid="users-perm-cancel" onclick="closeModal('popup-perm');">Отмена</button>
             <button class="btn btn-primary" type="button" data-testid="users-perm-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
@@ -254,7 +254,7 @@
             </label>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button class="btn btn-secondary" type="button" data-testid="users-edit-cancel" onclick="popupToggle('popup-edit');">Отмена</button>
+            <button class="btn btn-secondary" type="button" data-testid="users-edit-cancel" onclick="closeModal('popup-edit');">Отмена</button>
             <button class="btn btn-primary" type="button" data-testid="users-edit-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
@@ -282,7 +282,7 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="users-reset-cancel" onclick="popupToggle('popup-reset');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-reset-cancel" onclick="closeModal('popup-reset');">Отмена</button>
             <button class="btn btn-primary" type="button" data-testid="users-reset-save" onclick="validateForm(this);">Изменить</button>
           </div>
         </form>
@@ -298,7 +298,7 @@
           <b>uname</b>?</p>
         <form class="popup__form" id="delete" name="delete" action="{{ url_for('users_delete', id='0') }}" method="post" onsubmit="return false;">
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="users-delete-cancel" onclick="popupToggle('popup-delete');">Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="users-delete-cancel" onclick="closeModal('popup-delete');">Отмена</button>
             <button type="button" class="btn btn-danger" data-testid="users-delete-confirm" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
@@ -326,11 +326,10 @@
     }
   })();
 </script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
-<script src="{{ url_for('static', filename='js/users.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/pages/users.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
 // Фокус-ловушка для модальных окон (кастомные попапы Users)
 (function setupUsersFocusTrap(){

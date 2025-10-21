@@ -39,15 +39,23 @@ except Exception:
     pass
 """Main application bootstrap: app creation, core routes, and error handlers."""
 
-import signal
-from os import path, listdir
 import os
-from datetime import datetime as dt, timedelta
+import signal
+import time
+import traceback
+from configparser import SectionProxy
+from datetime import datetime as dt, timedelta, datetime
+from os import path, listdir
+from typing import Any, Dict, List, Optional, Union
 import urllib.request as http
-try:
-    from bs4 import BeautifulSoup as bs
-except Exception:
-    bs = None
+from bs4 import BeautifulSoup as bs
+
+from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
+from flask_login import login_user, logout_user, current_user
+from flask_socketio import SocketIO
+from socketio import RedisManager as _SioRedisManager
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 from modules.logging import init_logging, get_logger, log_action
 from modules.redis_client import init_redis_client
 from modules.rate_limiter import create_rate_limiter
@@ -55,20 +63,14 @@ from modules.presence_manager import RedisPresenceManager
 from modules.force_logout_manager import RedisForceLogoutManager
 from modules.file_cache_manager import RedisFileCacheManager
 from modules.upload_manager import RedisUploadManager
-
-from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
-from flask_login import login_user, logout_user, current_user
-from flask_socketio import SocketIO
-from socketio import RedisManager as _SioRedisManager
-
 from modules.server import Server
 from modules.threadpool import ThreadPool
-from utils.common import make_dir
+from modules.middleware import init_middleware
+
+from routes import register_all
 from services.media import MediaService
 from services.permissions import dirs_by_permission
-from routes import register_all
-from werkzeug.middleware.proxy_fix import ProxyFix
-from modules.middleware import init_middleware
+from utils.common import make_dir
 
 # Initialize logging first
 init_logging()
@@ -113,7 +115,24 @@ try:
 
     if redis_config:
         _log.info("Attempting to connect to Redis...")
-        redis_client = init_redis_client(redis_config)
+        # Normalize to dict for typed init_redis_client
+        try:
+            if isinstance(redis_config, SectionProxy):
+                redis_config = {
+                    'server': redis_config.get('server', fallback=None),
+                    'port':
+                    int(redis_config.get('port', fallback='6379') or 6379),
+                    'password': redis_config.get('password', fallback=None),
+                    'socket': redis_config.get('socket', fallback=None),
+                    'db': redis_config.get('db', fallback='0'),
+                }
+        except Exception:
+            pass
+        # Convert to plain dict and coalesce None to {}
+        redis_dict = (dict(redis_config) if hasattr(redis_config, 'items') else
+                      (redis_config or {}))
+        # Type assertion for mypy - we know it's a dict at this point
+        redis_client = init_redis_client(redis_dict)  # type: ignore
         if not redis_client or not redis_client.connected:
             _log.error("❌ Redis connection FAILED - application cannot start")
             _log.error(
@@ -132,6 +151,7 @@ except Exception as e:
 
 # Create main app with Redis client
 app = Server(path.dirname(path.realpath(__file__)), redis_client=redis_client)
+# No adapter: use ConfigParser (config.ini) only
 
 # Initialize Redis-based components
 rate_limiters = create_rate_limiter(redis_client) if redis_client else {}
@@ -143,17 +163,39 @@ file_cache_manager = RedisFileCacheManager(
 upload_manager = RedisUploadManager(redis_client) if redis_client else None
 
 # Store components in app for access by routes
-app.rate_limiters = rate_limiters
-app.presence_manager = presence_manager
-app.force_logout_manager = force_logout_manager
-app.file_cache_manager = file_cache_manager
-app.upload_manager = upload_manager
+setattr(app, 'rate_limiters', rate_limiters)
+setattr(app, 'presence_manager', presence_manager)
+setattr(app, 'force_logout_manager', force_logout_manager)
+setattr(app, 'file_cache_manager', file_cache_manager)
+setattr(app, 'upload_manager', upload_manager)
+
+# Re-enable presence and force-logout (disabled during testing)
+app.config['PRESENCE_DISABLED'] = False
+app.config['FORCE_LOGOUT_DISABLED'] = False
+app.config['VERSION'] = '0.1.0'
+_log.info('Presence and force-logout features are ENABLED')
+
+
+# Expose selected config to client-side (read once at startup)
+def _get_sync_idle_seconds() -> int:
+    val = int(app._sql.config.get('web', 'sync_idle_seconds', fallback='30'))
+    return val if val > 0 else 30
+
+
+app.config['SYNC_IDLE_SECONDS'] = _get_sync_idle_seconds()
+
+
+@app.context_processor
+def inject_client_config():
+    return {
+        '__config': {
+            'syncIdleSeconds': int(app.config.get('SYNC_IDLE_SECONDS') or 30),
+        }
+    }
+
 
 # Initialize middleware for access logging
-try:
-    init_middleware(app)
-except Exception:
-    pass
+init_middleware(app)
 
 # Respect proxy headers to keep original scheme/host/port (avoids forced 443 redirects)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
@@ -224,7 +266,7 @@ socketio = SocketIO(
     async_mode='gevent',
     cors_allowed_origins='*',
     logger=False,
-    engineio_logger=False,
+    engineio_logger=True,
     ping_interval=20,
     ping_timeout=120,
     allow_upgrades=True,
@@ -232,73 +274,120 @@ socketio = SocketIO(
 )
 _socketio = socketio  # Store globally for shutdown
 # Expose Socket.IO on app for route modules that look up app.socketio
-try:
-    setattr(app, 'socketio', socketio)
-except Exception:
-    pass
-try:
-    manager_obj = getattr(getattr(socketio, 'server', None), 'manager', None)
-    manager_name = manager_obj.__class__.__name__ if manager_obj is not None else 'None'
-    if _client_manager is not None:
-        _log.info('Socket.IO client manager=%s, Redis configured',
-                  manager_name)
-    else:
-        _log.info(
-            'Socket.IO client manager=%s, message_queue not configured (single-process/dev)',
-            manager_name)
-except Exception:
-    pass
+setattr(app, 'socketio', socketio)
+manager_obj = getattr(getattr(socketio, 'server', None), 'manager', None)
+manager_name = manager_obj.__class__.__name__ if manager_obj is not None else 'None'
+if _client_manager is not None:
+    _log.info('Socket.IO client manager=%s, Redis configured', manager_name)
+else:
+    _log.info(
+        'Socket.IO client manager=%s, message_queue not configured (single-process/dev)',
+        manager_name)
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql,
                              socketio)
 # NOTE: Removed early directory creation to avoid root-owned folders when gunicorn starts as root.
 # Directories are created lazily in route handlers under the effective runtime user.
-try:
-    setattr(app, 'media_service', media_service)
-except Exception:
-    pass
+setattr(app, 'media_service', media_service)
 register_all(app, tp, media_service, socketio)
-
-
-# ==== DEV-ONLY START (TODO: remove in production) ============================
-@app.after_request
-def _dev_disable_cache(resp):
-    try:
-        resp.headers[
-            'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        resp.headers['Pragma'] = 'no-cache'
-        resp.headers['Expires'] = '0'
-    except Exception:
-        pass
-    return resp
-
-
-# ==== DEV-ONLY END ===========================================================
 
 
 @app.errorhandler(401)
 def unautorized(e):
     """Redirect unauthorized users to login, preserving original URL."""
-    session['redirected_from'] = request.url
-    return redirect(url_for('login'))
+    try:
+        # Preserve target only for real page navigations (not XHR/JSON endpoints)
+        def _is_html_nav(req):
+            if req.method != 'GET':
+                return False
+            accept = (req.headers.get('Accept') or '')
+            if 'text/html' not in accept:
+                return False
+            if (req.headers.get('X-Requested-With') or '') == 'XMLHttpRequest':
+                return False
+            return True
+
+        def _disallowed_target(path: str) -> bool:
+            p = path or ''
+            return (p.startswith('/admin/presence')
+                    or p.startswith('/presence/')
+                    or p.startswith('/admin/sessions')
+                    or p.startswith('/push/') or p.startswith('/api/'))
+
+        if request.endpoint != 'login' and _is_html_nav(
+                request) and not _disallowed_target(request.path):
+            session['redirected_from'] = request.url
+        return redirect(url_for('login'))
+    except Exception:
+        return redirect(url_for('login'))
 
 
 @app.errorhandler(403)
 def forbidden(e):
     """Redirect forbidden access back to referrer or home."""
-    return redirect(request.referrer if request.referrer != None else '/')
+    try:
+        ref = request.referrer
+        # Avoid redirect loops: if no referrer or referrer equals current URL, go home
+        if not ref or ref == request.url:
+            return redirect('/')
+        # Avoid redirecting to JSON/service endpoints
+        try:
+            from urllib.parse import urlparse
+            path_only = (urlparse(ref).path or '')
+            if path_only.startswith('/admin/presence') or path_only.startswith('/presence/') or \
+               path_only.startswith('/admin/sessions') or path_only.startswith('/push/') or \
+               path_only.startswith('/api/'):
+                return redirect('/')
+        except Exception:
+            pass
+        return redirect(ref)
+    except Exception:
+        return redirect('/')
 
 
 @app.errorhandler(404)
 def not_found(e):
     """Redirect 404 back to referrer or home."""
-    return redirect(request.referrer if request.referrer != None else '/')
+    try:
+        ref = request.referrer
+        # Avoid redirect loops: if no referrer or referrer equals current URL, go home
+        if not ref or ref == request.url:
+            return redirect('/')
+        # Avoid redirecting to JSON/service endpoints
+        try:
+            from urllib.parse import urlparse
+            path_only = (urlparse(ref).path or '')
+            if path_only.startswith('/admin/presence') or path_only.startswith('/presence/') or \
+               path_only.startswith('/admin/sessions') or path_only.startswith('/push/') or \
+               path_only.startswith('/api/'):
+                return redirect('/')
+        except Exception:
+            pass
+        return redirect(ref)
+    except Exception:
+        return redirect('/')
 
 
 @app.errorhandler(405)
 def method_not_allowed(e):
     """Redirect 405 to home."""
-    return redirect('/')
+    try:
+        ref = request.referrer
+        if not ref or ref == request.url:
+            return redirect('/')
+        # Avoid redirecting to JSON/service endpoints
+        try:
+            from urllib.parse import urlparse
+            path_only = (urlparse(ref).path or '')
+            if path_only.startswith('/admin/presence') or path_only.startswith('/presence/') or \
+               path_only.startswith('/admin/sessions') or path_only.startswith('/push/') or \
+               path_only.startswith('/api/'):
+                return redirect('/')
+        except Exception:
+            pass
+        return redirect(ref)
+    except Exception:
+        return redirect('/')
 
 
 @app.errorhandler(413)
@@ -309,8 +398,6 @@ def too_large(e):
 
 def _render_50x(err, code):
     try:
-        import traceback
-        from datetime import datetime
         now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         details = ''.join(traceback.format_exc())
         # If there is no active exception context, format_exc returns 'NoneType: None\n'
@@ -364,12 +451,35 @@ def load_user(id):
 @app.login_manager.unauthorized_handler
 def unauthorized_handler():
     """Handle unauthorized access by redirecting to login and saving target."""
-    session['redirected_from'] = request.url
-    return redirect(url_for('login'))
+    try:
+
+        def _is_html_nav(req):
+            if req.method != 'GET':
+                return False
+            accept = (req.headers.get('Accept') or '')
+            if 'text/html' not in accept:
+                return False
+            if (req.headers.get('X-Requested-With') or '') == 'XMLHttpRequest':
+                return False
+            return True
+
+        def _disallowed_target(path: str) -> bool:
+            p = path or ''
+            return (p.startswith('/admin/presence')
+                    or p.startswith('/presence/')
+                    or p.startswith('/admin/sessions')
+                    or p.startswith('/push/') or p.startswith('/api/'))
+
+        if request.endpoint != 'login' and _is_html_nav(
+                request) and not _disallowed_target(request.path):
+            session['redirected_from'] = request.url
+        return redirect(url_for('login'))
+    except Exception:
+        return redirect(url_for('login'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
-@app.rate_limiters.get('login', lambda f: f)
+@getattr(app, 'rate_limiters', {}).get('login', lambda f: f)
 def login():
     """Authenticate user and start session.
 
@@ -410,19 +520,35 @@ def login():
     login_user(user)
     log_action('LOGIN', user.name, f'user logged in', request.remote_addr
                or '')
-    target = session['redirected_from'] if 'redirected_from' in session.keys(
-    ) else '/'
+
+    def _sanitize_target(url: str) -> str:
+        try:
+            if not url:
+                return '/'
+            # Only allow same-origin relative paths, avoid JSON endpoints
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            # If absolute URL, drop to path
+            path_only = parsed.path or '/'
+            disallowed = (path_only.startswith('/admin/presence')
+                          or path_only.startswith('/presence/')
+                          or path_only.startswith('/admin/sessions')
+                          or path_only.startswith('/push/')
+                          or path_only.startswith('/api/'))
+            return '/' if disallowed else (path_only or '/')
+        except Exception:
+            return '/'
+
+    target = _sanitize_target(session.get(
+        'redirected_from')) if 'redirected_from' in session.keys() else '/'
     # Mark that user just logged in to trigger one-time push permission prompt
     resp = redirect(target)
-    try:
-        resp.set_cookie('just_logged_in',
-                        '1',
-                        secure=True,
-                        httponly=False,
-                        samesite='Lax',
-                        path='/')
-    except Exception:
-        pass
+    resp.set_cookie('just_logged_in',
+                    '1',
+                    secure=True,
+                    httponly=False,
+                    samesite='Lax',
+                    path='/')
     return resp
 
 
@@ -430,12 +556,46 @@ def login():
 def logout():
     """Terminate session and redirect to home."""
     user_name = current_user.name if current_user.is_authenticated else 'unknown'
+    user_id = getattr(current_user, 'id',
+                      None) if current_user.is_authenticated else None
+    # Remove any presence entries for this user
+    try:
+        if user_id is not None and presence_manager is not None:
+            presence_manager.remove_user_presence(int(user_id))
+    except Exception:
+        pass
+    # Remove current HTTP session from tracked active sessions (best-effort)
+    try:
+        cookie_name = getattr(app, 'session_cookie_name', 'session')
+        sid = request.cookies.get(cookie_name) or request.cookies.get(
+            'session')
+        if sid and hasattr(app, '_sessions'):
+            app._sessions.pop(sid, None)
+    except Exception:
+        pass
+    # Fully clear server-side session and logout
     logout_user()
+    session.clear()
     log_action('LOGOUT', user_name, f'user logged out', request.remote_addr
                or '')
-    if session.get('was_once_logged_in'):
-        del session['was_once_logged_in']
-    return redirect('/')
+    # Build response and explicitly clear cookies so client stops sending stale sid
+    resp = redirect('/')
+    try:
+        resp.delete_cookie(app.session_cookie_name,
+                           path='/',
+                           samesite=app.config.get('SESSION_COOKIE_SAMESITE',
+                                                   'Lax'))
+        resp.delete_cookie('session',
+                           path='/',
+                           samesite=app.config.get('SESSION_COOKIE_SAMESITE',
+                                                   'Lax'))
+        resp.delete_cookie('remember_token',
+                           path='/',
+                           samesite=app.config.get('REMEMBER_COOKIE_SAMESITE',
+                                                   'Lax'))
+    except Exception:
+        pass
+    return resp
 
 
 @app.route('/theme')
@@ -451,51 +611,37 @@ def theme():
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
-    """Serve static files with aggressive caching for offline functionality."""
+    """Serve static files with proper caching for development and production."""
     try:
         response = send_from_directory('static', filename)
-        # ==== DEV-ONLY START (TODO: remove in production) ============================
-        # During development, force-disable caching of static files to ensure the
-        # recorder iframe (/files/rec) always loads fresh assets and avoids SW races.
-        try:
+
+        # Check if we're in development mode
+        is_dev = app.debug
+
+        if is_dev:
+            # Development mode: disable caching to ensure fresh assets
             response.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
-        except Exception:
-            pass
-        return response
-        # ==== DEV-ONLY END ===========================================================
-        # --- PROD: uncomment the block below to re-enable aggressive caching ---
-        # if filename.endswith(('.js', '.css')):
-        #	 response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
-        #	 # Set Expires to 1 year from now
-        #	 expires_date = dt.utcnow() + timedelta(days=365)
-        #	 response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
-        #	 response.headers['ETag'] = f'"{hash(filename)}"'
-        # else:
-        #	 # Moderate caching for other static files
-        #	 response.headers['Cache-Control'] = 'public, max-age=86400'  # 1 day
-        #	 # Set Expires to 1 day from now
-        #	 expires_date = dt.utcnow() + timedelta(days=1)
-        #	 response.headers['Expires'] = expires_date.strftime('%a, %d %b %Y %H:%M:%S GMT')
-        # return response
-        if filename.endswith(('.js', '.css')):
-            response.headers[
-                'Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
-            # Set Expires to 1 year from now
-            expires_date = dt.utcnow() + timedelta(days=365)
-            response.headers['Expires'] = expires_date.strftime(
-                '%a, %d %b %Y %H:%M:%S GMT')
-            response.headers['ETag'] = f'"{hash(filename)}"'
         else:
-            # Moderate caching for other static files
-            response.headers[
-                'Cache-Control'] = 'public, max-age=86400'  # 1 day
-            # Set Expires to 1 day from now
-            expires_date = dt.utcnow() + timedelta(days=1)
-            response.headers['Expires'] = expires_date.strftime(
-                '%a, %d %b %Y %H:%M:%S GMT')
+            # Production mode: enable aggressive caching
+            if filename.endswith(('.js', '.css')):
+                response.headers[
+                    'Cache-Control'] = 'public, max-age=31536000, immutable'  # 1 year
+                # Set Expires to 1 year from now
+                expires_date = dt.utcnow() + timedelta(days=365)
+                response.headers['Expires'] = expires_date.strftime(
+                    '%a, %d %b %Y %H:%M:%S GMT')
+                response.headers['ETag'] = f'"{hash(filename)}"'
+            else:
+                # Moderate caching for other static files
+                response.headers[
+                    'Cache-Control'] = 'public, max-age=86400'  # 1 day
+                # Set Expires to 1 day from now
+                expires_date = dt.utcnow() + timedelta(days=1)
+                response.headers['Expires'] = expires_date.strftime(
+                    '%a, %d %b %Y %H:%M:%S GMT')
 
         return response
     except Exception as e:
@@ -504,7 +650,7 @@ def static_files(filename):
 
 
 @app.route('/proxy' + '/<string:url>', methods=['GET'])
-@app.rate_limiters.get('proxy', lambda f: f)
+@getattr(app, 'rate_limiters', {}).get('proxy', lambda f: f)
 def proxy(url: str) -> str:
     """Simple proxy to fetch and parse links from remote HTML (internal use only)."""
 
@@ -530,12 +676,8 @@ def proxy(url: str) -> str:
     client_ip = request.environ.get('REMOTE_ADDR', '') or ''
     if not hasattr(app, '_proxy_rate_limit') or not isinstance(
             getattr(app, '_proxy_rate_limit'), dict):
-        try:
-            setattr(app, '_proxy_rate_limit', {})
-        except Exception:
-            pass
+        setattr(app, '_proxy_rate_limit', {})
 
-    import time
     current_time = time.time()
     rate_limiter = getattr(app, '_proxy_rate_limit', {})
     if client_ip in rate_limiter:
@@ -544,11 +686,8 @@ def proxy(url: str) -> str:
             _log.warning(f'[proxy] rate limit exceeded for {client_ip}')
             return ''
 
-    try:
-        rate_limiter[client_ip] = current_time
-        setattr(app, '_proxy_rate_limit', rate_limiter)
-    except Exception:
-        pass
+    rate_limiter[client_ip] = current_time
+    setattr(app, '_proxy_rate_limit', rate_limiter)
 
     # Protection Layer 5: Validate URL format
     if not url or len(url) < 3 or '!' not in url:
@@ -565,119 +704,84 @@ def proxy(url: str) -> str:
 
     try:
         target = 'http://' + url.replace('!', '/')
-
-        _log.debug('[proxy] fetch')
         raw = http.urlopen(target, timeout=15).read()
         html = bs(raw, features='html.parser') if bs else None
         body = getattr(html, 'body', None) if html is not None else None
         if not body:
-            _log.warning(f'[proxy] no HTML body for {target}')
             return ''
-        links = []
-        try:
-            links = list(reversed([i for i in body.find_all('a')]))
-        except Exception:
-            links = []
+        links = list(reversed([i for i in body.find_all('a')]))
         if links:
-            try:
-                links.pop()
-            except Exception:
-                pass
+            links.pop()
         texts = [str(getattr(i, 'text', '')).strip() for i in links]
-        # Filter empty and service anchors
         texts = [t for t in texts if t and t not in ('..', '.')]
-        out = '|'.join(texts)
-        # do not log extracted texts to avoid leaking remote content
-        _log.debug(f'[proxy] links={len(texts)}')
-        return out
-    except Exception as e:
-        _log.error(f'[proxy] error for {url}: {e}')
+        return '|'.join(texts)
+    except Exception:
         return ''
 
 
 def signal_handler(signum, frame):
-    """Handle Ctrl+C (SIGINT) gracefully by shutting down subsystems."""
-    _log.info('Получен сигнал остановки (Ctrl+C/TERM). Завершение работы...')
-
-    # Stop Socket.IO gracefully
-    try:
-        socketio.stop()
-        _log.info('Socket.IO остановлен.')
-    except Exception as e:
-        _log.exception('Ошибка при остановке Socket.IO: %s', e)
-
-    # Stop media service
-    try:
-        media_service.stop()
-        _log.info('Media service остановлен.')
-    except Exception as e:
-        _log.exception('Ошибка при остановке media service: %s', e)
-
-    # Stop thread pool
-    try:
-        tp.stop()
-        _log.info('Thread pool остановлен.')
-    except Exception as e:
-        _log.exception('Ошибка при остановке thread pool: %s', e)
-
-    _log.info('Приложение корректно завершено.')
-    exit(0)
-
-
-# Register OS signal handlers for graceful shutdown
-try:
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-except Exception:
-    # In some environments (e.g., when managed by another server), signals may be handled externally
-    pass
-
-
-def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully."""
+    """Handle shutdown signals gracefully (idempotent)."""
     global _shutdown_requested
     if _shutdown_requested:
-        _log.warning("Force shutdown requested, exiting immediately...")
-        exit(1)
+        _log.warning("Repeated shutdown signal received, ignoring duplicate")
+        return
 
     _shutdown_requested = True
     _log.info(f"Received signal {signum}, initiating graceful shutdown...")
 
+    # Under Gunicorn, worker lifecycle is managed by master; skip socketio.stop()
+    running_under_gunicorn = False
     try:
-        # Stop Socket.IO gracefully
-        if _socketio:
+        running_under_gunicorn = ('gunicorn' in os.environ.get(
+            'SERVER_SOFTWARE', '').lower()
+                                  or 'GUNICORN_CMD_ARGS' in os.environ)
+    except Exception:
+        running_under_gunicorn = False
+
+    # Stop Socket.IO gracefully only in standalone/dev runs
+    if not running_under_gunicorn:
+        if _socketio is not None and hasattr(_socketio, 'stop'):
             _log.info("Stopping Socket.IO...")
-            _socketio.stop()
-
-        # Close Redis connection gracefully
-        if _redis_client:
-            _log.info("Closing Redis connection...")
             try:
-                _redis_client.shutdown()
+                _socketio.stop()
             except Exception as e:
-                _log.warning(f"Error closing Redis connection: {e}")
+                _log.warning(f"Socket.IO stop error: {e}")
 
-        _log.info("Graceful shutdown completed")
-    except Exception as e:
-        _log.error(f"Error during graceful shutdown: {e}")
-    finally:
-        exit(0)
+    # Stop media service
+    if 'media_service' in globals() and media_service:
+        try:
+            media_service.stop()
+            _log.info('Media service stopped.')
+        except Exception as e:
+            _log.warning(f"Media service stop error: {e}")
+
+    # Stop thread pool
+    if 'tp' in globals() and tp:
+        try:
+            tp.stop()
+            _log.info('Thread pool stopped.')
+        except Exception as e:
+            _log.warning(f"Thread pool stop error: {e}")
+
+    # Close Redis connection gracefully
+    if _redis_client is not None:
+        _log.info("Closing Redis connection...")
+        try:
+            _redis_client.shutdown()
+        except Exception as e:
+            _log.warning(f"Error closing Redis connection: {e}")
+
+    _log.info("Graceful shutdown completed")
+    exit(0)
 
 
-# Register signal handlers
+# Register signal handlers once
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 # Removed DEV-only Socket.IO debug and rebroadcast handlers
 if __name__ == '__main__':
-    try:
-        # Development only
-        register_all(app, tp, media_service, socketio)
-        try:
-            app.logger.info(
-                'Приложение запущено. Нажмите Ctrl+C для остановки.')
-        except Exception:
-            pass
-        app.run_debug()
-    except KeyboardInterrupt:
-        signal_handler(signal.SIGINT, None)
+    # Development only
+    register_all(app, tp, media_service, socketio)
+    app.logger.info('Приложение запущено. Нажмите Ctrl+C для остановки.')
+    app.run_debug()

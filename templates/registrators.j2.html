@@ -3,7 +3,7 @@
 {% block title %}Регистраторы{% endblock %}
 
 {% block main %}
-<div class="container-fluid">
+<div class="container-fluid registrators-page">
   <div class="subbar cat">
     <div class="subbar__group">
       <a class="topbtn" href="{{ url_for('categories_admin') }}">
@@ -52,9 +52,6 @@
                 </tr>
               </tfoot>
             </table>
-            <div class="mt-2 d-flex gap-2">
-              <button id="save-groups" class="btn btn-success btn-sm" disabled>Сохранить</button>
-            </div>
           </div>
         </div>
       </div>
@@ -88,9 +85,6 @@
                 </tr>
               </tfoot>
             </table>
-            <div class="mt-2 d-flex gap-2">
-              <button id="save-users" class="btn btn-success btn-sm" disabled>Сохранить</button>
-            </div>
           </div>
         </div>
       </div>
@@ -184,5 +178,5 @@
 {% endblock %}
 
 {% block js %}
-<script src="{{ url_for('static', filename='js/registrators.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/pages/registrators.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}

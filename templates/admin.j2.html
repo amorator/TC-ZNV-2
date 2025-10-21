@@ -1,14 +1,13 @@
 {% extends 'base.j2.html' %}
 
 {% block css %}
-<link href="{{ url_for('static', filename='css/admin.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/pages/admin.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/components/table.css') }}" rel="stylesheet">
-<link href="{{ url_for('static', filename='css/files.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/pages/files.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block js %}
-<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}" defer="defer"></script>
-<script src="{{ url_for('static', filename='js/admin.js') }}" defer="defer"></script>
+<script src="{{ url_for('static', filename='js/scripts/pages/admin.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}
 
 {% block main %}

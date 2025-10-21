@@ -14,6 +14,13 @@
     return outputArray;
   }
 
+  // Expose helper globally to avoid duplicate implementations elsewhere
+  try {
+    if (!window.urlBase64ToUint8Array) {
+      window.urlBase64ToUint8Array = urlBase64ToUint8Array;
+    }
+  } catch (_) {}
+
   async function getVapidPublicKey(retries) {
     retries = typeof retries === "number" ? retries : 2;
     try {
@@ -118,7 +125,7 @@
         try {
           sock = window.io(window.location.origin, {
             transports: ["websocket", "polling"],
-            path: "/socket.io/",
+            path: "/socket.io",
             withCredentials: true,
             reconnection: true,
             reconnectionAttempts: Infinity,

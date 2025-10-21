@@ -9,6 +9,7 @@ from flask_login import login_user, logout_user, current_user
 from modules.logging import get_logger, log_action
 from modules.sync_manager import emit_users_changed
 from modules.permissions import require_permissions, USERS_VIEW_PAGE, USERS_MANAGE
+from flask_socketio import join_room
 import time
 from functools import wraps
 
@@ -17,6 +18,13 @@ _log = get_logger(__name__)
 
 def register(app):
     # Get rate limiter from app
+    # Socket.IO room join for users page
+    if hasattr(app, 'socketio') and app.socketio:
+
+        @app.socketio.on('users:join')
+        def _users_join(_data=None):
+            join_room('users')
+
     rate_limit = app.rate_limiters.get(
         'users',
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
@@ -26,20 +34,14 @@ def register(app):
     def users():
         """Render users page with list and groups."""
         # Support both ConfigParser and dict-like config
-        try:
-            from configparser import ConfigParser
-        except Exception:
-            ConfigParser = None
+        from configparser import ConfigParser
         cfg = getattr(app._sql, 'config', {})
-        if ConfigParser and isinstance(cfg, ConfigParser):
+        if isinstance(cfg, ConfigParser):
             min_password_length = int(
                 cfg.get('web', 'min_password_length', fallback='1'))
         else:
-            try:
-                min_password_length = int(
-                    str(cfg.get('web', {}).get('min_password_length', '1')))
-            except Exception:
-                min_password_length = 1
+            min_password_length = int(
+                str(cfg.get('web', {}).get('min_password_length', '1')))
         return render_template('users.j2.html',
                                title='Пользователи — Заявки-Наряды-Файлы',
                                id=4,

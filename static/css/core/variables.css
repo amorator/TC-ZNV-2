@@ -1,0 +1,540 @@
+/**
+ * CSS переменные и основные стили
+ * Централизованное управление темами и переменными
+ */
+
+:root {
+  /* Основные цвета темы */
+  --primary-color: #ffc107;
+  --secondary-color: #6c757d;
+  --success-color: #28a745;
+  --danger-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
+  --light-color: #f8f9fa;
+  --dark-color: #343a40;
+
+  /* Цвета текста */
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+  --text-muted: #6c757d;
+  --text-white: #ffffff;
+
+  /* Цвета фона */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-dark: #343a40;
+  --bg-light: #f8f9fa;
+
+  /* Цвета границ */
+  --border-color: #dee2e6;
+  --border-color-dark: #343a40;
+  --border-color-light: #e9ecef;
+
+  /* Радиусы скругления */
+  --border-radius: 0.375rem;
+  --border-radius-sm: 0.25rem;
+  --border-radius-lg: 0.5rem;
+  --border-radius-xl: 1rem;
+
+  /* Тени */
+  --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+  --shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+
+  /* Переходы */
+  --transition-base: all 0.15s ease-in-out;
+  --transition-fast: all 0.1s ease-in-out;
+  --transition-slow: all 0.3s ease-in-out;
+
+  /* Z-index слои */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+
+  /* Размеры */
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+
+  --line-height-sm: 1.25;
+  --line-height-base: 1.5;
+  --line-height-lg: 1.75;
+
+  /* Отступы */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 3rem;
+
+  /* Брейкпоинты */
+  --breakpoint-sm: 576px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1200px;
+  --breakpoint-xxl: 1400px;
+}
+
+/* Светлая тема (по умолчанию) */
+.theme-light {
+  --sidebar-bg: #cfd8e3;
+  --sidebar-text: #374151;
+  --table-td-bg: #f8fafc;
+  --table-td-text: #111827;
+  --topbar-bg: #dbe7f3;
+  --topbar-text: #111827;
+  --btn-focus: #f59e0b;
+  --body-bg: #fff597;
+  --body-text: #0f1724;
+  --modal-bg: #fff9c0;
+  --modal-border: #000000;
+  --control-bg: #ffffff;
+  --control-text: #0f1724;
+  --control-border: #000000;
+  --control-radius: 10px;
+  --button-bg: #ffffff;
+  --button-text: #0f1724;
+  --button-border: #000000;
+  --btn-primary-bg: var(--btn-focus);
+  --btn-primary-fg: #111827;
+  --btn-secondary-bg: #6c757d;
+  --btn-secondary-fg: #ffffff;
+  --modal-header-bg: #fff06d;
+  --modal-header-text: #111827;
+  --overlay-text: #ffffff;
+  --overlay-opacity: 0.8;
+  --video-border-color: rgba(0, 0, 0, 0.2);
+  --tr-focus: #e6eef8;
+  --scrollbar-bg: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #1e40af;
+  --cam-size-bg: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  --cam-size-text: #ffffff;
+}
+
+/* Темная тема */
+.theme-dark {
+  --sidebar-bg: #1f2937;
+  --sidebar-text: #f9fafb;
+  --table-td-bg: #374151;
+  --table-td-text: #f9fafb;
+  --topbar-bg: #111827;
+  --topbar-text: #f9fafb;
+  --btn-focus: #f59e0b;
+  --body-bg: #1f2937;
+  --body-text: #f9fafb;
+  --modal-bg: #374151;
+  --modal-border: #6b7280;
+  --control-bg: #1f2937;
+  --control-text: #f9fafb;
+  --control-border: #6b7280;
+  --control-radius: 10px;
+  --button-bg: #1f2937;
+  --button-text: #f9fafb;
+  --button-border: #6b7280;
+  --btn-primary-bg: var(--btn-focus);
+  --btn-primary-fg: #111827;
+  --btn-secondary-bg: #6c757d;
+  --btn-secondary-fg: #ffffff;
+  --modal-header-bg: #111827;
+  --modal-header-text: #f9fafb;
+  --overlay-text: #ffffff;
+  --overlay-opacity: 0.8;
+  --video-border-color: rgba(255, 255, 255, 0.2);
+  --tr-focus: #4b5563;
+  --scrollbar-bg: #374151;
+  --scrollbar-thumb: #6b7280;
+  --scrollbar-thumb-hover: #9ca3af;
+  --cam-size-bg: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  --cam-size-text: #ffffff;
+}
+
+/* Базовые стили для body */
+body {
+  background-color: var(--body-bg);
+  font-family: Roboto, Arial, Helvetica, sans-serif;
+  font-size: var(--font-size-base);
+  color: var(--body-text);
+  display: block;
+  width: 99%;
+  margin: 0;
+  padding: 0;
+  line-height: var(--line-height-base);
+}
+
+/* Базовые стили для текста */
+span {
+  white-space: pre-line;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin-top: 0;
+  margin-bottom: var(--spacing-sm);
+  font-weight: 500;
+  line-height: var(--line-height-sm);
+  color: var(--text-primary);
+}
+
+h1 {
+  font-size: var(--font-size-xl);
+}
+
+h2 {
+  font-size: calc(var(--font-size-xl) * 0.875);
+}
+
+h3 {
+  font-size: calc(var(--font-size-xl) * 0.75);
+}
+
+h4 {
+  font-size: calc(var(--font-size-xl) * 0.625);
+}
+
+h5 {
+  font-size: calc(var(--font-size-xl) * 0.5);
+}
+
+h6 {
+  font-size: calc(var(--font-size-xl) * 0.4375);
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+}
+
+/* Базовые стили для ссылок */
+a {
+  color: var(--btn-focus);
+  text-decoration: none;
+  transition: var(--transition-base);
+}
+
+a:hover {
+  color: #d97706;
+  text-decoration: underline;
+}
+
+a:focus {
+  outline: 2px solid var(--btn-focus);
+  outline-offset: 2px;
+}
+
+/* Базовые стили для изображений */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Базовые стили для списков */
+ul,
+ol {
+  margin-top: 0;
+  margin-bottom: var(--spacing-md);
+  padding-left: var(--spacing-lg);
+}
+
+li {
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Базовые стили для таблиц */
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: 100%;
+  margin-bottom: var(--spacing-md);
+}
+
+th,
+td {
+  padding: var(--spacing-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+th {
+  font-weight: 500;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Базовые стили для форм */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--control-text);
+  background-color: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  transition: var(--transition-base);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--btn-focus);
+  box-shadow: 0 0 0 0.2rem rgba(245, 158, 11, 0.25);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Базовые стили для кнопок */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+button:focus {
+  outline: 2px solid var(--btn-focus);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Базовые стили для скроллбара */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+  border-radius: var(--border-radius-sm);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--border-radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Базовые стили для выделения текста */
+::selection {
+  background-color: var(--btn-focus);
+  color: var(--text-white);
+}
+
+::-moz-selection {
+  background-color: var(--btn-focus);
+  color: var(--text-white);
+}
+
+/* Базовые стили для фокуса */
+:focus {
+  outline: 2px solid var(--btn-focus);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Базовые стили для анимаций */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Базовые стили для утилит анимации */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-fadeOut {
+  animation: fadeOut 0.3s ease-in-out;
+}
+
+.animate-slideInUp {
+  animation: slideInUp 0.3s ease-in-out;
+}
+
+.animate-slideInDown {
+  animation: slideInDown 0.3s ease-in-out;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 0.3s ease-in-out;
+}
+
+.animate-slideInRight {
+  animation: slideInRight 0.3s ease-in-out;
+}
+
+/* Базовые стили для скрытия элементов */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.sr-only-focusable:active,
+.sr-only-focusable:focus {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+  clip: auto !important;
+  white-space: normal !important;
+}
+
+/* Базовые стили для печати */
+@media print {
+  * {
+    background: transparent !important;
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  a,
+  a:visited {
+    text-decoration: underline;
+  }
+
+  a[href]:after {
+    content: " (" attr(href) ")";
+  }
+
+  abbr[title]:after {
+    content: " (" attr(title) ")";
+  }
+
+  a[href^="#"]:after,
+  a[href^="javascript:"]:after {
+    content: "";
+  }
+
+  pre,
+  blockquote {
+    border: 1px solid #999;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  img {
+    page-break-inside: avoid;
+  }
+
+  img {
+    max-width: 100% !important;
+  }
+
+  p,
+  h2,
+  h3 {
+    orphans: 3;
+    widows: 3;
+  }
+
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+}

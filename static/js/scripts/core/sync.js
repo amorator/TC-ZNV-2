@@ -1,6 +1,24 @@
 /**
  * Универсальный модуль синхронизации для клиентской части
  * Обеспечивает единообразную обработку событий синхронизации для всех страниц
+ *
+ * Архитектура синхронизации:
+ * - Сервер эмитит события в комнаты (rooms) для таргетированной доставки
+ * - Клиенты подписываются только на нужные им комнаты
+ * - События содержат унифицированные поля: reason, seq, worker, scope
+ * - Поддерживается мягкое обновление (soft refresh) с дебаунсом
+ * - Автоматический idle-guard для обновления после периодов неактивности
+ *
+ * Комнаты (rooms):
+ * - index: главная страница
+ * - files: страница файлов
+ * - users: страница пользователей
+ * - groups: страница групп
+ * - categories: страница категорий
+ * - registrators: страница регистраторов
+ * - admin: административная страница
+ *
+ * @namespace SyncManager
  */
 
 window.SyncManager = (function () {
@@ -13,40 +31,31 @@ window.SyncManager = (function () {
 
   /**
    * Инициализация менеджера синхронизации
+   * Настраивает Socket.IO соединение и обработчики событий
+   * @memberof SyncManager
    */
   function init() {
-    try {
-      if (debugEnabled) {
-        try {
-          console.debug("[sync] initializing");
-        } catch (_) {}
-      }
-      // Always log initialization for debugging
-      try {
-        console.debug("[sync] SyncManager initializing...");
-      } catch (_) {}
-      // Авто-включение дебага, если выставлен глобальный флаг до загрузки
-      try {
-        if (typeof window.__syncDebug !== "undefined") {
-          debugEnabled = !!window.__syncDebug;
-        }
-      } catch (_) {}
-      setupSocket();
-    } catch (e) {
-      try {
-        console.error("[sync] init error:", e);
-      } catch (_) {}
+    // Enable verbose debug only on index page and when explicitly requested
+    debugEnabled =
+      /\/index\b/.test(window.location.pathname || "") && !!window.__syncDebug;
+    // Авто-включение дебага, если выставлен глобальный флаг до загрузки
+    if (typeof window.__syncDebug !== "undefined") {
+      debugEnabled = !!window.__syncDebug;
     }
+    setupSocket();
   }
 
   /**
    * Настройка Socket.IO соединения
+   * Создает соединение с адаптивным выбором транспорта (WebSocket/polling)
+   * @memberof SyncManager
+   * @private
    */
   function setupSocket() {
     if (!window.io) {
-      try {
+      if (debugEnabled) {
         console.warn("[sync] Socket.IO not available");
-      } catch (_) {}
+      }
       return;
     }
 
@@ -57,8 +66,9 @@ window.SyncManager = (function () {
       forceNew: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
+      // Exponential backoff for reconnects
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionDelayMax: 30000,
       timeout: 20000,
     };
     if (lastTransportMode === "ws") {
@@ -81,54 +91,38 @@ window.SyncManager = (function () {
     socket.on("connect_error", (err) => {
       const msg = (err && (err.message || err)) || "";
       if (debugEnabled) {
-        try {
-          console.warn("[sync] socket connect_error:", msg);
-        } catch (_) {}
+        console.warn("[sync] socket connect_error:", msg);
       }
       // Adaptive fallback on 400/xhr errors
-      try {
-        if (/400|bad request|xhr/i.test(String(msg))) {
-          // Toggle transport mode
-          if (lastTransportMode === "auto") {
-            lastTransportMode = "ws"; // try websocket-only first
-          } else if (lastTransportMode === "ws") {
-            lastTransportMode = "polling"; // then fallback to polling-only
-          } else {
-            lastTransportMode = "auto"; // cycle back
-          }
-          try {
-            socket.close && socket.close();
-          } catch (_) {}
-          try {
-            socket = null;
-          } catch (_) {}
-          setTimeout(function () {
-            try {
-              setupSocket();
-            } catch (_) {}
-          }, 300);
-          return;
+      if (/400|bad request|xhr/i.test(String(msg))) {
+        // Toggle transport mode
+        if (lastTransportMode === "auto") {
+          lastTransportMode = "ws"; // try websocket-only first
+        } else if (lastTransportMode === "ws") {
+          lastTransportMode = "polling"; // then fallback to polling-only
+        } else {
+          lastTransportMode = "auto"; // cycle back
         }
-      } catch (_) {}
-      try {
-        socket.connect();
-      } catch (_) {}
+        socket.close && socket.close();
+        socket = null;
+        setTimeout(function () {
+          setupSocket();
+        }, 300);
+        return;
+      }
+      socket.connect();
     });
 
     socket.on("error", (err) => {
       if (debugEnabled) {
-        try {
-          console.warn("[sync] socket error:", err && (err.message || err));
-        } catch (_) {}
+        console.warn("[sync] socket error:", err && (err.message || err));
       }
     });
 
     // Обработка подключения
     socket.on("connect", function () {
       if (debugEnabled) {
-        try {
-          console.debug("[sync] socket connected");
-        } catch (_) {}
+        console.debug("[sync] socket connected");
       }
       bindHandlers();
     });
@@ -136,20 +130,33 @@ window.SyncManager = (function () {
     // Обработка отключения
     socket.on("disconnect", function (reason) {
       if (debugEnabled) {
-        try {
-          console.debug("[sync] socket disconnect:", reason);
-        } catch (_) {}
+        console.debug("[sync] socket disconnect:", reason);
       }
-      // Aggressively rebuild polling-only socket on any disconnect
+      // Backoff before attempting rebuild
       try {
-        socket.close && socket.close();
-      } catch (_) {}
-      try {
+        const delay = Math.min(
+          30000,
+          Math.max(
+            1000,
+            (socket &&
+              socket.io &&
+              socket.io.backoff &&
+              socket.io.backoff.duration()) ||
+              2000
+          )
+        );
+        setTimeout(function () {
+          try {
+            socket && socket.close && socket.close();
+          } catch (_) {}
+          socket = null;
+          setupSocket();
+        }, delay);
+      } catch (_) {
+        socket && socket.close && socket.close();
         socket = null;
-      } catch (_) {}
-      try {
-        setupSocket();
-      } catch (_) {}
+        setTimeout(setupSocket, 2000);
+      }
     });
 
     // Engine-level guards similar to users.js
@@ -219,34 +226,29 @@ window.SyncManager = (function () {
 
   /**
    * Привязка обработчиков событий
+   * Регистрирует обработчики для всех событий синхронизации
+   * @memberof SyncManager
+   * @private
    */
   function bindHandlers() {
     if (!socket) return;
     if (debugEnabled) {
-      try {
-        console.debug("[sync] binding handlers");
-      } catch (_) {}
+      console.debug("[sync] binding handlers");
     }
 
     // Debug: log any incoming event if debug enabled
-    try {
-      if (socket.onAny && !socket.__syncOnAnyBound) {
-        socket.__syncOnAnyBound = true;
-        socket.onAny(function (eventName, payload) {
-          try {
-            // Log core sync events, but do not forward to avoid duplicate handling
-            // Only log when debug is enabled; never forward
-            if (debugEnabled) {
-              try {
-                console.debug("[sync] onAny:", eventName, payload);
-              } catch (_) {}
-            }
-            return;
-            // Ignore presence and other non-sync chatter unless explicitly needed
-          } catch (_) {}
-        });
-      }
-    } catch (_) {}
+    if (socket.onAny && !socket.__syncOnAnyBound) {
+      socket.__syncOnAnyBound = true;
+      socket.onAny(function (eventName, payload) {
+        // Log core sync events, but do not forward to avoid duplicate handling
+        // Only log when debug is enabled; never forward
+        if (debugEnabled) {
+          console.debug("[sync] onAny:", eventName, payload);
+        }
+        return;
+        // Ignore presence and other non-sync chatter unless explicitly needed
+      });
+    }
 
     // Универсальный обработчик для всех событий синхронизации
     const syncEvents = [
@@ -256,6 +258,7 @@ window.SyncManager = (function () {
       "users:changed",
       "groups:changed",
       "registrators:changed",
+      "registrator_permissions_updated",
       "admin:changed",
     ];
 
@@ -299,7 +302,10 @@ window.SyncManager = (function () {
   }
 
   /**
-   * Регистрация callback'а для события
+   * Регистрация callback'а для события синхронизации
+   * @param {string} eventName - Название события (например, 'files:changed')
+   * @param {Function} callback - Функция обратного вызова, получает payload события
+   * @memberof SyncManager
    */
   function on(eventName, callback) {
     if (!refreshCallbacks[eventName]) {
@@ -324,6 +330,18 @@ window.SyncManager = (function () {
     if (index > -1) {
       refreshCallbacks[eventName].splice(index, 1);
     }
+  }
+
+  /**
+   * Присоединение к комнате для получения событий
+   * @param {string} room - Название комнаты (например, 'files', 'users')
+   * @memberof SyncManager
+   */
+  function joinRoom(room) {
+    try {
+      if (!socket || !socket.emit) return;
+      socket.emit(room + ":join", { ts: Date.now() });
+    } catch (_) {}
   }
 
   /**
@@ -369,11 +387,91 @@ window.SyncManager = (function () {
     return socket;
   }
 
+  /**
+   * Простой debounce-хелпер
+   * @param {Function} fn
+   * @param {number} waitMs
+   */
+  function debounce(fn, waitMs) {
+    let tid = null;
+    return function () {
+      const ctx = this;
+      const args = arguments;
+      if (tid) clearTimeout(tid);
+      tid = setTimeout(function () {
+        try {
+          fn.apply(ctx, args);
+        } catch (_) {}
+      }, waitMs || 200);
+    };
+  }
+
+  /**
+   * Зарегистрировать soft-refresh с дебаунсом для события
+   * @param {string} eventName
+   * @param {Function} callback
+   * @param {number} waitMs
+   */
+  function onSoftRefresh(eventName, callback, waitMs) {
+    try {
+      const wrapped = debounce(function (data) {
+        try {
+          callback(data);
+        } catch (_) {}
+      }, waitMs || 200);
+      on(eventName, wrapped);
+    } catch (_) {}
+  }
+
+  /**
+   * Авто-guard: если не было событий N секунд — выполнить мягкое обновление
+   * @param {Function} refreshFn
+   * @param {number} idleSeconds
+   */
+  function startIdleGuard(refreshFn, idleSeconds) {
+    try {
+      if (typeof refreshFn !== "function") return;
+      let lastTs = Date.now();
+      try {
+        // обновлять метку при любых синхро-событиях
+        const events = [
+          "categories:changed",
+          "subcategories:changed",
+          "files:changed",
+          "users:changed",
+          "groups:changed",
+          "registrators:changed",
+          "admin:changed",
+        ];
+        events.forEach(function (ev) {
+          on(ev, function () {
+            try {
+              lastTs = Date.now();
+            } catch (_) {}
+          });
+        });
+      } catch (_) {}
+      const periodMs = Math.max(5, idleSeconds || 30) * 1000;
+      setInterval(function () {
+        try {
+          if (Date.now() - lastTs >= periodMs) {
+            refreshFn();
+            lastTs = Date.now();
+          }
+        } catch (_) {}
+      }, Math.min(5000, Math.max(1000, periodMs / 3)));
+    } catch (_) {}
+  }
+
   // Публичный API
   return {
     init: init,
     on: on,
     off: off,
+    joinRoom: joinRoom,
+    debounce: debounce,
+    onSoftRefresh: onSoftRefresh,
+    startIdleGuard: startIdleGuard,
     setDebug: setDebug,
     getSocket: getSocket,
     onResume: onResume,

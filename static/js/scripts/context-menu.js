@@ -870,7 +870,16 @@
         case "toggle":
           if (rowId) {
             const toggleUrl = `${window.location.origin}/users/toggle/${rowId}`;
-            fetch(toggleUrl, { method: "GET", credentials: "same-origin" })
+            const clientId = window.__usersClientId || "";
+            fetch(toggleUrl, {
+              method: "GET",
+              credentials: "same-origin",
+              headers: {
+                "X-Requested-With": "fetch",
+                Accept: "application/json",
+                "X-Client-Id": clientId,
+              },
+            })
               .then((response) => {
                 if (response.ok) {
                   if (row) {

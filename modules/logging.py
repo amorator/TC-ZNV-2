@@ -85,30 +85,13 @@ class LoggingConfig:
 		console_handler.setFormatter(console_formatter)
 		root_logger.addHandler(console_handler)
 		
-		# Error log handler with filter to suppress benign gevent websocket KeyError on abrupt reloads
-		error_handler = SafeRotatingFileHandler(
-			path.join(self.logs_dir, 'error.log'),
-			maxBytes=self.max_bytes,
-			backupCount=self.backup_count,
-			encoding='utf-8'
-		)
-		error_handler.setLevel(logging.ERROR)
-		error_formatter = logging.Formatter(
-			self.file_format,
-			datefmt=self.date_format
-		)
-		error_handler.setFormatter(error_formatter)
-		class _GWSKeyErrorFilter(logging.Filter):
-			def filter(self, record: logging.LogRecord) -> bool:
-				msg = str(record.getMessage())
-				# ignore geventwebsocket handler KeyError: '' stacktraces on client_address deletion
-				if 'geventwebsocket.handler' in record.name and "KeyError: ''" in msg:
-					return False
-				return True
-		error_handler.addFilter(_GWSKeyErrorFilter())
-		root_logger.addHandler(error_handler)
+		# Write errors to app.log through the root handler only (avoid separate error.log)
 		
-		# Access log handler
+		# Create access logger with dedicated file
+		access_logger = logging.getLogger('access')
+		access_logger.setLevel(logging.INFO)
+		for h in access_logger.handlers[:]:
+			access_logger.removeHandler(h)
 		access_handler = SafeRotatingFileHandler(
 			path.join(self.logs_dir, 'access.log'),
 			maxBytes=self.max_bytes,
@@ -121,16 +104,14 @@ class LoggingConfig:
 			datefmt=self.date_format
 		)
 		access_handler.setFormatter(access_formatter)
-		
-		# Create access logger (clear existing handlers to avoid duplicates)
-		access_logger = logging.getLogger('access')
-		access_logger.setLevel(logging.INFO)
-		for h in access_logger.handlers[:]:
-			access_logger.removeHandler(h)
 		access_logger.addHandler(access_handler)
 		access_logger.propagate = False
 		
-		# Actions log handler
+		# Create actions logger with dedicated file
+		actions_logger = logging.getLogger('actions')
+		actions_logger.setLevel(logging.INFO)
+		for h in actions_logger.handlers[:]:
+			actions_logger.removeHandler(h)
 		actions_handler = SafeRotatingFileHandler(
 			path.join(self.logs_dir, 'actions.log'),
 			maxBytes=self.max_bytes,
@@ -143,14 +124,28 @@ class LoggingConfig:
 			datefmt=self.date_format
 		)
 		actions_handler.setFormatter(actions_formatter)
-		
-		# Create actions logger (clear existing handlers to avoid duplicates)
-		actions_logger = logging.getLogger('actions')
-		actions_logger.setLevel(logging.INFO)
-		for h in actions_logger.handlers[:]:
-			actions_logger.removeHandler(h)
 		actions_logger.addHandler(actions_handler)
 		actions_logger.propagate = False
+		
+		# Create error logger with dedicated file
+		error_logger = logging.getLogger('error')
+		error_logger.setLevel(logging.ERROR)
+		for h in error_logger.handlers[:]:
+			error_logger.removeHandler(h)
+		error_handler = SafeRotatingFileHandler(
+			path.join(self.logs_dir, 'error.log'),
+			maxBytes=self.max_bytes,
+			backupCount=self.backup_count,
+			encoding='utf-8'
+		)
+		error_handler.setLevel(logging.ERROR)
+		error_formatter = logging.Formatter(
+			self.file_format,
+			datefmt=self.date_format
+		)
+		error_handler.setFormatter(error_formatter)
+		error_logger.addHandler(error_handler)
+		error_logger.propagate = False
 		
 		# File log handler for general application logs
 		file_handler = SafeRotatingFileHandler(
@@ -177,10 +172,9 @@ class LoggingConfig:
 		for lname in noisy_loggers:
 			nl = logging.getLogger(lname)
 			nl.setLevel(logging.WARNING)
-			nl.propagate = False
-		# Also filter out frequent KeyError: '' tracebacks from geventwebsocket.handler at root level
-		gw_filter = logging.Filter('geventwebsocket.handler')
-		root_logger.addFilter(gw_filter)
+			# Let them propagate to root so they end up in app.log
+			nl.propagate = True
+		# No extra root filters; keep a single sink (app.log)
 	
 	def get_logger(self, name: str) -> logging.Logger:
 		"""Get logger instance."""
@@ -188,24 +182,56 @@ class LoggingConfig:
 	
 	def log_access(self, method: str, path: str, status: int, user: str = None, 
 				   ip: str = None, user_agent: str = None, duration: float = None):
-		"""Log HTTP access."""
+		"""Log HTTP access to access.log."""
 		access_logger = logging.getLogger('access')
 		user_info = f" user={user}" if user else ""
 		ip_info = f" ip={ip}" if ip else ""
 		ua_info = f" ua={user_agent}" if user_agent else ""
-		duration_info = f" duration={duration:.3f}s" if duration else ""
+		duration_info = f" duration={duration:.3f}s" if duration is not None else ""
 		
-		access_logger.info(f'{method} {path} {status}{user_info}{ip_info}{ua_info}{duration_info}')
+		message = f'{method} {path} {status}{user_info}{ip_info}{ua_info}{duration_info}'
+		access_logger.info(message)
 	
 	def log_action(self, action: str, user: str, details: str = None, 
-				   ip: str = None, success: bool = True):
-		"""Log user action."""
+			   ip: Optional[str] = None, success: bool = True, extra_data: dict = None):
+		"""Логирует действие пользователя с расширенной информацией."""
 		actions_logger = logging.getLogger('actions')
 		status = "SUCCESS" if success else "FAILED"
 		ip_info = f" ip={ip}" if ip else ""
 		details_info = f" details={details}" if details else ""
 		
-		actions_logger.info(f'{action} user={user} status={status}{ip_info}{details_info}')
+		# Добавляем дополнительную информацию если есть
+		extra_info = ""
+		if extra_data:
+			extra_parts = []
+			for key, value in extra_data.items():
+				if isinstance(value, (str, int, float, bool)):
+					extra_parts.append(f"{key}={value}")
+				else:
+					extra_parts.append(f"{key}={str(value)[:100]}")
+			extra_info = f" {' '.join(extra_parts)}"
+		
+		# Формируем полное сообщение
+		message = f'{action} user={user} status={status}{ip_info}{details_info}{extra_info}'
+		
+		# Отладочное логирование
+		try:
+			print(f"[DEBUG] log_action called: {message}")
+			actions_logger.info(message)
+			print(f"[DEBUG] actions_logger.info called successfully")
+		except Exception as e:
+			print(f"[DEBUG] Error in log_action: {e}")
+			# Fallback to root logger
+			root_logger = logging.getLogger()
+			root_logger.error(f"log_action failed: {e}, message: {message}")
+		
+		# Не дублируем в основной лог, чтобы избежать шума; actions.log уже содержит событие
+
+
+def log_error(message: str, exc_info: bool = False) -> None:
+	"""Логирует ошибку в error.log."""
+	error_logger = logging.getLogger('error')
+	error_logger.error(message, exc_info=exc_info)
 
 
 # Global logging config instance
@@ -239,8 +265,8 @@ def log_access(method: str, path: str, status: int, user: str = None,
 
 
 def log_action(action: str, user: str, details: str = None, 
-			   ip: str = None, success: bool = True):
-	"""Log user action."""
+		   ip: Optional[str] = None, success: bool = True, extra_data: dict = None):
+	"""Логирует действие пользователя с расширенной информацией."""
 	if _logging_config is None:
 		init_logging()
-	_logging_config.log_action(action, user, details, ip, success)
+	_logging_config.log_action(action, user, details, ip, success, extra_data)

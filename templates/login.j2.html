@@ -1,9 +1,9 @@
 {% extends 'base.j2.html' %}
 {% block css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/login.css') }}" />
 {% endblock %}
 {% block js %}
-<script type="text/javascript" src="{{ url_for('static', filename='js/login.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/pages/login.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}
 {% block main %}
 <div class="login">

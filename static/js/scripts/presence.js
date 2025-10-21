@@ -40,8 +40,25 @@
       }, 200);
     }
 
+    function isSocketConnected() {
+      try {
+        return !!(sock && sock.connected);
+      } catch (_) {
+        return false;
+      }
+    }
+
     function emitPresence() {
       if (forced || left) return;
+      // Refresh socket reference in case SyncManager recreated it
+      try {
+        var cur = getSock();
+        if (cur && cur !== sock) {
+          sock = cur;
+          bindSocketHandlers();
+        }
+      } catch (_) {}
+      if (!isSocketConnected()) return; // pause when main socket is down
       try {
         sock.emit("presence:update", {
           page: location.pathname + location.search + location.hash,
@@ -53,7 +70,9 @@
       if (left) return;
       left = true;
       try {
-        sock.emit && sock.emit("presence:leave");
+        // try latest socket
+        var s = getSock() || sock;
+        s && s.emit && s.emit("presence:leave");
       } catch (_) {}
       try {
         var leaveUrl =
@@ -103,6 +122,8 @@
     function bindSocketHandlers() {
       try {
         if (!sock || !sock.on) return;
+        if (sock.__presenceBound) return;
+        sock.__presenceBound = true;
         sock.on("connect", function () {
           emitPresence();
         });
@@ -141,6 +162,16 @@
     // HTTP heartbeat for idle tabs (covers cases when socket events are throttled)
     function httpHeartbeat() {
       if (forced) return;
+      // Refresh socket reference; if not connected, skip
+      try {
+        var cur = getSock();
+        if (cur && cur !== sock) {
+          sock = cur;
+          bindSocketHandlers();
+        }
+      } catch (_) {}
+      // Do not send background HTTP heartbeat if socket is disconnected
+      if (!isSocketConnected()) return;
       // Reduce noisy errors when tab is hidden or offline
       try {
         if (document.visibilityState !== "visible") return;
@@ -231,5 +262,17 @@
     } else {
       emitPresence();
     }
+
+    // Also react to SyncManager resume hook if available
+    try {
+      if (
+        window.SyncManager &&
+        typeof window.SyncManager.onResume === "function"
+      ) {
+        window.SyncManager.onResume(function () {
+          emitPresence();
+        });
+      }
+    } catch (_) {}
   } catch (_) {}
 })();

@@ -1,8 +1,9 @@
 from flask import render_template, request, jsonify, Response
 from flask_login import current_user
 from modules.permissions import require_permissions, CATEGORIES_VIEW, CATEGORIES_MANAGE, ADMIN_ANY
-from modules.logging import get_logger
+from modules.logging import get_logger, log_action
 from modules.registrators import Registrator, parse_directory_listing
+from modules.sync_manager import emit_registrators_changed
 from datetime import datetime
 from json import loads, dumps
 from os import makedirs, path as ospath
@@ -11,12 +12,25 @@ from urllib.request import urlopen
 from subprocess import Popen, PIPE
 import time
 from functools import wraps
+from flask_socketio import join_room
 import re
 
 _log = get_logger(__name__)
 
 
 def register(app, socketio=None):
+    # Socket.IO room join for registrators page
+    try:
+        if hasattr(app, 'socketio') and app.socketio:
+
+            @app.socketio.on('registrators:join')
+            def _registrators_join(_data=None):
+                try:
+                    join_room('registrators')
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     def _validate_url_placeholders(url_template: str):
         """Validate placeholders in URL template. Allow only a fixed set, but do not require any.
@@ -55,8 +69,11 @@ def register(app, socketio=None):
             gid = str(getattr(current_user, 'gid', 0))
             umap = (data.get('user') or {}) if isinstance(data, dict) else {}
             gmap = (data.get('group') or {}) if isinstance(data, dict) else {}
+
+            # Check direct user permission
             if uid in umap and int(umap.get(uid) or 0) == 1:
                 return True
+            # Check group permission (cascade inheritance)
             if gid in gmap and int(gmap.get(gid) or 0) == 1:
                 return True
         except Exception:
@@ -184,6 +201,15 @@ def register(app, socketio=None):
             app._sql.execute_non_query(
                 f"INSERT INTO {app._sql.config['db']['prefix']}_registrator (name, url_template, enabled, display_order) VALUES (%s, %s, %s, %s);",
                 [name, url_template, enabled, display_order])
+            # Log action
+            log_action('REGISTRATOR_CREATE', current_user.login,
+                       f'created registrator "{name}" enabled={enabled}',
+                       request.remote_addr, True)
+            # Emit change event for real-time sync
+            emit_registrators_changed(socketio,
+                                      'added',
+                                      id=app._sql.execute_scalar(
+                                          f"SELECT LAST_INSERT_ID()", []))
             return jsonify({'status': 'success'})
         except Exception as e:
             app.flash_error(e)
@@ -199,6 +225,9 @@ def register(app, socketio=None):
             incoming_folder = (j.get('local_folder') or '').strip()
             enabled = 1 if j.get('enabled') in (1, '1', True, 'true',
                                                 'on') else 0
+            _log.info(
+                f"[registrators] PUT update id={rid} name='{name}' enabled={enabled}"
+            )
             # optional display_order update
             try:
                 display_order = j.get('display_order')
@@ -249,8 +278,17 @@ def register(app, socketio=None):
                 app._sql.execute_non_query(
                     f"UPDATE {app._sql.config['db']['prefix']}_registrator SET name=%s, url_template=%s, enabled=%s, display_order=%s WHERE id=%s;",
                     [name, url_template, enabled, display_order, rid])
+            # Log action
+            log_action(
+                'REGISTRATOR_UPDATE', current_user.login,
+                f'updated registrator id={rid} name="{name}" enabled={enabled}',
+                request.remote_addr, True)
+            # Emit change event for real-time sync
+            emit_registrators_changed(socketio, 'updated', id=rid)
+            _log.info(f"[registrators] PUT success id={rid}")
             return jsonify({'status': 'success'})
         except Exception as e:
+            _log.error(f"[registrators] PUT error id={rid}: {e}")
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -272,6 +310,12 @@ def register(app, socketio=None):
             app._sql.execute_non_query(
                 f"DELETE FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s;",
                 [rid])
+            # Log action
+            log_action('REGISTRATOR_DELETE', current_user.login,
+                       f'deleted registrator id={rid}', request.remote_addr,
+                       True)
+            # Emit change event for real-time sync
+            emit_registrators_changed(socketio, 'deleted', id=rid)
             return jsonify({'status': 'success'})
         except Exception as e:
             app.flash_error(e)
@@ -309,7 +353,7 @@ def register(app, socketio=None):
                 []) or []
 
             users = app._sql.execute_query(
-                f"SELECT id, login, permission FROM {app._sql.config['db']['prefix']}_user ORDER BY login;",
+                f"SELECT id, login, permission, gid FROM {app._sql.config['db']['prefix']}_user ORDER BY login;",
                 []) or []
 
             # Ensure permissions dict exists
@@ -326,7 +370,7 @@ def register(app, socketio=None):
                     perms['group'][str(group_id)] = 1
 
             # Force admin and full-access users access
-            for user_id, login, permission in users:
+            for user_id, login, permission, gid in users:
                 force_access = False
                 if login.lower() == 'admin':
                     force_access = True
@@ -339,6 +383,43 @@ def register(app, socketio=None):
                         force_access = True
                 if force_access:
                     perms['user'][str(user_id)] = 1
+
+            # Apply cascade inheritance from groups to users
+            perms = apply_group_cascade_permissions(perms, groups, users)
+
+            return perms
+        except Exception as e:
+            app.flash_error(e)
+            return perms
+
+    def apply_group_cascade_permissions(perms, groups, users):
+        """Apply cascade inheritance from groups to users for registrator permissions."""
+        try:
+            # Create group ID to name mapping
+            group_map = {str(gid): name for gid, name in groups}
+
+            # Create user ID to group ID mapping
+            user_group_map = {
+                str(uid): str(gid)
+                for uid, login, permission, gid in users
+            }
+
+            # Apply cascade inheritance
+            for user_id, login, permission, gid in users:
+                user_id_str = str(user_id)
+                gid_str = str(gid)
+
+                # Check if user's group has permission
+                if gid_str in perms.get('group',
+                                        {}) and perms['group'][gid_str] == 1:
+                    # User inherits permission from group
+                    perms['user'][user_id_str] = 1
+                # If group permission is removed, user permission is also removed
+                elif gid_str in perms.get('group',
+                                          {}) and perms['group'][gid_str] == 0:
+                    # Only remove if user doesn't have explicit permission
+                    if user_id_str not in perms.get('user', {}):
+                        perms['user'][user_id_str] = 0
 
             return perms
         except Exception as e:
@@ -378,17 +459,45 @@ def register(app, socketio=None):
     def registrators_permissions_set(rid):
         try:
             data = request.get_json(silent=True) or {}
-            perms = data.get('permissions') or {}
+            incoming = data.get('permissions') or {}
+            # Load existing stored permissions to avoid overwriting missing sections
+            key = f"registrator_permissions:{rid}"
+            existing_raw = app._sql.setting_get(key)
+            try:
+                existing = loads(existing_raw) if existing_raw else {}
+            except Exception:
+                existing = {}
+
+            existing_user = existing.get('user') if isinstance(
+                existing, dict) and isinstance(existing.get('user'),
+                                               dict) else {}
+            existing_group = existing.get('group') if isinstance(
+                existing, dict) and isinstance(existing.get('group'),
+                                               dict) else {}
+
+            final_user = incoming.get('user') if isinstance(
+                incoming.get('user'), dict) else existing_user
+            final_group = incoming.get('group') if isinstance(
+                incoming.get('group'), dict) else existing_group
+
+            perms = {
+                'user': final_user or {},
+                'group': final_group or {},
+            }
             # Enforce admin access before saving
             perms = enforce_admin_access_permissions(perms)
-            key = f"registrator_permissions:{rid}"
             app._sql.setting_set(key, dumps(perms, ensure_ascii=False))
-            try:
-                if socketio:
-                    socketio.emit('registrator_permissions_updated',
-                                  {'registrator_id': rid})
-            except Exception:
-                pass
+            # Log action
+            log_action('REGISTRATOR_PERMISSIONS_UPDATE', current_user.login,
+                       f'updated permissions for registrator id={rid}',
+                       request.remote_addr, True)
+            # Emit both specific and general change events for real-time sync
+            if socketio:
+                socketio.emit('registrator_permissions_updated',
+                              {'registrator_id': rid})
+                emit_registrators_changed(socketio,
+                                          'permissions_updated',
+                                          id=rid)
             return jsonify({'status': 'success'})
         except Exception as e:
             app.flash_error(e)
@@ -461,7 +570,7 @@ def register(app, socketio=None):
     # --- Registrators import selected files ---
     @app.route('/registrators/<int:rid>/import', methods=['POST'])
     @require_permissions(CATEGORIES_MANAGE)
-    @rate_limit
+    @rate_limit()
     def registrators_import(rid):
         """Download selected remote files, convert, and store locally under registrators/<sub>.
 
@@ -600,13 +709,23 @@ def register(app, socketio=None):
                         pass
                 except Exception:
                     continue
-            # Soft refresh for clients
+            # Soft refresh for clients (emit to files room and broadcast registrators change)
             try:
                 if socketio:
-                    socketio.emit('files:changed', {
+                    from modules.sync_manager import SyncManager, emit_registrators_changed
+                    sm = SyncManager(socketio)
+                    sm.emit_to_room('files:changed', {
                         'reason': 'registrators-import',
                         'ids': created_ids
-                    })
+                    },
+                                    'files',
+                                    reason='registrators-import')
+                    try:
+                        emit_registrators_changed(socketio,
+                                                  'import',
+                                                  ids=created_ids)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             return jsonify({

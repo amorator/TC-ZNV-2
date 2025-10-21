@@ -1,0 +1,220 @@
+/**
+ * Главная страница приложения
+ * Обеспечивает управление состоянием и синхронизацию через Socket.IO
+ *
+ * @namespace IndexPage
+ */
+
+(function () {
+  "use strict";
+
+  /**
+   * Получает уникальный идентификатор клиента для текущей сессии
+   * @returns {string} - Уникальный ID клиента
+   * @memberof IndexPage
+   */
+  function getClientId() {
+    try {
+      // ID для текущего окна
+      let cid = sessionStorage.getItem("index:clientId:session") || "";
+      if (!cid) {
+        cid = Math.random().toString(36).slice(2) + Date.now();
+        sessionStorage.setItem("index:clientId:session", cid);
+      }
+      return cid;
+    } catch (error) {
+      console.error("getClientId error:", error);
+      return Math.random().toString(36).slice(2) + Date.now();
+    }
+  }
+
+  /**
+   * Отправляет команду переключения состояния на сервер
+   * @param {boolean} [state] - Состояние для установки (опционально)
+   * @returns {Promise<Object>} - Ответ сервера
+   * @memberof IndexPage
+   */
+  function sendToggle(state) {
+    const clientId = getClientId();
+    const url = "/index/toggle";
+    const payload = typeof state === "boolean" ? { state } : {};
+    const opts = {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "fetch",
+        Accept: "application/json",
+        "X-Client-Id": clientId,
+      },
+      body: JSON.stringify(payload),
+    };
+
+    // Обновляем UI с временной меткой отправки
+    const ts = new Date().toISOString();
+    const el = document.getElementById("indexSendTs");
+    if (el) {
+      el.textContent = ts;
+      el.classList.remove("pulse-recv");
+      el.classList.add("pulse-send");
+      setTimeout(() => {
+        el.classList.remove("pulse-send");
+      }, 400);
+    }
+
+    return fetch(url, opts)
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response
+            .text()
+            .catch(() => String(response.status));
+          showError(`HTTP ${response.status}: ${text}`);
+        }
+        return response.json().catch(() => ({}));
+      })
+      .catch((error) => {
+        showError(`Fetch error: ${error?.message || String(error)}`);
+        return {};
+      });
+  }
+
+  /**
+   * Настраивает Socket.IO соединение для главной страницы
+   * @memberof IndexPage
+   */
+  function bindSocket() {
+    if (!window.io) return;
+
+    // Используем общий глобальный сокет; создаем если отсутствует
+    let sock = window.socket;
+    if (!(sock && (sock.connected || sock.connecting))) {
+      sock = window.io(window.location.origin, {
+        path: "/socket.io",
+        withCredentials: true,
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+      });
+      window.socket = sock;
+    }
+
+    // UI статуса соединения
+    const status = document.getElementById("indexConnStatus");
+    const btn = document.getElementById("indexToggleBtn");
+    const setState = function (connected) {
+      if (status) {
+        status.textContent = connected ? "Подключено" : "Отключено";
+        status.className = connected
+          ? "badge text-bg-success"
+          : "badge text-bg-secondary";
+      }
+      if (btn) btn.disabled = !connected;
+    };
+
+    sock.on("connect", function () {
+      setState(true);
+      console.debug("[index] socket connected", {
+        id: sock.id,
+        transport: sock.io?.engine?.transport?.name || "unknown",
+      });
+
+      // Присоединяемся к комнате для событий главной страницы
+      sock.emit && sock.emit("index:join", { ts: Date.now() });
+    });
+
+    sock.on("disconnect", function () {
+      setState(false);
+    });
+
+    // Обработчики ошибок Socket.IO
+    sock.on("connect_error", function (err) {
+      showError(`Socket connect_error: ${err?.message || err}`);
+    });
+
+    sock.on("error", function (err) {
+      showError(`Socket error: ${err?.message || err}`);
+    });
+
+    // Трассировка событий index
+    if (sock.onAny && !sock.__indexOnAnyTracer) {
+      sock.__indexOnAnyTracer = true;
+      sock.onAny(function (eventName) {
+        if (eventName === "index:changed") {
+          console.debug("[index] onAny index:changed");
+        }
+      });
+    }
+
+    // Очищаем предыдущие обработчики и устанавливаем новые
+    sock.off && sock.off("index:changed");
+    sock.off && sock.off("index:joined");
+
+    sock.on("index:joined", function (data) {
+      console.debug("[index] joined room index", data);
+    });
+
+    sock.on("index:changed", function (evt) {
+      console.debug("[index] recv", {
+        seq: evt?.seq,
+        worker: evt?.worker,
+      });
+
+      const ts = new Date().toISOString();
+      const el = document.getElementById("indexRecvTs");
+      if (el) {
+        el.textContent = ts;
+        el.classList.remove("pulse-send");
+        el.classList.add("pulse-recv");
+        setTimeout(() => {
+          el.classList.remove("pulse-recv");
+        }, 400);
+      }
+
+      window.__indexLastRecvTs = Date.now();
+      console.debug("[index] received index:changed", { evt, recv_ts: ts });
+
+      // Отправляем подтверждение с seq для диагностики
+      sock.emit && sock.emit("index:ack", { seq: evt?.seq, t: Date.now() });
+    });
+
+    window.indexSocket = sock;
+  }
+
+  /**
+   * Настраивает обработчики UI элементов
+   * @memberof IndexPage
+   */
+  function bindUI() {
+    const btn = document.getElementById("indexToggleBtn");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        sendToggle();
+      });
+    }
+  }
+
+  /**
+   * Показывает ошибку в UI
+   * @param {string} msg - Сообщение об ошибке
+   * @memberof IndexPage
+   */
+  function showError(msg) {
+    const el = document.getElementById("indexErrors");
+    if (!el) return;
+
+    const line = document.createElement("div");
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    el.prepend(line);
+
+    // Оставляем только последние 10 записей
+    while (el.childNodes.length > 10) {
+      el.removeChild(el.lastChild);
+    }
+  }
+
+  // Инициализация при загрузке DOM
+  document.addEventListener("DOMContentLoaded", function () {
+    bindUI();
+    bindSocket();
+  });
+})();

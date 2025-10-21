@@ -61,8 +61,8 @@ class RedisUploadManager:
             _log.warning(f"Failed to create upload session {upload_id}: {e}")
             return False
     
-    def update_upload_progress(self, upload_id: str, chunks_received: int = None,
-                              bytes_received: int = None, status: str = None) -> bool:
+    def update_upload_progress(self, upload_id: str, chunks_received: Optional[int] = None,
+                              bytes_received: Optional[int] = None, status: Optional[str] = None) -> bool:
         """Update upload progress.
         
         Args:
@@ -122,7 +122,7 @@ class RedisUploadManager:
         
         return None
     
-    def complete_upload(self, upload_id: str, final_file_path: str = None) -> bool:
+    def complete_upload(self, upload_id: str, final_file_path: Optional[str] = None) -> bool:
         """Mark upload as completed.
         
         Args:
@@ -154,7 +154,7 @@ class RedisUploadManager:
             _log.warning(f"Failed to complete upload {upload_id}: {e}")
             return False
     
-    def fail_upload(self, upload_id: str, error_message: str = None) -> bool:
+    def fail_upload(self, upload_id: str, error_message: Optional[str] = None) -> bool:
         """Mark upload as failed.
         
         Args:

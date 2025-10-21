@@ -1,23 +1,39 @@
-from flask import render_template, request, jsonify, Response, abort, send_file, make_response
-from flask_login import current_user, login_required
-from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
-from modules.logging import get_logger, log_action
-from modules.sync_manager import emit_admin_changed
-from datetime import datetime
+"""Admin routes: system maintenance, logs, backups, push notifications."""
+
 import os
 import time
+from datetime import datetime as dt, datetime
 from functools import wraps
-from modules.registrators import Registrator, parse_directory_listing
-from pywebpush import webpush, WebPushException
-from os import path, listdir, stat
 from io import BytesIO
+from os import path, listdir, stat
 from zipfile import ZipFile, ZIP_DEFLATED
-from datetime import datetime as dt
+
+from flask import render_template, request, jsonify, Response, abort, send_file, make_response
+from flask_login import current_user, login_required
+from flask_socketio import join_room
+from pywebpush import webpush, WebPushException
+
+from modules.logging import get_logger, log_action
+from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
+from modules.registrators import Registrator, parse_directory_listing
+from modules.sync_manager import emit_admin_changed
 
 _log = get_logger(__name__)
 
 
 def register(app, socketio=None):
+    # Socket.IO room join for admin page
+    try:
+        if socketio:
+
+            @socketio.on('admin:join')
+            def _admin_join(_data=None):
+                try:
+                    join_room('admin')
+                except Exception:
+                    pass
+    except Exception:
+        pass
     # Get rate limiter from app
     rate_limit = app.rate_limiters.get(
         'admin',
@@ -83,6 +99,29 @@ def register(app, socketio=None):
 		Ограничение: не чаще 1 раза в 12 часов (глобальная блокировка).
 		"""
         try:
+            # Resolve DB table prefix safely (dict or ConfigParser styles)
+            def _get_db_prefix():
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    # dict-like
+                    if isinstance(cfg, dict):
+                        db = cfg.get('db') or {}
+                        return (db.get('prefix') or '').strip()
+                    # ConfigParser-style
+                    try:
+                        return (app._sql.config.get(
+                            'db', 'prefix', fallback='') or '').strip()
+                    except Exception:
+                        return ''
+                except Exception:
+                    return ''
+
+            db_prefix = _get_db_prefix()
+            if not db_prefix:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'DB prefix is not configured'
+                }), 500
             # Глобальный троттлинг по времени
             from datetime import datetime, timedelta
             now = datetime.utcnow()
@@ -106,7 +145,7 @@ def register(app, socketio=None):
             deleted = 0
             try:
                 res = app._sql.execute_non_query(
-                    f"DELETE FROM {app._sql.config['db']['prefix']}_push_sub WHERE last_success_at IS NULL AND last_error_at IS NOT NULL AND last_error_at < (NOW() - INTERVAL %s DAY);",
+                    f"DELETE FROM {db_prefix}_push_sub WHERE last_success_at IS NULL AND last_error_at IS NOT NULL AND last_error_at < (NOW() - INTERVAL %s DAY);",
                     [N])
                 deleted = deleted + (res or 0)
             except Exception:
@@ -120,17 +159,22 @@ def register(app, socketio=None):
                 vapid_subject = (app._sql.push_get_vapid_subject()
                                  or 'mailto:admin@example.com')
                 if vapid_public and vapid_private:
+                    # Fetch candidate subscriptions (one per user in Python to avoid SQL only_full_group_by issues)
                     rows = app._sql.execute_query(
-                        f"SELECT s.user_id, s.endpoint, s.p256dh, s.auth FROM {app._sql.config['db']['prefix']}_push_sub s WHERE (s.last_success_at IS NULL OR s.last_success_at < (NOW() - INTERVAL 30 DAY)) GROUP BY s.user_id ORDER BY s.user_id;",
+                        f"SELECT s.user_id, s.endpoint, s.p256dh, s.auth FROM {db_prefix}_push_sub s WHERE (s.last_success_at IS NULL OR s.last_success_at < (NOW() - INTERVAL 30 DAY)) ORDER BY s.user_id;",
                         [])
                     payload = {
                         'title': 'Проверка подписки',
                         'body': 'Сервисная проверка',
                         'icon': '/static/images/notification-icon.png'
                     }
+                    # Deduplicate by user_id to limit one test push per user
+                    seen_users = set()
                     for r in rows or []:
                         uid, endpoint, p256dh, auth = r[0], r[1], r[2], r[3]
                         if not endpoint: continue
+                        if uid in seen_users: continue
+                        seen_users.add(uid)
                         try:
                             webpush(subscription_info={
                                 'endpoint': endpoint,
@@ -179,6 +223,22 @@ def register(app, socketio=None):
                     0, int((next_allowed_dt - now).total_seconds()))
             except Exception:
                 seconds_left = 12 * 3600
+
+            # Отправляем событие синхронизации для обновления UI у всех пользователей
+            try:
+                emit_admin_changed(
+                    socketio,
+                    'maintenance',
+                    action='push_maintain_completed',
+                    deleted=deleted,
+                    tested=tested,
+                    removed=removed,
+                    seconds_left=seconds_left,
+                    timestamp=now.isoformat(),
+                )
+            except Exception:
+                pass
+
             return jsonify({
                 'status': 'success',
                 'deleted': deleted,
@@ -187,6 +247,10 @@ def register(app, socketio=None):
                 'seconds_left': seconds_left
             })
         except Exception as e:
+            try:
+                _log.error("/admin/push_maintain failed", exc_info=True)
+            except Exception:
+                pass
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -854,6 +918,7 @@ def register(app, socketio=None):
                 'icon': '/static/images/notification-icon.png'
             }
             sent = 0
+            removed = 0
             for uid in recipient_user_ids:
                 rows = app._sql.push_get_user_subscriptions(uid) or []
                 for row in rows:
@@ -871,16 +936,50 @@ def register(app, socketio=None):
                                 vapid_private_key=vapid_private,
                                 vapid_claims={'sub': vapid_subject})
                         sent += 1
+                        try:
+                            app._sql.push_mark_success(endpoint)
+                        except Exception:
+                            pass
                     except WebPushException as we:
+                        # Mirror cleanup logic from /push/test
+                        code = getattr(getattr(we, 'response', None),
+                                       'status_code', None)
+                        body_text = ''
+                        try:
+                            resp = getattr(we, 'response', None)
+                            if resp is not None:
+                                code = getattr(resp, 'status_code', None)
+                                body_text = getattr(resp, 'text',
+                                                    str(we)) or str(we)
+                            else:
+                                body_text = str(we)
+                        except Exception:
+                            body_text = str(we)
+                        if code == 410 or 'No such subscription' in body_text or 'Gone' in body_text:
+                            try:
+                                app._sql.push_remove_subscription(endpoint)
+                                removed += 1
+                            except Exception:
+                                pass
+                        try:
+                            app._sql.push_mark_error(endpoint,
+                                                     str(code or '410'))
+                        except Exception:
+                            pass
                         _log.error(f"Push send failed: {we}")
                         continue
             try:
-                log_action('ADMIN_PUSH', current_user.name,
-                           f'target={target} sent={sent} text="{message}"',
-                           (request.remote_addr or ''))
+                log_action(
+                    'ADMIN_PUSH', current_user.name,
+                    f'target={target} sent={sent} removed={removed} text="{message}"',
+                    (request.remote_addr or ''))
             except Exception:
                 pass
-            return jsonify({'status': 'success', 'sent': sent})
+            return jsonify({
+                'status': 'success',
+                'sent': sent,
+                'removed': removed
+            })
         except Exception as e:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -1037,68 +1136,81 @@ def register(app, socketio=None):
                 page = (data or {}).get('page')
                 ua = request.headers.get('User-Agent', '')
 
-                # Use Redis-based presence if available
-                if hasattr(app, 'presence_manager') and app.presence_manager:
-                    app.presence_manager.update_presence(
-                        request.environ.get('flask_socketio.sid', ''), uid,
-                        user, ip, page, ua)
-                else:
-                    # Fallback to in-memory presence
-                    app._presence[request.environ.get(
-                        'flask_socketio.sid', '')] = {
-                            'user': user,
-                            'user_id': uid,
-                            'ip': ip,
-                            'page': page,
-                            'ua': ua,
-                            'updated_at': int(datetime.utcnow().timestamp())
-                        }
+                # Presence temporarily disabled
+                if not getattr(app.config, 'get', lambda *_: False)(
+                        'PRESENCE_DISABLED') and not app.config.get(
+                            'PRESENCE_DISABLED'):
+                    # Use Redis-based presence if available
+                    if hasattr(app,
+                               'presence_manager') and app.presence_manager:
+                        app.presence_manager.update_presence(
+                            request.environ.get('flask_socketio.sid', ''), uid,
+                            user, ip, page, ua)
+                    else:
+                        # Fallback to in-memory presence
+                        app._presence[request.environ.get(
+                            'flask_socketio.sid', '')] = {
+                                'user': user,
+                                'user_id': uid,
+                                'ip': ip,
+                                'page': page,
+                                'ua': ua,
+                                'updated_at':
+                                int(datetime.utcnow().timestamp())
+                            }
 
                 # Notify all listeners that presence changed
-                try:
-                    socketio.emit(
-                        'presence:changed', {
-                            'sid': request.environ.get('flask_socketio.sid',
-                                                       ''),
-                            'user': user
-                        })
-                except Exception:
-                    pass
+                if not app.config.get('PRESENCE_DISABLED'):
+                    try:
+                        socketio.emit(
+                            'presence:changed', {
+                                'sid':
+                                request.environ.get('flask_socketio.sid', ''),
+                                'user':
+                                user
+                            })
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
         @socketio.on('disconnect')
         def presence_disconnect():
             try:
-                # Use Redis-based presence if available
-                if hasattr(app, 'presence_manager') and app.presence_manager:
-                    app.presence_manager.remove_presence(
-                        request.environ.get('flask_socketio.sid', ''))
-                    # Cleanup stale entries
-                    app.presence_manager.cleanup_stale_presence()
-                else:
-                    # Fallback to in-memory presence
-                    now_ts = int(datetime.utcnow().timestamp())
-                    if hasattr(app, '_presence'):
-                        stale = [
-                            sid for sid, info in app._presence.items()
-                            if (now_ts - int(info.get('updated_at') or 0)) > 60
-                        ]
-                        for sid in stale:
-                            app._presence.pop(sid, None)
-                        app._presence.pop(
-                            request.environ.get('flask_socketio.sid', ''),
-                            None)
+                if not app.config.get('PRESENCE_DISABLED'):
+                    # Use Redis-based presence if available
+                    if hasattr(app,
+                               'presence_manager') and app.presence_manager:
+                        app.presence_manager.remove_presence(
+                            request.environ.get('flask_socketio.sid', ''))
+                        # Cleanup stale entries
+                        app.presence_manager.cleanup_stale_presence()
+                    else:
+                        # Fallback to in-memory presence
+                        now_ts = int(datetime.utcnow().timestamp())
+                        if hasattr(app, '_presence'):
+                            stale = [
+                                sid for sid, info in app._presence.items()
+                                if (now_ts -
+                                    int(info.get('updated_at') or 0)) > 60
+                            ]
+                            for sid in stale:
+                                app._presence.pop(sid, None)
+                            app._presence.pop(
+                                request.environ.get('flask_socketio.sid', ''),
+                                None)
 
-                try:
-                    socketio.emit(
-                        'presence:changed', {
-                            'sid': request.environ.get('flask_socketio.sid',
-                                                       ''),
-                            'event': 'disconnect'
-                        })
-                except Exception:
-                    pass
+                if not app.config.get('PRESENCE_DISABLED'):
+                    try:
+                        socketio.emit(
+                            'presence:changed', {
+                                'sid':
+                                request.environ.get('flask_socketio.sid', ''),
+                                'event':
+                                'disconnect'
+                            })
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -1106,25 +1218,29 @@ def register(app, socketio=None):
         def presence_leave_socket():
             """Drop presence for this socket id immediately (e.g., on logout)."""
             try:
-                # Use Redis-based presence if available
-                if hasattr(app, 'presence_manager') and app.presence_manager:
-                    app.presence_manager.remove_presence(
-                        request.environ.get('flask_socketio.sid', ''))
-                else:
-                    # Fallback to in-memory presence
-                    if hasattr(app, '_presence'):
-                        app._presence.pop(
-                            request.environ.get('flask_socketio.sid', ''),
-                            None)
+                if not app.config.get('PRESENCE_DISABLED'):
+                    # Use Redis-based presence if available
+                    if hasattr(app,
+                               'presence_manager') and app.presence_manager:
+                        app.presence_manager.remove_presence(
+                            request.environ.get('flask_socketio.sid', ''))
+                    else:
+                        # Fallback to in-memory presence
+                        if hasattr(app, '_presence'):
+                            app._presence.pop(
+                                request.environ.get('flask_socketio.sid', ''),
+                                None)
 
-                try:
-                    socketio.emit(
-                        'presence:changed', {
-                            'sid': request.environ.get('flask_socketio.sid',
-                                                       ''),
-                            'event': 'leave'
-                        })
-                except Exception:
-                    pass
+                if not app.config.get('PRESENCE_DISABLED'):
+                    try:
+                        socketio.emit(
+                            'presence:changed', {
+                                'sid':
+                                request.environ.get('flask_socketio.sid', ''),
+                                'event':
+                                'leave'
+                            })
+                    except Exception:
+                        pass
             except Exception:
                 pass

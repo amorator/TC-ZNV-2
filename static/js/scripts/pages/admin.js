@@ -1,6 +1,25 @@
 (function () {
   "use strict";
 
+  // Ensure push debug is enabled on admin page even if base.js loads later
+  try {
+    window.DEBUG_PUSH = true;
+  } catch (_) {}
+
+  // Debug helper for push flows (enable by setting localStorage.DEBUG_PUSH='1' or window.DEBUG_PUSH=true)
+  function dlog() {
+    try {
+      var enabled =
+        window.DEBUG_PUSH === true ||
+        (typeof localStorage !== "undefined" &&
+          localStorage.getItem("DEBUG_PUSH") === "1");
+      if (!enabled) return;
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift("[push]");
+      console.log.apply(console, args);
+    } catch (_) {}
+  }
+
   let socket = null;
   let presenceItems = [];
   let lastPresenceNonEmptyAt = 0;
@@ -9,6 +28,30 @@
   let isLogPaused = false; // pause auto-refresh for logs when selecting
   let lastContextRow = null; // remember row for context actions
   let sessionsItems = [];
+  // Suppress recently terminated sessions from reappearing due to server lag
+  const suppressedSessions = Object.create(null); // sid -> expireTs
+
+  function markSessionSuppressed(sid, ms) {
+    try {
+      if (!sid) return;
+      suppressedSessions[sid] = Date.now() + Math.max(1000, ms || 30000);
+    } catch (_) {}
+  }
+
+  function isSessionSuppressed(sid) {
+    try {
+      if (!sid) return false;
+      const exp = suppressedSessions[sid] || 0;
+      if (!exp) return false;
+      if (Date.now() > exp) {
+        delete suppressedSessions[sid];
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   function isJsonResponse(r) {
     try {
@@ -20,7 +63,46 @@
     }
   }
 
+  // --- Connectivity and polling backoff guards -----------------------------
+  function isMainSocketConnected() {
+    try {
+      var s =
+        (window.SyncManager &&
+          typeof window.SyncManager.getSocket === "function" &&
+          window.SyncManager.getSocket()) ||
+        window.socket;
+      return !!(s && s.connected);
+    } catch (_) {
+      return false;
+    }
+  }
+  const __pollBackoff = {};
+  function runWithBackoff(name, fn) {
+    try {
+      if (!isMainSocketConnected()) return;
+      var st = __pollBackoff[name] || { fails: 0, next: 0 };
+      var now = Date.now();
+      if (now < st.next) return;
+      var p = Promise.resolve().then(function () {
+        return fn();
+      });
+      p.then(function () {
+        __pollBackoff[name] = { fails: 0, next: 0 };
+      }).catch(function () {
+        st.fails = (st.fails || 0) + 1;
+        var delay = Math.min(
+          30000,
+          Math.max(1000, Math.pow(2, st.fails - 1) * 1000)
+        );
+        st.next = now + delay;
+        __pollBackoff[name] = st;
+      });
+      return p;
+    } catch (_) {}
+  }
+
   function fetchPresence() {
+    if (!isMainSocketConnected()) return Promise.resolve();
     return fetch("/admin/presence", { credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok || !isJsonResponse(r)) {
@@ -75,9 +157,136 @@
           renderPresence();
         }
       })
-      .catch(function () {
-        /* ignore */
+      .catch(function (e) {
+        return Promise.reject(e);
       });
+  }
+
+  // --- Push helpers ---------------------------------------------------------
+  // Use shared helper from utils/push.js
+  var urlBase64ToUint8Array =
+    window.urlBase64ToUint8Array ||
+    function (b64) {
+      try {
+        b64 = String(b64 || "")
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+        const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+        const raw = atob(b64 + pad);
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+        return out;
+      } catch (_) {
+        return new Uint8Array();
+      }
+    };
+
+  async function silentEnsureSubscription() {
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window))
+        return false;
+      if (!("Notification" in window) || Notification.permission !== "granted")
+        return false;
+      // Ensure SW is registered so .ready can resolve
+      try {
+        const existingReg = await navigator.serviceWorker.getRegistration();
+        if (!existingReg) {
+          await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        }
+      } catch (_) {}
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg || !reg.pushManager) return false;
+      // If already subscribed, keep it; some browsers still require resave to server, so send if present
+      let sub = await reg.pushManager.getSubscription();
+      dlog("silentEnsureSubscription: existing=", !!sub);
+      if (!sub) {
+        // fetch VAPID key
+        const resp = await fetch("/push/vapid_public", {
+          credentials: "same-origin",
+        });
+        const j = await resp.json().catch(() => null);
+        const publicKey = j && j.publicKey ? j.publicKey : "";
+        dlog("vapid_public ok=", !!publicKey);
+        if (!publicKey) return false;
+        // subscribe
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        dlog(
+          "subscribed: endpoint~=",
+          sub && sub.endpoint ? sub.endpoint.slice(0, 32) + "..." : null
+        );
+      }
+      if (!sub) return false;
+      // Send/refresh on server
+      const save = await fetch("/push/subscribe", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub),
+      })
+        .then((r) => r.json().catch(() => null))
+        .catch(() => null);
+      dlog("subscribe save result=", save);
+      return !!(save && save.status === "success");
+    } catch (_) {
+      dlog("silentEnsureSubscription error", _ && (_.message || _));
+      return false;
+    }
+  }
+
+  async function forceRenewSubscription() {
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window))
+        return false;
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg || !reg.pushManager) return false;
+      try {
+        const old = await reg.pushManager.getSubscription();
+        if (old) {
+          try {
+            await fetch("/push/unsubscribe", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ endpoint: old.endpoint }),
+            });
+          } catch (_) {}
+          try {
+            await old.unsubscribe();
+          } catch (_) {}
+        }
+      } catch (_) {}
+      const resp = await fetch("/push/vapid_public", {
+        credentials: "same-origin",
+      });
+      const j = await resp.json().catch(() => null);
+      const publicKey = j && j.publicKey ? j.publicKey : "";
+      dlog("forceRenew: vapid ok=", !!publicKey);
+      if (!publicKey) return false;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      dlog(
+        "forceRenew: subscribed endpoint~=",
+        sub && sub.endpoint ? sub.endpoint.slice(0, 32) + "..." : null
+      );
+      const save = await fetch("/push/subscribe", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub),
+      })
+        .then((r) => r.json().catch(() => null))
+        .catch(() => null);
+      dlog("forceRenew: save result=", save);
+      return !!(save && save.status === "success");
+    } catch (_) {
+      dlog("forceRenewSubscription error", _ && (_.message || _));
+      return false;
+    }
   }
 
   function presenceKey(it) {
@@ -140,6 +349,7 @@
   }
 
   function fetchSessions() {
+    if (!isMainSocketConnected()) return Promise.resolve();
     return fetch("/admin/sessions", { credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok || !isJsonResponse(r)) {
@@ -151,15 +361,24 @@
       })
       .then(function (j) {
         if (j && j.status === "success") {
-          sessionsItems = Array.isArray(j.items) ? j.items.slice() : [];
+          var raw = Array.isArray(j.items) ? j.items.slice() : [];
+          // Filter out recently terminated sessions (client-side tombstones)
+          sessionsItems = raw.filter(function (it) {
+            try {
+              var sid = it && it.sid ? String(it.sid) : "";
+              return !isSessionSuppressed(sid);
+            } catch (_) {
+              return true;
+            }
+          });
           sessionsItems.sort(function (a, b) {
             return (b.last_seen || 0) - (a.last_seen || 0);
           });
           renderSessions();
         }
       })
-      .catch(function () {
-        /* ignore */
+      .catch(function (e) {
+        return Promise.reject(e);
       });
   }
 
@@ -206,7 +425,7 @@
     if (thead) {
       safeOn(thead, "contextmenu", function (e) {
         e.preventDefault();
-        openContextMenu(e.pageX, e.pageY, "sessions-header", null);
+        openContextMenu(e.clientX, e.clientY, "sessions-header", null);
       });
     }
     safeOn(table, "contextmenu", function (e) {
@@ -214,7 +433,7 @@
       if (!row) return;
       e.preventDefault();
       lastContextRow = row;
-      openContextMenuForSessions(e.pageX, e.pageY, row);
+      openContextMenuForSessions(e.clientX, e.clientY, row);
     });
   }
 
@@ -445,14 +664,20 @@
   // Helper: auto-enable push silently on 400 No subscriptions, then retry original request
   function fetchWithAutoPush(input, init) {
     init = init || {};
+    // Limit auto-retries to avoid loops (at most 2 per original request)
+    var tries =
+      typeof init._autoPushTries === "number" ? init._autoPushTries : 0;
     function doFetch() {
       return fetch(input, init).then(function (r) {
         return r
           .json()
           .then(function (j) {
-            return { ok: r.ok, status: r.status, data: j };
+            var out = { ok: r.ok, status: r.status, data: j };
+            dlog("request", input, "status=", r.status, "data=", j);
+            return out;
           })
           .catch(function () {
+            dlog("request", input, "status=", r.status, "data=<?>");
             return { ok: r.ok, status: r.status, data: null };
           });
       });
@@ -463,26 +688,123 @@
       var shouldAutoEnable =
         res.status === 400 && /no subscriptions/i.test(msg);
       if (!shouldAutoEnable) return res;
+      if (tries >= 2) {
+        // Surface server message and stop retrying
+        try {
+          var finalMsg = msg || "Нет активной подписки на уведомления";
+          window.showToast && window.showToast(finalMsg, "error");
+        } catch (_) {}
+        return res;
+      }
       // Silently enable push and retry once
       return new Promise(function (resolve) {
         try {
-          if (window.pushInit) {
-            Promise.resolve(window.pushInit({ silent: true }))
-              .then(function () {
-                setTimeout(function () {
-                  doFetch()
-                    .then(resolve)
-                    .catch(function () {
-                      resolve(res);
-                    });
-                }, 800);
-              })
-              .catch(function () {
-                resolve(res);
-              });
-          } else {
-            resolve(res);
-          }
+          // Prefer built-in recovery; fallback to window.pushInit if present
+          Promise.resolve(silentEnsureSubscription())
+            .then(function (ok) {
+              dlog("autoEnable result=", ok);
+              if (!ok && window.pushInit) {
+                return Promise.resolve(window.pushInit({ silent: true })).then(
+                  function () {
+                    return true;
+                  },
+                  function () {
+                    return false;
+                  }
+                );
+              }
+              return ok;
+            })
+            .then(function () {
+              setTimeout(function () {
+                // bump attempt counter for the retry
+                var nextInit = Object.assign({}, init, {
+                  _autoPushTries: tries + 1,
+                });
+                fetch(input, nextInit)
+                  .then(function (r) {
+                    return r
+                      .json()
+                      .then(function (j) {
+                        var out = { ok: r.ok, status: r.status, data: j };
+                        dlog("retry1", input, "status=", r.status, "data=", j);
+                        return out;
+                      })
+                      .catch(function () {
+                        dlog("retry1", input, "status=", r.status, "data=<?>");
+                        return { ok: r.ok, status: r.status, data: null };
+                      });
+                  })
+                  .then(function (res2) {
+                    var msg2 =
+                      res2 && res2.data && res2.data.message
+                        ? String(res2.data.message)
+                        : "";
+                    var stillNoSubs =
+                      res2.status === 400 && /no subscriptions/i.test(msg2);
+                    if (!stillNoSubs) {
+                      resolve(res2);
+                      return;
+                    }
+                    // Force renew subscription and retry once more
+                    Promise.resolve(forceRenewSubscription())
+                      .then(function () {
+                        setTimeout(function () {
+                          var finalInit = Object.assign({}, init, {
+                            _autoPushTries: tries + 2,
+                          });
+                          fetch(input, finalInit)
+                            .then(function (r) {
+                              return r
+                                .json()
+                                .then(function (j) {
+                                  dlog(
+                                    "retry2",
+                                    input,
+                                    "status=",
+                                    r.status,
+                                    "data=",
+                                    j
+                                  );
+                                  return {
+                                    ok: r.ok,
+                                    status: r.status,
+                                    data: j,
+                                  };
+                                })
+                                .catch(function () {
+                                  dlog(
+                                    "retry2",
+                                    input,
+                                    "status=",
+                                    r.status,
+                                    "data=<?>"
+                                  );
+                                  return {
+                                    ok: r.ok,
+                                    status: r.status,
+                                    data: null,
+                                  };
+                                });
+                            })
+                            .then(resolve)
+                            .catch(function () {
+                              resolve(res);
+                            });
+                        }, 400);
+                      })
+                      .catch(function () {
+                        resolve(res2);
+                      });
+                  })
+                  .catch(function () {
+                    resolve(res);
+                  });
+              }, 500);
+            })
+            .catch(function () {
+              resolve(res);
+            });
         } catch (_) {
           resolve(res);
         }
@@ -652,96 +974,151 @@
             btnNotifyTest.disabled = false;
           } catch (_) {}
         }, 6000);
-        ensurePushSubscribed()
-          .then(function () {
-            return fetchWithAutoPush("/push/test", {
-              method: "POST",
-              credentials: "same-origin",
+        function runTest() {
+          // Ensure a fresh, server-saved subscription before sending
+          return Promise.resolve(forceRenewSubscription())
+            .then(function (ok) {
+              if (!ok) {
+                return Promise.resolve(silentEnsureSubscription());
+              }
+              return true;
+            })
+            .then(function (ok2) {
+              if (!ok2) {
+                window.showToast &&
+                  window.showToast("Не удалось оформить подписку", "error");
+                return {
+                  ok: false,
+                  data: { status: "error", message: "No subscriptions" },
+                };
+              }
+              return fetchWithAutoPush("/push/test", {
+                method: "POST",
+                credentials: "same-origin",
+              });
             });
-          })
-          .then(function (res) {
-            if (
-              res.ok &&
-              res.data &&
-              res.data.status === "success" &&
-              Number(res.data.sent || 0) > 0
-            ) {
-              window.showToast &&
-                window.showToast("Тестовое уведомление отправлено", "success");
+        }
+        // If permission undecided, request it inside this gesture before proceeding
+        try {
+          if (
+            "Notification" in window &&
+            typeof Notification.requestPermission === "function" &&
+            Notification.permission === "default"
+          ) {
+            var rp = null;
+            try {
+              rp = Notification.requestPermission();
+            } catch (_) {}
+            if (rp && typeof rp.then === "function") {
+              rp.then(function (perm) {
+                if (perm !== "granted") {
+                  throw new Error("permission denied");
+                }
+              })
+                .then(runTest)
+                .then(handleTestResult)
+                .catch(function () {
+                  handleTestResult({
+                    ok: false,
+                    data: { status: "error", message: "Permission denied" },
+                  });
+                })
+                .finally(finish);
               return;
             }
-            if (
-              res.ok &&
-              res.data &&
-              res.data.status === "success" &&
-              Number(res.data.sent || 0) === 0
-            ) {
-              // Likely race right after subscription; retry once after a short delay
-              return new Promise(function (resolve) {
-                setTimeout(function () {
-                  fetchWithAutoPush("/push/test", {
-                    method: "POST",
-                    credentials: "same-origin",
-                  })
-                    .then(function (res2) {
-                      if (
-                        res2.ok &&
-                        res2.data &&
-                        res2.data.status === "success" &&
-                        Number(res2.data.sent || 0) > 0
-                      ) {
-                        window.showToast &&
-                          window.showToast(
-                            "Тестовое уведомление отправлено",
-                            "success"
-                          );
-                      } else {
-                        var serverMsg2 =
-                          res2.data && res2.data.message
-                            ? String(res2.data.message)
-                            : "";
-                        var msg2 = serverMsg2 || "Ошибка отправки уведомления";
-                        window.showToast && window.showToast(msg2, "error");
-                      }
-                      resolve();
-                    })
-                    .catch(function () {
+            try {
+              Notification.requestPermission(function (perm) {
+                var p =
+                  perm === "granted"
+                    ? runTest()
+                    : Promise.resolve({
+                        ok: false,
+                        data: { status: "error", message: "Permission denied" },
+                      });
+                p.then(handleTestResult).finally(finish);
+              });
+              return;
+            } catch (_) {}
+          }
+        } catch (_) {}
+        runTest().then(handleTestResult).finally(finish);
+
+        function handleTestResult(res) {
+          if (
+            res.ok &&
+            res.data &&
+            res.data.status === "success" &&
+            Number(res.data.sent || 0) > 0
+          ) {
+            window.showToast &&
+              window.showToast("Тестовое уведомление отправлено", "success");
+            return;
+          }
+          if (
+            res.ok &&
+            res.data &&
+            res.data.status === "success" &&
+            Number(res.data.sent || 0) === 0
+          ) {
+            // Likely race right after subscription; retry once after a short delay
+            return new Promise(function (resolve) {
+              setTimeout(function () {
+                fetchWithAutoPush("/push/test", {
+                  method: "POST",
+                  credentials: "same-origin",
+                })
+                  .then(function (res2) {
+                    if (
+                      res2.ok &&
+                      res2.data &&
+                      res2.data.status === "success" &&
+                      Number(res2.data.sent || 0) > 0
+                    ) {
                       window.showToast &&
                         window.showToast(
-                          "Ошибка сети при отправке уведомления",
-                          "error"
+                          "Тестовое уведомление отправлено",
+                          "success"
                         );
-                      resolve();
-                    });
-                }, 800);
-              });
-            }
-            var serverMsg =
-              res.data && res.data.message ? String(res.data.message) : "";
-            // Silent auto-subscribe already attempted inside fetchWithAutoPush
-            if (res.status === 400 && /VAPID/i.test(serverMsg)) {
-              window.showToast &&
-                window.showToast(
-                  "VAPID ключи не настроены на сервере",
-                  "error"
-                );
-              return;
-            }
-            var msg = serverMsg || "Ошибка отправки уведомления";
-            window.showToast && window.showToast(msg, "error");
-          })
-          .catch(function () {
+                    } else {
+                      var serverMsg2 =
+                        res2.data && res2.data.message
+                          ? String(res2.data.message)
+                          : "";
+                      var msg2 = serverMsg2 || "Ошибка отправки уведомления";
+                      window.showToast && window.showToast(msg2, "error");
+                    }
+                    resolve();
+                  })
+                  .catch(function () {
+                    window.showToast &&
+                      window.showToast(
+                        "Ошибка сети при отправке уведомления",
+                        "error"
+                      );
+                    resolve();
+                  });
+              }, 800);
+            });
+          }
+          var serverMsg =
+            res.data && res.data.message ? String(res.data.message) : "";
+          // Silent auto-subscribe already attempted inside fetchWithAutoPush
+          if (res.status === 400 && /VAPID/i.test(serverMsg)) {
             window.showToast &&
-              window.showToast("Ошибка сети при отправке уведомления", "error");
-          })
-          .finally(function () {
-            try {
-              clearTimeout(unlockTimer);
-            } catch (_) {}
-            try {
-              btnNotifyTest.disabled = false;
-            } catch (_) {}
-          });
+              window.showToast("VAPID ключи не настроены на сервере", "error");
+            return;
+          }
+          var msg = serverMsg || "Ошибка отправки уведомления";
+          window.showToast && window.showToast(msg, "error");
+        }
+        function finish() {
+          try {
+            clearTimeout(unlockTimer);
+          } catch (_) {}
+          try {
+            btnNotifyTest.disabled = false;
+          } catch (_) {}
+        }
       });
 
     const btnSendNotifyM = document.getElementById("btnSendNotifyM");
@@ -851,7 +1228,7 @@
       safeOn(logs, "contextmenu", function (e) {
         e.preventDefault();
         lastContextRow = null;
-        openContextMenu(e.pageX, e.pageY, "logs"); // journal
+        openContextMenu(e.clientX, e.clientY, "logs"); // journal
       });
       // Pause logs while selecting inside pre
       document.addEventListener("selectionchange", function () {
@@ -951,7 +1328,7 @@
         )
           return;
         e.preventDefault();
-        openContextMenu(e.pageX, e.pageY, "page");
+        openContextMenu(e.clientX, e.clientY, "page");
       } catch (_) {}
     });
 
@@ -963,7 +1340,7 @@
         if (!row) return;
         e.preventDefault();
         lastContextRow = row;
-        openContextMenu(e.pageX, e.pageY, "logs-list", row);
+        openContextMenu(e.clientX, e.clientY, "logs-list", row);
       });
     }
 
@@ -1010,6 +1387,10 @@
                 );
                 if (tr && tr.parentElement) tr.parentElement.removeChild(tr);
               }
+            } catch (_) {}
+            // Prevent re-appearing for a short grace period to cover server lag
+            try {
+              markSessionSuppressed(sid, 45000);
             } catch (_) {}
             // Refresh from server to reconcile
             fetchSessions();
@@ -1087,14 +1468,14 @@
     if (thead) {
       safeOn(thead, "contextmenu", function (e) {
         e.preventDefault();
-        openContextMenu(e.pageX, e.pageY, "presence-header", null);
+        openContextMenu(e.clientX, e.clientY, "presence-header", null);
       });
     }
     safeOn(table, "contextmenu", function (e) {
       const row = e.target.closest("tbody tr");
       if (!row) return;
       e.preventDefault();
-      openContextMenu(e.pageX, e.pageY, "presence", row);
+      openContextMenu(e.clientX, e.clientY, "presence", row);
     });
   }
 
@@ -1384,6 +1765,7 @@
   }
 
   function loadLogs() {
+    if (!isMainSocketConnected()) return;
     // Fetch the actions.log via a simple endpoint that streams file
     fetch("/logs/actions", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.text() : ""))
@@ -1418,6 +1800,7 @@
   }
 
   function loadLogsList() {
+    if (!isMainSocketConnected()) return;
     fetch("/admin/logs_list", { credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok || !isJsonResponse(r)) {
@@ -1469,7 +1852,7 @@
         window.socket ||
         window.io(window.location.origin, {
           transports: ["websocket", "polling"],
-          path: "/socket.io/",
+          path: "/socket.io",
           withCredentials: true,
           reconnection: true,
           reconnectionAttempts: Infinity,
@@ -1504,19 +1887,57 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    try {
+      if (
+        window.SyncManager &&
+        typeof window.SyncManager.joinRoom === "function"
+      ) {
+        window.SyncManager.joinRoom("admin");
+      }
+    } catch (_) {}
     bindHandlers();
     initSocket();
-    fetchPresence();
-    fetchSessions();
+    runWithBackoff("presence:init", fetchPresence);
+    runWithBackoff("sessions:init", fetchSessions);
     refreshMaintainCooldown();
-    loadLogs();
-    loadLogsList();
-    setInterval(loadLogs, 10000);
-    setInterval(loadLogsList, 20000);
-    // Periodic polling to reconcile presence even if sockets idle
-    setInterval(fetchPresence, 5000);
-    setInterval(fetchSessions, 7000);
+    runWithBackoff("logs:init", loadLogs);
+    runWithBackoff("logs_list:init", loadLogsList);
+    setInterval(function () {
+      runWithBackoff("logs", loadLogs);
+    }, 10000);
+    setInterval(function () {
+      runWithBackoff("logs_list", loadLogsList);
+    }, 20000);
+    // Periodic polling to reconcile presence, gated by connectivity and backoff
+    setInterval(function () {
+      runWithBackoff("presence", fetchPresence);
+    }, 5000);
+    setInterval(function () {
+      runWithBackoff("sessions", fetchSessions);
+    }, 7000);
     onScopeChangeModal();
+    // Idle guard: soft refresh admin presence/sessions if idle
+    try {
+      var idleSec = 30;
+      try {
+        idleSec =
+          parseInt(
+            (window.__config && window.__config.syncIdleSeconds) || idleSec,
+            10
+          ) || idleSec;
+      } catch (_) {}
+      if (
+        window.SyncManager &&
+        typeof window.SyncManager.startIdleGuard === "function"
+      ) {
+        window.SyncManager.startIdleGuard(function () {
+          try {
+            runWithBackoff("presence:idle", fetchPresence);
+            runWithBackoff("sessions:idle", fetchSessions);
+          } catch (_) {}
+        }, idleSec);
+      }
+    } catch (_) {}
   });
 
   // Global resume: refresh presence and sessions, reload logs list
@@ -1538,6 +1959,62 @@
         try {
           loadLogsList();
         } catch (_) {}
+      });
+    }
+  } catch (_) {}
+
+  // Listen for admin changes to sync button states across users
+  try {
+    if (window.SyncManager && typeof window.SyncManager.on === "function") {
+      window.SyncManager.on("admin:changed", function (data) {
+        try {
+          console.debug("[admin] SyncManager received admin:changed", data);
+
+          // Handle push maintain completion
+          if (data && data.action === "push_maintain_completed") {
+            const btn = document.getElementById("btnPushMaintain");
+            if (btn) {
+              const left = Number(data.seconds_left || 0);
+              if (left > 0) {
+                btn.disabled = true;
+                btn.title = "Доступно через ~" + Math.ceil(left / 3600) + " ч";
+              } else {
+                btn.disabled = false;
+                btn.removeAttribute("title");
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[admin] error in admin:changed handler", e);
+        }
+      });
+    }
+  } catch (_) {}
+
+  // Also listen for direct socket events (fallback)
+  try {
+    if (window.socket && typeof window.socket.on === "function") {
+      window.socket.on("admin:changed", function (data) {
+        try {
+          console.debug("[admin] socket received admin:changed", data);
+
+          // Handle push maintain completion
+          if (data && data.action === "push_maintain_completed") {
+            const btn = document.getElementById("btnPushMaintain");
+            if (btn) {
+              const left = Number(data.seconds_left || 0);
+              if (left > 0) {
+                btn.disabled = true;
+                btn.title = "Доступно через ~" + Math.ceil(left / 3600) + " ч";
+              } else {
+                btn.disabled = false;
+                btn.removeAttribute("title");
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[admin] error in socket admin:changed handler", e);
+        }
       });
     }
   } catch (_) {}

@@ -106,100 +106,143 @@
       credentials: "same-origin",
       body: JSON.stringify(data),
     }).then(function (r) {
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+      }
+      const contentType = r.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(`Expected JSON response, got: ${contentType}`);
+      }
       return r.json();
     });
   }
 
   function loadRegistrators(page = 1) {
-    return fetchJson(`/api/registrators?page=${page}&page_size=10`).then(
-      function (j) {
-        const wrap = document.getElementById("registrators-nav");
-        if (!wrap) return [];
-        wrap.innerHTML = "";
-        var items = (j.items || []).slice();
-        if (items.length === 0) {
-          const addBtn = document.createElement("button");
-          addBtn.className = "topbtn";
-          addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
-          addBtn.title = "Добавить регистратор";
-          addBtn.onclick = function () {
-            if (window.openAddRegistratorModalUI)
-              return window.openAddRegistratorModalUI();
-            openAddRegistratorModal();
+    const ts = Date.now();
+    return fetchJson(
+      `/api/registrators?page=${page}&page_size=10&_ts=${ts}`
+    ).then(function (j) {
+      const wrap = document.getElementById("registrators-nav");
+      if (!wrap) return [];
+      wrap.innerHTML = "";
+      var items = (j.items || []).slice();
+      var prevActiveId = 0;
+      try {
+        prevActiveId = parseInt(window.currentRegistratorId || 0, 10) || 0;
+      } catch (_) {}
+      if (items.length === 0) {
+        const addBtn = document.createElement("button");
+        addBtn.className = "topbtn";
+        addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
+        addBtn.title = "Добавить регистратор";
+        addBtn.onclick = function () {
+          if (window.openAddRegistratorModalUI)
+            return window.openAddRegistratorModalUI();
+          openAddRegistratorModal();
+        };
+        wrap.appendChild(addBtn);
+        try {
+          var perm = document.getElementById("permissions-content");
+          if (perm) perm.style.display = "none";
+        } catch (_) {}
+      } else {
+        items.forEach(function (it) {
+          const btn = document.createElement("button");
+          btn.className = "topbtn" + (!it.enabled ? " is-disabled" : "");
+          btn.innerHTML = it.name;
+          btn.setAttribute("data-registrator-id", it.id);
+          btn.onclick = function () {
+            selectRegistrator(it.id);
           };
-          wrap.appendChild(addBtn);
-          try {
-            var perm = document.getElementById("permissions-content");
-            if (perm) perm.style.display = "none";
-          } catch (_) {}
-        } else {
-          items.forEach(function (it) {
-            const btn = document.createElement("button");
-            btn.className = "topbtn" + (!it.enabled ? " is-disabled" : "");
-            btn.innerHTML = it.name;
-            btn.setAttribute("data-registrator-id", it.id);
-            btn.onclick = function () {
-              selectRegistrator(it.id);
-            };
-            // Right-click context menu
-            btn.addEventListener("contextmenu", function (e) {
+          // Right-click context menu
+          btn.addEventListener("contextmenu", function (e) {
+            try {
+              e.preventDefault();
+              e.stopPropagation();
+            } catch (_) {}
+            const cx = typeof e.clientX === "number" ? e.clientX : 0;
+            const cy = typeof e.clientY === "number" ? e.clientY : 0;
+            openRegContextMenu(cx, cy, it);
+          });
+          // also handle long-press on touch to open context menu
+          let tId;
+          btn.addEventListener(
+            "touchstart",
+            function (ev) {
               try {
-                e.preventDefault();
-                e.stopPropagation();
+                ev.stopPropagation();
               } catch (_) {}
-              const cx =
-                typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
-              const cy =
-                typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
-              openRegContextMenu(cx, cy, it);
-            });
-            // also handle long-press on touch to open context menu
-            let tId;
+              const touch = ev.touches && ev.touches[0];
+              const cx = touch ? touch.clientX : 0;
+              const cy = touch ? touch.clientY : 0;
+              tId = setTimeout(function () {
+                openRegContextMenu(cx, cy, it);
+              }, 500);
+            },
+            { passive: true }
+          );
+          ["touchend", "touchcancel", "touchmove"].forEach(function (n) {
             btn.addEventListener(
-              "touchstart",
-              function (ev) {
-                try {
-                  ev.stopPropagation();
-                } catch (_) {}
-                const touch = ev.touches && ev.touches[0];
-                const cx = touch ? touch.clientX : 0;
-                const cy = touch ? touch.clientY : 0;
-                tId = setTimeout(function () {
-                  openRegContextMenu(cx, cy, it);
-                }, 500);
-              },
-              { passive: true }
-            );
-            ["touchend", "touchcancel", "touchmove"].forEach(function (n) {
-              btn.addEventListener(n, function () {
+              n,
+              function () {
                 if (tId) {
                   clearTimeout(tId);
                   tId = null;
                 }
-              });
-            });
-            wrap.appendChild(btn);
+              },
+              { passive: true }
+            );
           });
-          const addBtn = document.createElement("button");
-          addBtn.className = "topbtn";
-          addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
-          addBtn.title = "Добавить регистратор";
-          addBtn.onclick = function () {
-            if (window.openAddRegistratorModalUI)
-              return window.openAddRegistratorModalUI();
-            openAddRegistratorModal();
-          };
-          wrap.appendChild(addBtn);
-        }
-        // Cache items globally for context menu lookup
-        try {
-          window.__registratorsItems = Array.isArray(items)
-            ? items.slice()
-            : [];
-        } catch (_) {}
-        return items;
+          wrap.appendChild(btn);
+        });
+        const addBtn = document.createElement("button");
+        addBtn.className = "topbtn";
+        addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
+        addBtn.title = "Добавить регистратор";
+        addBtn.onclick = function () {
+          if (window.openAddRegistratorModalUI)
+            return window.openAddRegistratorModalUI();
+          openAddRegistratorModal();
+        };
+        wrap.appendChild(addBtn);
       }
-    );
+      // Restore selection: prefer previously active id if it still exists; else first enabled; else first
+      try {
+        var toSelectId = 0;
+        if (prevActiveId) {
+          var stillExists = items.some(function (it) {
+            return String(it.id) === String(prevActiveId);
+          });
+          if (stillExists) toSelectId = prevActiveId;
+        }
+        if (!toSelectId) {
+          var firstEnabled = items.find(function (it) {
+            return it && (it.enabled === 1 || it.enabled === true);
+          });
+          if (firstEnabled) toSelectId = firstEnabled.id;
+          else if (items[0]) toSelectId = items[0].id;
+        }
+        if (toSelectId) {
+          window.currentRegistratorId = toSelectId;
+          try {
+            // Apply active class visually
+            var btns = wrap.querySelectorAll(".topbtn");
+            btns.forEach(function (b) {
+              b.classList.remove("active");
+            });
+            var selBtn = wrap.querySelector(
+              '[data-registrator-id="' + String(toSelectId) + '"]'
+            );
+            if (selBtn) selBtn.classList.add("active");
+          } catch (_) {}
+        }
+      } catch (_) {}
+      // Cache items globally for context menu lookup
+      try {
+        window.__registratorsItems = Array.isArray(items) ? items.slice() : [];
+      } catch (_) {}
+      return items;
+    });
   }
 
   function openRegContextMenu(x, y, item) {
@@ -341,8 +384,8 @@
           e.stopPropagation();
           var current = getCurrentRegistratorItem();
           if (!current) return;
-          var x = typeof e.clientX === "number" ? e.clientX : e.pageX || 0;
-          var y = typeof e.clientY === "number" ? e.clientY : e.pageY || 0;
+          var x = typeof e.clientX === "number" ? e.clientX : 0;
+          var y = typeof e.clientY === "number" ? e.clientY : 0;
           openRegContextMenu(x, y, current);
         }
 
@@ -444,32 +487,25 @@
         name: item.name || "",
         url_template: item.url_template || "",
         enabled: newEnabled ? 1 : 0,
-      }).then(function (r) {
-        if (r && r.status === "success") {
-          loadRegistrators();
-          try {
-            if (window.socket)
-              window.socket.emit("registrators:changed", {
-                id: item.id,
-                reason: "toggled",
-              });
-          } catch (_) {}
-        } else if (r && r.message) {
-          alert(r.message);
-        }
-      });
-    } catch (_) {}
-  }
-
-  function toggleRegistrator(item) {
-    var next = item.enabled ? 0 : 1;
-    postJson("/registrators/" + encodeURIComponent(item.id), {
-      name: item.name,
-      url_template: item.url_template,
-      enabled: next,
-    }).then(function (r) {
-      if (r && r.status === "success") loadRegistrators();
-    });
+      })
+        .then(function (r) {
+          if (r && r.status === "success") {
+            loadRegistrators();
+          } else if (r && r.message) {
+            if (window.showToast) window.showToast(r.message, "error");
+            else alert(r.message);
+          }
+        })
+        .catch(function (e) {
+          if (window.showToast)
+            window.showToast("Ошибка переключения: " + e.message, "error");
+          else alert("Ошибка переключения: " + e.message);
+        });
+    } catch (e) {
+      if (window.showToast)
+        window.showToast("Ошибка переключения: " + e.message, "error");
+      else alert("Ошибка переключения: " + e.message);
+    }
   }
 
   function deleteRegistrator(item) {
@@ -483,13 +519,7 @@
       .then(function (j) {
         if (j && j.status === "success") {
           loadRegistrators();
-          try {
-            if (window.socket)
-              window.socket.emit("registrators:changed", {
-                id: item.id,
-                reason: "deleted",
-              });
-          } catch (_) {}
+          // Server emits registrators:changed; no client-side emit
         } else if (j && j.message) alert(j.message);
       });
   }
@@ -538,8 +568,10 @@
 
   var regLastSavedPermissions = { user: {}, group: {} };
   var regCurrentPermissionsDraft = { user: {}, group: {} };
-  var regDirtyUsers = false;
-  var regDirtyGroups = false;
+  var regOriginalUserPermissions = { user: {}, group: {} }; // Store original state before group changes
+  // Snapshot of user permissions captured at the moment a group is enabled, used to restore later
+  window.groupUserSnapshot = {};
+  // Removed dirty flags - changes are applied immediately
 
   function enforceAdminAccess(permissions, groups, users) {
     // Force admin group access
@@ -628,9 +660,21 @@
 
       regLastSavedPermissions = JSON.parse(JSON.stringify(perms));
       regCurrentPermissionsDraft = JSON.parse(JSON.stringify(perms));
-      regDirtyGroups = false;
-      regDirtyUsers = false;
-      updateSaveButtonsState();
+      regOriginalUserPermissions = JSON.parse(JSON.stringify(perms)); // Store original state
+      try {
+        window.groupUserSnapshot = JSON.parse(
+          JSON.stringify((perms && perms.user) || {})
+        );
+      } catch (_) {
+        window.groupUserSnapshot = {};
+      }
+
+      // Store current users and groups data for cascade inheritance
+      window.currentUsersData = usersResp.items || [];
+      window.currentGroupsData = groupsResp.items || [];
+
+      // Track if user permissions were modified by group changes
+      window.userPermissionsModifiedByGroup = false;
       loadGroupsPermissionsTable(
         groupsResp.items || [],
         regCurrentPermissionsDraft.group || {}
@@ -660,6 +704,12 @@
         var adminName = (window.adminGroupName || "Программисты").toLowerCase();
         isAdminGroup = String(group.name || "").toLowerCase() === adminName;
       } catch (_) {}
+
+      // Add admin group styling attribute
+      if (isAdminGroup) {
+        row.setAttribute("data-is-admin-group", "1");
+        // Admin group styling applied
+      }
       // Force-enable and lock admin group in draft too
       try {
         if (isAdminGroup) {
@@ -670,7 +720,14 @@
         }
       } catch (_) {}
       var html = `
-        <td>${group.name || ""}</td>
+        <td>
+          ${group.name || ""}
+          ${
+            isAdminGroup
+              ? '<i class="bi bi-shield-fill-check text-danger ms-1" title="Административная группа"></i>'
+              : ""
+          }
+        </td>
         <td class="text-end">
           <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
             <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="group" data-id="${
@@ -702,6 +759,8 @@
 
   // Global functions for onchange handlers (like in categories.js)
   window.updateRegistratorGroupPermission = function (groupId, checked) {
+    try {
+    } catch (_) {}
     // Check if this is admin group - prevent disabling
     var adminName = (window.adminGroupName || "Программисты").toLowerCase();
     var groupName = "";
@@ -729,15 +788,245 @@
     if (!regCurrentPermissionsDraft.group)
       regCurrentPermissionsDraft.group = {};
     regCurrentPermissionsDraft.group[String(groupId)] = checked ? 1 : 0;
-    regDirtyGroups = true;
-    updateSaveButtonsState();
+
+    // If enabling group: capture pre-toggle snapshot of user permissions
+    try {
+      if (checked) {
+        window.regUsersBeforeGroupToggle = JSON.parse(
+          JSON.stringify(
+            (regLastSavedPermissions && regLastSavedPermissions.user) || {}
+          )
+        );
+      }
+    } catch (_) {}
+
+    // Apply changes immediately
+    try {
+    } catch (_) {}
+    saveRegPermissions("groups");
+
+    // Update user permissions based on group changes
+    if (checked) {
+      // Only update UI when group is enabled
+      updateUserPermissionsFromGroup(groupId, checked);
+    } else {
+      // When group is disabled, restore user permissions from pre-toggle snapshot immediately
+      try {
+        if (window.regUsersBeforeGroupToggle) {
+          if (!regCurrentPermissionsDraft)
+            regCurrentPermissionsDraft = { user: {}, group: {} };
+          regCurrentPermissionsDraft.user = JSON.parse(
+            JSON.stringify(window.regUsersBeforeGroupToggle)
+          );
+          if (!regLastSavedPermissions)
+            regLastSavedPermissions = { user: {}, group: {} };
+          regLastSavedPermissions.user = JSON.parse(
+            JSON.stringify(window.regUsersBeforeGroupToggle)
+          );
+          // Re-render users immediately with restored state
+          loadUsersPermissionsTable(
+            window.currentUsersData || [],
+            regCurrentPermissionsDraft.user || {}
+          );
+
+          // Persist restored user snapshot to the server to keep other tabs in sync
+          try {
+            var rid2 = window.currentRegistratorId;
+            if (rid2) {
+              var persistPayload = {
+                permissions: {
+                  user: JSON.parse(
+                    JSON.stringify(window.regUsersBeforeGroupToggle)
+                  ),
+                  group: JSON.parse(
+                    JSON.stringify(
+                      (regCurrentPermissionsDraft &&
+                        regCurrentPermissionsDraft.group) ||
+                        {}
+                    )
+                  ),
+                },
+              };
+              fetch(
+                "/registrators/" + encodeURIComponent(rid2) + "/permissions",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(persistPayload),
+                }
+              ).catch(function () {});
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // Additionally, reload from server and enforce the snapshot in case server echoes stale state
+      setTimeout(function () {
+        // Reload permissions from server to get fresh data
+        var rid = window.currentRegistratorId;
+        if (rid) {
+          try {
+          } catch (_) {}
+          fetch("/registrators/" + encodeURIComponent(rid) + "/permissions")
+            .then(function (r) {
+              return r.json();
+            })
+            .then(function (data) {
+              if (data && data.permissions) {
+                // Update saved permissions with fresh data from DB
+                try {
+                  // Frontend override: ensure the just-disabled group is cleared locally
+                  if (data.permissions && data.permissions.group) {
+                    data.permissions.group[String(groupId)] = 0;
+                  }
+                  // Enforce pre-toggle users snapshot if available
+                  if (window.regUsersBeforeGroupToggle) {
+                    data.permissions.user = JSON.parse(
+                      JSON.stringify(window.regUsersBeforeGroupToggle)
+                    );
+                  }
+                } catch (_) {}
+                regLastSavedPermissions = JSON.parse(
+                  JSON.stringify(data.permissions)
+                );
+                regCurrentPermissionsDraft = JSON.parse(
+                  JSON.stringify(data.permissions)
+                );
+                try {
+                  var usersMap =
+                    (data.permissions && data.permissions.user) || {};
+                  var enabledUsers = Object.keys(usersMap).filter(function (k) {
+                    return usersMap[k] === 1 || String(usersMap[k]) === "1";
+                  });
+                  var grpMap =
+                    (data.permissions && data.permissions.group) || {};
+                  var enabledGroups = Object.keys(grpMap).filter(function (k) {
+                    return grpMap[k] === 1 || String(grpMap[k]) === "1";
+                  });
+                } catch (_) {}
+
+                // Reload user table with fresh data
+                loadUsersPermissionsTable(
+                  window.currentUsersData || [],
+                  data.permissions.user || {}
+                );
+                try {
+                } catch (_) {}
+              }
+            })
+            .catch(function () {
+              // Fallback: just unlock checkboxes without changing state
+              try {
+              } catch (_) {}
+              document
+                .querySelectorAll('input[data-entity="user"]')
+                .forEach(function (userInput) {
+                  var userRow = userInput.closest("tr");
+                  var userId = userInput.getAttribute("data-id");
+                  var userData = window.currentUsersData
+                    ? window.currentUsersData.find((u) => u.id == userId)
+                    : null;
+                  if (userData && userData.gid == groupId) {
+                    userInput.disabled = false;
+                    var inh =
+                      userRow && userRow.querySelector("small.text-muted");
+                    if (inh) inh.remove();
+                  }
+                });
+            });
+        }
+      }, 100);
+    }
   };
+
+  function updateUserPermissionsFromGroup(groupId, checked) {
+    // Find all users in this group and update their permissions in real-time
+    var userRows = document.querySelectorAll('input[data-entity="user"]');
+    userRows.forEach(function (userInput) {
+      var userId = userInput.getAttribute("data-id");
+      var userRow = userInput.closest("tr");
+
+      // Check if this user belongs to the group by looking at user data
+      // We need to get the user's group ID from the data
+      var userData = window.currentUsersData
+        ? window.currentUsersData.find((u) => u.id == userId)
+        : null;
+      if (userData && userData.gid == groupId) {
+        // This user belongs to the group, update their permission
+        if (!regCurrentPermissionsDraft.user)
+          regCurrentPermissionsDraft.user = {};
+
+        // Don't modify regCurrentPermissionsDraft.user for group inheritance
+        // The permission will be determined by group permission in loadUsersPermissionsTable
+        // When group is enabled, user gets permission from group
+        // When group is disabled, user permission depends on individual settings
+
+        // Update the UI based on group state
+        if (checked) {
+          // Group enabled: show as checked and disabled
+          userInput.checked = true;
+          userInput.disabled = true;
+        } else {
+          // Group disabled: reload permissions from DB to restore original state
+          userInput.disabled = false;
+          // Don't set checked state here - let loadRegPermissions reload from DB
+        }
+
+        // Update the inheritance indicator
+        var inheritanceText = userRow.querySelector("small.text-muted");
+        if (checked) {
+          if (!inheritanceText) {
+            var label = userRow.querySelector("label");
+            if (label) {
+              var indicator = document.createElement("small");
+              indicator.className = "text-muted ms-1";
+              indicator.textContent = "(от группы)";
+              label.appendChild(indicator);
+            }
+          } else {
+            // Update existing indicator
+            inheritanceText.textContent = "(от группы)";
+          }
+        } else {
+          if (inheritanceText) {
+            inheritanceText.remove();
+          }
+        }
+
+        // Update the group name display if needed
+        var userSpan = userRow.querySelector("td:first-child span");
+        if (userSpan && window.currentGroupsData) {
+          var group = window.currentGroupsData.find((g) => g.id == groupId);
+          if (group) {
+            var currentText = userSpan.textContent;
+            var login = userData.login || "";
+            var groupName = " (" + group.name + ")";
+
+            // Remove existing group name if any
+            var existingGroupMatch = currentText.match(/^(.+?)\s+\([^)]+\)$/);
+            if (existingGroupMatch) {
+              currentText = existingGroupMatch[1];
+            }
+
+            // Add new group name
+            userSpan.textContent = currentText + groupName;
+          }
+        }
+      }
+    });
+
+    // No need to save user permissions here - they are determined by group permissions
+  }
 
   window.updateRegistratorUserPermission = function (userId, checked) {
     // Check if this is admin or full-access user - prevent disabling
     var userRow = document.querySelector(
       `input[data-entity="user"][data-id="${userId}"]`
     );
+    // If checkbox is disabled (blocked by group), do nothing and don't save
+    if (userRow && userRow.disabled) {
+      return;
+    }
     if (userRow) {
       var userCell = userRow.closest("tr").querySelector("td:first-child span");
       var login = ((userCell && userCell.textContent) || "").toLowerCase();
@@ -750,14 +1039,80 @@
         return;
       }
 
+      // Check if user inherits permission from group
+      var userRowElement = userRow.closest("tr");
+      if (userRowElement) {
+        var inheritedText = userRowElement.querySelector("small.text-muted");
+        if (inheritedText && inheritedText.textContent.includes("от группы")) {
+          // User inherits from group, don't allow individual changes
+          setTimeout(() => {
+            userRow.checked = true;
+          }, 0);
+          return;
+        }
+      }
+
       // Check if full-access user (we need to get permission string from somewhere)
       // For now, we'll rely on the server-side enforcement
     }
 
-    if (!regCurrentPermissionsDraft.user) regCurrentPermissionsDraft.user = {};
-    regCurrentPermissionsDraft.user[String(userId)] = checked ? 1 : 0;
-    regDirtyUsers = true;
-    updateSaveButtonsState();
+    // Individual user permissions are visual only - server determines final permissions
+    // based on group and individual settings from the database
+
+    // Update the indicator for individual permissions (only for force users)
+    var userRowElement = userRow.closest("tr");
+    if (userRowElement) {
+      var inheritanceText = userRowElement.querySelector("small.text-muted");
+
+      // Check if this is a force user (admin or full access)
+      var isForceUser = false;
+      var login = ((userCell && userCell.textContent) || "").toLowerCase();
+      if (login === "admin") {
+        isForceUser = true;
+      } else {
+        // Check if user has full access permission
+        var userData = window.currentUsersData
+          ? window.currentUsersData.find((u) => u.id == userId)
+          : null;
+        if (userData && userData.permission) {
+          var permStr = String(userData.permission).trim();
+          isForceUser =
+            permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
+            permStr === "aef,a,abcdflm,ab,ab,ab" ||
+            permStr.indexOf("z") !== -1 ||
+            permStr.includes("полный доступ") ||
+            permStr.includes("full access");
+        }
+      }
+
+      if (checked && isForceUser) {
+        if (!inheritanceText) {
+          var label = userRowElement.querySelector("label");
+          if (label) {
+            var indicator = document.createElement("small");
+            indicator.className = "text-muted ms-1";
+            indicator.textContent = "(от настроек пользователя)";
+            label.appendChild(indicator);
+          }
+        } else {
+          // Update existing indicator
+          inheritanceText.textContent = "(от настроек пользователя)";
+        }
+      } else {
+        if (inheritanceText) {
+          inheritanceText.remove();
+        }
+      }
+    }
+
+    // Persist individual user permission change
+    try {
+      if (!regCurrentPermissionsDraft.user)
+        regCurrentPermissionsDraft.user = {};
+      regCurrentPermissionsDraft.user[String(userId)] = checked ? 1 : 0;
+      // Individual save
+      saveRegPermissions("users");
+    } catch (_) {}
   };
 
   function loadUsersPermissionsTable(users, permissions) {
@@ -770,6 +1125,9 @@
       var checked =
         permissions && permissions[user.id] ? !!permissions[user.id] : false;
       var force = false;
+      var inheritedFromGroup = false;
+      var isAdminGroupUser = false;
+
       try {
         var permStr = String((user && user.permission) || "").trim();
         var login = String((user && user.login) || "").toLowerCase();
@@ -787,39 +1145,113 @@
             permStr.includes("full access");
         }
 
+        // Determine source of permission: group, individual, or force
+        var hasIndividualPermission = false;
+        var hasGroupPermission = false;
+
+        // Check group permission first (has priority)
+        if (user.gid) {
+          if (
+            regCurrentPermissionsDraft.group &&
+            regCurrentPermissionsDraft.group[String(user.gid)] === 1
+          ) {
+            hasGroupPermission = true;
+          } else if (
+            regLastSavedPermissions &&
+            regLastSavedPermissions.group &&
+            regLastSavedPermissions.group[String(user.gid)] === 1
+          ) {
+            hasGroupPermission = true;
+          }
+        }
+
+        // Check individual user permission only if no group permission
+        if (!hasGroupPermission) {
+          if (
+            regCurrentPermissionsDraft.user &&
+            regCurrentPermissionsDraft.user[String(user.id)] === 1
+          ) {
+            hasIndividualPermission = true;
+          } else if (
+            regLastSavedPermissions &&
+            regLastSavedPermissions.user &&
+            regLastSavedPermissions.user[String(user.id)] === 1
+          ) {
+            hasIndividualPermission = true;
+          }
+        }
+
+        // Determine final state
         if (force) {
-          if (!regCurrentPermissionsDraft.user)
-            regCurrentPermissionsDraft.user = {};
-          regCurrentPermissionsDraft.user[String(user.id)] = 1;
-          checked = true; // Force checked state for admin/full-access users
+          // Force overrides everything: checked and non-editable
+          inheritedFromGroup = false;
+          checked = true;
+        } else if (hasGroupPermission) {
+          inheritedFromGroup = true;
+          checked = true;
+        } else if (hasIndividualPermission) {
+          inheritedFromGroup = false;
+          checked = true;
         }
       } catch (_) {}
-      // Force-enable and lock full-access/admin users in draft too
-      try {
-        if (force) {
-          if (!regCurrentPermissionsDraft.user)
-            regCurrentPermissionsDraft.user = {};
-          regCurrentPermissionsDraft.user[String(user.id)] = 1;
-          checked = true; // Force checked state for admin/full-access users
+
+      // No extra mutation here; state already computed above
+      // Get group name for display and check if user is from admin group
+      var groupName = "";
+      if (user.gid && window.currentGroupsData) {
+        var group = window.currentGroupsData.find((g) => g.id == user.gid);
+        if (group) {
+          groupName = " (" + group.name + ")";
+          // Check if user is from admin group
+          try {
+            var adminName = (
+              window.adminGroupName || "Программисты"
+            ).toLowerCase();
+            isAdminGroupUser =
+              String(group.name || "").toLowerCase() === adminName;
+          } catch (_) {}
         }
-      } catch (_) {}
+      }
+
       var html = `
-        <td><span title="${user.name || ""}">${user.login || ""}</span></td>
+        <td>
+          <span title="${user.name || ""}">${
+        user.login || ""
+      }${groupName}</span>
+          ${
+            isAdminGroupUser
+              ? '<i class="bi bi-shield-fill-check text-warning ms-1" title="Участник административной группы"></i>'
+              : ""
+          }
+        </td>
         <td class="text-end">
           <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
             <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="${
               user.id
             }"
               ${checked || force ? "checked" : ""}
-              ${force ? "disabled" : ""}
+              ${force || inheritedFromGroup ? "disabled" : ""}
               onchange="updateRegistratorUserPermission(${
                 user.id
               }, this.checked)">
           </label>
+          ${
+            inheritedFromGroup
+              ? '<small class="text-muted ms-1">(от группы)</small>'
+              : force
+              ? '<small class="text-muted ms-1">(от настроек пользователя)</small>'
+              : ""
+          }
         </td>
       `;
 
       row.innerHTML = html;
+
+      // Add admin group user styling attribute
+      if (isAdminGroupUser) {
+        row.setAttribute("data-is-admin-group-user", "1");
+        // Admin group user styling applied
+      }
 
       // Force disable state after HTML is set
       if (force) {
@@ -922,12 +1354,7 @@
     } catch (_) {}
   }
 
-  function updateSaveButtonsState() {
-    var g = document.getElementById("save-groups");
-    var u = document.getElementById("save-users");
-    if (g) g.disabled = !regDirtyGroups;
-    if (u) u.disabled = !regDirtyUsers;
-  }
+  // Removed save buttons - changes are applied immediately
 
   function saveRegPermissions(which) {
     var rid = window.currentRegistratorId;
@@ -938,6 +1365,15 @@
       permissions: JSON.parse(JSON.stringify(regCurrentPermissionsDraft)),
     };
 
+    // If saving groups, don't send user permissions at all - they remain unchanged in DB
+    if (which === "groups") {
+      try {
+        if (payload && payload.permissions) {
+          delete payload.permissions.user; // Don't send user permissions
+        }
+      } catch (_) {}
+    }
+
     fetch("/registrators/" + encodeURIComponent(rid) + "/permissions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -947,13 +1383,31 @@
         return r.json();
       })
       .then(function () {
-        if (which === "groups") regDirtyGroups = false;
-        else if (which === "users") regDirtyUsers = false;
-        else {
-          regDirtyGroups = false;
-          regDirtyUsers = false;
+        // Changes applied successfully - update saved permissions snapshot
+        if (which === "groups") {
+          // Preserve last-saved user permissions; only update groups
+          try {
+            var prevUsers =
+              (regLastSavedPermissions && regLastSavedPermissions.user) || {};
+            var next = JSON.parse(
+              JSON.stringify(
+                regCurrentPermissionsDraft || { user: {}, group: {} }
+              )
+            );
+            next.user = prevUsers; // keep existing users as they were in DB
+            regLastSavedPermissions = next;
+          } catch (_) {
+            // Fallback: keep existing snapshot
+          }
+        } else {
+          // For user changes, update saved permissions
+          regLastSavedPermissions = JSON.parse(
+            JSON.stringify(regCurrentPermissionsDraft)
+          );
         }
-        updateSaveButtonsState();
+      })
+      .catch(function (error) {
+        window.showToast("Ошибка сохранения прав доступа", "error");
       });
   }
 
@@ -1272,16 +1726,40 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    try {
+      if (
+        window.SyncManager &&
+        typeof window.SyncManager.joinRoom === "function"
+      ) {
+        window.SyncManager.joinRoom("registrators");
+      }
+    } catch (_) {}
+    // Idle guard: soft refresh registrators if idle
+    try {
+      var idleSec = 30;
+      try {
+        idleSec =
+          parseInt(
+            (window.__config && window.__config.syncIdleSeconds) || idleSec,
+            10
+          ) || idleSec;
+      } catch (_) {}
+      if (
+        window.SyncManager &&
+        typeof window.SyncManager.startIdleGuard === "function"
+      ) {
+        window.SyncManager.startIdleGuard(function () {
+          try {
+            typeof loadRegistrators === "function" && loadRegistrators();
+          } catch (_) {}
+        }, idleSec);
+      }
+    } catch (_) {}
     loadRegistrators().then(function (items) {
       if (items && items.length) selectRegistrator(items[0].id);
       refreshLevels();
     });
-    safeOn(document.getElementById("save-groups"), "click", function () {
-      saveRegPermissions("groups");
-    });
-    safeOn(document.getElementById("save-users"), "click", function () {
-      saveRegPermissions("users");
-    });
+    // Removed save button handlers - changes are applied immediately
     safeOn(q("dateSelect"), "change", onDate);
     safeOn(q("userSelect"), "change", onUser);
     safeOn(q("timeSelect"), "change", onTime);
@@ -1293,6 +1771,81 @@
   // Socket-based soft refresh similar to files
   (function setupRegistratorsSocket() {
     try {
+      // Prefer SyncManager for unified handling
+      try {
+        if (window.SyncManager && typeof window.SyncManager.on === "function") {
+          if (!window.__registratorsSyncBound) {
+            window.__registratorsSyncBound = true;
+            // Debounce: coalesce multiple socket events
+            if (!window.__registratorsDebounceTimer)
+              window.__registratorsDebounceTimer = null;
+            function debouncedLoad() {
+              if (window.__registratorsDebounceTimer) {
+                clearTimeout(window.__registratorsDebounceTimer);
+              }
+              window.__registratorsDebounceTimer = setTimeout(function () {
+                try {
+                  loadRegistrators();
+                } catch (_) {}
+              }, 300);
+            }
+            window.SyncManager.on("registrators:changed", function (data) {
+              try {
+                // SyncManager received registrators:changed
+                if (!document.hidden) debouncedLoad();
+              } catch (e) {
+                window.showToast("Ошибка синхронизации регистраторов", "error");
+              }
+            });
+            // Also listen for users and groups changes to update permissions tables
+            window.SyncManager.on("users:changed", function (data) {
+              try {
+                // SyncManager received users:changed
+                if (!document.hidden) {
+                  debouncedLoad();
+                  if (window.currentRegistratorId) {
+                    loadRegPermissions();
+                  }
+                }
+              } catch (e) {
+                window.showToast("Ошибка синхронизации пользователей", "error");
+              }
+            });
+            window.SyncManager.on("groups:changed", function (data) {
+              try {
+                // SyncManager received groups:changed
+                if (!document.hidden && window.currentRegistratorId) {
+                  loadRegPermissions();
+                }
+              } catch (e) {
+                window.showToast("Ошибка синхронизации групп", "error");
+              }
+            });
+            // Listen for registrator permissions updates via SyncManager
+            window.SyncManager.on(
+              "registrator_permissions_updated",
+              function (data) {
+                try {
+                  // SyncManager received registrator_permissions_updated
+                  if (
+                    !document.hidden &&
+                    window.currentRegistratorId &&
+                    data &&
+                    data.registrator_id == window.currentRegistratorId
+                  ) {
+                    loadRegPermissions();
+                  }
+                } catch (e) {
+                  console.error(
+                    "[registrators] error in SyncManager registrator_permissions_updated handler",
+                    e
+                  );
+                }
+              }
+            );
+          }
+        }
+      } catch (_) {}
       if (!window.io) return;
       const sock =
         window.socket && typeof window.socket.on === "function"
@@ -1311,7 +1864,7 @@
         sock.on &&
           sock.on("connect", function () {
             try {
-              console.debug("[registrators] socket connected");
+              // Socket connected
             } catch (_) {}
           });
       } catch (_) {}
@@ -1319,7 +1872,7 @@
         sock.on &&
           sock.on("disconnect", function (reason) {
             try {
-              console.debug("[registrators] socket disconnect:", reason);
+              // Socket disconnected
             } catch (_) {}
             if (reason !== "io client disconnect") {
               try {
@@ -1333,21 +1886,83 @@
         sock.off && sock.off("registrators:changed");
       } catch (_) {}
       sock.on &&
-        sock.on("registrators:changed", function (evt) {
+        sock.on("registrators:changed", function (data) {
           try {
-            console.debug("[registrators] socket registrators:changed", evt);
+            // Socket received registrators:changed
+            if (!document.hidden) loadRegistrators();
+          } catch (e) {
+            window.showToast(
+              "Ошибка обработки изменений регистраторов",
+              "error"
+            );
+          }
+        });
+      // Also reflect users changes (permissions and visibility) to reload list/permissions
+      sock.on &&
+        sock.on("users:changed", function () {
+          try {
+            if (!document.hidden) {
+              loadRegistrators();
+              // Also reload permissions tables if they're visible
+              if (window.currentRegistratorId) {
+                loadRegPermissions();
+              }
+            }
           } catch (_) {}
+        });
+      // Also reload permissions tables when groups change
+      sock.on &&
+        sock.on("groups:changed", function () {
           try {
-            loadRegistrators();
+            if (!document.hidden && window.currentRegistratorId) {
+              loadRegPermissions();
+            }
           } catch (_) {}
+        });
+      // Listen for specific registrator permissions updates
+      sock.on &&
+        sock.on("registrator_permissions_updated", function (data) {
           try {
-            setTimeout(function () {
+            // Socket received registrator_permissions_updated
+            if (
+              !document.hidden &&
+              window.currentRegistratorId &&
+              data &&
+              data.registrator_id == window.currentRegistratorId
+            ) {
+              loadRegPermissions();
+            }
+          } catch (e) {
+            console.error(
+              "[registrators] error in registrator_permissions_updated handler",
+              e
+            );
+          }
+        });
+    } catch (_) {}
+  })();
+
+  // Global resume soft refresh
+  try {
+    if (
+      window.SyncManager &&
+      typeof window.SyncManager.onResume === "function"
+    ) {
+      window.SyncManager.onResume(function () {
+        try {
+          if (typeof window.__registratorsDebounceTimer !== "undefined") {
+            if (window.__registratorsDebounceTimer)
+              clearTimeout(window.__registratorsDebounceTimer);
+            window.__registratorsDebounceTimer = setTimeout(function () {
               try {
                 loadRegistrators();
               } catch (_) {}
             }, 300);
-          } catch (_) {}
-        });
-    } catch (_) {}
-  })();
+          } else {
+            loadRegistrators();
+          }
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
 })();

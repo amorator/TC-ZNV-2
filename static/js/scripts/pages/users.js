@@ -1,5 +1,5 @@
 // Enable debug logging for users page
-window.__syncDebug = true;
+window.__syncDebug = false;
 
 // Initialize unified context menu for users page
 function initUsersContextMenu() {
@@ -142,22 +142,31 @@ if (document.readyState === "loading") {
 
 // Additional users page functionality
 (function () {
-  // Ensure stable per-tab client id as early as possible; persist across reloads for consistency
+  // Авто-включение подробного дебага для синхронизации (как на файлах)
+  try {
+    if (typeof window.__syncDebug === "undefined") {
+      window.__syncDebug = true;
+    }
+    if (window.__syncDebug) {
+      try {
+        console.debug("[users] debug logging enabled");
+      } catch (_) {}
+    }
+  } catch (_) {}
+  // Ensure stable per-tab client id (session-scoped) как у files
   try {
     if (!window.__usersClientId) {
+      let cid = "";
       try {
-        const saved = localStorage.getItem("users:clientId");
-        if (saved && typeof saved === "string" && saved.trim()) {
-          window.__usersClientId = saved.trim();
-        }
+        cid = sessionStorage.getItem("users:clientId:session") || "";
       } catch (_) {}
-      if (!window.__usersClientId) {
-        window.__usersClientId =
-          Math.random().toString(36).slice(2) + Date.now();
+      if (!cid) {
+        cid = Math.random().toString(36).slice(2) + Date.now();
         try {
-          localStorage.setItem("users:clientId", window.__usersClientId);
+          sessionStorage.setItem("users:clientId:session", cid);
         } catch (_) {}
       }
+      window.__usersClientId = cid;
     }
   } catch (_) {}
   // Persist and auto-apply search like files page
@@ -710,7 +719,9 @@ if (document.readyState === "loading") {
         }
       }
     }
-    popupToggle("popup-" + modalId, rowId || 0);
+    if (typeof openModal === "function")
+      openModal("popup-" + modalId, rowId || 0);
+    else popupToggle("popup-" + modalId, rowId || 0);
     // Ensure values are visible after modal render
     if (rowId && formId === "edit" && form) {
       setTimeout(function () {
@@ -1442,27 +1453,24 @@ if (document.readyState === "loading") {
       // Debouncing for sync events
       let syncTimeout = null;
       let pendingSync = false;
+      // Watchdog/metrics for missed events
+      try {
+        window.__usersEvtCount = window.__usersEvtCount || 0;
+        window.__usersLastEvtTs = window.__usersLastEvtTs || 0;
+      } catch (_) {}
 
-      // Debounced sync function
+      // Immediate sync for stress testing (no debounce)
       function debouncedSync() {
-        if (syncTimeout) {
-          clearTimeout(syncTimeout);
-        }
-        pendingSync = true;
-        syncTimeout = setTimeout(function () {
-          if (pendingSync) {
-            pendingSync = false;
-            try {
-              if (document.hidden) {
-                backgroundImmediateUsersRefresh();
-              } else {
-                softRefreshUsersTable();
-              }
-            } catch (e) {
-              console.error("[users] sync error:", e);
-            }
+        try {
+          pendingSync = false;
+          if (document.hidden) {
+            backgroundImmediateUsersRefresh();
+          } else {
+            softRefreshUsersTable();
           }
-        }, 300); // 300ms debounce
+        } catch (e) {
+          console.error("[users] sync error:", e);
+        }
       }
 
       // Ensure a stable per-tab client id for deduplicating our own events
@@ -1689,10 +1697,40 @@ if (document.readyState === "loading") {
         try {
           sock.off && sock.off("users:changed");
         } catch (_) {}
+        if (window.__syncDebug) {
+          try {
+            console.debug("[users] binding direct 'users:changed' listener");
+          } catch (_) {}
+        }
         sock.on("users:changed", function (evt) {
           try {
-            if (window.__syncDebug)
-              console.debug("[users] socket users:changed", evt);
+            try {
+              window.__usersEvtCount = (window.__usersEvtCount || 0) + 1;
+            } catch (_) {}
+            try {
+              window.__usersLastEvtTs = Date.now();
+            } catch (_) {}
+            if (window.__syncDebug) {
+              const sid =
+                (sock &&
+                  (sock.id ||
+                    (sock.io && sock.io.engine && sock.io.engine.id))) ||
+                "";
+              const tr =
+                (sock &&
+                  sock.io &&
+                  sock.io.engine &&
+                  sock.io.engine.transport &&
+                  sock.io.engine.transport.name) ||
+                "";
+              console.debug("[users] socket users:changed", {
+                evt,
+                cnt: window.__usersEvtCount,
+                last: window.__usersLastEvtTs,
+                sid,
+                transport: tr,
+              });
+            }
           } catch (_) {}
           try {
             const fromSelf = !!(
@@ -1701,6 +1739,18 @@ if (document.readyState === "loading") {
               window.__usersClientId &&
               evt.originClientId === window.__usersClientId
             );
+            if (window.__syncDebug) {
+              try {
+                console.debug(
+                  "[users-socket-eval] origin=",
+                  evt && evt.originClientId,
+                  "client=",
+                  window.__usersClientId,
+                  "fromSelf=",
+                  fromSelf
+                );
+              } catch (_) {}
+            }
             if (fromSelf) {
               try {
                 if (window.__syncDebug)
@@ -1720,6 +1770,32 @@ if (document.readyState === "loading") {
       bindSocketHandlers(socket);
       window.usersSocket = socket;
     } catch (e) {}
+
+    // Watchdog: если нет событий > 30с при активном сокете — мягкий refresh
+    try {
+      if (!window.__usersWatchdogBound) {
+        window.__usersWatchdogBound = true;
+        setInterval(function () {
+          try {
+            const now = Date.now();
+            const last = window.__usersLastEvtTs || 0;
+            const delta = now - last;
+            const sock = window.usersSocket;
+            const connected = !!(sock && sock.connected);
+            if (connected && delta > 30000) {
+              if (window.__syncDebug)
+                console.debug("[users] watchdog refresh", { delta, last });
+              try {
+                softRefreshUsersTable();
+              } catch (_) {}
+              try {
+                window.__usersLastEvtTs = Date.now();
+              } catch (_) {}
+            }
+          } catch (_) {}
+        }, 5000);
+      }
+    } catch (_) {}
 
     // Transport fallback: if initial connection errors persist, retry once with polling-only
     try {
@@ -2088,6 +2164,36 @@ if (document.readyState === "loading") {
   // Change-detection initialization
   (function initUsersChangeDetection() {
     document.addEventListener("DOMContentLoaded", function () {
+      try {
+        if (
+          window.SyncManager &&
+          typeof window.SyncManager.joinRoom === "function"
+        ) {
+          window.SyncManager.joinRoom("users");
+        }
+      } catch (_) {}
+      // Idle guard: soft refresh users if idle
+      try {
+        var idleSec = 30;
+        try {
+          idleSec =
+            parseInt(
+              (window.__config && window.__config.syncIdleSeconds) || idleSec,
+              10
+            ) || idleSec;
+        } catch (_) {}
+        if (
+          window.SyncManager &&
+          typeof window.SyncManager.startIdleGuard === "function"
+        ) {
+          window.SyncManager.startIdleGuard(function () {
+            try {
+              typeof softRefreshUsersTable === "function" &&
+                softRefreshUsersTable();
+            } catch (_) {}
+          }, idleSec);
+        }
+      } catch (_) {}
       // Edit modal save
       const editForm = document.getElementById("edit");
       if (editForm) {
@@ -2347,13 +2453,13 @@ if (document.readyState === "loading") {
           <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-edit" 
                   onclick="popupValues(document.getElementById('edit'), ${
                     userData.id
-                  }); popupToggle('popup-edit');">
+                  }); if (typeof openModal==='function') openModal('popup-edit'); else popupToggle('popup-edit');">
             <i class="bi bi-pencil"></i>
           </button>
           <button type="button" class="topbtn d-inline-flex align-items-center table__body_action-perm" 
                   onclick="popupValues(document.getElementById('perm'), ${
                     userData.id
-                  }); popupToggle('popup-perm');">
+                  }); if (typeof openModal==='function') openModal('popup-perm'); else popupToggle('popup-perm');">
             <i class="bi bi-shield-check"></i>
           </button>
         </td>

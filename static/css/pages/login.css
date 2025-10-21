@@ -24,7 +24,7 @@
 .login__sub-image {
     position: absolute;
     inset: 0;
-    background-image: url(../images/login-img.png);
+    background-image: url(../../images/login-img.png);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -74,7 +74,7 @@
     padding: 0 18px;
     border: 1px solid #000000;
     border-radius: 8px;
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.85);
 }
 
 /* Ensure border is visible despite theme input[type="text"] rules */
@@ -85,7 +85,7 @@
 /* Password field: no background, black border */
 #password.input,
 input[type="password"].input {
-    background-color: transparent;
+    background-color: rgba(255, 255, 255, 0.85);
     border-color: #000000;
 }
 
