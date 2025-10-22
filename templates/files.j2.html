@@ -94,7 +94,7 @@
           {% if files %}
             {% for file in files %}
               {% if file.ready %}
-                <tr class="table__body_row" role="row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
+                <tr class="table__body_row" role="row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show_by_id', file_id=file.id) }}" data-download="{{ url_for('files_show_by_id', file_id=file.id, dl=1) }}"
                   data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
@@ -108,9 +108,9 @@
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item" role="cell"><span class="files-page__link">{{ file.display_name }}</span></td>
-                  <td class="table__body_item" role="cell"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+                  <td class="table__body_item" role="cell"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
                   <td class="table__body_item" role="cell">{{ file.owner }}</td>
-                  <td class="table__body_item" role="cell">{{ file.date }}</td>
+                  <td class="table__body_item" role="cell">{{ file.created_at }}</td>
                   <td class="table__body_item" role="cell">{{ file.length_human }}</td>
                   <td class="table__body_item" role="cell">{{ file.size_human }}</td>
                   <td class="table__body_item" role="cell">
@@ -138,8 +138,8 @@
               {% else %}
                 <tr class="table__body_row" role="row" id="{{ file.id }}"
                   data-id="{{ file.id }}"
-                  data-url="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
-                  data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
+                  data-url="{{ url_for('files_orig_by_id', file_id=file.id) }}"
+                  data-download="{{ url_for('files_orig_by_id', file_id=file.id) }}"
                   data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
                   data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
@@ -149,15 +149,15 @@
                   data-exists="{{ 1 if file.exists else 0 }}"
                 >
                   <td class="table__body_item" role="cell">{{ file.display_name }}</td>
-                  <td class="table__body_item" role="cell"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+                  <td class="table__body_item" role="cell"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
                   <td class="table__body_item" role="cell">{{ file.owner }}</td>
-                  <td class="table__body_item" role="cell">{{ file.date }}</td>
+                  <td class="table__body_item" role="cell">{{ file.created_at }}</td>
                   <td class="table__body_item" role="cell">{{ file.length_human }}</td>
                   <td class="table__body_item" role="cell">{{ file.size_human }}</td>
                   <td class="table__body_item" role="cell">
                     Обрабатывается...
                     <div class="d-inline-flex gap-2 ms-2 align-items-center">
-                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
+                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig_by_id", file_id=file.id) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
                       {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
                         <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
                 <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
@@ -278,12 +278,6 @@
             </div>
           </div>
           <small class="form-text text-muted">Поля появляются по мере выбора предыдущих.</small>
-        </div>
-        <div class="mb-3">
-          <div class="form-control__label">Выберите файлы для загрузки:</div>
-          <div id="reg-file-list" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
-            <div class="text-muted text-center">Сначала выберите регистратор и параметры</div>
-          </div>
         </div>
       </div>
       <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
@@ -459,19 +453,10 @@
     <form class="popup__form" id="move" action="{{ url_for('files_move', id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-root">Выберите категорию:</label>
-            <select class="form-control__control input" name="target_root" id="move-target-root">
-              {% if dirs and (dirs | length) > 0 %}
-                {% for i in range(dirs | length) %}
-                  {% set keys = (dirs[i].keys() | list) %}
-                  {% set vals = (dirs[i].values() | list) %}
-                  {% set root_name = vals[0] %}
-                  {% set root_key = keys[0] %}
-                  {# Build subcategory mapping excluding root #}
-                  {% set subs = {} %}
-                  {% for j in range(1, (keys | length)) %}
-                    {% set _ = subs.update({ (keys[j]) : (vals[j]) }) %}
-                  {% endfor %}
-                  <option value="{{ root_name }}" data-root-key="{{ root_key }}" data-subs='{{ subs | tojson | safe }}'>{{ root_name }}</option>
+            <select class="form-control__control input" name="target_category_id" id="move-target-root">
+              {% if move_categories and (move_categories | length) > 0 %}
+                {% for cat in move_categories %}
+                  <option value="{{ cat.id }}" data-root-key="{{ cat.key }}" data-subs='{{ cat.subs | tojson | safe }}'>{{ cat.name }}</option>
                 {% endfor %}
               {% else %}
                 <option value="" disabled>Нет доступных категорий</option>
@@ -480,11 +465,16 @@
           </div>
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-sub">Выберите подкатегорию:</label>
-            <select class="form-control__control input" name="target_sub" id="move-target-sub">
-              {% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > 1 %}
-                {% for i in range(1, dirs[did].keys() | length) %}
-                  <option value="{{ (dirs[did].values() | list)[i] }}">{{ (dirs[did].values() | list)[i] }}</option>
-                {% endfor %}
+            <select class="form-control__control input" name="target_subcategory_id" id="move-target-sub">
+              {% if move_categories and (move_categories | length) > 0 and did is not none and did < (move_categories | length) %}
+                {% set current_cat = move_categories[did] %}
+                {% if current_cat.subs %}
+                  {% for sub_id, sub_name in current_cat.subs.items() %}
+                    <option value="{{ sub_id }}">{{ sub_name }}</option>
+                  {% endfor %}
+                {% else %}
+                  <option value="" disabled>Нет подкатегорий</option>
+                {% endif %}
               {% else %}
                 <option value="" disabled>Нет подкатегорий</option>
               {% endif %}

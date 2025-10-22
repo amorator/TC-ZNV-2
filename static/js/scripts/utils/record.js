@@ -346,6 +346,7 @@ function handleCaptureRevoked(message) {
 function postState() {
   try {
     if (window.parent) {
+      console.log("Posting state:", recState);
       window.parent.postMessage({ type: "rec:state", state: recState }, "*");
     }
   } catch (e) {}
@@ -1977,8 +1978,19 @@ function loadHandler(event) {
       window.parent.postMessage({ type: "rec:saved" }, "*");
     } catch (e) {}
     try {
-      window.parent.alert &&
+      if (
+        window.parent &&
+        window.parent.window &&
+        window.parent.window.showToast
+      ) {
+        window.parent.window.showToast("Видео успешно сохранено", "success");
+      } else if (
+        window.parent &&
+        window.parent.window &&
+        window.parent.window.showAlertModal
+      ) {
         window.parent.window.showAlertModal("Видео успешно сохранено", "Успех");
+      }
     } catch (e) {}
 
     // Simple restoration like other modals
@@ -2028,6 +2040,12 @@ window.addEventListener("message", function (ev) {
   const msg = ev.data || {};
   if (msg.type === "rec:state?") {
     postState();
+    try {
+      // Inform parent of current recording state for guards
+      if (window.parent && window.parent !== window) {
+        window.parent.__recIsRecording = !!(recState && recState.recording);
+      }
+    } catch (e) {}
   } else if (msg.type === "rec:save") {
     // Ensure recorder fully stops so dataavailable fires before saving
     stopRecorder().then(() => {
@@ -2041,6 +2059,7 @@ window.addEventListener("message", function (ev) {
       stopCameraStream();
       recordedScreen = [];
       recordedCamera = [];
+      recordedAudio = [];
       if (buttonSave) buttonSave.disabled = true;
       disable(buttonPause);
       disable(buttonStop);
@@ -2077,9 +2096,47 @@ window.addEventListener("message", function (ev) {
           recState = {
             recording: false,
             paused: false,
-            hasData: recordedScreen.length > 0 || recordedCamera.length > 0,
+            hasData:
+              recordedScreen.length > 0 ||
+              recordedCamera.length > 0 ||
+              recordedAudio.length > 0,
           };
           postState();
+        } catch (_) {}
+      });
+    } catch (_) {}
+  } else if (msg.type === "rec:reset") {
+    try {
+      console.log("rec:reset received, resetting recorder state");
+      // Reset all recording state
+      stopRecorder().then(() => {
+        try {
+          stopCameraStream();
+        } catch (_) {}
+        try {
+          resetAfterSave();
+        } catch (_) {}
+        try {
+          recState = { recording: false, paused: false, hasData: false };
+          postState();
+        } catch (_) {}
+        try {
+          // Reset UI to initial state
+          if (buttonStart) buttonStart.textContent = "Начать запись";
+          if (buttonSave) buttonSave.disabled = true;
+          disable(buttonPause);
+          disable(buttonStop);
+          enable(buttonCamera);
+          enable(buttonStart);
+          if (videoScreen) videoScreen.style.borderColor = "gray";
+          if (videoCamera) videoCamera.style.borderColor = "gray";
+          if (audioIndicator) {
+            audioIndicator.style.borderColor = "#000000";
+            audioIndicator.textContent = "";
+          }
+          resetTimer(true);
+          updateVideoVisibility();
+          console.log("Recorder state reset complete");
         } catch (_) {}
       });
     } catch (_) {}

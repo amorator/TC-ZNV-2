@@ -69,21 +69,22 @@ class SQL(Config):
 		
 		# Create files table
 		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_file (
-	id INTEGER UNIQUE AUTO_INCREMENT,
+	id INT AUTO_INCREMENT PRIMARY KEY,
 	display_name VARCHAR(255) NOT NULL,
-	real_name VARCHAR(255) NOT NULL,
-	path VARCHAR(255) NOT NULL,
+	file_name VARCHAR(255) NOT NULL,
 	owner VARCHAR(255) NOT NULL,
-	description TEXT NOT NULL DEFAULT '',
-	date VARCHAR(19) NOT NULL,
-	ready INTEGER DEFAULT 1,
+	description TEXT DEFAULT '',
+	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	ready TINYINT(1) DEFAULT 0,
 	viewed TEXT DEFAULT '',
 	note TEXT DEFAULT '',
-	length_seconds INTEGER DEFAULT 0,
+	length_seconds INT DEFAULT 0,
 	size_mb DECIMAL(10,2) DEFAULT 0.00,
-	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-	PRIMARY KEY(id)
+	order_id INT NULL,
+	category_id INT NULL,
+	subcategory_id INT NULL,
+	file_exists TINYINT(1) DEFAULT 1,
+	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );""")
 		
 		# Create requests table
@@ -295,7 +296,7 @@ class SQLUtils(SQL):
 		
 		# Common SQL query fragments for optimization
 		# Note: path is deprecated in DB; use category_id/subcategory_id/file_name. Keep legacy path for fallback.
-		self._FILE_SELECT_FIELDS_CORE = "id, display_name, COALESCE(file_name, real_name) AS file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, path"
+		self._FILE_SELECT_FIELDS_CORE = "id, display_name, file_name as real_name, owner, description, created_at as date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists"
 		self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
 		self._GROUP_SELECT_FIELDS = "id, name, description"
 		self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
@@ -485,21 +486,15 @@ class SQLUtils(SQL):
 			# Backfill legacy rows into new columns (best-effort)
 			try:
 				rows = self.execute_query(
-					f"SELECT id, path, real_name, category_id, subcategory_id, file_name FROM {prefix}_file WHERE (category_id IS NULL OR subcategory_id IS NULL OR file_name IS NULL);"
+					f"SELECT id, category_id, subcategory_id, file_name FROM {prefix}_file WHERE (category_id IS NULL OR subcategory_id IS NULL OR file_name IS NULL);"
 				)
 				for r in rows or []:
-					fid, fpath, real_name, cat_id, sub_id, fname = r
+					fid, cat_id, sub_id, fname = r
 					# compute file_name
-					fname_new = fname or real_name
-					# try parse .../video/<cat>/<sub>
-					try:
-						parts = os.path.normpath(fpath or '').split(os.sep)
-						cat_folder = parts[-2] if len(parts) >= 2 else None
-						sub_folder = parts[-1] if len(parts) >= 1 else None
-						new_cat_id = cat_id or (self.category_id_by_folder(cat_folder) if cat_folder else None)
-						new_sub_id = sub_id or (self.subcategory_id_by_folder(new_cat_id, sub_folder) if (new_cat_id and sub_folder) else None)
-					except Exception:
-						new_cat_id, new_sub_id = cat_id, sub_id
+					fname_new = fname or 'unknown'
+					# Set default values for missing fields
+					new_cat_id = cat_id or 1  # Default to first category
+					new_sub_id = sub_id or 1  # Default to first subcategory
 					# Apply update when we have something to set
 					try:
 						self.execute_non_query(
@@ -588,10 +583,9 @@ class SQLUtils(SQL):
 		if not row:
 			return None
 		(
-			fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path
+			fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists
 		) = row
-		storage_dir = self._build_storage_dir(category_id or 0, subcategory_id or 0) or (legacy_path or '')
-		return File(fid, display_name, file_name, storage_dir, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id)
+		return File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists)
 
 	def file_by_path(self, args):
 		"""Backward-compatible: resolve by absolute directory path, then fetch by category/subcategory.
@@ -613,11 +607,10 @@ class SQLUtils(SQL):
 				[cat_id, sub_id]
 			)
 			from classes.file import File
-			storage_dir = self._build_storage_dir(cat_id, sub_id)
 			files = []
 			for r in rows or []:
-				(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
-				files.append(File(fid, display_name, file_name, storage_dir or (legacy_path or ''), owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+				(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+				files.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 			return files
 		except Exception:
 			return []
@@ -637,11 +630,10 @@ class SQLUtils(SQL):
 			[cat_id, sub_id]
 		)
 		from classes.file import File
-		storage_dir = self._build_storage_dir(cat_id, sub_id)
 		files = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
-			files.append(File(fid, display_name, file_name, storage_dir or (legacy_path or ''), owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+			files.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 		return files
 
 	def file_all(self):
@@ -655,14 +647,13 @@ class SQLUtils(SQL):
 		from classes.file import File
 		result = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, legacy_path) = r
-			storage_dir = self._build_storage_dir(category_id or 0, subcategory_id or 0) or (legacy_path or '')
-			result.append(File(fid, display_name, file_name, storage_dir, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id))
+			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+			result.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 		return result
 
 	def file_add(self, args):
 		"""Deprecated signature kept for compatibility: will map to new columns.
-		Args: [display_name, real_name, path, owner, description, date, ready, length_seconds, size_mb, order_id]
+		Args: [display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id]
 		"""
 		# Try to infer category/subcategory from path
 		try:
@@ -690,9 +681,8 @@ class SQLUtils(SQL):
 		  [display_name, file_name, category_id, subcategory_id, owner, description,
 		   date, ready, length_seconds, size_mb, order_id]
 
-		New schema columns: display_name, real_name, file_name, path, owner, description,
-							date, ready, length_seconds, size_mb, order_id
-		We compute `path` from category/subcategory and set real_name=file_name if not provided.
+		New schema columns: display_name, file_name, category_id, subcategory_id, owner, description,
+							created_at, ready, length_seconds, size_mb, order_id, file_exists
 		"""
 		self._ensure_files_new_columns()
 		display_name = args[0]
@@ -710,9 +700,9 @@ class SQLUtils(SQL):
 		path_dir = self._build_storage_dir(category_id, subcategory_id)
 		values = [
 			display_name,
-			file_name,   # real_name
 			file_name,   # file_name
-			path_dir,	# path
+			category_id,
+			subcategory_id,
 			owner,
 			description,
 			date_s,
@@ -720,9 +710,10 @@ class SQLUtils(SQL):
 			length_seconds,
 			size_mb,
 			order_id,
+			1,  # file_exists = True for new files
 		]
 		return self.execute_insert(
-			f"INSERT INTO {self.config['db']['prefix']}_file (display_name, real_name, file_name, path, owner, description, date, ready, length_seconds, size_mb, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+			f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, category_id, subcategory_id, owner, description, created_at, ready, length_seconds, size_mb, order_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
 			values,
 		)
 
@@ -750,18 +741,12 @@ class SQLUtils(SQL):
 		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET ready = 1 WHERE id IN ({placeholders});", args)
 
 	def file_update_real_name(self, args):
-		"""Update stored filename after conversion. Args: [real_name, id]
-		Keeps both legacy real_name and new file_name in sync.
-		"""
-		try:
-			# Update both columns if file_name exists
-			self.execute_non_query(
-				f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s, file_name = %s WHERE id = %s;",
-				[args[0], args[0], args[1]]
-			)
-		except Exception:
-			# Fallback for older schemas without file_name
-			self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET real_name = %s WHERE id = %s;", args)
+		"""Update stored filename after conversion. Args: [file_name, id]"""
+		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET file_name = %s WHERE id = %s;", args)
+
+	def file_update_exists_status(self, file_id, exists):
+		"""Update file_exists status. Args: file_id, exists"""
+		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET file_exists = %s WHERE id = %s;", [exists, file_id])
 
 	def file_view(self, args):
 		"""Mark file as viewed. Args: [viewed, id]"""
@@ -890,23 +875,26 @@ class SQLUtils(SQL):
 				CREATE TABLE IF NOT EXISTS {prefix}_file (
 					id INT AUTO_INCREMENT PRIMARY KEY,
 					display_name VARCHAR(255) NOT NULL,
-					real_name VARCHAR(255) NOT NULL,
-					path VARCHAR(500) NOT NULL,
+					file_name VARCHAR(255) NOT NULL,
 					owner VARCHAR(255) NOT NULL,
 					description TEXT DEFAULT '',
-					date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					ready TINYINT DEFAULT 0,
 					viewed TEXT DEFAULT '',
 					note TEXT DEFAULT '',
 					length_seconds INT DEFAULT 0,
 					size_mb DECIMAL(10,2) DEFAULT 0.00,
 					order_id INT NULL DEFAULT NULL,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+					category_id INT NULL,
+					subcategory_id INT NULL,
+					file_exists TINYINT(1) DEFAULT 1,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 					INDEX idx_owner (owner),
 					INDEX idx_ready (ready),
-					INDEX idx_date (date),
-					INDEX idx_path (path(100)),
+					INDEX idx_created_at (created_at),
+					INDEX idx_category_id (category_id),
+					INDEX idx_subcategory_id (subcategory_id),
+					INDEX idx_file_exists (file_exists),
 					INDEX idx_order_id (order_id)
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")

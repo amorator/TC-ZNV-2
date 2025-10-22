@@ -320,9 +320,13 @@ def register(app, media_service, socketio=None) -> None:
                     path.join(app._sql.config['files']['root'], 'files',
                               dirs[0], dirs[sdid])
                 ])
-            # Sort files by date descending (newest first)
+            # Update exists status for all files and sort by date descending (newest first)
             if files:
-                files.sort(key=lambda f: f.date, reverse=True)
+                for file in files:
+                    file.update_exists_status()
+                    # Update the database with the new exists status
+                    app._sql.file_update_exists_status(file.id, file.exists)
+                files.sort(key=lambda f: f.created_at, reverse=True)
         # Determine whether to show "Загрузить с регистратора" controls
         can_reg_import = False
         try:
@@ -332,6 +336,46 @@ def register(app, media_service, socketio=None) -> None:
             can_reg_import = bool(rows and len(rows) > 0)
         except Exception:
             can_reg_import = False
+        # Pre-compute category/subcategory ID mappings for move modal
+        move_categories = []
+        try:
+            for i, dir_entry in enumerate(_dirs):
+                try:
+                    keys = list(dir_entry.keys())
+                    vals = list(dir_entry.values())
+                    if not keys or not vals:
+                        continue
+                    root_key = keys[0]
+                    root_name = vals[0]
+                    cat_id = app._sql.category_id_by_folder(root_key)
+
+                    # Build subcategory mapping
+                    subs = {}
+                    for j in range(1, len(keys)):
+                        try:
+                            sub_key = keys[j]
+                            sub_name = vals[j]
+                            sub_id = app._sql.subcategory_id_by_folder(
+                                cat_id, sub_key) if cat_id else None
+                            # Only include valid subcategory IDs (not None)
+                            if sub_id is not None:
+                                subs[sub_id] = sub_name
+                        except Exception:
+                            continue
+
+                    # Only add categories with valid IDs
+                    if cat_id is not None:
+                        move_categories.append({
+                            'id': cat_id,
+                            'name': root_name,
+                            'key': root_key,
+                            'subs': subs
+                        })
+                except Exception:
+                    continue
+        except Exception:
+            move_categories = []
+
         resp = make_response(
             render_template('files.j2.html',
                             title='Файлы — Заявки-Наряды-Файлы',
@@ -343,8 +387,8 @@ def register(app, media_service, socketio=None) -> None:
                             max_file_size_mb=max_file_size_mb,
                             can_reg_import=can_reg_import,
                             current_category_id=current_category_id or 0,
-                            current_subcategory_id=current_subcategory_id
-                            or 0))
+                            current_subcategory_id=current_subcategory_id or 0,
+                            move_categories=move_categories))
         resp.headers[
             'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         resp.headers['Pragma'] = 'no-cache'
@@ -893,6 +937,58 @@ def register(app, media_service, socketio=None) -> None:
             app.flash_error(e)
             return redirect(url_for('files'))
 
+    @app.route('/files/file/<int:file_id>', methods=['GET'])
+    @require_permissions(FILES_VIEW_PAGE)
+    def files_show_by_id(file_id: int):
+        """Serve converted media file (.mp4) by file ID."""
+        try:
+            file = app._sql.file_by_id([file_id])
+            if not file:
+                flash('Файл не найден', 'error')
+                return redirect(url_for('files'))
+
+            # Check if user has permission to access this file
+            if not (current_user.has('files.edit_any')
+                    or current_user.name + ' (' in file.owner):
+                # Check category/subcategory permissions
+                try:
+                    cat = app._sql.category_by_id([file.category_id])
+                    sub = app._sql.subcategory_by_id([file.subcategory_id])
+                    if not cat or not sub:
+                        flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                    if int(getattr(cat, 'enabled', 1)) != 1 or int(
+                            getattr(sub, 'enabled', 1)) != 1:
+                        flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                except Exception:
+                    flash('Файл недоступен', 'error')
+                    return redirect(url_for('files'))
+
+            # Get file storage path
+            file_dir = app._sql.get_file_storage_path(file.category_id,
+                                                      file.subcategory_id)
+
+            # Detect explicit download intent via query flag `dl=1`
+            is_download = (request.args.get('dl') == '1')
+            if is_download:
+                log_action(
+                    'FILE_DOWNLOAD', current_user.name,
+                    f'download file {file.file_name} from category {file.category_id}/{file.subcategory_id}',
+                    (request.remote_addr or ''))
+            else:
+                log_action(
+                    'FILE_OPEN', current_user.name,
+                    f'open file {file.file_name} in category {file.category_id}/{file.subcategory_id}',
+                    (request.remote_addr or ''))
+
+            return send_from_directory(file_dir,
+                                       file.file_name,
+                                       as_attachment=is_download)
+        except Exception as e:
+            app.flash_error(e)
+            return redirect(url_for('files'))
+
     # Serve original uploaded file (.webm) when processing
     @app.route('/files/orig/<int:did>/<int:sdid>/<name>', methods=['GET'])
     @require_permissions(FILES_VIEW_PAGE)
@@ -971,6 +1067,53 @@ def register(app, media_service, socketio=None) -> None:
         except Exception as e:
             app.flash_error(e)
         return redirect(url_for('files'))
+
+    @app.route('/files/orig/file/<int:file_id>', methods=['GET'])
+    @require_permissions(FILES_VIEW_PAGE)
+    def files_orig_by_id(file_id: int):
+        """Serve original uploaded file (.webm) by file ID."""
+        try:
+            file = app._sql.file_by_id([file_id])
+            if not file:
+                flash('Файл не найден', 'error')
+                return redirect(url_for('files'))
+
+            # Check if user has permission to access this file
+            if not (current_user.has('files.edit_any')
+                    or current_user.name + ' (' in file.owner):
+                # Check category/subcategory permissions
+                try:
+                    cat = app._sql.category_by_id([file.category_id])
+                    sub = app._sql.subcategory_by_id([file.subcategory_id])
+                    if not cat or not sub:
+                        flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                    if int(getattr(cat, 'enabled', 1)) != 1 or int(
+                            getattr(sub, 'enabled', 1)) != 1:
+                        flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                except Exception:
+                    flash('Файл недоступен', 'error')
+                    return redirect(url_for('files'))
+
+            # Get file storage path
+            file_dir = app._sql.get_file_storage_path(file.category_id,
+                                                      file.subcategory_id)
+
+            # Convert .mp4 filename to .webm for original file
+            base, _ = os.path.splitext(file.file_name)
+
+            log_action(
+                'FILE_DOWNLOAD', current_user.name,
+                f'download original {base}.webm from category {file.category_id}/{file.subcategory_id}',
+                (request.remote_addr or ''))
+
+            return send_from_directory(file_dir,
+                                       base + '.webm',
+                                       as_attachment=True)
+        except Exception as e:
+            app.flash_error(e)
+            return redirect(url_for('files'))
 
     @app.route('/files/view/<int:id>', methods=['GET'])
     @require_permissions(FILES_MARK_VIEWED)
@@ -1115,11 +1258,15 @@ def register(app, media_service, socketio=None) -> None:
                 os.makedirs(new_dir, exist_ok=True)
             except Exception:
                 pass
-            # Move files on disk: real_name without extension combines with mp4/webm if exist
-            old_base = os.path.join(file.path,
-                                    os.path.splitext(file.real_name)[0])
+            # Move files on disk: file_name without extension combines with mp4/webm if exist
+            # Get current file path from category/subcategory
+            current_dir = app._sql.get_file_storage_path(
+                file.category_id, file.subcategory_id)
+            old_base = os.path.join(current_dir,
+                                    os.path.splitext(file.file_name)[0])
             new_base = os.path.join(new_dir,
-                                    os.path.splitext(file.real_name)[0])
+                                    os.path.splitext(file.file_name)[0])
+
             for ext in ('.mp4', '.webm'):
                 old_path = old_base + ext
                 new_path = new_base + ext
@@ -1130,9 +1277,14 @@ def register(app, media_service, socketio=None) -> None:
                 app._sql.file_move_to_subcategory(
                     [target_cat_id, target_sub_id, id])
 
-            # Refresh file object to update exists status and in-memory path
-            file.path = new_dir
+            # Refresh file object to update exists status
+            # Update file object with new path and check if files exist
+            file.category_id = target_cat_id
+            file.subcategory_id = target_sub_id
             file.update_exists_status()
+
+            # Update the database with the new exists status
+            app._sql.file_update_exists_status(file.id, file.exists)
 
             # Notify clients
             if socketio:
@@ -1606,15 +1758,16 @@ def register(app, media_service, socketio=None) -> None:
                 # SQL API expects a single arg list in this deployment
                 fs = app._sql.file_by_category_and_subcategory(
                     [cat_id, sub_id])
-            except TypeError:
-                # Fallback signature: two args
-                fs = app._sql.file_by_category_and_subcategory(cat_id, sub_id)
             except Exception:
                 fs = []
             dirs = dirs_by_permission(app, 3, 'f')
-            # Sort files by date descending (newest first)
+            # Update exists status for all files and sort by date descending (newest first)
             if fs:
-                fs.sort(key=lambda f: f.date, reverse=True)
+                for file in fs:
+                    file.update_exists_status()
+                    # Update the database with the new exists status
+                    app._sql.file_update_exists_status(file.id, file.exists)
+                fs.sort(key=lambda f: f.created_at, reverse=True)
             total = len(fs or [])
             start = (page - 1) * page_size
             end = start + page_size
@@ -1702,7 +1855,7 @@ def register(app, media_service, socketio=None) -> None:
                 fs = [f for f in fs if matches(f)]
             # Sort files by date descending (newest first)
             if fs:
-                fs.sort(key=lambda f: f.date, reverse=True)
+                fs.sort(key=lambda f: f.created_at, reverse=True)
             total = len(fs)
             start = (page - 1) * page_size
             end = start + page_size
@@ -1778,12 +1931,10 @@ def register(app, media_service, socketio=None) -> None:
             ]):
                 return jsonify({'error': 'Missing required parameters'}), 400
 
-            # Check parallel upload limit
-            max_parallel = int(app._sql.config['files'].get(
-                'max_parallel_uploads', 3))
-            active_uploads = get_active_upload_count()
+            # Check parallel upload limit using atomic Redis operation
+            can_start, active_uploads, max_parallel = can_start_new_upload()
 
-            if active_uploads >= max_parallel:
+            if not can_start:
                 return jsonify({
                     'error':
                     f'Maximum parallel uploads limit reached ({active_uploads}/{max_parallel})',
@@ -1808,6 +1959,9 @@ def register(app, media_service, socketio=None) -> None:
                 'error_count': 0,
                 'status': 'running',
                 'start_time': time.time(),
+                # ensure persistence/cleanup logic can rely on a stable timestamp
+                'created_at': time.time(),
+                'progress': 0,
                 'ip': request.remote_addr or ''
             }
 
@@ -1829,7 +1983,7 @@ def register(app, media_service, socketio=None) -> None:
                 'upload_id':
                 upload_id,
                 'message':
-                f'Upload started in background. {active_uploads + 1}/{max_parallel} slots used.'
+                f'Upload started in background. {active_uploads + 1}/{max_parallel} slots used.'  # type: ignore
             }), 200
 
         except Exception as e:
@@ -1860,21 +2014,36 @@ def register(app, media_service, socketio=None) -> None:
     @app.route('/api/active-uploads', methods=['GET'])
     @require_permissions(FILES_UPLOAD)
     def api_active_uploads():
-        """Get active uploads count and limit."""
+        """Get active uploads count and limit using improved Redis tracking."""
         try:
-            max_parallel = int(app._sql.config['files'].get(
-                'max_parallel_uploads', 3))
-            active_uploads = get_active_upload_count()
+            can_start, active_uploads, max_parallel = can_start_new_upload()
 
             return jsonify({
                 'status': 'success',
                 'active_uploads': active_uploads,
                 'max_parallel': max_parallel,
-                'can_start_new': active_uploads < max_parallel
+                'can_start_new': can_start
             }), 200
 
         except Exception as e:
             _log.error(f"API active uploads error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/active-uploads-list', methods=['GET'])
+    @require_permissions(FILES_UPLOAD)
+    def api_active_uploads_list():
+        """Get detailed list of active uploads."""
+        try:
+            active_uploads = get_active_upload_list()
+
+            return jsonify({
+                'status': 'success',
+                'active_uploads': active_uploads,
+                'count': len(active_uploads)
+            }), 200
+
+        except Exception as e:
+            _log.error(f"API active uploads list error: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/cancel-upload/<upload_id>', methods=['POST'])
@@ -1907,6 +2076,9 @@ def register(app, media_service, socketio=None) -> None:
             job_info['cancelled_at'] = time.time()
             redis_client.set(job_key, json.dumps(job_info),
                              ex=3600)  # Keep for 1 hour
+
+            # Remove from active uploads set
+            redis_client.srem('active_uploads', upload_id)
 
             # Delete uploaded files from database and filesystem
             deleted_files = []
@@ -1965,7 +2137,8 @@ def register(app, media_service, socketio=None) -> None:
                     job_data = redis_client.get(key)
                     if job_data and isinstance(job_data, bytes):
                         import json
-                        job = json.loads(job_data.decode('utf-8'))
+                        job = json.loads(
+                            job_data.decode('utf-8'))  # type: ignore
                         job_status = job.get('status', 'unknown')
                         job_created = job.get('created_at', 0)
 
@@ -2001,34 +2174,56 @@ def register(app, media_service, socketio=None) -> None:
 
 # Helper functions for background upload management
 def get_active_upload_count():
-    """Get count of active uploads from Redis."""
+    """Get count of active uploads from Redis with improved tracking."""
     try:
         import redis
         redis_client = redis.Redis(
             unix_socket_path='/var/run/redis/redis.sock',
             password='znf25!',
             db=0)
-        keys = redis_client.keys('upload_job:*')
-        active_count = 0
+
+        # Use Redis set for active uploads tracking
+        active_uploads_set = redis_client.smembers(
+            'active_uploads')  # type: ignore  # type: ignore
+        if active_uploads_set:
+            active_count = len(active_uploads_set)  # type: ignore
+        else:
+            active_count = 0
+
+        # Clean up inactive uploads
         cleaned_count = 0
-
-        if keys and isinstance(keys, list):
+        if active_uploads_set:
             current_time = time.time()
-            for key in keys:
-                job_data = redis_client.get(key)
-                if job_data and isinstance(job_data, bytes):
-                    import json
-                    job = json.loads(job_data.decode('utf-8'))
-                    job_status = job.get('status', 'unknown')
-                    job_created = job.get('created_at', 0)
+            for upload_id in active_uploads_set:  # type: ignore
+                upload_id = upload_id.decode('utf-8') if isinstance(
+                    upload_id, bytes) else upload_id  # type: ignore
+                job_data = redis_client.get(f"upload_job:{upload_id}")
 
-                    # Очищаем старые или завершенные загрузки
-                    if (job_status in ['completed', 'failed', 'cancelled'] or
-                        (current_time - job_created) > 3600):  # Старше 1 часа
-                        redis_client.delete(key)
+                if not job_data:
+                    # Job not found, remove from active set
+                    redis_client.srem('active_uploads', upload_id)
+                    cleaned_count += 1
+                    continue
+
+                try:
+                    import json
+                    job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                    job_status = job.get('status', 'unknown')
+                    # use created_at if present, else fall back to start_time
+                    job_created = job.get('created_at') or job.get(
+                        'start_time') or 0
+
+                    # Remove completed, failed, cancelled or old jobs
+                    # Only purge completed/failed/cancelled, or very old running jobs (> 2h)
+                    if (job_status in ['completed', 'failed', 'cancelled']
+                            or ((current_time - float(job_created)) > 7200)):
+                        redis_client.srem('active_uploads', upload_id)
+                        redis_client.delete(f"upload_job:{upload_id}")
                         cleaned_count += 1
-                    elif job_status == 'running':
-                        active_count += 1
+                except Exception as e:
+                    _log.warning(f"Error processing upload {upload_id}: {e}")
+                    redis_client.srem('active_uploads', upload_id)
+                    cleaned_count += 1
 
         if cleaned_count > 0:
             _log.info(
@@ -2041,7 +2236,7 @@ def get_active_upload_count():
 
 
 def save_upload_job(upload_job):
-    """Save upload job to Redis."""
+    """Save upload job to Redis and add to active uploads set."""
     try:
         import redis
         import json
@@ -2049,8 +2244,15 @@ def save_upload_job(upload_job):
             unix_socket_path='/var/run/redis/redis.sock',
             password='znf25!',
             db=0)
+
+        # Save job data
         redis_client.setex(f"upload_job:{upload_job['id']}", 3600,
                            json.dumps(upload_job))  # 1 hour TTL
+
+        # Add to active uploads set if status is running
+        if upload_job.get('status') == 'running':
+            redis_client.sadd('active_uploads', upload_job['id'])
+
     except Exception as e:
         _log.error(f"Error saving upload job: {e}")
 
@@ -2065,8 +2267,18 @@ def get_upload_job(upload_id):
             password='znf25!',
             db=0)
         job_data = redis_client.get(f"upload_job:{upload_id}")
-        if job_data and isinstance(job_data, bytes):
-            return json.loads(job_data.decode('utf-8'))
+        if job_data:
+            try:
+                payload = job_data.decode('utf-8') if isinstance(
+                    job_data, bytes) else str(job_data)
+                job = json.loads(payload)
+                # Defensive: inject created_at if missing (older jobs)
+                if 'created_at' not in job:
+                    job['created_at'] = job.get('start_time', time.time())
+                return job
+            except Exception as _e:
+                _log.error(f"Error decoding upload job {upload_id}: {_e}")
+                return None
         return None
     except Exception as e:
         _log.error(f"Error getting upload job: {e}")
@@ -2074,7 +2286,7 @@ def get_upload_job(upload_id):
 
 
 def update_upload_job(upload_id, updates):
-    """Update upload job in Redis."""
+    """Update upload job in Redis and manage active uploads set."""
     try:
         import redis
         import json
@@ -2083,13 +2295,146 @@ def update_upload_job(upload_id, updates):
             password='znf25!',
             db=0)
         job_data = redis_client.get(f"upload_job:{upload_id}")
-        if job_data and isinstance(job_data, bytes):
-            job = json.loads(job_data.decode('utf-8'))
-            job.update(updates)
-            redis_client.setex(f"upload_job:{upload_id}", 3600,
-                               json.dumps(job))
+        if not job_data:
+            return
+        payload = job_data.decode('utf-8') if isinstance(
+            job_data, bytes) else str(job_data)
+        job = json.loads(payload)
+
+        old_status = job.get('status')
+        job.update(updates)
+        new_status = job.get('status')
+
+        # Update job data
+        redis_client.setex(f"upload_job:{upload_id}", 3600, json.dumps(job))
+
+        # Manage active uploads set based on status change
+        if old_status != new_status:
+            if new_status == 'running':
+                redis_client.sadd('active_uploads', upload_id)
+            elif new_status in ['completed', 'failed', 'cancelled']:
+                redis_client.srem('active_uploads', upload_id)
+
     except Exception as e:
         _log.error(f"Error updating upload job: {e}")
+
+
+def can_start_new_upload():
+    """Atomically check if we can start a new upload (respects max_parallel_uploads)."""
+    try:
+        import redis
+        redis_client = redis.Redis(
+            unix_socket_path='/var/run/redis/redis.sock',
+            password='znf25!',
+            db=0)
+
+        # Get max parallel uploads from config
+        from flask import current_app
+        max_parallel = int(current_app._sql.config['files'].get(
+            'max_parallel_uploads', 3))  # type: ignore
+
+        # Use Redis pipeline for atomic operation
+        pipe = redis_client.pipeline()
+        pipe.scard('active_uploads')
+        pipe.smembers('active_uploads')
+        results = pipe.execute()  # type: ignore
+
+        active_count = results[0]
+        active_uploads = results[1]
+
+        # Clean up inactive uploads and recount
+        if active_uploads:
+            current_time = time.time()
+            cleaned_count = 0
+            for upload_id in active_uploads:
+                upload_id = upload_id.decode('utf-8') if isinstance(
+                    upload_id, bytes) else upload_id  # type: ignore
+                job_data = redis_client.get(f"upload_job:{upload_id}")
+
+                if not job_data:
+                    redis_client.srem('active_uploads', upload_id)
+                    cleaned_count += 1
+                    continue
+
+                try:
+                    import json
+                    job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                    job_status = job.get('status', 'unknown')
+                    job_created = job.get('created_at', 0)
+
+                    if (job_status in ['completed', 'failed', 'cancelled']
+                            or (current_time - job_created) > 3600):
+                        redis_client.srem('active_uploads', upload_id)
+                        redis_client.delete(f"upload_job:{upload_id}")
+                        cleaned_count += 1
+                except Exception:
+                    redis_client.srem('active_uploads', upload_id)
+                    cleaned_count += 1
+
+            if cleaned_count > 0:
+                # Recount after cleanup
+                active_count = redis_client.scard(
+                    'active_uploads')  # type: ignore
+
+        return active_count < max_parallel, active_count, max_parallel  # type: ignore
+
+    except Exception as e:
+        _log.error(f"Error checking upload limit: {e}")
+        return False, 0, 3  # Default to not allowing if error
+
+
+def get_active_upload_list():
+    """Get list of active uploads with details."""
+    try:
+        import redis
+        redis_client = redis.Redis(
+            unix_socket_path='/var/run/redis/redis.sock',
+            password='znf25!',
+            db=0)
+
+        active_uploads_set = redis_client.smembers(
+            'active_uploads')  # type: ignore
+        active_uploads = []
+
+        if active_uploads_set:
+            for upload_id in active_uploads_set:  # type: ignore
+                upload_id = upload_id.decode('utf-8') if isinstance(
+                    upload_id, bytes) else upload_id  # type: ignore
+                job_data = redis_client.get(f"upload_job:{upload_id}")
+
+                if job_data:
+                    try:
+                        import json
+                        job = json.loads(
+                            job_data.decode('utf-8'))  # type: ignore
+                        if job.get('status') == 'running':
+                            active_uploads.append({
+                                'id':
+                                upload_id,
+                                'user_id':
+                                job.get('user_id'),
+                                'registrator_name':
+                                job.get('registrator_name'),
+                                'total_files':
+                                job.get('total_files', 0),
+                                'completed_files':
+                                job.get('completed_files', 0),
+                                'created_at':
+                                job.get('created_at'),
+                                'progress':
+                                job.get('progress', 0)
+                            })
+                    except Exception as e:
+                        _log.warning(
+                            f"Error processing upload {upload_id}: {e}")
+                        # Remove invalid upload from active set
+                        redis_client.srem('active_uploads', upload_id)
+
+        return active_uploads
+
+    except Exception as e:
+        _log.error(f"Error getting active upload list: {e}")
+        return []
 
 
 def increment_upload_error(upload_id):
@@ -2106,7 +2451,7 @@ def increment_upload_error(upload_id):
         if job_data and isinstance(job_data, bytes):
             job = json.loads(job_data.decode('utf-8'))
             current_errors = int(job.get('error_count') or 0)
-            job['error_count'] = current_errors + 1
+            job['error_count'] = current_errors + 1  # type: ignore
             redis_client.setex(job_key, 3600, json.dumps(job))
     except Exception as e:
         _log.error(f"Error incrementing upload job error_count: {e}")

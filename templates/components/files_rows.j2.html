@@ -2,7 +2,7 @@
 {% if files %}
   {% for file in files %}
     {% if file.ready %}
-      <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}" data-download="{{ url_for('files_show', did=did, sdid=sdid, name=file.real_name) }}"
+      <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show_by_id', file_id=file.id) }}" data-download="{{ url_for('files_show_by_id', file_id=file.id, dl=1) }}"
         data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
         data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
@@ -16,9 +16,9 @@
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
-        <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+        <td class="table__body_item"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
         <td class="table__body_item">{{ file.owner }}</td>
-        <td class="table__body_item">{{ file.date }}</td>
+        <td class="table__body_item">{{ file.created_at }}</td>
         <td class="table__body_item">{{ file.length_human }}</td>
         <td class="table__body_item">{{ file.size_human }}</td>
         <td class="table__body_item">
@@ -46,8 +46,8 @@
     {% else %}
       <tr class="table__body_row" id="{{ file.id }}"
         data-id="{{ file.id }}"
-        data-url="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
-        data-download="{{ url_for('files_orig', did=did, sdid=sdid, name=file.real_name) }}"
+        data-url="{{ url_for('files_orig_by_id', file_id=file.id) }}"
+        data-download="{{ url_for('files_orig_by_id', file_id=file.id) }}"
         data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
         data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
@@ -57,15 +57,15 @@
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item">{{ file.display_name }}</td>
-        <td class="table__body_item"><strong>{% if file.real_name.lower().endswith('.m4a') %}Аудио{% else %}Видео{% endif %}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}</td>
+        <td class="table__body_item"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
         <td class="table__body_item">{{ file.owner }}</td>
-        <td class="table__body_item">{{ file.date }}</td>
+        <td class="table__body_item">{{ file.created_at }}</td>
         <td class="table__body_item">{{ file.length_human }}</td>
         <td class="table__body_item">{{ file.size_human }}</td>
         <td class="table__body_item">
           Обрабатывается...
           <div class="d-inline-flex gap-2 ms-2 align-items-center">
-            <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
+            <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig_by_id", file_id=file.id) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
             {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
               <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
             {% endif %}

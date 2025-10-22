@@ -37,7 +37,6 @@
                 } catch (_) {}
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
-                  // No fallback confirm for recorder on ESC; do nothing if iframe silent
                   try {
                     window.__recCloseRequested = false;
                   } catch (_) {}
@@ -76,7 +75,6 @@
                 } catch (_) {}
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
-                  // No fallback confirm for recorder on overlay click; do nothing if iframe silent
                   try {
                     window.__recCloseRequested = false;
                   } catch (_) {}
@@ -137,6 +135,22 @@
         console.error(`Modal ${modalId} not found`);
         return false;
       }
+
+      // Guard: prevent opening "add" modal while recorder is open and recording
+      try {
+        if (
+          modalId === "popup-add" &&
+          this.activeModal === "popup-rec" &&
+          window.__recIsRecording === true
+        ) {
+          if (window.showToast)
+            window.showToast(
+              "Нельзя открывать форму добавления во время записи камеры",
+              "warning"
+            );
+          return false;
+        }
+      } catch (_) {}
 
       // Close any active modal
       if (this.activeModal && this.activeModal !== modalId) {
@@ -252,6 +266,39 @@
 
       if (!modal) return false;
 
+      // For recorder: check state first, then show appropriate dialog
+      try {
+        if (modalId === "popup-rec") {
+          const iframe = document.getElementById("rec-iframe");
+          if (iframe && iframe.contentWindow) {
+            // Request current state
+            window.__recCloseRequested = true;
+            try {
+              window.__recCloseReason = "button";
+            } catch (_) {}
+            try {
+              if (window.__recStateTimer) {
+                clearTimeout(window.__recStateTimer);
+                window.__recStateTimer = null;
+              }
+            } catch (_) {}
+
+            iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+
+            // Set timeout to handle case when iframe doesn't respond
+            window.__recStateTimer = setTimeout(() => {
+              try {
+                window.__recCloseRequested = false;
+                // If no response, assume there's data and show confirm
+                showRecConfirmDialog();
+              } catch (_) {}
+            }, 300);
+
+            return false;
+          }
+        }
+      } catch (_) {}
+
       // Hide modal: support Bootstrap and custom overlay
       try {
         window.modlog && window.modlog("closeModal start", { modalId });
@@ -316,6 +363,27 @@
       );
 
       return true;
+    }
+
+    // Internal helper to force close without guards
+    _forceClose(modal) {
+      try {
+        if (modal.classList.contains("modal")) {
+          var inst =
+            bootstrap.Modal.getInstance(modal) ||
+            bootstrap.Modal.getOrCreateInstance(modal);
+          inst.hide();
+        } else {
+          modal.classList.remove("show");
+          modal.classList.remove("visible");
+          modal.classList.add("d-none");
+          modal.style.display = "none";
+        }
+      } catch (_) {}
+      try {
+        document.body.style.overflow = "";
+      } catch (_) {}
+      this.activeModal = null;
     }
 
     /**
@@ -668,6 +736,36 @@
     try {
       const data = ev.data || {};
       if (!data || typeof data !== "object") return;
+      if (data.type === "rec:esc") {
+        try {
+          const iframe = document.getElementById("rec-iframe");
+          if (iframe && iframe.contentWindow) {
+            window.__recCloseRequested = true;
+            try {
+              window.__recCloseReason = "esc";
+            } catch (_) {}
+            try {
+              if (window.__recStateTimer) {
+                clearTimeout(window.__recStateTimer);
+                window.__recStateTimer = null;
+              }
+            } catch (_) {}
+            iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
+            window.__recStateTimer = setTimeout(function () {
+              try {
+                window.__recCloseRequested = false;
+              } catch (_) {}
+              try {
+                window.__recCloseReason = null;
+              } catch (_) {}
+              try {
+                window.__recStateTimer = null;
+              } catch (_) {}
+            }, 300);
+          }
+        } catch (_) {}
+        return;
+      }
       if (data.type === "rec:state" && window.__recCloseRequested) {
         window.__recCloseRequested = false;
         try {
@@ -680,38 +778,175 @@
         const isRecording = !!st.recording;
         const isPaused = !!st.paused;
         const hasData = !!st.hasData;
+        console.log("Recorder state:", {
+          isRecording,
+          isPaused,
+          hasData,
+          closeReason: window.__recCloseReason,
+        });
         if (isRecording) {
-          window.showAlertModal(
-            "Остановите запись перед закрытием окна.",
-            "Предупреждение"
+          // Show confirm dialog instead of alert
+          console.log("Calling showRecConfirmDialog for recording state");
+          console.log(
+            "window.showRecConfirmDialog exists:",
+            typeof window.showRecConfirmDialog
           );
+          if (typeof window.showRecConfirmDialog === "function") {
+            window.showRecConfirmDialog();
+          } else {
+            console.log(
+              "showRecConfirmDialog is not defined, creating alert instead"
+            );
+            alert("Остановите запись перед закрытием окна.");
+          }
           return;
         }
-        if (!window.__recSaving && (hasData || isPaused)) {
-          if (window.showRecConfirmDialog) window.showRecConfirmDialog();
-          return;
+        if (window.__recCloseReason === "esc") {
+          if (hasData && !window.__recHasSaved) {
+            // ignore ESC when data exists but not saved
+            return;
+          }
+          // safe to close
+        } else {
+          // Button close: show confirm dialog if there's data
+          if (
+            !window.__recSaving &&
+            (hasData || isPaused) &&
+            !window.__recHasSaved
+          ) {
+            // show confirm modal with Yes/No/Cancel for button close
+            window.showRecConfirmDialog();
+            return;
+          }
         }
-        // Safe to close: notify iframe to cleanup then close via manager
+        // Safe to close: instruct iframe to cleanup then hide modal
         try {
           const iframe = document.getElementById("rec-iframe");
           if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage({ type: "rec:close" }, "*");
           }
         } catch (_) {}
+        const overlay = document.getElementById("popup-rec");
+        if (overlay) {
+          overlay.classList.remove("show");
+          overlay.classList.remove("visible");
+          overlay.style.display = "none";
+        }
         try {
-          window.modalManager.closeModal("popup-rec");
+          if (
+            window.modalManager &&
+            window.modalManager.activeModal === "popup-rec"
+          ) {
+            window.modalManager.activeModal = null;
+          }
         } catch (_) {}
       } else if (data.type === "rec:discarded") {
+        console.log("rec:discarded received, closing popup-rec");
+        // after discard in iframe, close popup
+        const overlay = document.getElementById("popup-rec");
+        if (overlay) {
+          console.log("Removing show class from popup-rec");
+          overlay.classList.remove("show");
+          overlay.classList.remove("visible");
+          overlay.style.display = "none";
+          console.log("popup-rec classes after removal:", overlay.className);
+        }
         try {
-          window.modalManager.closeModal("popup-rec");
+          if (
+            window.modalManager &&
+            window.modalManager.activeModal === "popup-rec"
+          ) {
+            console.log("Setting activeModal to null");
+            window.modalManager.activeModal = null;
+          }
         } catch (_) {}
         window.__recSaving = false;
+        // Reset popup state and recording variables
+        try {
+          window.popup = null;
+          window.__recHasSaved = false;
+          window.__recCloseRequested = false;
+          window.__recCloseReason = null;
+          console.log("Reset popup and recording state");
+        } catch (_) {}
+        // Reset iframe state
+        try {
+          const iframe = document.getElementById("rec-iframe");
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: "rec:reset" }, "*");
+            console.log("Sent rec:reset to iframe");
+          }
+        } catch (_) {}
       } else if (data.type === "rec:saved") {
         window.__recSaving = false;
+        try {
+          window.__recHasSaved = true;
+        } catch (_) {}
         try {
           window.softRefreshFilesTable && window.softRefreshFilesTable();
         } catch (e) {}
       }
     } catch (_) {}
   });
+
+  // Define showRecConfirmDialog globally
+  window.showRecConfirmDialog = function () {
+    console.log("showRecConfirmDialog called");
+    let box = document.getElementById("rec-confirm");
+    if (!box) {
+      console.log("Creating new rec-confirm modal");
+      box = document.createElement("div");
+      box.id = "rec-confirm";
+      box.className = "overlay-container show";
+      box.style.zIndex = "10001";
+      box.innerHTML =
+        '\
+        <div class="popup">\
+          <h1 class="popup__title">Сохранить запись?</h1>\
+          <div class="popup__actions">\
+            <button type="button" class="btn btn-primary" id="rec-confirm-yes">Да</button>\
+            <button type="button" class="btn btn-danger" id="rec-confirm-no">Нет</button>\
+            <button type="button" class="btn btn-secondary" id="rec-confirm-cancel">Отмена</button>\
+          </div>\
+        </div>';
+      document.body.appendChild(box);
+      document.getElementById("rec-confirm-yes").onclick = function () {
+        console.log("rec-confirm-yes clicked");
+        window.__recSaving = true;
+        const iframe = document.getElementById("rec-iframe");
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: "rec:save" }, "*");
+        }
+        box.classList.remove("show");
+        setTimeout(() => {
+          console.log("Removing rec-confirm box");
+          box.remove();
+        }, 150);
+      };
+      document.getElementById("rec-confirm-no").onclick = function () {
+        console.log("rec-confirm-no clicked");
+        const iframe = document.getElementById("rec-iframe");
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: "rec:discard" }, "*");
+        }
+        box.classList.remove("show");
+        setTimeout(() => {
+          console.log("Removing rec-confirm box");
+          box.remove();
+        }, 150);
+      };
+      document.getElementById("rec-confirm-cancel").onclick = function () {
+        console.log("rec-confirm-cancel clicked");
+        box.classList.remove("show");
+        setTimeout(() => {
+          console.log("Removing rec-confirm box");
+          box.remove();
+        }, 150);
+      };
+    } else {
+      console.log("Showing existing rec-confirm modal");
+      box.classList.add("show");
+      box.style.zIndex = "10001";
+    }
+  };
 })();
