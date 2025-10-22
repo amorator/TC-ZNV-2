@@ -202,6 +202,7 @@
   <div id="popup-add" class="overlay-container" data-testid="files-modal-add">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-add-title">
       <h1 class="popup__title mb-4" id="popup-add-title">Добавление файлов</h1>
+      <div class="popup__body">
       <form class="popup__form" id="add" action="{{ url_for('files_add') }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
@@ -225,12 +226,7 @@
           <input type="hidden" id="max-file-size-mb" value="{{ max_file_size_mb }}" autocomplete="off">
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы видео: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V; аудио: MP3, WAV, FLAC, AAC, M4A, OGG/OPUS, WMA</small>
         </div>
-        <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="closeModal('popup-add');" >Отмена</button>
-          <button type="button" class="btn btn-primary" id="add-submit-btn" data-testid="files-add-submit" onclick="validateForm(this);">Добавить</button>
-        </div>
-        
-        <!-- Progress bar for file upload -->
+        <!-- Progress bar for file upload (placed above actions) -->
         <div id="upload-progress" class="upload-progress d-none">
           <div class="progress mb-2">
             <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
@@ -239,7 +235,13 @@
             <small class="text-muted">Загрузка файла...</small>
           </div>
         </div>
+
+        <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
+          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="closeModal('popup-add');" >Отмена</button>
+          <button type="button" class="btn btn-primary" id="add-submit-btn" data-testid="files-add-submit" onclick="validateForm(this);">Добавить</button>
+        </div>
       </form>
+      </div>
     </div>
   </div>
 
