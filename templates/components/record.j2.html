@@ -9,10 +9,10 @@
     <link rel="shortcut icon" href="/static/images/favicon/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/images/favicon/apple-touch-icon.png" />
     <link rel="manifest" href="/static/images/favicon/site.webmanifest" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components/progress.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/record.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/record.css') }}">
   <script>
     // Apply theme ASAP based on URL param before deferred scripts
     (function(){
@@ -132,7 +132,7 @@
 </section>
 
 {% block js %}
-<script src="{{ url_for('static', filename='js/record.js') }}" defer="defer"></script>
+<script src="{{ url_for('static', filename='js/scripts/utils/record.js') }}"></script>
 {% endblock %}
 </body>
 </html>

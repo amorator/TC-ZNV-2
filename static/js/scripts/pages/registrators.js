@@ -450,7 +450,7 @@
               } catch (_) {}
               loadRegistrators();
             } else if (r && r.message) {
-              alert(r.message);
+              window.showAlertModal(r.message, "Ошибка");
             }
           });
         } catch (_) {}
@@ -475,7 +475,7 @@
       enabled: item.enabled,
     }).then(function (r) {
       if (r && r.status === "success") loadRegistrators();
-      else if (r && r.message) alert(r.message);
+      else if (r && r.message) window.showAlertModal(r.message, "Ошибка");
     });
   }
 
@@ -493,18 +493,22 @@
             loadRegistrators();
           } else if (r && r.message) {
             if (window.showToast) window.showToast(r.message, "error");
-            else alert(r.message);
+            else window.showAlertModal(r.message, "Ошибка");
           }
         })
         .catch(function (e) {
           if (window.showToast)
             window.showToast("Ошибка переключения: " + e.message, "error");
-          else alert("Ошибка переключения: " + e.message);
+          else
+            window.showAlertModal(
+              "Ошибка переключения: " + e.message,
+              "Ошибка"
+            );
         });
     } catch (e) {
       if (window.showToast)
         window.showToast("Ошибка переключения: " + e.message, "error");
-      else alert("Ошибка переключения: " + e.message);
+      else window.showAlertModal("Ошибка переключения: " + e.message, "Ошибка");
     }
   }
 
@@ -520,7 +524,7 @@
         if (j && j.status === "success") {
           loadRegistrators();
           // Server emits registrators:changed; no client-side emit
-        } else if (j && j.message) alert(j.message);
+        } else if (j && j.message) window.showAlertModal(j.message, "Ошибка");
       });
   }
 
@@ -1430,7 +1434,7 @@
       enabled: 1,
     }).then(function (j) {
       if (j && j.status === "success") loadRegistrators();
-      else if (j && j.message) alert(j.message);
+      else if (j && j.message) window.showAlertModal(j.message, "Ошибка");
     });
   }
 
@@ -1513,7 +1517,7 @@
                 } catch (_) {}
                 loadRegistrators();
               } else if (r && r.message) {
-                alert(r.message);
+                window.showAlertModal(r.message, "Ошибка");
               }
             });
           } catch (_) {}
@@ -1546,7 +1550,7 @@
               } catch (_) {}
               loadRegistrators();
             } else if (r && r.message) {
-              alert(r.message);
+              window.showAlertModal(r.message, "Ошибка");
             }
           });
         } catch (_) {}

@@ -1775,8 +1775,12 @@ if (document.readyState === "loading") {
     try {
       if (!window.__usersWatchdogBound) {
         window.__usersWatchdogBound = true;
-        setInterval(function () {
+        let watchdogInterval = setInterval(function () {
           try {
+            const connectionState = window.SyncManager.getConnectionState();
+            if (!connectionState.connected) {
+              return; // Пропускаем при отсутствии соединения
+            }
             const now = Date.now();
             const last = window.__usersLastEvtTs || 0;
             const delta = now - last;
@@ -1794,6 +1798,32 @@ if (document.readyState === "loading") {
             }
           } catch (_) {}
         }, 5000);
+
+        // Возобновляем watchdog при восстановлении соединения
+        window.addEventListener("socketConnected", function () {
+          if (watchdogInterval) {
+            clearInterval(watchdogInterval);
+          }
+          watchdogInterval = setInterval(function () {
+            try {
+              const now = Date.now();
+              const last = window.__usersLastEvtTs || 0;
+              const delta = now - last;
+              const sock = window.usersSocket;
+              const connected = !!(sock && sock.connected);
+              if (connected && delta > 30000) {
+                if (window.__syncDebug)
+                  console.debug("[users] watchdog refresh", { delta, last });
+                try {
+                  softRefreshUsersTable();
+                } catch (_) {}
+                try {
+                  window.__usersLastEvtTs = Date.now();
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }, 5000);
+        });
       }
     } catch (_) {}
 
@@ -2312,6 +2342,10 @@ if (document.readyState === "loading") {
         pollTimer = setInterval(
           function () {
             try {
+              const connectionState = window.SyncManager.getConnectionState();
+              if (!connectionState.connected) {
+                return; // Пропускаем при отсутствии соединения
+              }
               backgroundImmediateUsersRefresh();
             } catch (_) {}
           },
@@ -2716,7 +2750,7 @@ if (document.readyState === "loading") {
         if (window.showToast) {
           window.showToast("Логин не может быть пустым", "error");
         } else {
-          alert("Логин не может быть пустым");
+          window.showAlertModal("Логин не может быть пустым", "Ошибка");
         }
         loginInput.focus();
         return false;
@@ -2731,7 +2765,7 @@ if (document.readyState === "loading") {
         if (window.showToast) {
           window.showToast("Имя не может быть пустым", "error");
         } else {
-          alert("Имя не может быть пустым");
+          window.showAlertModal("Имя не может быть пустым", "Ошибка");
         }
         nameInput.focus();
         return false;
@@ -2746,7 +2780,7 @@ if (document.readyState === "loading") {
         if (window.showToast) {
           window.showToast("Пароль не может быть пустым", "error");
         } else {
-          alert("Пароль не может быть пустым");
+          window.showAlertModal("Пароль не может быть пустым", "Ошибка");
         }
         passwordInput.focus();
         return false;
@@ -2761,7 +2795,10 @@ if (document.readyState === "loading") {
             "error"
           );
         } else {
-          alert(`Пароль должен быть не менее ${minLength} символов`);
+          window.showAlertModal(
+            `Пароль должен быть не менее ${minLength} символов`,
+            "Ошибка"
+          );
         }
         passwordInput.focus();
         return false;
@@ -2780,7 +2817,7 @@ if (document.readyState === "loading") {
           if (window.showToast) {
             window.showToast("Пароли не совпадают", "error");
           } else {
-            alert("Пароли не совпадают");
+            window.showAlertModal("Пароли не совпадают", "Ошибка");
           }
           passwordConfirmInput.focus();
           return false;
@@ -2925,7 +2962,7 @@ if (document.readyState === "loading") {
           if (window.showToast) {
             window.showToast(msg, "error");
           } else {
-            alert(msg);
+            window.showAlertModal(msg, "Ошибка");
           }
         } catch (_) {}
       });

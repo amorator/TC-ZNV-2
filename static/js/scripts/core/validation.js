@@ -18,7 +18,7 @@ window.CommonValidation = {
    */
   validateRequired: function (field, fieldName) {
     if (!field || !field.value || field.value.trim() === "") {
-      alert(`${fieldName} не может быть пустым`);
+      window.showAlertModal(`${fieldName} не может быть пустым`, "Ошибка");
       if (field && field.focus) field.focus();
       return false;
     }
@@ -33,12 +33,15 @@ window.CommonValidation = {
    */
   validatePasswordLength: function (passwordField, minLength) {
     if (!passwordField || !passwordField.value) {
-      alert("Пароль не может быть пустым");
+      window.showAlertModal("Пароль не может быть пустым", "Ошибка");
       if (passwordField && passwordField.focus) passwordField.focus();
       return false;
     }
     if (passwordField.value.length < minLength) {
-      alert(`Пароль должен быть не менее ${minLength} символов`);
+      window.showAlertModal(
+        `Пароль должен быть не менее ${minLength} символов`,
+        "Ошибка"
+      );
       if (passwordField.focus) passwordField.focus();
       return false;
     }
@@ -54,7 +57,7 @@ window.CommonValidation = {
   validatePasswordMatch: function (passwordField, confirmField) {
     if (!passwordField || !confirmField) return true;
     if (passwordField.value !== confirmField.value) {
-      alert("Пароли не совпадают");
+      window.showAlertModal("Пароли не совпадают", "Ошибка");
       if (confirmField.focus) confirmField.focus();
       return false;
     }

@@ -1,6 +1,6 @@
 from flask import render_template, request, jsonify, Response
 from flask_login import current_user
-from modules.permissions import require_permissions, CATEGORIES_VIEW, CATEGORIES_MANAGE, ADMIN_ANY
+from modules.permissions import require_permissions, CATEGORIES_VIEW, CATEGORIES_MANAGE, ADMIN_ANY, FILES_UPLOAD
 from modules.logging import get_logger, log_action
 from modules.registrators import Registrator, parse_directory_listing
 from modules.sync_manager import emit_registrators_changed
@@ -140,6 +140,32 @@ def register(app, socketio=None):
                 'display_order': int(r[4] or 0)
             } for r in (rows or []) if r]
             return jsonify({'status': 'success', 'items': items})
+        except Exception as e:
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    @app.route('/api/registrators/<int:rid>', methods=['GET'])
+    @require_permissions(CATEGORIES_VIEW)
+    def registrator_detail(rid):
+        """Get individual registrator details."""
+        try:
+            row = app._sql.execute_scalar(
+                f"SELECT id, name, url_template, enabled, display_order FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s LIMIT 1;",
+                [rid])
+            if not row:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Registrator not found'
+                }), 404
+
+            item = {
+                'id': row[0],
+                'name': row[1],
+                'url_template': row[2],
+                'enabled': int(row[3]),
+                'display_order': int(row[4] or 0)
+            }
+            return jsonify({'status': 'success', 'item': item})
         except Exception as e:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -539,25 +565,27 @@ def register(app, socketio=None):
             except Exception:
                 pass
             if level == 'date':
-                url = r.build_url(date='',
-                                  user='',
-                                  time_s='',
-                                  type_s='',
-                                  file_s='')
+                url = r.base_url()
             elif level == 'user':
-                url = r.build_url(date=parts['date'])
+                url = r.build_partial_url(date=parts['date'])
             elif level == 'time':
-                url = r.build_url(date=parts['date'], user=parts['user'])
+                url = r.build_partial_url(date=parts['date'],
+                                          user=parts['user'])
             elif level == 'type':
-                url = r.build_url(date=parts['date'],
-                                  user=parts['user'],
-                                  time_s=parts['time'])
+                url = r.build_partial_url(date=parts['date'],
+                                          user=parts['user'],
+                                          time=parts['time'])
             else:
-                url = r.build_url(date=parts['date'],
-                                  user=parts['user'],
-                                  time_s=parts['time'],
-                                  type_s=parts['type'])
+                url = r.build_partial_url(date=parts['date'],
+                                          user=parts['user'],
+                                          time=parts['time'],
+                                          type=parts['type'])
             entries = parse_directory_listing(url)
+
+            # Sort entries in reverse order for date and time levels
+            if level in ['date', 'time']:
+                entries.sort(reverse=True)
+
             return jsonify({
                 'status': 'success',
                 'entries': entries,
@@ -596,6 +624,35 @@ def register(app, socketio=None):
                     'message':
                     'category_id, subcategory_id, files required'
                 }), 400
+
+            # Validate user has access to the specific category and subcategory
+            try:
+                # Check if category exists and user has access
+                cat_row = app._sql.execute_scalar(
+                    f"SELECT id FROM {app._sql.config['db']['prefix']}_category WHERE id=%s;",
+                    [cat_id])
+                if not cat_row:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Category not found'
+                    }), 404
+
+                # Check if subcategory exists and belongs to the category
+                sub_row = app._sql.execute_scalar(
+                    f"SELECT id FROM {app._sql.config['db']['prefix']}_subcategory WHERE id=%s AND category_id=%s;",
+                    [sub_id, cat_id])
+                if not sub_row:
+                    return jsonify({
+                        'status':
+                        'error',
+                        'message':
+                        'Subcategory not found or does not belong to category'
+                    }), 404
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Error validating category access'
+                }), 500
             # Enforce max files
             try:
                 max_files = int(
@@ -605,7 +662,7 @@ def register(app, socketio=None):
                 max_files = 10
             if len(file_names) > max_files:
                 file_names = file_names[:max_files]
-            # Load registrator
+            # Load registrator and validate user has access
             row = app._sql.execute_scalar(
                 f"SELECT name, url_template, enabled FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s LIMIT 1;",
                 [rid])
@@ -620,6 +677,52 @@ def register(app, socketio=None):
                     'status': 'error',
                     'message': 'registrator disabled'
                 }), 400
+
+            # Check if user has permission to use this specific registrator
+            try:
+                # Get registrator permissions for this user
+                perm_key = f"registrator_permissions:{rid}"
+                perm_data = app._sql.setting_get(perm_key)
+                if perm_data:
+                    try:
+                        perms = loads(perm_data)
+                        user_perms = perms.get('user', {})
+                        group_perms = perms.get('group', {})
+
+                        # Check if user has direct permission
+                        user_id = str(current_user.id)
+                        has_user_permission = user_perms.get(user_id) == 1
+
+                        # Check if user's group has permission
+                        has_group_permission = False
+                        if current_user.gid:
+                            group_id = str(current_user.gid)
+                            has_group_permission = group_perms.get(
+                                group_id) == 1
+
+                        if not (has_user_permission or has_group_permission):
+                            return jsonify({
+                                'status':
+                                'error',
+                                'message':
+                                'No permission to use this registrator'
+                            }), 403
+                    except Exception:
+                        # If permission data is corrupted, deny access
+                        return jsonify({
+                            'status':
+                            'error',
+                            'message':
+                            'Invalid registrator permissions'
+                        }), 403
+            except Exception:
+                # If we can't check permissions, deny access for security
+                return jsonify({
+                    'status':
+                    'error',
+                    'message':
+                    'Cannot verify registrator permissions'
+                }), 403
             r = Registrator(name, url_template, "", True, rid)
             # Resolve storage dir
             storage_dir = app._sql._build_storage_dir(cat_id, sub_id)
@@ -728,6 +831,19 @@ def register(app, socketio=None):
                         pass
             except Exception:
                 pass
+            # Log the import action
+            try:
+                cat = app._sql.category_by_id([cat_id])
+                sub = app._sql.subcategory_by_id([sub_id])
+                cat_name = cat.name if cat else f"cat_id={cat_id}"
+                sub_name = sub.name if sub else f"sub_id={sub_id}"
+                log_action(
+                    'REGISTRATOR_IMPORT', current_user.name,
+                    f'imported {len(created_ids)} files from registrator {name} to {cat_name}/{sub_name}',
+                    (request.remote_addr or ''))
+            except Exception:
+                pass
+
             return jsonify({
                 'status': 'success',
                 'created': len(created_ids),
@@ -749,3 +865,96 @@ def register(app, socketio=None):
             return Response(str(e),
                             status=500,
                             mimetype='text/plain; charset=utf-8')
+
+    @app.route('/registrators/<int:rid>/download', methods=['GET'])
+    @require_permissions(FILES_UPLOAD)
+    def registrators_download(rid):
+        """Download file from registrator via server (bypass CORS/proxy issues)."""
+        try:
+            url = request.args.get('url')
+            if not url:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'URL parameter required'
+                }), 400
+
+            # Get registrator info from database
+            try:
+                row = app._sql.execute_scalar(
+                    f"SELECT name, url_template FROM {app._sql.config['db']['prefix']}_registrator WHERE id=%s LIMIT 1;",
+                    [rid])
+                if not row:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Registrator not found'
+                    }), 404
+
+                name, url_template = row
+                r = Registrator(name, url_template, "", True, rid)
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Database error: {str(e)}'
+                }), 500
+
+            # Download file from registrator
+            import requests
+            _log.info(f"Attempting to download from registrator: {url}")
+
+            # Try different approaches
+            headers = {
+                'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+
+            response = requests.get(url,
+                                    timeout=30,
+                                    stream=True,
+                                    verify=False,
+                                    headers=headers)
+            _log.info(f"Download response status: {response.status_code}")
+            _log.info(f"Response headers: {dict(response.headers)}")
+
+            if response.status_code != 200:
+                _log.error(
+                    f"Download failed with status {response.status_code}: {response.text[:500]}"
+                )
+                return jsonify({
+                    'status':
+                    'error',
+                    'message':
+                    f'Download failed with status {response.status_code}'
+                }), response.status_code
+
+            response.raise_for_status()
+
+            # Return file as stream
+            def generate():
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+
+            return Response(generate(),
+                            mimetype='application/octet-stream',
+                            headers={
+                                'Content-Disposition':
+                                f'attachment; filename="{url.split("/")[-1]}"',
+                                'Content-Length':
+                                str(response.headers.get('content-length', 0))
+                            })
+
+        except requests.exceptions.RequestException as e:
+            _log.error(f"Download failed for URL {url}: {str(e)}")
+            return jsonify({
+                'status': 'error',
+                'message': f'Download failed: {str(e)}'
+            }), 500
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Server error: {str(e)}'
+            }), 500

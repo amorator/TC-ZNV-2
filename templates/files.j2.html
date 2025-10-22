@@ -10,9 +10,9 @@
 {% endblock %}
 
 {% block js %}
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
   // Make dirs data available before files.js executes
   try { window.dirsData = {{ dirs | tojson }}; } catch(_) { window.dirsData = []; }
@@ -22,8 +22,8 @@
     window.current_subcategory_id = {{ (current_subcategory_id or 0) | int }};
   } catch(_) {}
 </script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/sync.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/files.js') }}" defer="defer"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/sync.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/pages/files.js') }}"></script>
 {% endblock %}
 
 {% block main %}
@@ -75,10 +75,10 @@
                 {% include 'components/searchbar.html' %}
                 {% if current_user.has('files.upload') %}
                   <div class="d-inline-flex gap-2">
-                    <button type="button" id="filesUploadBtn" class="btn btn-primary" data-testid="files-upload" data-action="files-upload" onclick="popupToggle('popup-add');">
+                    <button type="button" id="filesUploadBtn" class="btn btn-primary" data-testid="files-upload" data-action="files-upload" onclick="openModal('popup-add');">
                       <i class="bi bi-plus-lg"></i> Загрузить
                     </button>
-                    <button type="button" id="record-file-button" class="btn btn-primary" data-testid="files-record-open" data-action="record-file" onclick="popupToggle('popup-rec');">
+                    <button type="button" id="record-file-button" class="btn btn-primary" data-testid="files-record-open" data-action="record-file" onclick="openModal('popup-rec');">
                       <i class="bi bi-camera-video"></i> Записать
                     </button>
                     {% if can_reg_import %}
@@ -128,7 +128,7 @@
                     </div>
                     <div class="mt-1">
                       {% if current_user.has('files.notes') %}
-                        <span class="note-badge{{ ' note-badge--has' if file.note }}" data-testid="files-note-open" data-action="files-note" onclick="popupValues(document.getElementById('note'), {{ file.id }}); popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+                        <span class="note-badge{{ ' note-badge--has' if file.note }}" data-testid="files-note-open" data-action="files-note" onclick="popupValues(document.getElementById('note'), {{ file.id }}); openModal('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
                       {% else %}
                         <span class="note-badge{{ ' note-badge--has' if file.note }}">{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
                       {% endif %}
@@ -159,7 +159,8 @@
                     <div class="d-inline-flex gap-2 ms-2 align-items-center">
                       <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
                       {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
-                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+                <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
                       {% endif %}
                     </div>
                   </td>
@@ -201,7 +202,7 @@
   <div id="popup-add" class="overlay-container" data-testid="files-modal-add">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-add-title">
       <h1 class="popup__title mb-4" id="popup-add-title">Добавление файлов</h1>
-      <form class="popup__form" id="add" action="{{ url_for('files_add', did=did, sdid=sdid) }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
+      <form class="popup__form" id="add" action="{{ url_for('files_add') }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
 
         <div class="popup__form-control form-control">
           <label class="form-control__label" for="add-name">Название:</label>
@@ -225,7 +226,7 @@
           <small class="form-text text-muted">Максимальный размер: {{ max_file_size_mb }}MB. Поддерживаемые форматы видео: MP4, WebM, AVI, MOV, MKV, WMV, FLV, M4V; аудио: MP3, WAV, FLAC, AAC, M4A, OGG/OPUS, WMA</small>
         </div>
         <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="popupToggle('popup-add');" >Отмена</button>
+          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="closeModal('popup-add');" >Отмена</button>
           <button type="button" class="btn btn-primary" id="add-submit-btn" data-testid="files-add-submit" onclick="validateForm(this);">Добавить</button>
         </div>
         
@@ -276,9 +277,15 @@
           </div>
           <small class="form-text text-muted">Поля появляются по мере выбора предыдущих.</small>
         </div>
+        <div class="mb-3">
+          <div class="form-control__label">Выберите файлы для загрузки:</div>
+          <div id="reg-file-list" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+            <div class="text-muted text-center">Сначала выберите регистратор и параметры</div>
+          </div>
+        </div>
       </div>
       <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-        <button type="button" class="btn btn-secondary" onclick="popupToggle('popup-import-registrator');">Отмена</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal('popup-import-registrator');">Отмена</button>
         <button type="button" class="btn btn-primary" onclick="window.submitRegistratorImport && window.submitRegistratorImport();">Загрузить</button>
       </div>
     </div>
@@ -289,7 +296,7 @@
       <h1 class="popup__title mb-4" id="popup-edit-title">Редактирование файла</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="edit" action="{{ url_for('files_edit', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
+    <form class="popup__form" id="edit" action="{{ url_for('files_edit', id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
 
             <label class="form-control__label" for="edit-name">Название:</label>
@@ -302,7 +309,7 @@
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="files-edit-cancel" onclick="popupToggle('popup-edit');" >Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="files-edit-cancel" onclick="closeModal('popup-edit');" >Отмена</button>
             <button type="button" class="btn btn-primary" data-testid="files-edit-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
@@ -316,9 +323,9 @@
       <div class="popup__body">
 
         <p>Вы действительно хотите удалить файл <b>vname</b>?</p>
-        <form class="popup__form" id="delete" action="{{ url_for('files_delete', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
+    <form class="popup__form" id="delete" action="{{ url_for('files_delete', id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="files-delete-cancel" onclick="popupToggle('popup-delete');" >Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="files-delete-cancel" onclick="closeModal('popup-delete');" >Отмена</button>
             <button type="button" class="btn btn-danger" data-testid="files-delete-confirm" onclick="validateForm(this);">Удалить</button>
           </div>
         </form>
@@ -331,14 +338,14 @@
       <h1 class="popup__title mb-4" id="popup-note-title">Примечание</h1>
       <div class="popup__body">
 
-        <form class="popup__form" id="note" action="{{ url_for('files_note', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
+    <form class="popup__form" id="note" action="{{ url_for('files_note', id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="note-text">Примечание к записи:</label>
             <textarea class="form-control__control input" id="note-text" name="note" placeholder="Введите примечание..." autocomplete="off"></textarea>
           </div>
 
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="files-note-cancel" onclick="popupToggle('popup-note');" >Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="files-note-cancel" onclick="closeModal('popup-note');" >Отмена</button>
             <button type="button" class="btn btn-primary" data-testid="files-note-save" onclick="validateForm(this);">Сохранить</button>
           </div>
         </form>
@@ -354,7 +361,7 @@
         <iframe
           id="rec-iframe"
           src="about:blank"
-          data-src="{{ url_for('record', did=did, sdid=sdid) }}?embed=1"
+          data-src="{{ url_for('record') }}?embed=1&cat_id={{ current_category_id|int }}&sub_id={{ current_subcategory_id|int }}"
           allow="camera; microphone; display-capture"
           style="width: 100%; height: 70vh; border: 0; display:  block;"
         ></iframe>
@@ -411,7 +418,7 @@
         </script>
       </div>
       <div class="popup__actions">
-        <button type="button" class="btn btn-secondary" data-testid="files-record-close" onclick="popupToggle('popup-rec');">Закрыть</button>
+        <button type="button" class="btn btn-secondary" data-testid="files-record-close" onclick="closeModal('popup-rec');">Закрыть</button>
       </div>
     </div>
   </div>
@@ -424,7 +431,7 @@
         <video id="player-video" style="width: 100%; height: auto; outline: none;" controls playsinline></video>
       </div>
       <div class="popup__actions">
-        <button type="button" class="btn btn-secondary" data-testid="files-view-close" onclick="popupToggle('popup-view');">Закрыть</button>
+        <button type="button" class="btn btn-secondary" data-testid="files-view-close" onclick="closeModal('popup-view');">Закрыть</button>
       </div>
     </div>
   </div>
@@ -437,7 +444,7 @@
         <audio id="player-audio" style="width: 100%; outline: none;" controls preload="none"></audio>
       </div>
       <div class="popup__actions">
-        <button type="button" class="btn btn-secondary" data-testid="files-audio-close" onclick="popupToggle('popup-audio');">Закрыть</button>
+        <button type="button" class="btn btn-secondary" data-testid="files-audio-close" onclick="closeModal('popup-audio');">Закрыть</button>
       </div>
     </div>
   </div>
@@ -447,7 +454,7 @@
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-move-title">
       <h1 class="popup__title mb-4" id="popup-move-title">Переместить файл</h1>
       <div class="popup__body">
-        <form class="popup__form" id="move" action="{{ url_for('files_move', did=did, sdid=sdid, id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
+    <form class="popup__form" id="move" action="{{ url_for('files_move', id=0) }}" method="post" autocomplete="off" onsubmit="return false;">
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-root">Выберите категорию:</label>
             <select class="form-control__control input" name="target_root" id="move-target-root">
@@ -482,7 +489,7 @@
             </select>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-            <button type="button" class="btn btn-secondary" data-testid="files-move-cancel" onclick="popupToggle('popup-move');" >Отмена</button>
+            <button type="button" class="btn btn-secondary" data-testid="files-move-cancel" onclick="closeModal('popup-move');" >Отмена</button>
             <button type="button" class="btn btn-primary" data-testid="files-move-confirm" data-action="move-file" onclick="validateForm(this);">Переместить</button>
           </div>
         </form>

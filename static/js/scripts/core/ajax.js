@@ -80,7 +80,7 @@ window.CommonAjax = {
             if (options.onError) {
               options.onError(errorMsg, response, form);
             } else {
-              alert("Ошибка: " + errorMsg);
+              window.showAlertModal("Ошибка: " + errorMsg, "Ошибка");
             }
           });
         }
@@ -91,7 +91,7 @@ window.CommonAjax = {
         if (options.onError) {
           options.onError(errorMsg, null, form);
         } else {
-          alert(errorMsg);
+          window.showAlertModal(errorMsg, "Ошибка");
         }
       })
       .finally(() => {

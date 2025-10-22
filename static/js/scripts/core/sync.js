@@ -28,6 +28,7 @@ window.SyncManager = (function () {
   let lastTransportMode = "auto"; // auto | ws | polling
   let refreshCallbacks = {};
   let debugEnabled = false;
+  let isConnecting = false; // Защита от множественных соединений
 
   /**
    * Инициализация менеджера синхронизации
@@ -59,6 +60,16 @@ window.SyncManager = (function () {
       return;
     }
 
+    // Защита от множественных соединений
+    if (isConnecting || (socket && socket.connected)) {
+      if (debugEnabled) {
+        console.debug("[sync] Connection already exists or in progress");
+      }
+      return;
+    }
+
+    isConnecting = true;
+
     // Build connection options with adaptive transport
     let opts = {
       path: "/socket.io",
@@ -66,10 +77,12 @@ window.SyncManager = (function () {
       forceNew: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
-      // Exponential backoff for reconnects
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 30000,
-      timeout: 20000,
+      // Exponential backoff for reconnects with longer delays
+      reconnectionDelay: 5000, // Start with 5 seconds minimum
+      reconnectionDelayMax: 120000, // Max 2 minutes
+      timeout: 45000, // 45 second timeout
+      // Add randomization to prevent thundering herd
+      randomizationFactor: 0.8, // More randomization
     };
     if (lastTransportMode === "ws") {
       opts.transports = ["websocket"]; // prefer websocket only
@@ -121,28 +134,37 @@ window.SyncManager = (function () {
 
     // Обработка подключения
     socket.on("connect", function () {
+      isConnecting = false;
       if (debugEnabled) {
         console.debug("[sync] socket connected");
       }
       bindHandlers();
+
+      // Уведомляем о восстановлении соединения для возобновления фоновых задач
+      window.dispatchEvent(
+        new CustomEvent("socketConnected", {
+          detail: { socket: socket },
+        })
+      );
     });
 
     // Обработка отключения
     socket.on("disconnect", function (reason) {
+      isConnecting = false;
       if (debugEnabled) {
         console.debug("[sync] socket disconnect:", reason);
       }
-      // Backoff before attempting rebuild
+      // Backoff before attempting rebuild - увеличиваем задержку
       try {
         const delay = Math.min(
-          30000,
+          60000, // Увеличиваем максимальную задержку до 1 минуты
           Math.max(
-            1000,
+            5000, // Минимальная задержка 5 секунд
             (socket &&
               socket.io &&
               socket.io.backoff &&
               socket.io.backoff.duration()) ||
-              2000
+              10000 // Увеличиваем базовую задержку до 10 секунд
           )
         );
         setTimeout(function () {
@@ -388,6 +410,25 @@ window.SyncManager = (function () {
   }
 
   /**
+   * Проверяет, доступно ли соединение с сервером
+   * @returns {boolean}
+   */
+  function isConnected() {
+    return socket && socket.connected;
+  }
+
+  /**
+   * Получает состояние соединения для оптимизации запросов
+   * @returns {object} {connected: boolean, reconnectDelay: number, reconnecting: boolean}
+   */
+  function getConnectionState() {
+    const connected = isConnected();
+    const reconnecting = socket && socket.connecting;
+    const reconnectDelay = connected ? 1000 : reconnecting ? 10000 : 15000; // Увеличиваем задержку при переподключении
+    return { connected, reconnectDelay, reconnecting };
+  }
+
+  /**
    * Простой debounce-хелпер
    * @param {Function} fn
    * @param {number} waitMs
@@ -475,6 +516,8 @@ window.SyncManager = (function () {
     setDebug: setDebug,
     getSocket: getSocket,
     onResume: onResume,
+    isConnected: isConnected,
+    getConnectionState: getConnectionState,
   };
 })();
 

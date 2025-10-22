@@ -830,7 +830,10 @@ if (document.readyState === "loading") {
         if (window.showToast) {
           window.showToast("Название группы не может быть пустым", "error");
         } else {
-          alert("Название группы не может быть пустым");
+          window.showAlertModal(
+            "Название группы не может быть пустым",
+            "Ошибка"
+          );
         }
         nameInput.focus();
         return false;
@@ -856,7 +859,10 @@ if (document.readyState === "loading") {
                   "error"
                 );
               } else {
-                alert("Название системной группы нельзя изменять");
+                window.showAlertModal(
+                  "Название системной группы нельзя изменять",
+                  "Ошибка"
+                );
               }
               nameInput.focus();
               return false;
@@ -1354,6 +1360,10 @@ if (document.readyState === "loading") {
           pollTimer = setInterval(
             function () {
               try {
+                const connectionState = window.SyncManager.getConnectionState();
+                if (!connectionState.connected) {
+                  return; // Пропускаем при отсутствии соединения
+                }
                 backgroundImmediateGroupsRefresh();
               } catch (_) {}
             },
@@ -1364,11 +1374,15 @@ if (document.readyState === "loading") {
         }
         function stop() {
           if (!pollTimer) return;
-          try {
-            clearInterval(pollTimer);
-          } catch (_) {}
+          clearInterval(pollTimer);
           pollTimer = null;
         }
+
+        // Возобновляем polling при восстановлении соединения
+        window.addEventListener("socketConnected", function () {
+          stop();
+          start();
+        });
         function shouldPoll() {
           try {
             return document.hidden || !document.hasFocus();

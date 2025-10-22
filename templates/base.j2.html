@@ -32,6 +32,7 @@
   <script src="{{ url_for('static', filename='js/scripts/core/validation.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/ajax.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/modal.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts/utils/alert-modal.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   
   {% block js %}{% endblock %}
   <script src="{{ url_for('static', filename='js/scripts/core/base.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
@@ -120,11 +121,22 @@
           if (Notification.permission !== 'default') return false;
           return getCookie('just_logged_in') === '1';
         }
+        function attachA11yHandlers(el){
+          try {
+            el.addEventListener('show.bs.modal', function(){ el.removeAttribute('aria-hidden'); });
+            el.addEventListener('shown.bs.modal', function(){ el.removeAttribute('aria-hidden'); });
+            el.addEventListener('hide.bs.modal', function(){
+              try { if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur(); } catch(_) {}
+            });
+            el.addEventListener('hidden.bs.modal', function(){ el.setAttribute('aria-hidden','true'); });
+          } catch(_) {}
+        }
         function showModal(){
           var el = document.getElementById('pushConsentModal');
           if (!el) return;
           var m = new bootstrap.Modal(el);
           el.addEventListener('hidden.bs.modal', function(){ delCookie('just_logged_in'); });
+          attachA11yHandlers(el);
           var btn = document.getElementById('btnAllowPush');
           if (btn && !btn.dataset.pushBound) {
             btn.dataset.pushBound = '1';
@@ -152,6 +164,8 @@
               try { m.hide(); } catch(_) {}
             };
           }
+          // avoid double-open during fade-out
+          try { if (el.classList && el.classList.contains('show')) return; } catch(_) {}
           m.show();
         }
         if (shouldAsk()) {

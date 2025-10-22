@@ -365,7 +365,7 @@ document.addEventListener("visibilitychange", function () {
  */
 function notifyTest() {
   if (!("Notification" in window)) {
-    alert("Уведомления не поддерживаются!");
+    window.showAlertModal("Уведомления не поддерживаются!", "Ошибка");
   } else if (Notification.permission === "granted") {
     const notification = new Notification("Проверка", {
       body: "Тестовое уведомление",

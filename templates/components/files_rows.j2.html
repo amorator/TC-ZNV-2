@@ -6,7 +6,7 @@
         data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
         data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
-        data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.has('files.mark_viewed') else '' }}"
+        data-view-url="{{ url_for('files_view', id=file.id) if current_user.has('files.mark_viewed') else '' }}"
         data-viewed="{{ 1 if file.viewed else 0 }}"
         data-already-viewed="{{ 1 if (file.viewed and (current_user.name in file.viewed)) else 0 }}"
         data-others-viewed="{% if file.viewed %}{% set fv = file.viewed %}{% if (current_user.name not in fv) %}1{% elif (fv|replace(current_user.name, '')|replace(',', '')|replace(' ', '')) %}1{% else %}0{% endif %}{% else %}0{% endif %}"
@@ -36,7 +36,7 @@
           </div>
           <div class="mt-1">
             {% if current_user.has('files.notes') %}
-              <span class="note-badge{{ ' note-badge--has' if file.note }}" onclick="popupValues(document.getElementById('note'), {{ file.id }}); popupToggle('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
+              <span class="note-badge{{ ' note-badge--has' if file.note }}" onclick="popupValues(document.getElementById('note'), {{ file.id }}); openModal('popup-note', {{ file.id }});">{{ 'Примечание: ' + file.note if file.note else '<оставить примечание>' }}</span>
             {% else %}
               <span class="note-badge{{ ' note-badge--has' if file.note }}">{{ file.note and ('Примечание: ' + file.note) or '—' }}</span>
             {% endif %}
@@ -67,7 +67,7 @@
           <div class="d-inline-flex gap-2 ms-2 align-items-center">
             <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig", did=did, sdid=sdid, name=file.real_name) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
             {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
-              <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="popupToggle('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
+              <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
             {% endif %}
           </div>
         </td>

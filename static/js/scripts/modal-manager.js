@@ -191,7 +191,10 @@
             if (iframe) {
               const currentSrc = (iframe.getAttribute("src") || "").trim();
               const dataSrc = (iframe.getAttribute("data-src") || "").trim();
-              if ((currentSrc === "" || currentSrc === "about:blank") && dataSrc) {
+              if (
+                (currentSrc === "" || currentSrc === "about:blank") &&
+                dataSrc
+              ) {
                 iframe.setAttribute("src", dataSrc);
               }
             }
@@ -678,7 +681,10 @@
         const isPaused = !!st.paused;
         const hasData = !!st.hasData;
         if (isRecording) {
-          alert("Остановите запись перед закрытием окна.");
+          window.showAlertModal(
+            "Остановите запись перед закрытием окна.",
+            "Предупреждение"
+          );
           return;
         }
         if (!window.__recSaving && (hasData || isPaused)) {

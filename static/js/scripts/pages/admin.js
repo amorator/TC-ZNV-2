@@ -1902,19 +1902,57 @@
     refreshMaintainCooldown();
     runWithBackoff("logs:init", loadLogs);
     runWithBackoff("logs_list:init", loadLogsList);
-    setInterval(function () {
-      runWithBackoff("logs", loadLogs);
-    }, 10000);
-    setInterval(function () {
-      runWithBackoff("logs_list", loadLogsList);
-    }, 20000);
-    // Periodic polling to reconcile presence, gated by connectivity and backoff
-    setInterval(function () {
-      runWithBackoff("presence", fetchPresence);
-    }, 5000);
-    setInterval(function () {
-      runWithBackoff("sessions", fetchSessions);
-    }, 7000);
+    let logsInterval, logsListInterval, presenceInterval, sessionsInterval;
+
+    function startIntervals() {
+      logsInterval = setInterval(function () {
+        const connectionState = window.SyncManager.getConnectionState();
+        if (!connectionState.connected) {
+          return; // Пропускаем запросы при отсутствии соединения
+        }
+        runWithBackoff("logs", loadLogs);
+      }, 10000);
+
+      logsListInterval = setInterval(function () {
+        const connectionState = window.SyncManager.getConnectionState();
+        if (!connectionState.connected) {
+          return; // Пропускаем запросы при отсутствии соединения
+        }
+        runWithBackoff("logs_list", loadLogsList);
+      }, 20000);
+
+      // Periodic polling to reconcile presence, gated by connectivity and backoff
+      presenceInterval = setInterval(function () {
+        const connectionState = window.SyncManager.getConnectionState();
+        if (!connectionState.connected) {
+          return; // Пропускаем запросы при отсутствии соединения
+        }
+        runWithBackoff("presence", fetchPresence);
+      }, 5000);
+
+      sessionsInterval = setInterval(function () {
+        const connectionState = window.SyncManager.getConnectionState();
+        if (!connectionState.connected) {
+          return; // Пропускаем запросы при отсутствии соединения
+        }
+        runWithBackoff("sessions", fetchSessions);
+      }, 7000);
+    }
+
+    // Запускаем интервалы
+    startIntervals();
+
+    // Возобновляем интервалы при восстановлении соединения
+    window.addEventListener("socketConnected", function () {
+      // Очищаем старые интервалы
+      if (logsInterval) clearInterval(logsInterval);
+      if (logsListInterval) clearInterval(logsListInterval);
+      if (presenceInterval) clearInterval(presenceInterval);
+      if (sessionsInterval) clearInterval(sessionsInterval);
+
+      // Запускаем новые
+      startIntervals();
+    });
     onScopeChangeModal();
     // Idle guard: soft refresh admin presence/sessions if idle
     try {

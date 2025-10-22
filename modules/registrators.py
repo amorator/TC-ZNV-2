@@ -44,6 +44,38 @@ class Registrator:
 		url = url.replace("<file>", urllib.parse.quote(file_s))
 		return url
 
+	def build_partial_url(self, **kwargs) -> str:
+		"""Build URL with only specified parameters, truncating at the next placeholder."""
+		url = str(self.url_template or "")
+		
+		# Replace only the specified parameters
+		if 'date' in kwargs:
+			url = url.replace("<date>", urllib.parse.quote(kwargs['date']))
+		if 'user' in kwargs:
+			url = url.replace("<user>", urllib.parse.quote(kwargs['user']))
+		if 'time' in kwargs:
+			url = url.replace("<time>", urllib.parse.quote(kwargs['time']))
+		if 'type' in kwargs:
+			url = url.replace("<type>", urllib.parse.quote(kwargs['type']))
+		if 'file' in kwargs:
+			url = url.replace("<file>", urllib.parse.quote(kwargs['file']))
+		
+		# Find the first remaining placeholder and truncate there
+		import re
+		placeholder_pattern = r'<[^>]+>'
+		match = re.search(placeholder_pattern, url)
+		if match:
+			url = url[:match.start()]
+		
+		# Clean up trailing slashes and multiple slashes
+		url = re.sub(r'/+$', '', url)  # Remove trailing slashes
+		url = re.sub(r'/+', '/', url)  # Clean up multiple slashes
+		
+		# Fix missing slash after http: (common issue)
+		url = re.sub(r'^http:/', 'http://', url)
+		
+		return url
+
 
 def parse_directory_listing(url: str) -> List[str]:
 	"""Fetch an HTTP directory listing and return entry names.
