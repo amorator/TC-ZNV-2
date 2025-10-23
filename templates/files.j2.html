@@ -56,7 +56,7 @@
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица файлов" data-testid="files-table" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
+      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица файлов" data-testid="files-table" data-can-manage="{{ 1 if current_user.has('files.manage') else 0 }}" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
         <thead class="table__head">
           <tr class="table__head_row" role="row">
             <th class="table__head_item" scope="col">Название</th>
@@ -219,7 +219,7 @@
           <label class="form-control__label" for="file">Выбрать файлы (до {{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }} шт.):</label>
           <div class="d-flex flex-wrap gap-2 align-items-center">
             <input class="form-control__control" type="file" name="file" id="file" data-testid="files-upload-input" multiple autocomplete="off"
-              accept="video/*,audio/*,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus">
+              accept="{{ accept_attribute }}">
           </div>
           <small class="form-text text-muted">Можно выбрать несколько файлов. Максимум: {{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}. При множественной загрузке используются реальные имена файлов.</small>
           <input type="hidden" id="max-upload-files" value="{{ (config['files'].get('max_upload_files') if config and config.get('files') else 5) }}" autocomplete="off">

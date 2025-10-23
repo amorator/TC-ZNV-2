@@ -290,36 +290,80 @@
     }
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", function () {
-        tryInit();
-        ensurePushFresh();
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback(
+            () => {
+              setTimeout(() => {
+                tryInit();
+                setTimeout(() => {
+                  ensurePushFresh();
+                }, 0);
+              }, 0);
+            },
+            { timeout: 1000 }
+          );
+        } else {
+          setTimeout(() => {
+            setTimeout(() => {
+              tryInit();
+              setTimeout(() => {
+                ensurePushFresh();
+              }, 0);
+            }, 0);
+          }, 0);
+        }
       });
     } else {
-      tryInit();
-      ensurePushFresh();
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(
+          () => {
+            setTimeout(() => {
+              tryInit();
+              setTimeout(() => {
+                ensurePushFresh();
+              }, 0);
+            }, 0);
+          },
+          { timeout: 1000 }
+        );
+      } else {
+        setTimeout(() => {
+          setTimeout(() => {
+            tryInit();
+            setTimeout(() => {
+              ensurePushFresh();
+            }, 0);
+          }, 0);
+        }, 0);
+      }
     }
 
     // Periodic background refresh to keep subscriptions updated for all users
     try {
-      setInterval(function () {
-        try {
-          // Only refresh while page is visible to avoid unnecessary work
-          if (
-            typeof document !== "undefined" &&
-            document.visibilityState === "visible"
-          ) {
-            ensurePushFresh();
-          }
-        } catch (__) {}
-      }, 30 * 60 * 1000); // every 30 minutes
+      setTimeout(() => {
+        setInterval(function () {
+          try {
+            // Only refresh while page is visible to avoid unnecessary work
+            if (
+              typeof document !== "undefined" &&
+              document.visibilityState === "visible"
+            ) {
+              ensurePushFresh();
+            }
+          } catch (__) {}
+        }, 30 * 60 * 1000); // every 30 minutes
+      }, 0);
     } catch (__) {}
 
     // Refresh on tab visibility gain
     try {
-      document.addEventListener("visibilitychange", function () {
-        try {
-          if (document.visibilityState === "visible") ensurePushFresh();
-        } catch (__) {}
-      });
+      setTimeout(() => {
+        document.addEventListener("visibilitychange", function () {
+          try {
+            if (document.visibilityState === "visible") ensurePushFresh();
+          } catch (__) {}
+        });
+      }, 0);
     } catch (__) {}
   })();
 })();

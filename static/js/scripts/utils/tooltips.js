@@ -40,9 +40,18 @@ function applyOverflowTooltips(scope) {
   }
 }
 
-// Инициализация при загрузке DOM
+// Инициализация при загрузке DOM - defer to avoid blocking
 document.addEventListener("DOMContentLoaded", function () {
-  applyOverflowTooltips(document);
+  if (window.requestIdleCallback) {
+    window.requestIdleCallback(() => {
+        applyOverflowTooltips(document);
+    
+      }, { timeout: 2000 });
+  } else {
+    setTimeout(() => {
+      applyOverflowTooltips(document);
+    }, 0);
+  }
 });
 
 // Обновление при изменении размера окна

@@ -52,7 +52,9 @@ function popupToggle(popupId) {
         hasClassVisible: popupElement.classList.contains("visible"),
         display: popupElement.style && popupElement.style.display,
       });
-  } catch (_) {}
+  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 
   if (popupElement.classList.contains("visible")) {
     // Скрываем модальное окно
@@ -90,7 +92,9 @@ function popupToggle(popupId) {
     }
     try {
       window.modlog && window.modlog("popupToggle -> hide", popupId);
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   } else {
     // Показываем модальное окно
     popupElement.style.display = "flex";
@@ -98,7 +102,9 @@ function popupToggle(popupId) {
     // Добавляем класс 'show' для совместимости с CSS, управляющим непрозрачностью
     try {
       popupElement.classList.add("show");
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
     document.body.style.overflow = "hidden"; // Блокируем прокрутку фона
     window.popup = popupId;
 
@@ -139,7 +145,9 @@ function popupToggle(popupId) {
     }
     try {
       window.modlog && window.modlog("popupToggle -> show", popupId);
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 }
 
@@ -154,7 +162,9 @@ function popupClose(popupId) {
 
   try {
     window.modlog && window.modlog("popupClose", popupId);
-  } catch (_) {}
+  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 
   // Принудительно закрываем независимо от текущего состояния
   popupElement.classList.remove("visible");

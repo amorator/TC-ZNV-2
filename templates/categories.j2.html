@@ -415,14 +415,25 @@ try {
 </script>
 <script>
 // Debug marker to verify template executed
-try { console.debug('[categories] inline template hook'); } catch(_) {}
-// Dynamically load categories.js with cache-busting to defeat SW/browser cache
+// Dynamically load categories modules with cache-busting to defeat SW/browser cache
 (function(){
   try {
-    var s = document.createElement('script');
-    s.src = "{{ url_for('static', filename='js/categories.js') }}?v=" + Date.now();
-    s.defer = true;
-    document.head.appendChild(s);
+    // Load core modules first
+    var modules = [
+      'js/scripts/core/categories-core.js',
+      'js/scripts/core/categories-management.js', 
+      'js/scripts/core/subcategories-management.js',
+      'js/scripts/core/permissions-management.js',
+      'js/scripts/core/categories-socket.js',
+      'js/scripts/pages/categories.js'
+    ];
+    
+    modules.forEach(function(module) {
+      var s = document.createElement('script');
+      s.src = "{{ url_for('static', filename='') }}" + module + "?v=" + Date.now();
+      s.defer = true;
+      document.head.appendChild(s);
+    });
   } catch(_) {}
 })();
 </script>

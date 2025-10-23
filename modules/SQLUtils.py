@@ -17,17 +17,19 @@ import base64
 import secrets
 from .logging import get_logger
 import time
+import threading
+import redis
 
 _log = get_logger(__name__)
 
 
 class SQL(Config):
 	"""Base SQL class holding connection pool and raw exec helpers."""
-
+	
 	def __init__(self):
 		super().__init__()
 		self._pool: Optional[mysql.pooling.MySQLConnectionPool] = None
-		# Initialize database schema on startup
+		# Initialize database schema on startup (only once across all workers)
 		self._ensure_database_schema()
 
 	def _ensure_database_schema(self):
@@ -142,7 +144,8 @@ class SQL(Config):
 	def with_conn(func):
 		def _with_conn(self, command, args=[]):
 			if not self._pool:
-				_log.info(f"Creating MySQL connection pool with size {int(self.config['db'].get('pool_size', 20))}")
+				# Only log pool creation once across all workers using Redis
+				self._log_pool_creation_once_static()
 				self._pool = mysql.pooling.MySQLConnectionPool(
 					pool_name="znv_pool",
 					pool_size=int(self.config['db'].get('pool_size', 20)),  # Increased from 5 to 20
@@ -217,9 +220,12 @@ class SQL(Config):
 		if not self._pool:
 			# Ensure schema and initialize pool if missing (mirrors with_conn)
 			self._ensure_database_schema()
-			try:
+			# Only log pool creation once across all workers using Redis
+			redis_client = SQL._create_redis_client_for_logging_static()
+			if redis_client and redis_client.set('pool_created_logged', '1', nx=True, ex=20):
 				_log.info(f"Creating MySQL connection pool with size {int(self.config['db'].get('pool_size', 20))}")
-				self._pool = mysql.pooling.MySQLConnectionPool(
+			
+			self._pool = mysql.pooling.MySQLConnectionPool(
 					pool_name="znv_pool",
 					pool_size=int(self.config['db'].get('pool_size', 20)),
 					pool_reset_session=True,
@@ -233,8 +239,6 @@ class SQL(Config):
 					autocommit=True,
 					sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO',
 				)
-			except Exception:
-				pass
 		retries = int(self.config['db'].get('pool_acquire_retries', 100))
 		delay_ms = int(self.config['db'].get('pool_acquire_delay_ms', 100))
 		last_err = None
@@ -839,6 +843,10 @@ class SQLUtils(SQL):
 	
 	def _ensure_database_schema(self):
 		"""Initialize database schema and create default admin user if needed."""
+		# Check if schema has already been initialized using Redis
+		if self._is_schema_initialized():
+			return
+		
 		try:
 			prefix = self.config['db']['prefix']
 			
@@ -984,7 +992,10 @@ class SQLUtils(SQL):
 					INSERT INTO {prefix}_group (name, description) 
 					VALUES (%s, 'Группа администраторов системы');
 				""", [admin_group_name])
-				_log.info(f"Created default admin group: {admin_group_name}")
+				# Only log admin group creation once across all workers using Redis
+				redis_client = self._create_redis_client_for_logging()
+				if redis_client and redis_client.set('admin_group_created_logged', '1', nx=True, ex=20):
+					_log.info(f"Created default admin group: {admin_group_name}")
 				admin_group_id = 1  # New group will have ID 1
 			else:
 				admin_group_id = admin_group_result[0]
@@ -1003,13 +1014,25 @@ class SQLUtils(SQL):
 						INSERT INTO {prefix}_user (login, name, password, gid, enabled, permission) 
 						VALUES (%s, %s, %s, %s, %s, %s);
 					""", [admin_login, admin_name, admin_password_hash, admin_group_id, True, admin_permissions])
-					_log.info(f"Created default admin user: {admin_login} in group: {admin_group_name}")
+					# Only log admin user creation once across all workers using Redis
+					redis_client = self._create_redis_client_for_logging()
+					if redis_client and redis_client.set('admin_user_created_logged', '1', nx=True, ex=20):
+						_log.info(f"Created default admin user: {admin_login} in group: {admin_group_name}")
 				else:
-					_log.error(f"Admin password hash is empty or invalid in config.ini, cannot create admin user")
+					# Only log admin password error once across all workers using Redis
+					redis_client = self._create_redis_client_for_logging()
+					if redis_client and redis_client.set('admin_password_error_logged', '1', nx=True, ex=20):
+						_log.error(f"Admin password hash is empty or invalid in config.ini, cannot create admin user")
 			else:
-				_log.info(f"Admin user {admin_login} already exists, skipping creation")
+				# Only log admin user exists once across all workers using Redis
+				redis_client = self._create_redis_client_for_logging()
+				if redis_client and redis_client.set('admin_user_exists_logged', '1', nx=True, ex=20):
+					_log.info(f"Admin user {admin_login} already exists, skipping creation")
 				
-			_log.info("Database schema initialization completed successfully")
+			# Only log schema initialization completion once across all workers using Redis
+			redis_client = self._create_redis_client_for_logging()
+			if redis_client and redis_client.set('schema_init_completed_logged', '1', nx=True, ex=20):
+				_log.info("Database schema initialization completed successfully")
 
 			# Ensure VAPID keys exist in settings; generate if missing/empty
 			try:
@@ -1039,9 +1062,135 @@ class SQLUtils(SQL):
 			except Exception as e:
 				_log.error(f"Error ensuring VAPID keys: {e}")
 			
+			# Mark schema as initialized successfully using Redis
+			self._mark_schema_initialized()
+				
 		except Exception as e:
 			_log.error(f"Error initializing database schema: {str(e)}")
 			raise
+
+	def _create_redis_client_for_logging(self):
+		"""Create a temporary Redis client for logging synchronization using config settings."""
+		try:
+			redis_config = {}
+			# Try dict-style access first
+			try:
+				redis_config = self.config['redis']
+			except Exception:
+				# Fallback to ConfigParser-style access
+				try:
+					redis_config = {
+						'server': self.config.get('redis', 'server', fallback=None),
+						'port': self.config.get('redis', 'port', fallback=6379),
+						'password': self.config.get('redis', 'password', fallback=None),
+						'socket': self.config.get('redis', 'socket', fallback=None),
+						'db': self.config.get('redis', 'db', fallback=0)
+					}
+					# Convert port to int
+					try:
+						redis_config['port'] = int(redis_config['port'])
+					except (ValueError, TypeError):
+						redis_config['port'] = 6379
+				except Exception:
+					redis_config = {}
+			
+			# Create Redis client using the same logic as RedisClient
+			if redis_config.get('socket'):
+				if redis_config.get('password'):
+					url = f"unix://:{redis_config['password']}@{redis_config['socket']}?db={redis_config.get('db', 0)}"
+				else:
+					url = f"unix://{redis_config['socket']}?db={redis_config.get('db', 0)}"
+			else:
+				host = redis_config.get('server', 'localhost')
+				port = redis_config.get('port', 6379)
+				password = redis_config.get('password')
+				db = redis_config.get('db', 0)
+				
+				if password:
+					url = f"redis://:{password}@{host}:{port}/{db}"
+				else:
+					url = f"redis://{host}:{port}/{db}"
+			
+			return redis.from_url(url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
+		except Exception:
+			return None
+
+	def _log_pool_creation_once(self) -> None:
+		"""Log pool creation only once across all workers using Redis."""
+		redis_client = self._create_redis_client_for_logging()
+		# Use Redis SET with NX (only if not exists) and EX (expire in 20 seconds)
+		if redis_client and redis_client.set('pool_created_logged', '1', nx=True, ex=20):
+			_log.info(f"Creating MySQL connection pool with size {int(self.config['db'].get('pool_size', 20))}")
+
+	@staticmethod
+	def _create_redis_client_for_logging_static():
+		"""Create a temporary Redis client for logging synchronization using config settings (static method)."""
+		try:
+			# Import here to avoid circular imports
+			from modules.core import Config
+			temp_config = Config()
+			redis_config = {}
+			
+			# Try dict-style access first
+			try:
+				redis_config = temp_config.config['redis']
+			except Exception:
+				# Fallback to ConfigParser-style access
+				try:
+					redis_config = {
+						'server': temp_config.config.get('redis', 'server', fallback=None),
+						'port': temp_config.config.get('redis', 'port', fallback=6379),
+						'password': temp_config.config.get('redis', 'password', fallback=None),
+						'socket': temp_config.config.get('redis', 'socket', fallback=None),
+						'db': temp_config.config.get('redis', 'db', fallback=0)
+					}
+					# Convert port to int
+					try:
+						redis_config['port'] = int(redis_config['port'])
+					except (ValueError, TypeError):
+						redis_config['port'] = 6379
+				except Exception:
+					redis_config = {}
+			
+			# Create Redis client using the same logic as RedisClient
+			if redis_config.get('socket'):
+				if redis_config.get('password'):
+					url = f"unix://:{redis_config['password']}@{redis_config['socket']}?db={redis_config.get('db', 0)}"
+				else:
+					url = f"unix://{redis_config['socket']}?db={redis_config.get('db', 0)}"
+			else:
+				host = redis_config.get('server', 'localhost')
+				port = redis_config.get('port', 6379)
+				password = redis_config.get('password')
+				db = redis_config.get('db', 0)
+				
+				if password:
+					url = f"redis://:{password}@{host}:{port}/{db}"
+				else:
+					url = f"redis://{host}:{port}/{db}"
+			
+			return redis.from_url(url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
+		except Exception:
+			return None
+
+	def _log_pool_creation_once_static(self) -> None:
+		"""Log pool creation only once across all workers using Redis (for static method context)."""
+		self._log_pool_creation_once()
+
+	def _is_schema_initialized(self) -> bool:
+		"""Check if schema has been initialized using Redis."""
+		redis_client = self._create_redis_client_for_logging()
+		if redis_client:
+			result = redis_client.exists('schema_initialized')
+			return bool(result) if result is not None else False
+		return False
+
+	def _mark_schema_initialized(self) -> None:
+		"""Mark schema as initialized using Redis."""
+		redis_client = self._create_redis_client_for_logging()
+		if redis_client:
+			# Set with 20 seconds expiration
+			redis_client.setex('schema_initialized', 20, '1')
 
 	# User management functions
 	def user_all(self):

@@ -35,9 +35,13 @@ self.addEventListener("activate", (event) => {
     (async () => {
       try {
         await self.clients.claim();
-      } catch (e) {
-        /* ignore */
-      }
+      } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
     })()
   );
 });
@@ -128,14 +132,26 @@ self.addEventListener("push", (event) => {
           if (typeof console !== "undefined" && console.debug) {
             console.debug("[sw] push received", { title, data });
           }
-        } catch (_) {}
+        } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
         try {
           await self.registration.showNotification(title, options);
         } catch (e) {
           // Fallback minimal notification
           try {
             await self.registration.showNotification(title, { body });
-          } catch (_) {}
+          } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
         }
         // Report delivery for diagnostics (best-effort)
         try {
@@ -145,7 +161,13 @@ self.addEventListener("push", (event) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title, body }),
           });
-        } catch (_) {}
+        } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
       })()
     );
   } catch (e) {
@@ -218,8 +240,20 @@ self.addEventListener("pushsubscriptionchange", (event) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(sub),
           });
-        } catch (_) {}
-      } catch (_) {}
+        } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
+      } catch (err) {
+      if (window.showToast) {
+      window.showToast("Ошибка выполнения", "error");
+    } else {
+      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
+    }
+    }
     })()
   );
 });

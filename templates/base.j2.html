@@ -20,6 +20,10 @@
   {% block css %}{% endblock %}
   <!-- Load core utils early so window.showToast is available for inline scripts -->
   <script src="{{ url_for('static', filename='js/scripts/core/utils.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <!-- Common core modules used across pages -->
+  <script src="{{ url_for('static', filename='js/scripts/core/error-handler.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts/core/api-client.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts/core/config.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   {% if current_user.is_authenticated %}
   <script src="{{ url_for('static', filename='js/lib/socket.io.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/sync.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>

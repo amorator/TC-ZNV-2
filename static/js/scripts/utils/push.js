@@ -19,7 +19,9 @@
     if (!window.urlBase64ToUint8Array) {
       window.urlBase64ToUint8Array = urlBase64ToUint8Array;
     }
-  } catch (_) {}
+  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 
   async function getVapidPublicKey(retries) {
     retries = typeof retries === "number" ? retries : 2;
@@ -34,7 +36,9 @@
         setTimeout(function () {
           try {
             ctrl.abort();
-          } catch (_) {}
+          } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
         }, 5000);
       }
       const resp = await fetch(url, {
@@ -108,10 +112,22 @@
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
             body: JSON.stringify({ endpoint: existing.endpoint }),
-          }).catch(function () {});
+          }).catch(function (err) {
+      if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else window.ErrorHandler.handleError(err, "unknown");
+    });
         }
-      } catch (__) {}
-    } catch (e) {}
+      } catch (err) {
+        if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else window.ErrorHandler.handleError(err, "unknown")
+      }
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 
   // Expose controlled initializer
@@ -133,7 +149,9 @@
             reconnectionDelayMax: 5000,
           });
           window.socket = sock;
-        } catch (__) {}
+        } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
       }
       sock &&
         sock.on &&
@@ -149,22 +167,36 @@
                   body: body,
                   icon: "/static/images/notification-icon.png",
                 });
-              } catch (__) {}
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             }
             if (window.showToast)
               try {
                 showToast(body, "warning");
-              } catch (__) {}
-          } catch (__) {}
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
+          } catch (err) {
+        if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else window.ErrorHandler.handleError(err, "unknown")
+      }
           // Hard redirect to logout to invalidate session and refresh page
           try {
             location.replace("/logout");
           } catch (__) {
             try {
               location.href = "/logout";
-            } catch (___) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
           }
         });
     }
-  } catch (_) {}
+  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 })();

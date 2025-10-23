@@ -69,9 +69,9 @@ window.CommonAjax = {
                 if (typeof closeModal === "function") closeModal(modalId);
                 else if (typeof popupClose === "function") popupClose(modalId);
                 else popupToggle(modalId);
-              } catch (e) {
-                console.error("Failed to close modal:", e);
-              }
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             }
           }
         } else {

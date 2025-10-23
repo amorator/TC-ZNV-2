@@ -70,7 +70,14 @@
             .catch(() => String(response.status));
           showError(`HTTP ${response.status}: ${text}`);
         }
-        return response.json().catch(() => ({}));
+        return response.json().catch((err) => {
+          if (window.showToast) {
+            window.showToast("Ошибка парсинга JSON", "error");
+          } else {
+            console.error("Ошибка парсинга JSON", err);
+          }
+          return {};
+        });
       })
       .catch((error) => {
         showError(`Fetch error: ${error?.message || String(error)}`);
@@ -113,10 +120,6 @@
 
     sock.on("connect", function () {
       setState(true);
-      console.debug("[index] socket connected", {
-        id: sock.id,
-        transport: sock.io?.engine?.transport?.name || "unknown",
-      });
 
       // Присоединяемся к комнате для событий главной страницы
       sock.emit && sock.emit("index:join", { ts: Date.now() });
@@ -140,7 +143,6 @@
       sock.__indexOnAnyTracer = true;
       sock.onAny(function (eventName) {
         if (eventName === "index:changed") {
-          console.debug("[index] onAny index:changed");
         }
       });
     }
@@ -149,16 +151,9 @@
     sock.off && sock.off("index:changed");
     sock.off && sock.off("index:joined");
 
-    sock.on("index:joined", function (data) {
-      console.debug("[index] joined room index", data);
-    });
+    sock.on("index:joined", function (data) {});
 
     sock.on("index:changed", function (evt) {
-      console.debug("[index] recv", {
-        seq: evt?.seq,
-        worker: evt?.worker,
-      });
-
       const ts = new Date().toISOString();
       const el = document.getElementById("indexRecvTs");
       if (el) {
@@ -171,7 +166,6 @@
       }
 
       window.__indexLastRecvTs = Date.now();
-      console.debug("[index] received index:changed", { evt, recv_ts: ts });
 
       // Отправляем подтверждение с seq для диагностики
       sock.emit && sock.emit("index:ack", { seq: evt?.seq, t: Date.now() });

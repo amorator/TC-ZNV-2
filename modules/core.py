@@ -5,6 +5,7 @@ Loads INI configuration with environment variable overrides.
 
 from configparser import ConfigParser
 from os import getenv
+import redis
 from .logging import get_logger
 
 _log = get_logger(__name__)
@@ -17,7 +18,7 @@ class Config:
 	provided INI file. Supports UTF-8 with a fallback to cp1251 for
 	compatibility.
 	"""
-
+	
 	def __init__(self, config: str = 'config.ini') -> None:
 		self.config = ConfigParser()
 		cfg_path = getenv('ZNF_CONFIG', config)
@@ -32,7 +33,19 @@ class Config:
 		if not read_ok:
 			self.config.read(cfg_path)
 		self._apply_env_overrides()
-		_log.info(f"Configuration loaded from {cfg_path}")
+		# Only log config loading once across all workers using Redis
+		self._log_config_once(cfg_path)
+
+	def _log_config_once(self, cfg_path: str) -> None:
+		"""Log config loading only once across all workers using Redis."""
+		redis_client = redis.Redis(
+			unix_socket_path='/var/run/redis/redis.sock',
+			password='znf25!',
+			db=0
+		)
+		# Use Redis SET with NX (only if not exists) and EX (expire in 20 seconds)
+		if redis_client.set('config_loaded_logged', '1', nx=True, ex=20):
+			_log.info(f"Configuration loaded from {cfg_path}")
 
 	def _apply_env_overrides(self) -> None:
 		"""Apply environment variable overrides for common sections."""

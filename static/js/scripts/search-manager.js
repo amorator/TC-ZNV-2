@@ -278,7 +278,9 @@
           "searchHistory",
           JSON.stringify(Array.from(this.searchHistory.entries()))
         );
-      } catch (e) {}
+      } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
     }
 
     /**
@@ -290,7 +292,9 @@
         if (saved) {
           this.searchHistory = new Map(JSON.parse(saved));
         }
-      } catch (e) {}
+      } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
     }
 
     /**

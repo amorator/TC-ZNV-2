@@ -214,13 +214,10 @@ class LoggingConfig:
 		# Формируем полное сообщение
 		message = f'{action} user={user} status={status}{ip_info}{details_info}{extra_info}'
 		
-		# Отладочное логирование
+		# Логирование действий
 		try:
-			print(f"[DEBUG] log_action called: {message}")
 			actions_logger.info(message)
-			print(f"[DEBUG] actions_logger.info called successfully")
 		except Exception as e:
-			print(f"[DEBUG] Error in log_action: {e}")
 			# Fallback to root logger
 			root_logger = logging.getLogger()
 			root_logger.error(f"log_action failed: {e}, message: {message}")

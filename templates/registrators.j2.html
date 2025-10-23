@@ -178,5 +178,7 @@
 {% endblock %}
 
 {% block js %}
+<script src="{{ url_for('static', filename='js/scripts/core/modal-helpers.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/registrators-management.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/registrators.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}

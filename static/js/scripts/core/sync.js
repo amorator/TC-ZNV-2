@@ -63,7 +63,6 @@ window.SyncManager = (function () {
     // Защита от множественных соединений
     if (isConnecting || (socket && socket.connected)) {
       if (debugEnabled) {
-        console.debug("[sync] Connection already exists or in progress");
       }
       return;
     }
@@ -136,7 +135,6 @@ window.SyncManager = (function () {
     socket.on("connect", function () {
       isConnecting = false;
       if (debugEnabled) {
-        console.debug("[sync] socket connected");
       }
       bindHandlers();
 
@@ -152,7 +150,6 @@ window.SyncManager = (function () {
     socket.on("disconnect", function (reason) {
       isConnecting = false;
       if (debugEnabled) {
-        console.debug("[sync] socket disconnect:", reason);
       }
       // Backoff before attempting rebuild - увеличиваем задержку
       try {
@@ -170,7 +167,9 @@ window.SyncManager = (function () {
         setTimeout(function () {
           try {
             socket && socket.close && socket.close();
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           socket = null;
           setupSocket();
         }, delay);
@@ -191,9 +190,13 @@ window.SyncManager = (function () {
             if (window.socket && window.socket !== socket) {
               try {
                 window.socket.close && window.socket.close();
-              } catch (_) {}
+              } catch (err) {
+                window.ErrorHandler.handleError(err, "unknown");
+              }
             }
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           try {
             // Recreate socket with current adaptive mode
             const next = window.io(window.location.origin, {
@@ -217,8 +220,12 @@ window.SyncManager = (function () {
             // Rebind handlers
             try {
               bindHandlers();
-            } catch (_) {}
-          } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
         };
         eng.on &&
           eng.on("close", function (reason, desc) {
@@ -229,7 +236,9 @@ window.SyncManager = (function () {
                 if (lastTransportMode === "auto") lastTransportMode = "ws";
                 setTimeout(rebuild, 500);
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           });
         eng.on &&
           eng.on("error", function (err) {
@@ -240,10 +249,14 @@ window.SyncManager = (function () {
                 if (lastTransportMode === "auto") lastTransportMode = "ws";
                 setTimeout(rebuild, 500);
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           });
       }
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 
   /**
@@ -255,7 +268,6 @@ window.SyncManager = (function () {
   function bindHandlers() {
     if (!socket) return;
     if (debugEnabled) {
-      console.debug("[sync] binding handlers");
     }
 
     // Debug: log any incoming event if debug enabled
@@ -265,7 +277,6 @@ window.SyncManager = (function () {
         // Log core sync events, but do not forward to avoid duplicate handling
         // Only log when debug is enabled; never forward
         if (debugEnabled) {
-          console.debug("[sync] onAny:", eventName, payload);
         }
         return;
         // Ignore presence and other non-sync chatter unless explicitly needed
@@ -289,8 +300,9 @@ window.SyncManager = (function () {
       socket.on(eventName, function (data) {
         if (debugEnabled) {
           try {
-            console.debug(`[sync] socket.on fired for ${eventName}`, data);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
         }
         handleSyncEvent(eventName, data);
       });
@@ -304,12 +316,9 @@ window.SyncManager = (function () {
     if (debugEnabled) {
       try {
         const count = (refreshCallbacks[eventName] || []).length;
-        console.debug(
-          `[sync] received ${eventName}:`,
-          data,
-          `(callbacks=${count})`
-        );
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
 
     // Вызываем зарегистрированные callback'и
@@ -317,8 +326,8 @@ window.SyncManager = (function () {
     callbacks.forEach((callback) => {
       try {
         callback(data);
-      } catch (e) {
-        console.error(`[sync] callback error for ${eventName}:`, e);
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
       }
     });
   }
@@ -337,8 +346,9 @@ window.SyncManager = (function () {
 
     if (debugEnabled) {
       try {
-        console.debug(`[sync] registered callback for ${eventName}`);
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
   }
 
@@ -363,7 +373,9 @@ window.SyncManager = (function () {
     try {
       if (!socket || !socket.emit) return;
       socket.emit(room + ":join", { ts: Date.now() });
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 
   /**
@@ -380,7 +392,9 @@ window.SyncManager = (function () {
       if (typeof callback === "function") {
         resumeCallbacks.push(callback);
       }
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
   try {
     document.addEventListener("visibilitychange", function () {
@@ -389,18 +403,26 @@ window.SyncManager = (function () {
           // Reconnect socket if needed
           try {
             if (socket && !socket.connected) socket.connect();
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           // Fire registered resume callbacks
           const list = resumeCallbacks.slice();
           list.forEach(function (cb) {
             try {
               cb();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           });
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     });
-  } catch (_) {}
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
 
   /**
    * Получение Socket.IO экземпляра
@@ -442,7 +464,9 @@ window.SyncManager = (function () {
       tid = setTimeout(function () {
         try {
           fn.apply(ctx, args);
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown");
+        }
       }, waitMs || 200);
     };
   }
@@ -458,10 +482,14 @@ window.SyncManager = (function () {
       const wrapped = debounce(function (data) {
         try {
           callback(data);
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown");
+        }
       }, waitMs || 200);
       on(eventName, wrapped);
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 
   /**
@@ -488,10 +516,14 @@ window.SyncManager = (function () {
           on(ev, function () {
             try {
               lastTs = Date.now();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           });
         });
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       const periodMs = Math.max(5, idleSeconds || 30) * 1000;
       setInterval(function () {
         try {
@@ -499,9 +531,13 @@ window.SyncManager = (function () {
             refreshFn();
             lastTs = Date.now();
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown");
+        }
       }, Math.min(5000, Math.max(1000, periodMs / 3)));
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
   }
 
   // Публичный API
@@ -523,7 +559,21 @@ window.SyncManager = (function () {
 
 // Автоматическая инициализация при загрузке DOM
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", window.SyncManager.init);
+  document.addEventListener("DOMContentLoaded", function () {
+    // Defer sync initialization to avoid blocking DOMContentLoaded
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(
+        () => {
+          window.SyncManager.init();
+        },
+        { timeout: 1500 }
+      ); // Add timeout to prevent indefinite delay
+    } else {
+      setTimeout(() => {
+        window.SyncManager.init();
+      }, 0);
+    }
+  });
 } else {
   window.SyncManager.init();
 }

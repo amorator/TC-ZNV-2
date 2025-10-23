@@ -83,7 +83,9 @@
         ) {
           document.activeElement.blur();
         }
-      } catch (_) {}
+      } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
     });
     modalElement.addEventListener("hidden.bs.modal", function () {
       modalElement.setAttribute("aria-hidden", "true");
@@ -127,7 +129,9 @@
         if (modalElement.classList.contains("show")) {
           return resolve(false);
         }
-      } catch (_) {}
+      } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 
       attachA11yHandlers(modalElement);
 

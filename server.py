@@ -43,6 +43,7 @@ import os
 import signal
 import time
 import traceback
+import redis
 from configparser import SectionProxy
 from datetime import datetime as dt, timedelta, datetime
 from os import path, listdir
@@ -81,6 +82,67 @@ _redis_client = None
 _socketio = None
 _shutdown_requested = False
 
+
+def _create_redis_client_for_logging():
+    """Create a temporary Redis client for logging synchronization using config settings."""
+    try:
+        # Get Redis config from the main app
+        temp_app = Server(path.dirname(path.realpath(__file__)))
+        redis_config = {}
+
+        # Try dict-style access first
+        try:
+            redis_config = temp_app._sql.config['redis']
+        except Exception:
+            # Fallback to ConfigParser-style access
+            try:
+                redis_config = {
+                    'server':
+                    temp_app._sql.config.get('redis', 'server', fallback=None),
+                    'port':
+                    temp_app._sql.config.get('redis', 'port', fallback=6379),
+                    'password':
+                    temp_app._sql.config.get('redis',
+                                             'password',
+                                             fallback=None),
+                    'socket':
+                    temp_app._sql.config.get('redis', 'socket', fallback=None),
+                    'db':
+                    temp_app._sql.config.get('redis', 'db', fallback=0)
+                }
+                # Convert port to int
+                try:
+                    redis_config['port'] = int(redis_config['port'])
+                except (ValueError, TypeError):
+                    redis_config['port'] = 6379
+            except Exception:
+                redis_config = {}
+
+        # Create Redis client using the same logic as RedisClient
+        if redis_config.get('socket'):
+            if redis_config.get('password'):
+                url = f"unix://:{redis_config['password']}@{redis_config['socket']}?db={redis_config.get('db', 0)}"
+            else:
+                url = f"unix://{redis_config['socket']}?db={redis_config.get('db', 0)}"
+        else:
+            host = redis_config.get('server', 'localhost')
+            port = redis_config.get('port', 6379)
+            password = redis_config.get('password')
+            db = redis_config.get('db', 0)
+
+            if password:
+                url = f"redis://:{password}@{host}:{port}/{db}"
+            else:
+                url = f"redis://{host}:{port}/{db}"
+
+        return redis.from_url(url,
+                              decode_responses=True,
+                              socket_connect_timeout=5,
+                              socket_timeout=5)
+    except Exception:
+        return None
+
+
 # Initialize Redis client
 redis_client = None
 try:
@@ -114,7 +176,12 @@ try:
             redis_config = {}
 
     if redis_config:
-        _log.info("Attempting to connect to Redis...")
+        # Only log Redis connection attempt once across all workers
+        temp_redis = _create_redis_client_for_logging()
+        if temp_redis and temp_redis.set(
+                'redis_connection_attempt_logged', '1', nx=True, ex=20):
+            _log.info("Attempting to connect to Redis...")
+
         # Normalize to dict for typed init_redis_client
         try:
             if isinstance(redis_config, SectionProxy):
@@ -140,7 +207,10 @@ try:
             )
             exit(1)
         else:
-            _log.info("✅ Redis connection SUCCESSFUL")
+            # Only log Redis connection success once across all workers
+            if temp_redis and temp_redis.set(
+                    'redis_connection_success_logged', '1', nx=True, ex=20):
+                _log.info("✅ Redis connection SUCCESSFUL")
             _redis_client = redis_client  # Store globally for shutdown
     else:
         _log.warning(
@@ -173,7 +243,11 @@ setattr(app, 'upload_manager', upload_manager)
 app.config['PRESENCE_DISABLED'] = False
 app.config['FORCE_LOGOUT_DISABLED'] = False
 app.config['VERSION'] = '0.1.0'
-_log.info('Presence and force-logout features are ENABLED')
+# Only log presence features once across all workers
+temp_redis = _create_redis_client_for_logging()
+if temp_redis and temp_redis.set(
+        'presence_features_logged', '1', nx=True, ex=20):
+    _log.info('Presence and force-logout features are ENABLED')
 
 
 # Expose selected config to client-side (read once at startup)
@@ -253,7 +327,12 @@ try:
                 at_pos = safe_mq.find('@', scheme_sep)
                 if at_pos != -1 and safe_mq[scheme_sep] == ':':
                     safe_mq = f"{safe_mq[:scheme_sep]}:***{safe_mq[at_pos:]}"
-            _log.info('Socket.IO using Redis (client_manager) url=%s', safe_mq)
+            # Only log Socket.IO Redis config once across all workers
+            temp_redis = _create_redis_client_for_logging()
+            if temp_redis and temp_redis.set(
+                    'socketio_redis_logged', '1', nx=True, ex=20):
+                _log.info('Socket.IO using Redis (client_manager) url=%s',
+                          safe_mq)
         except Exception as e:
             _log.error(f"Failed to initialize Redis client manager: {e}")
     else:
@@ -278,11 +357,20 @@ setattr(app, 'socketio', socketio)
 manager_obj = getattr(getattr(socketio, 'server', None), 'manager', None)
 manager_name = manager_obj.__class__.__name__ if manager_obj is not None else 'None'
 if _client_manager is not None:
-    _log.info('Socket.IO client manager=%s, Redis configured', manager_name)
+    # Only log Socket.IO client manager once across all workers
+    temp_redis = _create_redis_client_for_logging()
+    if temp_redis and temp_redis.set(
+            'socketio_client_manager_logged', '1', nx=True, ex=20):
+        _log.info('Socket.IO client manager=%s, Redis configured',
+                  manager_name)
 else:
-    _log.info(
-        'Socket.IO client manager=%s, message_queue not configured (single-process/dev)',
-        manager_name)
+    # Only log Socket.IO client manager once across all workers
+    temp_redis = _create_redis_client_for_logging()
+    if temp_redis and temp_redis.set(
+            'socketio_client_manager_logged', '1', nx=True, ex=20):
+        _log.info(
+            'Socket.IO client manager=%s, message_queue not configured (single-process/dev)',
+            manager_name)
 tp = ThreadPool(int(app._sql.config['videos']['max_threads']))
 media_service = MediaService(tp, app._sql.config['files']['root'], app._sql,
                              socketio)
@@ -727,7 +815,11 @@ def signal_handler(signum, frame):
         return
 
     _shutdown_requested = True
-    _log.info(f"Received signal {signum}, initiating graceful shutdown...")
+    # Only log shutdown signal once across all workers using Redis
+    temp_redis = _create_redis_client_for_logging()
+    if temp_redis and temp_redis.set(
+            'shutdown_signal_logged', '1', nx=True, ex=20):
+        _log.info(f"Received signal {signum}, initiating graceful shutdown...")
 
     # Under Gunicorn, worker lifecycle is managed by master; skip socketio.stop()
     running_under_gunicorn = False
@@ -751,7 +843,11 @@ def signal_handler(signum, frame):
     if 'media_service' in globals() and media_service:
         try:
             media_service.stop()
-            _log.info('Media service stopped.')
+            # Only log media service stop once across all workers using Redis
+            temp_redis = _create_redis_client_for_logging()
+            if temp_redis and temp_redis.set(
+                    'media_service_stopped_logged', '1', nx=True, ex=20):
+                _log.info('Media service stopped.')
         except Exception as e:
             _log.warning(f"Media service stop error: {e}")
 
@@ -759,19 +855,31 @@ def signal_handler(signum, frame):
     if 'tp' in globals() and tp:
         try:
             tp.stop()
-            _log.info('Thread pool stopped.')
+            # Only log thread pool stop once across all workers using Redis
+            temp_redis = _create_redis_client_for_logging()
+            if temp_redis and temp_redis.set(
+                    'thread_pool_stopped_logged', '1', nx=True, ex=20):
+                _log.info('Thread pool stopped.')
         except Exception as e:
             _log.warning(f"Thread pool stop error: {e}")
 
     # Close Redis connection gracefully
     if _redis_client is not None:
-        _log.info("Closing Redis connection...")
+        # Only log Redis connection close once across all workers using Redis
+        temp_redis = _create_redis_client_for_logging()
+        if temp_redis and temp_redis.set(
+                'redis_connection_closed_logged', '1', nx=True, ex=20):
+            _log.info("Closing Redis connection...")
         try:
             _redis_client.shutdown()
         except Exception as e:
             _log.warning(f"Error closing Redis connection: {e}")
 
-    _log.info("Graceful shutdown completed")
+    # Only log graceful shutdown completion once across all workers using Redis
+    temp_redis = _create_redis_client_for_logging()
+    if temp_redis and temp_redis.set(
+            'graceful_shutdown_completed_logged', '1', nx=True, ex=20):
+        _log.info("Graceful shutdown completed")
     exit(0)
 
 

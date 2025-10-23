@@ -15,7 +15,9 @@
         ) {
           return window.SyncManager.getSocket();
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       return null;
     }
     var sock = getSock();
@@ -34,7 +36,9 @@
           if (sock) {
             try {
               bindSocketHandlers();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           }
         }
       }, 200);
@@ -57,13 +61,17 @@
           sock = cur;
           bindSocketHandlers();
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       if (!isSocketConnected()) return; // pause when main socket is down
       try {
         sock.emit("presence:update", {
           page: location.pathname + location.search + location.hash,
         });
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
 
     function sendLeave() {
@@ -73,7 +81,9 @@
         // try latest socket
         var s = getSock() || sock;
         s && s.emit && s.emit("presence:leave");
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       try {
         var leaveUrl =
           (window.location && window.location.origin
@@ -101,7 +111,9 @@
               setTimeout(function () {
                 try {
                   ctrl.abort();
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
               }, 2000);
             fetch(leaveUrl, {
               method: "POST",
@@ -113,10 +125,18 @@
                 page: location.pathname + location.search + location.hash,
               }),
               signal: ctrl ? ctrl.signal : undefined,
-            }).catch(function () {});
-          } catch (_) {}
+            }).catch(function (err) {
+              if (window.ErrorHandler) {
+                window.ErrorHandler.handleError(err, "unknown");
+              } else window.ErrorHandler.handleError(err, "unknown")
+            });
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
         })();
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
 
     function bindSocketHandlers() {
@@ -131,21 +151,33 @@
         sock.on("force-logout", function () {
           try {
             forced = true;
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           try {
             if (presenceTimer) clearInterval(presenceTimer);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           try {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           try {
             sock && sock.disconnect && sock.disconnect();
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           try {
             location.replace("/logout");
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown");
+          }
         });
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
 
     if (sock) {
@@ -157,7 +189,13 @@
     window.addEventListener("focus", emitPresence);
     window.addEventListener("hashchange", emitPresence);
     window.addEventListener("popstate", emitPresence);
-    presenceTimer = setInterval(emitPresence, 3000);
+    // Используем оптимизированный мониторинг присутствия
+    if (window.SocketOptimizer) {
+      presenceTimer =
+        window.SocketOptimizer.createPresenceMonitor(emitPresence);
+    } else {
+      presenceTimer = setInterval(emitPresence, 3000);
+    }
 
     // HTTP heartbeat for idle tabs (covers cases when socket events are throttled)
     function httpHeartbeat() {
@@ -169,13 +207,17 @@
           sock = cur;
           bindSocketHandlers();
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       // Do not send background HTTP heartbeat if socket is disconnected
       if (!isSocketConnected()) return;
       // Reduce noisy errors when tab is hidden or offline
       try {
         if (document.visibilityState !== "visible") return;
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       try {
         if (
           typeof navigator !== "undefined" &&
@@ -183,7 +225,9 @@
           navigator.onLine === false
         )
           return;
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       try {
         var hbUrl =
           (window.location && window.location.origin
@@ -195,7 +239,9 @@
           setTimeout(function () {
             try {
               ctrl.abort();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           }, 5000);
         fetch(hbUrl, {
           method: "POST",
@@ -215,21 +261,41 @@
                 forced = true;
                 try {
                   if (presenceTimer) clearInterval(presenceTimer);
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 try {
                   if (heartbeatTimer) clearInterval(heartbeatTimer);
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 try {
                   sock && sock.disconnect && sock.disconnect();
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 location.replace("/logout");
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           })
-          .catch(function () {});
-      } catch (_) {}
+          .catch(function (err) {
+            if (window.ErrorHandler) {
+              window.ErrorHandler.handleError(err, "unknown");
+            } else window.ErrorHandler.handleError(err, "unknown")
+          });
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
-    heartbeatTimer = setInterval(httpHeartbeat, 3000);
+    // Используем оптимизированный heartbeat
+    if (window.SocketOptimizer) {
+      heartbeatTimer =
+        window.SocketOptimizer.createHeartbeatMonitor(httpHeartbeat);
+    } else {
+      heartbeatTimer = setInterval(httpHeartbeat, 3000);
+    }
 
     // Best-effort leave on explicit logout click
     try {
@@ -242,18 +308,24 @@
           function () {
             try {
               sendLeave();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           },
           { capture: true }
         );
       });
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 
     // Best-effort leave on unload
     window.addEventListener("beforeunload", function () {
       try {
         sendLeave();
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     });
 
     // Initial
@@ -273,6 +345,10 @@
           emitPresence();
         });
       }
-    } catch (_) {}
-  } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
 })();

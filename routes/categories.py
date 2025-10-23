@@ -1091,6 +1091,13 @@ def register(app, socketio=None):
             ] + perms + [subcategory_id]
 
             app._sql.subcategory_edit(args)
+
+            # Log the permission change
+            log_action(
+                'SUBCATEGORY_PERMISSIONS_UPDATE', current_user.name,
+                f'updated permissions for subcategory id={subcategory_id} name={subcategory.display_name}',
+                (request.remote_addr or ''))
+
             # Notify others via socket for soft refresh
             try:
                 if socketio:

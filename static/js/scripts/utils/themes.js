@@ -17,6 +17,26 @@ const themeIcons = {
 
 (function () {
   document.addEventListener("DOMContentLoaded", function () {
+    // Defer theme initialization to avoid blocking DOMContentLoaded
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => {
+        initTheme();
+      
+      }, { timeout: 2000 });
+    } else {
+      setTimeout(() => {
+              if (window.requestIdleCallback) {
+                window.requestIdleCallback(() => {
+                  initTheme();
+                }, { timeout: 1000 });
+              } else {
+                initTheme();
+              }
+            }, 0);
+    }
+  });
+
+  function initTheme() {
     var themeBtn =
       document.getElementById("theme-toggle") ||
       document.querySelector('[data-action="toggle-theme"]') ||
@@ -33,7 +53,9 @@ const themeIcons = {
           html.getAttribute("data-bs-theme") ||
           (document.body && document.body.getAttribute("data-theme"));
         if (a && themeOrder.indexOf(a) !== -1) return a;
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
       return "light";
     })();
     applyTheme(savedTheme);
@@ -46,7 +68,7 @@ const themeIcons = {
       if (e && e.currentTarget && typeof e.currentTarget.blur === "function")
         e.currentTarget.blur();
     });
-  });
+  }
   // Expose for programmatic theme changes
   window.applyTheme = applyTheme;
 })();
@@ -64,10 +86,14 @@ function applyTheme(theme) {
   // Also set semantic attributes for frameworks/tests and embedded UIs
   try {
     root.setAttribute("data-bs-theme", theme);
-  } catch (_) {}
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
   try {
     if (document.body) document.body.setAttribute("data-theme", theme);
-  } catch (_) {}
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
   try {
     // Notify same-origin iframes about theme change
     var frames = document.getElementsByTagName("iframe");
@@ -79,9 +105,13 @@ function applyTheme(theme) {
             "*"
           );
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown");
+      }
     }
-  } catch (_) {}
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
   var iconEl =
     document.getElementById("theme-toggle") ||
     document.querySelector('[data-action="toggle-theme"]') ||
@@ -119,5 +149,7 @@ function safeGet(key) {
 function safeSet(key, val) {
   try {
     localStorage.setItem(key, val);
-  } catch (e) {}
+  } catch (err) {
+    window.ErrorHandler.handleError(err, "unknown");
+  }
 }

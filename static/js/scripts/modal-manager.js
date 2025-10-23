@@ -34,21 +34,29 @@
                     clearTimeout(window.__recStateTimer);
                     window.__recStateTimer = null;
                   }
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown")
+                }
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
                   try {
                     window.__recCloseRequested = false;
-                  } catch (_) {}
+                  } catch (err) {
+                    window.ErrorHandler.handleError(err, "unknown")
+                  }
                   try {
                     window.__recStateTimer = null;
-                  } catch (_) {}
+                  } catch (err) {
+                    window.ErrorHandler.handleError(err, "unknown")
+                  }
                 }, 300);
                 e.preventDefault();
                 e.stopPropagation();
                 return;
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
           }
           this.closeModal(this.activeModal);
         }
@@ -72,21 +80,29 @@
                     clearTimeout(window.__recStateTimer);
                     window.__recStateTimer = null;
                   }
-                } catch (_) {}
+                } catch (err) {
+                  window.ErrorHandler.handleError(err, "unknown")
+                }
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
                   try {
                     window.__recCloseRequested = false;
-                  } catch (_) {}
+                  } catch (err) {
+                    window.ErrorHandler.handleError(err, "unknown")
+                  }
                   try {
                     window.__recStateTimer = null;
-                  } catch (_) {}
+                  } catch (err) {
+                    window.ErrorHandler.handleError(err, "unknown")
+                  }
                 }, 300);
                 e.preventDefault();
                 e.stopPropagation();
                 return;
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
           }
           this.closeModal(this.activeModal);
         }
@@ -150,7 +166,9 @@
             );
           return false;
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
 
       // Close any active modal
       if (this.activeModal && this.activeModal !== modalId) {
@@ -170,7 +188,9 @@
             hasBootstrap: !!window.bootstrap,
             classes: modal.className,
           });
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       if (modal.classList.contains("modal")) {
         try {
           var inst = bootstrap.Modal.getOrCreateInstance(modal);
@@ -178,7 +198,9 @@
           try {
             window.modlog &&
               window.modlog("openModal bootstrap.show()", modal.id);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
         } catch (_) {
           // Fallback display if bootstrap not available
           modal.classList.add("show");
@@ -190,7 +212,9 @@
                 "openModal bootstrap fallback display:block",
                 modal.id
               );
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
         }
       } else {
         // Custom overlay
@@ -213,13 +237,19 @@
               }
             }
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         try {
           document.body.style.overflow = "hidden";
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         try {
           window.modlog && window.modlog("openModal overlay show", modal.id);
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
       }
 
       // Focus first input
@@ -228,7 +258,9 @@
         setTimeout(() => {
           try {
             firstInput.focus();
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
         }, 100);
       }
 
@@ -244,7 +276,9 @@
       // Trigger custom event
       try {
         window.modlog && window.modlog("modal-opened event", modalId);
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       document.dispatchEvent(
         new CustomEvent("modal-opened", {
           detail: { modalId, data, rowId },
@@ -275,13 +309,17 @@
             window.__recCloseRequested = true;
             try {
               window.__recCloseReason = "button";
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
             try {
               if (window.__recStateTimer) {
                 clearTimeout(window.__recStateTimer);
                 window.__recStateTimer = null;
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
 
             iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
 
@@ -291,18 +329,24 @@
                 window.__recCloseRequested = false;
                 // If no response, assume there's data and show confirm
                 showRecConfirmDialog();
-              } catch (_) {}
+              } catch (err) {
+                window.ErrorHandler.handleError(err, "unknown")
+              }
             }, 300);
 
             return false;
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
 
       // Hide modal: support Bootstrap and custom overlay
       try {
         window.modlog && window.modlog("closeModal start", { modalId });
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       if (modal.classList.contains("modal")) {
         try {
           var inst =
@@ -312,7 +356,9 @@
           try {
             window.modlog &&
               window.modlog("closeModal bootstrap.hide()", modal.id);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
         } catch (_) {
           modal.classList.remove("show");
           modal.classList.add("d-none");
@@ -320,7 +366,9 @@
           try {
             window.modlog &&
               window.modlog("closeModal bootstrap fallback hide", modal.id);
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
         }
       } else {
         modal.classList.remove("show");
@@ -329,10 +377,14 @@
         modal.style.display = "none";
         try {
           document.body.style.overflow = "";
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         try {
           window.modlog && window.modlog("closeModal overlay hide", modal.id);
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
       }
 
       // Clear form if it's a form modal
@@ -355,7 +407,9 @@
       // Trigger custom event
       try {
         window.modlog && window.modlog("modal-closed event", modalId);
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       document.dispatchEvent(
         new CustomEvent("modal-closed", {
           detail: { modalId },
@@ -379,10 +433,14 @@
           modal.classList.add("d-none");
           modal.style.display = "none";
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       try {
         document.body.style.overflow = "";
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       this.activeModal = null;
     }
 
@@ -703,23 +761,33 @@
               clearTimeout(window.__recStateTimer);
               window.__recStateTimer = null;
             }
-          } catch (_) {}
+          } catch (err) {
+            window.ErrorHandler.handleError(err, "unknown")
+          }
           iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
           // Fallback if no response arrives
           window.__recStateTimer = setTimeout(function () {
             try {
               window.__recCloseRequested = false;
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
             try {
               if (window.showRecConfirmDialog) window.showRecConfirmDialog();
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
             try {
               window.__recStateTimer = null;
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
           }, 300);
           return true;
         }
-      } catch (_) {}
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "unknown")
+      }
       // If no iframe, just close
       return window.modalManager.closeModal(modalId);
     }
@@ -743,27 +811,39 @@
             window.__recCloseRequested = true;
             try {
               window.__recCloseReason = "esc";
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
             try {
               if (window.__recStateTimer) {
                 clearTimeout(window.__recStateTimer);
                 window.__recStateTimer = null;
               }
-            } catch (_) {}
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown")
+            }
             iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
             window.__recStateTimer = setTimeout(function () {
               try {
                 window.__recCloseRequested = false;
-              } catch (_) {}
+              } catch (err) {
+                window.ErrorHandler.handleError(err, "unknown")
+              }
               try {
                 window.__recCloseReason = null;
-              } catch (_) {}
+              } catch (err) {
+                window.ErrorHandler.handleError(err, "unknown")
+              }
               try {
                 window.__recStateTimer = null;
-              } catch (_) {}
+              } catch (err) {
+                window.ErrorHandler.handleError(err, "unknown")
+              }
             }, 300);
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         return;
       }
       if (data.type === "rec:state" && window.__recCloseRequested) {
@@ -773,31 +853,34 @@
             clearTimeout(window.__recStateTimer);
             window.__recStateTimer = null;
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         const st = data.state || {};
         const isRecording = !!st.recording;
         const isPaused = !!st.paused;
         const hasData = !!st.hasData;
-        console.log("Recorder state:", {
+        const state = {
           isRecording,
           isPaused,
           hasData,
           closeReason: window.__recCloseReason,
-        });
+        };
         if (isRecording) {
           // Show confirm dialog instead of alert
-          console.log("Calling showRecConfirmDialog for recording state");
-          console.log(
-            "window.showRecConfirmDialog exists:",
-            typeof window.showRecConfirmDialog
-          );
+          if (window.showToast) {
+            window.showToast(
+              "Остановите запись перед закрытием окна",
+              "warning"
+            );
+          }
           if (typeof window.showRecConfirmDialog === "function") {
             window.showRecConfirmDialog();
           } else {
-            console.log(
-              "showRecConfirmDialog is not defined, creating alert instead"
-            );
-            alert("Остановите запись перед закрытием окна.");
+            // Fallback UI
+            if (!window.showToast) {
+              alert("Остановите запись перед закрытием окна.");
+            }
           }
           return;
         }
@@ -825,7 +908,9 @@
           if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage({ type: "rec:close" }, "*");
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         const overlay = document.getElementById("popup-rec");
         if (overlay) {
           overlay.classList.remove("show");
@@ -839,27 +924,27 @@
           ) {
             window.modalManager.activeModal = null;
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
       } else if (data.type === "rec:discarded") {
-        console.log("rec:discarded received, closing popup-rec");
         // after discard in iframe, close popup
         const overlay = document.getElementById("popup-rec");
         if (overlay) {
-          console.log("Removing show class from popup-rec");
           overlay.classList.remove("show");
           overlay.classList.remove("visible");
           overlay.style.display = "none";
-          console.log("popup-rec classes after removal:", overlay.className);
         }
         try {
           if (
             window.modalManager &&
             window.modalManager.activeModal === "popup-rec"
           ) {
-            console.log("Setting activeModal to null");
             window.modalManager.activeModal = null;
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         window.__recSaving = false;
         // Reset popup state and recording variables
         try {
@@ -867,34 +952,40 @@
           window.__recHasSaved = false;
           window.__recCloseRequested = false;
           window.__recCloseReason = null;
-          console.log("Reset popup and recording state");
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         // Reset iframe state
         try {
           const iframe = document.getElementById("rec-iframe");
           if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage({ type: "rec:reset" }, "*");
-            console.log("Sent rec:reset to iframe");
           }
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
       } else if (data.type === "rec:saved") {
         window.__recSaving = false;
         try {
           window.__recHasSaved = true;
-        } catch (_) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
         try {
           window.softRefreshFilesTable && window.softRefreshFilesTable();
-        } catch (e) {}
+        } catch (err) {
+          window.ErrorHandler.handleError(err, "unknown")
+        }
       }
-    } catch (_) {}
+    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown")
+    }
   });
 
   // Define showRecConfirmDialog globally
   window.showRecConfirmDialog = function () {
-    console.log("showRecConfirmDialog called");
     let box = document.getElementById("rec-confirm");
     if (!box) {
-      console.log("Creating new rec-confirm modal");
       box = document.createElement("div");
       box.id = "rec-confirm";
       box.className = "overlay-container show";
@@ -911,7 +1002,6 @@
         </div>';
       document.body.appendChild(box);
       document.getElementById("rec-confirm-yes").onclick = function () {
-        console.log("rec-confirm-yes clicked");
         window.__recSaving = true;
         const iframe = document.getElementById("rec-iframe");
         if (iframe && iframe.contentWindow) {
@@ -919,32 +1009,26 @@
         }
         box.classList.remove("show");
         setTimeout(() => {
-          console.log("Removing rec-confirm box");
           box.remove();
         }, 150);
       };
       document.getElementById("rec-confirm-no").onclick = function () {
-        console.log("rec-confirm-no clicked");
         const iframe = document.getElementById("rec-iframe");
         if (iframe && iframe.contentWindow) {
           iframe.contentWindow.postMessage({ type: "rec:discard" }, "*");
         }
         box.classList.remove("show");
         setTimeout(() => {
-          console.log("Removing rec-confirm box");
           box.remove();
         }, 150);
       };
       document.getElementById("rec-confirm-cancel").onclick = function () {
-        console.log("rec-confirm-cancel clicked");
         box.classList.remove("show");
         setTimeout(() => {
-          console.log("Removing rec-confirm box");
           box.remove();
         }, 150);
       };
     } else {
-      console.log("Showing existing rec-confirm modal");
       box.classList.add("show");
       box.style.zIndex = "10001";
     }

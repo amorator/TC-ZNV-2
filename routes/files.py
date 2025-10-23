@@ -66,8 +66,11 @@ def clear_all_uploads_on_startup():
         # Clear active uploads set
         redis_client.delete('active_uploads')
 
-        _log.info(
-            f"Server startup: Cleared {cleaned_count} upload jobs from Redis")
+        # Only log upload cleanup once across all workers
+        if redis_client.set('upload_cleanup_logged', '1', nx=True, ex=20):
+            _log.info(
+                f"Server startup: Cleared {cleaned_count} upload jobs from Redis"
+            )
 
     except Exception as e:
         _log.error(f"Error clearing uploads on startup: {e}")
@@ -111,6 +114,87 @@ def register(app, media_service, socketio=None) -> None:
         'files',
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
 
+    def get_allowed_extensions_from_config(app):
+        """Get allowed file extensions from config.ini."""
+        try:
+            allowed_types = app._sql.config['files'].get(
+                'allowed_types', 'audio/*,video/*')
+            # Parse comma-separated MIME types
+            mime_types = [t.strip() for t in allowed_types.split(',')]
+
+            # Map MIME types to extensions
+            mime_to_ext = {
+                'audio/*': {
+                    '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
+                    '.wma', '.mka', '.opus'
+                },
+                'video/*': {
+                    '.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv',
+                    '.m4v'
+                },
+                # Specific MIME types
+                'audio/mpeg': {'.mp3'},
+                'audio/wav': {'.wav'},
+                'audio/flac': {'.flac'},
+                'audio/aac': {'.aac'},
+                'audio/mp4': {'.m4a'},
+                'audio/ogg': {'.ogg', '.oga'},
+                'audio/x-ms-wma': {'.wma'},
+                'audio/x-matroska': {'.mka'},
+                'audio/opus': {'.opus'},
+                'video/mp4': {'.mp4'},
+                'video/webm': {'.webm'},
+                'video/x-msvideo': {'.avi'},
+                'video/quicktime': {'.mov'},
+                'video/x-matroska': {'.mkv'},
+                'video/x-ms-wmv': {'.wmv'},
+                'video/x-flv': {'.flv'},
+                'video/x-m4v': {'.m4v'},
+            }
+
+            allowed_extensions = set()
+            for mime_type in mime_types:
+                if mime_type in mime_to_ext:
+                    allowed_extensions.update(mime_to_ext[mime_type])
+
+            return allowed_extensions if allowed_extensions else {
+                '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
+                '.wma', '.mka', '.opus', '.mp4', '.webm', '.avi', '.mov',
+                '.mkv', '.wmv', '.flv', '.m4v'
+            }
+        except Exception:
+            # Fallback to default audio/video extensions
+            return {
+                '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
+                '.wma', '.mka', '.opus', '.mp4', '.webm', '.avi', '.mov',
+                '.mkv', '.wmv', '.flv', '.m4v'
+            }
+
+    def get_accept_attribute_from_config(app):
+        """Get accept attribute for file input from config.ini."""
+        try:
+            allowed_types = app._sql.config['files'].get(
+                'allowed_types', 'audio/*,video/*')
+            # Parse comma-separated MIME types
+            mime_types = [t.strip() for t in allowed_types.split(',')]
+
+            # Convert MIME types to accept attribute format
+            accept_parts = []
+            for mime_type in mime_types:
+                if mime_type.endswith('/*'):
+                    accept_parts.append(mime_type)
+                else:
+                    accept_parts.append(mime_type)
+
+            # Add specific extensions for better browser support
+            allowed_extensions = get_allowed_extensions_from_config(app)
+            accept_parts.extend(sorted(allowed_extensions))
+
+            return ','.join(accept_parts)
+        except Exception:
+            # Fallback to default
+            return 'audio/*,video/*,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v'
+
     def validate_uploaded_file(file, app):
         """Validate uploaded file type and size.
 
@@ -131,19 +215,12 @@ def register(app, media_service, socketio=None) -> None:
         if not file or not file.filename:
             raise ValueError('Файл не выбран')
 
-        # Check file extension (video + audio)
-        video_ext = {
-            '.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v'
-        }
-        audio_ext = {
-            '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga', '.wma',
-            '.mka', '.opus'
-        }
-        allowed_extensions = video_ext | audio_ext
+        # Check file extension from config
+        allowed_extensions = get_allowed_extensions_from_config(app)
         file_ext = os.path.splitext(file.filename.lower())[1]
         if file_ext not in allowed_extensions:
             raise ValueError(
-                f'Неподдерживаемый формат файла. Разрешены: {", ".join(allowed_extensions)}'
+                f'Неподдерживаемый формат файла. Разрешены: {", ".join(sorted(allowed_extensions))}'
             )
 
         # Optional size check from config (0 or missing => unlimited)
@@ -175,13 +252,15 @@ def register(app, media_service, socketio=None) -> None:
 
         return True
 
-    def _is_audio_filename(filename: str) -> bool:
+    def _is_audio_filename(filename: str, app) -> bool:
         try:
             ext = os.path.splitext((filename or '').lower())[1]
-            return ext in {
+            allowed_extensions = get_allowed_extensions_from_config(app)
+            audio_extensions = {
                 '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
                 '.wma', '.mka', '.opus'
             }
+            return ext in allowed_extensions and ext in audio_extensions
         except Exception:
             return False
 
@@ -202,8 +281,10 @@ def register(app, media_service, socketio=None) -> None:
             max_file_size_mb = int(app._sql.config['files'].get(
                 'max_file_size_mb',
                 app._sql.config['files'].get('max_size_mb', 500)))
+            accept_attribute = get_accept_attribute_from_config(app)
         except Exception:
             max_file_size_mb = 500
+            accept_attribute = 'audio/*,video/*,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v'
         _dirs = dirs_by_permission(app, id, 'f')
         # Guard: no available directories for this user
         if not _dirs or len(_dirs) == 0:
@@ -215,7 +296,8 @@ def register(app, media_service, socketio=None) -> None:
                                 files=None,
                                 did=0,
                                 sdid=0,
-                                max_file_size_mb=max_file_size_mb))
+                                max_file_size_mb=max_file_size_mb,
+                                accept_attribute=accept_attribute))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             resp.headers['Pragma'] = 'no-cache'
@@ -297,7 +379,8 @@ def register(app, media_service, socketio=None) -> None:
                                 files=None,
                                 did=did,
                                 sdid=0,
-                                max_file_size_mb=max_file_size_mb))
+                                max_file_size_mb=max_file_size_mb,
+                                accept_attribute=accept_attribute))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             resp.headers['Pragma'] = 'no-cache'
@@ -416,6 +499,7 @@ def register(app, media_service, socketio=None) -> None:
                             did=did,
                             sdid=sdid,
                             max_file_size_mb=max_file_size_mb,
+                            accept_attribute=accept_attribute,
                             can_reg_import=can_reg_import,
                             current_category_id=current_category_id or 0,
                             current_subcategory_id=current_subcategory_id or 0,
@@ -495,7 +579,7 @@ def register(app, media_service, socketio=None) -> None:
                 size_bytes = 0
             size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else 0
             # Decide target extension by uploaded file type
-            is_audio = _is_audio_filename(file_part.filename or '')
+            is_audio = _is_audio_filename(file_part.filename or '', app)
             target_ext = '.m4a' if is_audio else '.mp4'
             # Insert using new schema only
             id = app._sql.file_add2([
@@ -1999,6 +2083,16 @@ def register(app, media_service, socketio=None) -> None:
             # Save upload job to Redis
             save_upload_job(upload_job)
 
+            # Log detailed start information
+            _log.info(f"📊 Performance Debug - Starting registrator import")
+            _log.info(f"📊 Performance Debug - Registrator: {registrator_name}")
+            _log.info(f"📊 Performance Debug - Files count: {len(file_urls)}")
+            _log.info(f"📊 Performance Debug - User: {current_user.name}")
+            _log.info(f"📊 Performance Debug - Upload ID: {upload_id}")
+            _log.info(
+                f"📊 Performance Debug - Category ID: {cat_id}, Subcategory ID: {sub_id}"
+            )
+
             # Start background upload
             start_background_upload(upload_job)
 
@@ -2147,6 +2241,24 @@ def register(app, media_service, socketio=None) -> None:
         except Exception as e:
             _log.error(f"API cancel upload error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/config', methods=['GET'])
+    def api_config():
+        """Get application configuration for frontend."""
+        try:
+            import configparser
+            config = configparser.ConfigParser()
+            config.read('/usr/share/znf/config.ini')
+
+            # Convert config to dictionary
+            config_dict = {}
+            for section in config.sections():
+                config_dict[section] = dict(config[section])
+
+            return jsonify(config_dict)
+        except Exception as e:
+            _log.error(f"API config error: {e}")
+            return jsonify({'error': str(e)}), 500
 
     @app.route('/api/cleanup-uploads', methods=['POST'])
     @require_permissions(FILES_UPLOAD)
@@ -2516,12 +2628,22 @@ def start_background_upload(upload_job):
                         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                         'Accept': '*/*',
                         'Accept-Language': 'en-US,en;q=0.9',
-                        'Accept-Encoding': 'gzip, deflate',
+                        'Accept-Encoding':
+                        'identity',  # Disable compression for large files
                         'Connection': 'keep-alive'
                     }
 
                     _log.info(
                         f"Starting download of {file_name} from {file_url}")
+
+                    import time
+                    start_time = time.time()
+
+                    # Log additional debug info for performance analysis
+                    _log.info(
+                        f"📊 Performance Debug - File: {file_name}, URL: {file_url}"
+                    )
+                    _log.info(f"📊 Performance Debug - Headers: {headers}")
                     response = requests.get(file_url,
                                             timeout=300,
                                             verify=False,
@@ -2530,6 +2652,12 @@ def start_background_upload(upload_job):
 
                     _log.info(
                         f"Download response status: {response.status_code}")
+
+                    # Log response headers for debugging
+                    _log.info(
+                        f"📊 Performance Debug - Response headers: {dict(response.headers)}"
+                    )
+
                     if response.status_code == 200:
                         # Download file with progress tracking
                         content_length = int(
@@ -2540,13 +2668,25 @@ def start_background_upload(upload_job):
                         _log.info(
                             f"Starting to download {file_name}, content-length: {content_length}"
                         )
+
+                        # Log additional performance metrics
+                        _log.info(
+                            f"📊 Performance Debug - File size: {content_length / 1024 / 1024:.2f} MB"
+                        )
+                        _log.info(
+                            f"📊 Performance Debug - Chunk size: 65536 bytes (64KB)"
+                        )
+
+                        download_start = time.time()
                         chunk_count = 0
-                        for chunk in response.iter_content(chunk_size=8192):
+                        last_logged_progress = -1  # Track last logged progress to avoid duplicates
+                        for chunk in response.iter_content(
+                                chunk_size=65536):  # 64KB chunks
                             if chunk:
                                 file_content += chunk
                                 downloaded_size += len(chunk)
                                 chunk_count += 1
-                                # Log progress every 100 chunks to avoid spam
+                                # Log progress every 100 chunks to avoid spam (64KB * 100 = 6.4MB)
                                 if chunk_count % 100 == 0:
                                     _log.info(
                                         f"Downloaded {downloaded_size}/{content_length} bytes for {file_name}"
@@ -2568,9 +2708,33 @@ def start_background_upload(upload_job):
                                                 'completed_files':
                                                 i  # Update completed files count during download
                                             })
-                                        _log.info(
-                                            f"Updated progress for {upload_id}: {i} files completed, {progress}% current file"
-                                        )
+                                        # Reduced logging - only log significant progress updates
+                                        if progress % 10 == 0 and progress != last_logged_progress:  # Log every 10% but only once per percentage
+                                            _log.info(
+                                                f"Upload progress: {i} files completed, {progress}% current file"
+                                            )
+                                            last_logged_progress = progress
+
+                        # Log download performance
+                        download_time = time.time() - download_start
+                        download_speed = (
+                            downloaded_size / 1024 /
+                            1024) / download_time if download_time > 0 else 0
+
+                        # Enhanced performance logging
+                        _log.info(
+                            f"📊 Performance Debug - Download completed: {downloaded_size} bytes in {download_time:.2f}s"
+                        )
+                        _log.info(
+                            f"📊 Performance Debug - Download speed: {download_speed:.2f} MB/s"
+                        )
+                        _log.info(
+                            f"📊 Performance Debug - Total chunks processed: {chunk_count}"
+                        )
+                        _log.info(
+                            f"📊 Performance Debug - Average chunk time: {download_time/chunk_count*1000:.2f}ms per chunk"
+                            if chunk_count >
+                            0 else "📊 Performance Debug - No chunks processed")
 
                         # Upload file
                         files = {
@@ -2585,14 +2749,28 @@ def start_background_upload(upload_job):
                             'sub_id': upload_job['sub_id']
                         }
 
+                        # Log upload start
+                        upload_start_time = time.time()
+                        _log.info(
+                            f"📊 Performance Debug - Starting upload to localhost:8080"
+                        )
+
                         upload_response = requests.post(
                             f"http://localhost:8080/files/add?cat_id={upload_job['cat_id']}&sub_id={upload_job['sub_id']}",
                             files=files,
                             data=data,
                             timeout=300)
 
+                        upload_time = time.time() - upload_start_time
+                        _log.info(
+                            f"📊 Performance Debug - Upload completed in {upload_time:.2f}s"
+                        )
+
                         if upload_response.status_code == 200:
                             _log.info(f"Successfully uploaded {file_name}")
+                            _log.info(
+                                f"📊 Performance Debug - Upload successful: {upload_response.status_code}"
+                            )
                             # Update completed files count after successful upload
                             update_upload_job(
                                 upload_id, {
@@ -2602,6 +2780,9 @@ def start_background_upload(upload_job):
                         else:
                             _log.error(
                                 f"Failed to upload {file_name}: {upload_response.status_code}"
+                            )
+                            _log.error(
+                                f"📊 Performance Debug - Upload failed: {upload_response.status_code}, Response: {upload_response.text[:200]}"
                             )
                             increment_upload_error(upload_id)
                     else:
@@ -2615,6 +2796,7 @@ def start_background_upload(upload_job):
                     increment_upload_error(upload_id)
 
             # Mark as completed
+            total_time = time.time() - start_time
             update_upload_job(
                 upload_id, {
                     'status': 'completed',
@@ -2622,13 +2804,22 @@ def start_background_upload(upload_job):
                     'end_time': time.time()
                 })
 
-            # Log completion
+            # Log completion with performance summary
             log_action(
                 'REGISTRATOR_IMPORT_END', upload_job['user_name'],
                 f'completed background import of {upload_job["total_files"]} files from registrator "{upload_job["registrator_name"]}"',
                 upload_job['ip'])
 
             _log.info(f"Completed background upload {upload_id}")
+            _log.info(
+                f"📊 Performance Summary - Total time: {total_time:.2f}s for {upload_job['total_files']} files"
+            )
+            _log.info(
+                f"📊 Performance Summary - Average time per file: {total_time/upload_job['total_files']:.2f}s"
+            )
+            _log.info(
+                f"📊 Performance Summary - Registrator: {upload_job['registrator_name']}"
+            )
 
         except Exception as e:
             _log.error(f"Background upload error: {e}")

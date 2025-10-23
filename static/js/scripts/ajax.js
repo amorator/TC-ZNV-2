@@ -21,7 +21,9 @@
     const submitBtn = form.querySelector('button[type="submit"], button.btn-primary');
     const originalText = submitBtn ? submitBtn.textContent : '';
     if (submitBtn) {
-      try { submitBtn.dataset.originalText = originalText; } catch(_) {}
+      try { submitBtn.dataset.originalText = originalText; } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
       submitBtn.disabled = true;
       submitBtn.textContent = 'Отправка...';
     }
@@ -35,34 +37,32 @@
       const contentType = response.headers.get('Content-Type') || '';
       let data = null;
       if (contentType.includes('application/json')) {
-        try { data = await response.json(); } catch(_) {}
+        try { data = await response.json(); } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
       }
       if (!response.ok || (data && data.status === 'error')) {
         const msg = (data && (data.message || data.error)) || `Ошибка: HTTP ${response.status}`;
         throw new Error(msg);
       }
       if (typeof opts.onSuccess === 'function') {
-        try { opts.onSuccess(data); } catch(_) {}
+        try { opts.onSuccess(data); } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
       }
       return data;
     })
     .catch(err => {
-      if (window.showToast) { window.showToast(String(err.message || err), 'error'); }
-      return Promise.reject(err);
-    })
-    .finally(() => {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        const restored = (submitBtn.dataset && submitBtn.dataset.originalText) ? submitBtn.dataset.originalText : originalText;
-        submitBtn.textContent = restored;
-      }
-      if (typeof opts.onFinally === 'function') {
-        try { opts.onFinally(); } catch(_) {}
+      if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } else window.ErrorHandler.handleError(err, "unknown");
+    }
       }
     });
   }
 
-  try { window.submitFormAjax = submitFormAjax; } catch(_) {}
+  try { window.submitFormAjax = submitFormAjax; } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
 })();
-
 

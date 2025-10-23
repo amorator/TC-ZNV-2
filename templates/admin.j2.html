@@ -7,6 +7,9 @@
 {% endblock %}
 
 {% block js %}
+<script src="{{ url_for('static', filename='js/scripts/core/admin-presence.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/admin-sessions.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/admin-logs.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/admin.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}
 

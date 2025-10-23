@@ -12,6 +12,9 @@ _log = get_logger(__name__)
 class RedisClient:
     """Redis client with automatic reconnection and fallback handling."""
     
+    # Class variable to track if Redis connection has been logged
+    _connection_logged: bool = False
+    
     def __init__(self, config: Dict[str, Any]):
         """Initialize Redis client from config.
         
@@ -60,7 +63,8 @@ class RedisClient:
                 if at_pos != -1:
                     safe_url = f"{safe_url[:scheme_end]}:***{safe_url[at_pos:]}"
             
-            _log.info(f"✅ Redis connected successfully: {safe_url}")
+            # Only log Redis connection once across all workers using Redis
+            self._log_connection_once(safe_url)
             return True
             
         except Exception as e:
@@ -179,6 +183,12 @@ class RedisClient:
     def pipeline(self):
         """Get Redis pipeline for batch operations."""
         return self._call(lambda c: c.pipeline(), None)
+
+    def _log_connection_once(self, safe_url: str) -> None:
+        """Log Redis connection only once across all workers using Redis."""
+        # Use Redis SET with NX (only if not exists) and EX (expire in 20 seconds)
+        if self.client and self.client.set('redis_connected_logged', '1', nx=True, ex=20):
+            _log.info(f"✅ Redis connected successfully: {safe_url}")
 
 
 def init_redis_client(config: Dict[str, Any]) -> Optional[RedisClient]:

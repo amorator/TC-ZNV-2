@@ -510,7 +510,9 @@
           if (url) {
             try {
               if (window.stopAllMedia) window.stopAllMedia();
-            } catch (_) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             if (!window.__mediaOpenState) {
               window.__mediaOpenState = { opening: false };
             }
@@ -522,21 +524,31 @@
               if (audio) {
                 try {
                   audio.pause();
-                } catch (e) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 try {
                   const v = document.getElementById("player-video");
                   if (v) {
                     try {
                       v.pause && v.pause();
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       v.onerror = null;
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       v.removeAttribute("src");
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }
-                } catch (_) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 audio.muted = false;
                 audio.volume = 1;
                 // Stop any video that may be playing (avoid setting empty src)
@@ -545,34 +557,50 @@
                   if (v) {
                     try {
                       v.pause && v.pause();
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       v.onerror = null;
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       v.removeAttribute("src");
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }
-                } catch (_) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 audio.src = url;
                 try {
                   audio.currentTime = 0;
-                } catch (e) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 audio.onerror = function onAudioErr() {
                   try {
                     audio.onerror = null;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   if (window.popupClose) {
                     window.popupClose("popup-audio");
                   }
                   try {
                     window.__mediaOpenState.opening = false;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 };
                 audio.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 };
                 if (window.popupToggle) {
                   window.popupToggle("popup-audio");
@@ -583,21 +611,31 @@
               if (player) {
                 try {
                   player.pause();
-                } catch (e) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 try {
                   const a = document.getElementById("player-audio");
                   if (a) {
                     try {
                       a.pause && a.pause();
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       a.onerror = null;
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       a.removeAttribute("src");
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }
-                } catch (_) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 player.muted = false;
                 player.volume = 1;
                 // Stop any audio that may be playing (avoid setting empty src)
@@ -606,34 +644,50 @@
                   if (a) {
                     try {
                       a.pause && a.pause();
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       a.onerror = null;
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                     try {
                       a.removeAttribute("src");
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }
-                } catch (_) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 player.src = url;
                 try {
                   player.currentTime = 0;
-                } catch (e) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 player.onerror = function onVideoErr() {
                   try {
                     player.onerror = null;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   if (window.popupClose) {
                     window.popupClose("popup-view");
                   }
                   try {
                     window.__mediaOpenState.opening = false;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 };
                 player.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 };
                 if (window.popupToggle) {
                   window.popupToggle("popup-view");
@@ -662,15 +716,15 @@
             if (form) {
               try {
                 window.popupValues(form, id);
-              } catch (e) {
-                console.error("ContextMenu: popupValues failed:", e);
-              }
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             }
             try {
               window.popupToggle("popup-edit", id);
-            } catch (e) {
-              console.error("ContextMenu: popupToggle failed:", e);
-            }
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
           } else {
             // Missing required functions or ID
           }
@@ -699,7 +753,9 @@
         case "import-registrator":
           try {
             window.openRegistratorImport && window.openRegistratorImport();
-          } catch (_) {}
+          } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
           break;
 
         case "refresh":
@@ -717,7 +773,9 @@
                 let data = null;
                 try {
                   data = await response.json();
-                } catch (_) {}
+                } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 if (
                   data &&
                   data.file_exists === false &&
@@ -740,7 +798,9 @@
                     } else {
                       window.markFileAsMissing(id);
                     }
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 }
                 if (response.ok) {
                   // After server refresh, respect active search; otherwise re-render current page
@@ -768,7 +828,9 @@
                       ) {
                         window.softRefreshFilesTable();
                       }
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }, 100);
                 }
               })
@@ -794,7 +856,9 @@
                     try {
                       window.softRefreshFilesTable &&
                         window.softRefreshFilesTable();
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }, 50);
                 })
                 .catch((error) => {
@@ -818,7 +882,9 @@
           if (window.openModal) {
             try {
               if (window.modalManager) window.modalManager.activeModal = null;
-            } catch (_) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -830,7 +896,9 @@
           if (window.popupToggle) {
             try {
               if (window.modalManager) window.modalManager.activeModal = null;
-            } catch (_) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             window.popupToggle("popup-rec");
           }
           break;
@@ -860,7 +928,9 @@
                   addForm.reset();
                 }
               }
-            } catch (_) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -942,7 +1012,9 @@
                   setTimeout(function () {
                     try {
                       window.syncPermFormFromRow(form, rowId);
-                    } catch (_) {}
+                    } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                   }, 0);
                 }
                 // Ensure Full Access checkbox reflects hidden value
@@ -953,9 +1025,13 @@
                     } else if (window["refreshPermUI_perm-string-perm"]) {
                       window["refreshPermUI_perm-string-perm"]();
                     }
-                  } catch (_) {}
+                  } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
                 }, 0);
-              } catch (_) {}
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             }
             window.popupToggle("popup-perm", rowId);
           }
@@ -1006,7 +1082,9 @@
                   addForm.reset();
                 }
               }
-            } catch (_) {}
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -1073,9 +1151,9 @@
             () => {
               try {
                 this.setupEventListeners();
-              } catch (e) {
-                console.error("Context menu reinitialization failed:", e);
-              } finally {
+              } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } finally {
                 this._reinitializing = false;
               }
             },
@@ -1086,9 +1164,9 @@
           setTimeout(() => {
             try {
               this.setupEventListeners();
-            } catch (e) {
-              console.error("Context menu reinitialization failed:", e);
-            } finally {
+            } catch (err) {
+      window.ErrorHandler.handleError(err, "unknown");
+    } finally {
               this._reinitializing = false;
             }
           }, 10);
