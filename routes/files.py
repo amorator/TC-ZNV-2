@@ -45,6 +45,34 @@ import json
 _log = get_logger(__name__)
 
 
+def clear_all_uploads_on_startup():
+    """Clear all upload jobs from Redis on server startup."""
+    try:
+        import redis
+        redis_client = redis.Redis(
+            unix_socket_path='/var/run/redis/redis.sock',
+            password='znf25!',
+            db=0)
+
+        # Clear all upload jobs and active uploads set
+        keys = redis_client.keys('upload_job:*')
+        cleaned_count = 0
+
+        if keys and isinstance(keys, list):
+            for key in keys:
+                redis_client.delete(key)
+                cleaned_count += 1
+
+        # Clear active uploads set
+        redis_client.delete('active_uploads')
+
+        _log.info(
+            f"Server startup: Cleared {cleaned_count} upload jobs from Redis")
+
+    except Exception as e:
+        _log.error(f"Error clearing uploads on startup: {e}")
+
+
 def register(app, media_service, socketio=None) -> None:
     """Регистрация всех маршрутов `/files`.
 
@@ -60,6 +88,9 @@ def register(app, media_service, socketio=None) -> None:
 	- serving converted and original files
 	- recorder modal endpoints
 	"""
+    # Clear all uploads on server startup
+    clear_all_uploads_on_startup()
+
     # validate_directory_params импортирован из utils.dir_utils
 
     # Socket.IO room join for files page
@@ -2328,10 +2359,8 @@ def can_start_new_upload():
             password='znf25!',
             db=0)
 
-        # Get max parallel uploads from config
-        from flask import current_app
-        max_parallel = int(current_app._sql.config['files'].get(
-            'max_parallel_uploads', 3))  # type: ignore
+        # Get max parallel uploads from config (default to 3)
+        max_parallel = 3
 
         # Use Redis pipeline for atomic operation
         pipe = redis_client.pipeline()
@@ -2468,12 +2497,13 @@ def start_background_upload(upload_job):
             for i, (file_url, file_name) in enumerate(
                     zip(upload_job['file_urls'], upload_job['file_names'])):
                 try:
-                    # Update progress
+                    # Update progress - mark file as started
                     update_upload_job(
                         upload_id, {
                             'completed_files': i,
                             'current_file': file_name,
-                            'current_file_progress': 0
+                            'current_file_progress': 0,
+                            'status': 'running'
                         })
 
                     # Download file directly from registrator
@@ -2490,12 +2520,16 @@ def start_background_upload(upload_job):
                         'Connection': 'keep-alive'
                     }
 
+                    _log.info(
+                        f"Starting download of {file_name} from {file_url}")
                     response = requests.get(file_url,
                                             timeout=300,
                                             verify=False,
                                             stream=True,
                                             headers=headers)
 
+                    _log.info(
+                        f"Download response status: {response.status_code}")
                     if response.status_code == 200:
                         # Download file with progress tracking
                         content_length = int(
@@ -2503,10 +2537,20 @@ def start_background_upload(upload_job):
                         downloaded_size = 0
                         file_content = b''
 
+                        _log.info(
+                            f"Starting to download {file_name}, content-length: {content_length}"
+                        )
+                        chunk_count = 0
                         for chunk in response.iter_content(chunk_size=8192):
                             if chunk:
                                 file_content += chunk
                                 downloaded_size += len(chunk)
+                                chunk_count += 1
+                                # Log progress every 100 chunks to avoid spam
+                                if chunk_count % 100 == 0:
+                                    _log.info(
+                                        f"Downloaded {downloaded_size}/{content_length} bytes for {file_name}"
+                                    )
 
                                 # Update progress every 1MB or when complete
                                 if content_length > 0:
@@ -2516,10 +2560,17 @@ def start_background_upload(upload_job):
                                     # Update progress more frequently for better UX
                                     if progress % 2 == 0 or downloaded_size == content_length:  # Update every 2%
                                         update_upload_job(
-                                            upload_id, {
+                                            upload_id,
+                                            {
                                                 'current_file_progress':
-                                                progress
+                                                progress,
+                                                'status': 'running',
+                                                'completed_files':
+                                                i  # Update completed files count during download
                                             })
+                                        _log.info(
+                                            f"Updated progress for {upload_id}: {i} files completed, {progress}% current file"
+                                        )
 
                         # Upload file
                         files = {
@@ -2542,6 +2593,12 @@ def start_background_upload(upload_job):
 
                         if upload_response.status_code == 200:
                             _log.info(f"Successfully uploaded {file_name}")
+                            # Update completed files count after successful upload
+                            update_upload_job(
+                                upload_id, {
+                                    'completed_files': i + 1,
+                                    'current_file_progress': 100
+                                })
                         else:
                             _log.error(
                                 f"Failed to upload {file_name}: {upload_response.status_code}"

@@ -1,16 +1,425 @@
 // Auto-enable debug logging for files sync (set early)
 window.__syncDebug = false;
 
+// Global functions for persistent upload progress
+function showPersistentProgressIndicator(
+  uploadId,
+  registratorName,
+  totalFiles
+) {
+  try {
+    // Create persistent progress indicator
+    var progressId = "persistent-progress-" + uploadId;
+    var existingIndicator = document.getElementById(progressId);
+    if (existingIndicator) {
+      existingIndicator.remove();
+    }
+
+    var indicator = document.createElement("div");
+    indicator.id = progressId;
+    indicator.className = "persistent-progress-indicator";
+    // Calculate position based on existing indicators
+    var existingIndicators = document.querySelectorAll(
+      ".persistent-progress-indicator"
+    );
+    var topOffset = 20 + existingIndicators.length * 200; // 200px spacing between indicators
+
+    indicator.style.cssText = `
+      position: fixed;
+      top: ${topOffset}px;
+      right: 20px;
+      background: var(--modal-bg, #ffffff);
+      border: 1px solid var(--control-border, #dee2e6);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      min-width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--body-text, #000000);
+    `;
+
+    indicator.innerHTML = `
+      <div style="display: flex; align-items: center; margin-bottom: 12px;">
+        <div style="width: 20px; height: 20px; background: var(--btn-focus, #007bff); border-radius: 50%; margin-right: 12px; animation: pulse 2s infinite;"></div>
+        <div style="font-weight: 600; color: var(--body-text, #000000);">Загрузка с регистратора "${registratorName}"</div>
+        <button onclick="this.parentElement.parentElement.remove()" style="margin-left: auto; background: none; border: none; font-size: 18px; cursor: pointer; color: var(--table-td-text, #666666);">&times;</button>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; font-size: 14px; color: var(--table-td-text, #666666);">
+          <span>Файлов: <span id="progress-files-${uploadId}">0/${totalFiles}</span></span>
+          <span id="progress-percent-${uploadId}">0%</span>
+        </div>
+        <div style="width: 100%; height: 8px; background: var(--control-bg, #f8f9fa); border-radius: 4px; margin-top: 8px; overflow: hidden;">
+          <div id="progress-bar-${uploadId}" style="width: 0%; height: 100%; background: var(--btn-focus, #007bff); transition: width 0.3s ease;"></div>
+        </div>
+      </div>
+      <div id="progress-current-${uploadId}" style="font-size: 13px; color: var(--table-td-text, #666666); font-style: italic; margin-bottom: 12px;">Ожидание...</div>
+      <div style="display: flex; gap: 8px;">
+        <button onclick="cancelUpload('${uploadId}')" style="
+          flex: 1;
+          background: #dc3545;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 8px 12px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: background 0.2s;
+        " onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
+          Отменить
+        </button>
+        <button onclick="hidePersistentProgress('${uploadId}')" style="
+          background: var(--btn-secondary-bg, #6c757d);
+          color: var(--btn-secondary-fg, #ffffff);
+          border: 1px solid var(--control-border, #6c757d);
+          border-radius: 4px;
+          padding: 8px 12px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: background 0.2s;
+        " onmouseover="this.style.background='var(--sidebar-bg, #5a6268)'" onmouseout="this.style.background='var(--btn-secondary-bg, #6c757d)'">
+          Скрыть
+        </button>
+      </div>
+      <style>
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      </style>
+    `;
+
+    document.body.appendChild(indicator);
+
+    // Save to localStorage for persistence across page reloads
+    const toastData = {
+      uploadId: uploadId,
+      registratorName: registratorName,
+      totalFiles: totalFiles,
+      completedFiles: 0,
+      currentFile: "",
+      currentFileProgress: 0,
+      status: "uploading",
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(`upload_toast_${uploadId}`, JSON.stringify(toastData));
+
+    // Auto-remove after 10 minutes
+    setTimeout(function () {
+      var indicator = document.getElementById(progressId);
+      if (indicator) {
+        indicator.remove();
+      }
+      removeToastFromStorage(uploadId);
+    }, 600000);
+  } catch (err) {
+    console.error("Error showing persistent progress:", err);
+  }
+}
+
+function updatePersistentProgress(
+  uploadId,
+  completedFiles,
+  totalFiles,
+  currentFile,
+  currentFileProgress
+) {
+  try {
+    const storageKey = `upload_toast_${uploadId}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      const toastData = JSON.parse(stored);
+      toastData.completedFiles = completedFiles;
+      toastData.totalFiles = totalFiles;
+      toastData.currentFile = currentFile;
+      toastData.currentFileProgress = currentFileProgress;
+      toastData.timestamp = Date.now();
+      localStorage.setItem(storageKey, JSON.stringify(toastData));
+
+      // Update visual progress indicator
+      const progressId = "persistent-progress-" + uploadId;
+      const indicator = document.getElementById(progressId);
+      if (indicator) {
+        // Ensure we have valid numbers
+        const completed = parseInt(completedFiles) || 0;
+        const total = parseInt(totalFiles) || 1; // Avoid division by zero
+        const currentProgress = parseInt(currentFileProgress) || 0;
+
+        // Calculate progress: completed files + current file progress
+        const progress = Math.round(
+          (completed / total) * 100 + currentProgress / total
+        );
+
+        console.log(
+          `[DEBUG] Updating progress for ${uploadId}: ${completed}/${total} files, current file: ${currentProgress}%, total progress: ${progress}%`
+        );
+
+        // Update progress elements
+        const filesSpan = indicator.querySelector(
+          `#progress-files-${uploadId}`
+        );
+        const percentSpan = indicator.querySelector(
+          `#progress-percent-${uploadId}`
+        );
+        const barDiv = indicator.querySelector(`#progress-bar-${uploadId}`);
+        const currentDiv = indicator.querySelector(
+          `#progress-current-${uploadId}`
+        );
+
+        if (filesSpan) filesSpan.textContent = `${completed}/${total}`;
+        if (percentSpan) percentSpan.textContent = `${progress}%`;
+        if (barDiv) barDiv.style.width = `${progress}%`;
+        if (currentDiv) {
+          currentDiv.textContent = currentFile || "Обработка...";
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error updating persistent progress:", err);
+  }
+}
+
+function hidePersistentProgress(uploadId) {
+  try {
+    // Hide visual progress indicator
+    const progressId = "persistent-progress-" + uploadId;
+    const indicator = document.getElementById(progressId);
+    if (indicator) {
+      indicator.remove();
+    }
+
+    // Remove from localStorage
+    localStorage.removeItem(`upload_toast_${uploadId}`);
+
+    // Hide toast if it exists
+    const toastElement = document.querySelector(
+      `[data-upload-id="${uploadId}"]`
+    );
+    if (toastElement) {
+      toastElement.remove();
+    }
+
+    // Recalculate positions of remaining indicators
+    recalculateIndicatorPositions();
+  } catch (err) {
+    console.error("Error hiding persistent progress:", err);
+  }
+}
+
+function recalculateIndicatorPositions() {
+  try {
+    var indicators = document.querySelectorAll(
+      ".persistent-progress-indicator"
+    );
+    indicators.forEach(function (indicator, index) {
+      var topOffset = 20 + index * 200; // 200px spacing between indicators
+      indicator.style.top = topOffset + "px";
+    });
+  } catch (err) {
+    console.error("Error recalculating indicator positions:", err);
+  }
+}
+
+function removeToastFromStorage(uploadId) {
+  try {
+    localStorage.removeItem(`upload_toast_${uploadId}`);
+  } catch (err) {
+    console.error("Error removing toast from storage:", err);
+  }
+}
+
+function updateImportProgress(current, total, fileName) {
+  try {
+    var progressText = document.getElementById("import-progress-text");
+    var progressBar = document.getElementById("import-progress-bar");
+    var currentFile = document.getElementById("import-current-file");
+
+    if (progressText) progressText.textContent = `${current}/${total}`;
+    if (progressBar) {
+      var percentage = Math.round((current / total) * 100);
+      progressBar.style.width = percentage + "%";
+      progressBar.setAttribute("aria-valuenow", percentage);
+    }
+    if (currentFile) currentFile.textContent = fileName || "Обработка...";
+  } catch (err) {}
+}
+
+function hideImportProgress() {
+  try {
+    var progressContainer = document.getElementById(
+      "import-progress-container"
+    );
+    if (progressContainer) {
+      progressContainer.remove();
+    }
+
+    // Re-enable modal controls
+    var modal = document.getElementById("popup-import-registrator");
+    var cancelBtn =
+      modal.querySelector('button[onclick*="closeModal"]') ||
+      modal.querySelector('button[onclick*="popupToggle"]');
+    var importBtn = modal.querySelector(
+      'button[onclick*="submitRegistratorImport"]'
+    );
+
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (importBtn) importBtn.disabled = false;
+  } catch (err) {}
+}
+
+function monitorUploadProgress(uploadId, registratorName) {
+  var progressInterval = setInterval(function () {
+    // Проверяем состояние соединения для оптимизации запросов
+    const connectionState = window.SyncManager.getConnectionState();
+    if (!connectionState.connected) {
+      // Если сокет не подключен, пропускаем этот цикл, но не останавливаем мониторинг
+      console.log(
+        `[DEBUG] Socket not connected, skipping progress check for ${uploadId}`
+      );
+      return;
+    }
+
+    console.log(`[DEBUG] Checking upload status for ${uploadId}`);
+    fetch(`/api/upload-status/${uploadId}`)
+      .then((response) => {
+        console.log(`[DEBUG] Upload status response: ${response.status}`);
+        if (response.status === 404) {
+          // Upload job not found (server restart), stop monitoring
+          clearInterval(progressInterval);
+          hideImportProgress();
+          hidePersistentProgress(uploadId);
+          removeToastFromStorage(uploadId);
+
+          if (window.showToast) {
+            window.showToast(
+              "Загрузка была прервана из-за перезагрузки сервера",
+              "warning"
+            );
+          }
+          return null; // Stop processing
+        }
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data) return; // Skip if 404 was handled
+        console.log(`[DEBUG] Upload status data:`, data);
+        if (data.status === "success") {
+          var upload = data.upload;
+          console.log(
+            `[DEBUG] Upload progress: ${upload.completed_files}/${upload.total_files} (${upload.status})`
+          );
+          var progress = Math.round(
+            (upload.completed_files / upload.total_files) * 100
+          );
+
+          // Update progress indicator
+          updateImportProgress(
+            upload.completed_files,
+            upload.total_files,
+            upload.current_file || "Обработка..."
+          );
+
+          // Update persistent progress indicator
+          updatePersistentProgress(
+            uploadId,
+            upload.completed_files,
+            upload.total_files,
+            upload.current_file,
+            upload.current_file_progress
+          );
+
+          if (upload.status === "completed") {
+            clearInterval(progressInterval);
+            hideImportProgress();
+            hidePersistentProgress(uploadId);
+
+            if (window.showToast) {
+              if (upload.error_count === 0) {
+                window.showToast("Все файлы успешно загружены!", "success");
+              } else if (upload.error_count === upload.total_files) {
+                // All files failed
+                window.showToast(
+                  `Не удалось загрузить ни одного файла (${upload.error_count}/${upload.total_files})`,
+                  "error"
+                );
+              } else {
+                // Some files failed
+                window.showToast(
+                  `Загружено ${upload.completed_files - upload.error_count}/${
+                    upload.total_files
+                  } файлов. ${upload.error_count} файлов не удалось загрузить.`,
+                  "warning"
+                );
+              }
+            }
+          } else if (upload.status === "failed") {
+            clearInterval(progressInterval);
+            hideImportProgress();
+            hidePersistentProgress(uploadId);
+
+            if (window.showToast) {
+              window.showToast("Ошибка при загрузке файлов", "error");
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error monitoring upload progress:", err);
+        // Don't stop monitoring on network errors, only on 404
+        if (err.message && err.message.includes("404")) {
+          clearInterval(progressInterval);
+          hideImportProgress();
+          hidePersistentProgress(uploadId);
+          removeToastFromStorage(uploadId);
+        }
+      });
+  }, 2000); // Check every 2 seconds
+
+  // Clear interval after 10 minutes to prevent memory leaks
+  setTimeout(function () {
+    clearInterval(progressInterval);
+  }, 600000);
+}
+
 // Global function to restore persistent upload toasts from localStorage
 function restoreToastsFromStorage() {
   try {
+    console.log("restoreToastsFromStorage called");
+
+    // Clear all existing toasts on page load
+    const toastContainer = document.getElementById("toast-container");
+    if (toastContainer) {
+      toastContainer.innerHTML = "";
+      console.log("Cleared existing toasts");
+    }
+
+    // Check current upload status to ensure accuracy
+    fetch("/api/active-uploads")
+      .then((response) => response.json())
+      .then((data) => {
+        console.log("Current upload status after page load:", data);
+        if (data.can_start_new && data.active_uploads === 0) {
+          console.log("No active uploads confirmed, all toasts cleared");
+        }
+      })
+      .catch((err) => {
+        console.error("Error checking upload status:", err);
+      });
+
     const keys = Object.keys(localStorage);
     const uploadKeys = keys.filter((key) => key.startsWith("upload_toast_"));
+    console.log("Found upload keys:", uploadKeys);
 
     for (const key of uploadKeys) {
+      console.log("Processing key:", key);
       const stored = localStorage.getItem(key);
       if (stored) {
         const toastData = JSON.parse(stored);
+        console.log("Toast data:", toastData);
         const now = Date.now();
         const age = now - toastData.timestamp;
 
@@ -21,19 +430,25 @@ function restoreToastsFromStorage() {
         }
 
         // Check if upload is still active
+        console.log("Checking upload status for:", toastData.uploadId);
         fetch(`/api/upload-status/${toastData.uploadId}`)
           .then((response) => {
+            console.log("Upload status response:", response.status);
             if (response.status === 404) {
               // Upload not found, remove toast
+              console.log("Upload not found, removing toast");
               localStorage.removeItem(key);
               return;
             }
             return response.json();
           })
           .then((data) => {
+            console.log("Upload status data:", data);
             if (data && data.upload) {
               // Upload still active, restore visual progress indicator
+              console.log("Upload is active, restoring progress indicator");
               if (typeof showPersistentProgressIndicator === "function") {
+                console.log("showPersistentProgressIndicator is available");
                 showPersistentProgressIndicator(
                   toastData.uploadId,
                   toastData.registratorName,
@@ -61,6 +476,7 @@ function restoreToastsFromStorage() {
               }
             } else {
               // Upload completed or failed, remove toast
+              console.log("Upload completed or failed, removing toast");
               localStorage.removeItem(key);
             }
           })
@@ -1900,12 +2316,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   } catch (_) {}
 
-  // Restore persistent upload toasts from localStorage
-  try {
-    restoreToastsFromStorage();
-  } catch (err) {
-    console.error("Error restoring upload toasts:", err);
-  }
+  // Restore persistent upload toasts from localStorage - moved to end of file
   try {
     var idleSec = 30;
     try {
@@ -4990,6 +5401,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
       }
       regPicker.addEventListener("change", function () {
+        console.log("[DEBUG] Registrator change event triggered");
         // When registrator changes, parse its template and set param labels
         var sel = q("reg-picker");
         try {
@@ -5003,6 +5415,59 @@ document.addEventListener("DOMContentLoaded", function () {
           "Template:",
           tpl
         );
+
+        // Check if param elements exist
+        console.log("[DEBUG] Checking param elements:");
+        for (var i = 1; i <= 5; i++) {
+          var wrap = q("reg-param-" + i + "-wrap");
+          var lab = q("reg-param-" + i + "-label");
+          var selp = q("reg-param-" + i);
+
+          // If label not found by ID, try to find it inside the wrap
+          if (!lab && wrap) {
+            lab = wrap.querySelector("#reg-param-" + i + "-label");
+            if (!lab) {
+              lab = wrap.querySelector(".form-control__label span");
+            }
+          }
+
+          console.log(`[DEBUG] Param ${i}:`, {
+            wrap: !!wrap,
+            lab: !!lab,
+            selp: !!selp,
+          });
+          if (i === 5 && !lab) {
+            console.log(
+              `[DEBUG] Param 5 label not found, searching for: reg-param-5-label`
+            );
+            console.log(
+              `[DEBUG] All elements with 'reg-param-5':`,
+              document.querySelectorAll('[id*="reg-param-5"]')
+            );
+            // Try to find the label inside the wrap
+            var wrap = q("reg-param-5-wrap");
+            if (wrap) {
+              var labelInside = wrap.querySelector("#reg-param-5-label");
+              console.log(`[DEBUG] Label inside wrap:`, labelInside);
+              // Also try to find by class
+              var labelByClass = wrap.querySelector(
+                ".form-control__label span"
+              );
+              console.log(`[DEBUG] Label by class:`, labelByClass);
+              // Try to find all spans in the wrap (including hidden ones)
+              var allSpans = wrap.querySelectorAll("span");
+              console.log(`[DEBUG] All spans in wrap:`, allSpans);
+              // Try to find by text content
+              var labelByText = Array.from(wrap.querySelectorAll("span")).find(
+                (span) => span.textContent === "—"
+              );
+              console.log(`[DEBUG] Label by text:`, labelByText);
+              // Try to find by ID directly (even if hidden)
+              var labelById = document.getElementById("reg-param-5-label");
+              console.log(`[DEBUG] Label by ID:`, labelById);
+            }
+          }
+        }
         // Fallback: if template is missing, try to fetch registrator details once
         if (!tpl && opt && opt.value) {
           try {
@@ -5080,6 +5545,9 @@ document.addEventListener("DOMContentLoaded", function () {
             if (n && names.indexOf(n) === -1) names.push(n);
           });
         } catch (_) {}
+
+        console.log("[DEBUG] Extracted parameter names:", names);
+
         // Map known placeholders to RU labels
         function toRuLabel(n) {
           var k = String(n || "").toLowerCase();
@@ -5110,16 +5578,51 @@ document.addEventListener("DOMContentLoaded", function () {
           var wrap = q("reg-param-" + i + "-wrap");
           var lab = q("reg-param-" + i + "-label");
           var selp = q("reg-param-" + i);
-          if (!wrap || !lab || !selp) return;
+          if (!wrap || !lab || !selp) {
+            console.log(`[DEBUG] Missing elements for param ${i}:`, {
+              wrap,
+              lab,
+              selp,
+            });
+            return;
+          }
           if (names[i - 1]) {
             lab.textContent = toRuLabel(names[i - 1]);
-            // Don't show the first param yet - wait for options to load
+            // Show the first param, hide others
             if (i === 1) {
+              console.log(`[DEBUG] Showing param ${i} (${names[i - 1]})`);
+              console.log(`[DEBUG] Param ${i} classes before:`, wrap.className);
+              console.log(
+                `[DEBUG] Param ${i} style before:`,
+                wrap.style.display
+              );
+
+              // Remove both CSS class and inline style
+              wrap.classList.remove("d-none");
+              wrap.style.display = "";
+
+              console.log(`[DEBUG] Param ${i} classes after:`, wrap.className);
+              console.log(
+                `[DEBUG] Param ${i} style after:`,
+                wrap.style.display
+              );
+              console.log(
+                `[DEBUG] Param ${i} computed style:`,
+                window.getComputedStyle(wrap).display
+              );
+              console.log(`[DEBUG] Param ${i} parent:`, wrap.parentElement);
+              console.log(
+                `[DEBUG] Param ${i} parent classes:`,
+                wrap.parentElement ? wrap.parentElement.className : "no parent"
+              );
+              console.log(`[DEBUG] Param ${i} element:`, wrap);
             } else {
+              console.log(`[DEBUG] Hiding param ${i}`);
               wrap.classList.add("d-none");
             }
             ensurePlaceholder(selp, lab.textContent);
           } else {
+            console.log(`[DEBUG] Hiding param ${i} (no name)`);
             wrap.classList.add("d-none");
             lab.textContent = "—";
             ensurePlaceholder(selp, "");
@@ -5224,6 +5727,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!sel) return;
         sel.addEventListener("change", function () {
           var val = sel.value || "";
+          console.log(`[DEBUG] Param ${i} changed to:`, val);
           // Hide all following selects and reset them to placeholder
           for (var j = i + 1; j <= 5; j++) {
             var wrapJ = q("reg-param-" + j + "-wrap");
@@ -5241,26 +5745,30 @@ document.addEventListener("DOMContentLoaded", function () {
           var nextWrap = q("reg-param-" + nextIdx + "-wrap");
           var nextLab = q("reg-param-" + nextIdx + "-label");
           var nextSel = q("reg-param-" + nextIdx);
-          if (
-            val &&
-            nextWrap &&
-            nextLab &&
-            nextSel &&
-            nextLab.textContent &&
-            nextLab.textContent !== "—"
-          ) {
+          if (val && nextWrap && nextLab && nextSel) {
+            console.log(`[DEBUG] Showing next param ${nextIdx}:`, {
+              wrap: !!nextWrap,
+              lab: !!nextLab,
+              sel: !!nextSel,
+            });
             // Check if this is the last parameter (should show files)
             if (nextIdx >= 5) {
               // This is the last parameter - show files
               if (nextLab) nextLab.textContent = "Файлы";
               if (nextSel) ensurePlaceholder(nextSel, "Файлы");
-              if (nextWrap) nextWrap.classList.remove("d-none");
+              if (nextWrap) {
+                nextWrap.classList.remove("d-none");
+                nextWrap.style.display = ""; // Remove inline style
+              }
               // Fetch files for the last parameter
               if (nextSel) fetchNextParamOptions(i, val, nextSel);
             } else {
               if (nextSel)
                 ensurePlaceholder(nextSel, nextLab ? nextLab.textContent : "");
-              if (nextWrap) nextWrap.classList.remove("d-none");
+              if (nextWrap) {
+                nextWrap.classList.remove("d-none");
+                nextWrap.style.display = ""; // Remove inline style
+              }
               // Fetch options for the next parameter
               if (nextSel) fetchNextParamOptions(i, val, nextSel);
             }
@@ -5271,13 +5779,17 @@ document.addEventListener("DOMContentLoaded", function () {
               // This is the last parameter - show files
               if (nextLab) nextLab.textContent = "Файлы";
               if (nextSel) ensurePlaceholder(nextSel, "Файлы");
-              if (nextWrap) nextWrap.classList.remove("d-none");
+              if (nextWrap) {
+                nextWrap.classList.remove("d-none");
+                nextWrap.style.display = ""; // Remove inline style
+              }
               // Fetch files for the last parameter
               if (nextSel) fetchNextParamOptions(i, val, nextSel);
             } else if (nextWrap && nextLab && nextSel) {
               // Show next parameter field
               ensurePlaceholder(nextSel, nextLab.textContent);
               nextWrap.classList.remove("d-none");
+              nextWrap.style.display = ""; // Remove inline style
               // Fetch options for the next parameter
               fetchNextParamOptions(i, val, nextSel);
             }
@@ -5289,11 +5801,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function fetchNextParamOptions(paramIndex, selectedValue, nextSelect) {
       try {
+        console.log(
+          `[DEBUG] fetchNextParamOptions called for param ${
+            paramIndex + 1
+          }, value:`,
+          selectedValue
+        );
         var sel = q("reg-picker");
         if (!sel) return;
         var opt = sel.options && sel.options[sel.selectedIndex];
         var tpl = (opt && opt.getAttribute("data-template")) || "";
         if (!tpl) return;
+        console.log(`[DEBUG] Template:`, tpl);
 
         // Get all selected values from previous parameters
         var selectedValues = [];
@@ -5382,6 +5901,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return r.json();
           })
           .then(function (j) {
+            console.log(`[DEBUG] Browse response:`, j);
             if (j && j.status === "success" && j.entries) {
               var names = (j.entries || [])
                 .map(function (entry) {
@@ -5632,9 +6152,6 @@ document.addEventListener("DOMContentLoaded", function () {
           return buildFileUrl(fileName);
         });
 
-        // Show progress and block modal
-        showImportProgress(selectedFiles.length);
-
         // Check if we can start new upload
         fetch("/api/active-uploads")
           .then((response) => response.json())
@@ -5646,16 +6163,19 @@ document.addEventListener("DOMContentLoaded", function () {
                   "warning"
                 );
               }
-              return;
+              // Don't return here - allow user to configure parameters
+              // The actual upload will be blocked later
             }
 
-            // Start background upload
-            startBackgroundUpload(
-              fileUrls,
-              selectedFiles,
-              registratorName,
-              registratorId
-            );
+            // Start background upload only if we can start new uploads
+            if (data.can_start_new) {
+              startBackgroundUpload(
+                fileUrls,
+                selectedFiles,
+                registratorName,
+                registratorId
+              );
+            }
           })
           .catch((err) => {
             console.error("Error checking upload limit:", err);
@@ -5775,23 +6295,50 @@ document.addEventListener("DOMContentLoaded", function () {
       } catch (err) {}
     }
 
-    function updateImportProgress(current, total, fileName) {
+    function startBackgroundUpload(
+      fileUrls,
+      fileNames,
+      registratorName,
+      registratorId
+    ) {
       try {
-        var progressText = document.getElementById("import-progress-text");
-        var progressBar = document.getElementById("import-progress-bar");
-        var currentFile = document.getElementById("import-current-file");
+        // Check upload limit before starting
+        fetch("/api/active-uploads")
+          .then((response) => response.json())
+          .then((data) => {
+            if (!data.can_start_new) {
+              if (window.showToast) {
+                window.showToast(
+                  `Достигнут лимит одновременных загрузок (${data.active_uploads}/${data.max_parallel}). Дождитесь завершения одной из загрузок.`,
+                  "warning"
+                );
+              }
+              return;
+            }
 
-        if (progressText) progressText.textContent = `${current}/${total}`;
-        if (progressBar) {
-          var percentage = Math.round((current / total) * 100);
-          progressBar.style.width = percentage + "%";
-          progressBar.setAttribute("aria-valuenow", percentage);
+            // Proceed with upload
+            proceedWithUpload(
+              fileUrls,
+              fileNames,
+              registratorName,
+              registratorId
+            );
+          })
+          .catch((err) => {
+            console.error("Error checking upload limit:", err);
+            if (window.showToast) {
+              window.showToast("Ошибка при проверке лимита загрузок", "error");
+            }
+          });
+      } catch (err) {
+        console.error("Error in startBackgroundUpload:", err);
+        if (window.showToast) {
+          window.showToast("Ошибка при запуске загрузки", "error");
         }
-        if (currentFile) currentFile.textContent = fileName || "Обработка...";
-      } catch (err) {}
+      }
     }
 
-    function startBackgroundUpload(
+    function proceedWithUpload(
       fileUrls,
       fileNames,
       registratorName,
@@ -5912,7 +6459,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }, 0); // Выполняем асинхронно
       } catch (err) {
-        console.error("Error in startBackgroundUpload:", err);
+        console.error("Error in proceedWithUpload:", err);
         if (window.showToast) {
           window.showToast("Ошибка при запуске загрузки", "error");
         }
@@ -6144,116 +6691,6 @@ document.addEventListener("DOMContentLoaded", function () {
         console.error("Error in cancelUpload:", err);
         window.showToast("Ошибка при отмене загрузки", "error");
       }
-    }
-
-    function monitorUploadProgress(uploadId, registratorName) {
-      var progressInterval = setInterval(function () {
-        // Проверяем состояние соединения для оптимизации запросов
-        const connectionState = window.SyncManager.getConnectionState();
-        if (!connectionState.connected) {
-          // Если сокет не подключен, увеличиваем интервал запросов
-          return;
-        }
-
-        fetch(`/api/upload-status/${uploadId}`)
-          .then((response) => {
-            if (response.status === 404) {
-              // Upload job not found (server restart), stop monitoring
-              clearInterval(progressInterval);
-              hideImportProgress();
-              hidePersistentProgress(uploadId);
-              removeToastFromStorage(uploadId);
-
-              if (window.showToast) {
-                window.showToast(
-                  "Загрузка была прервана из-за перезагрузки сервера",
-                  "warning"
-                );
-              }
-              return null; // Stop processing
-            }
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            return response.json();
-          })
-          .then((data) => {
-            if (!data) return; // Skip if 404 was handled
-            if (data.status === "success") {
-              var upload = data.upload;
-              var progress = Math.round(
-                (upload.completed_files / upload.total_files) * 100
-              );
-
-              // Update progress indicator
-              updateImportProgress(
-                upload.completed_files,
-                upload.total_files,
-                upload.current_file || "Обработка..."
-              );
-
-              // Update persistent progress indicator
-              updatePersistentProgress(
-                uploadId,
-                upload.completed_files,
-                upload.total_files,
-                upload.current_file,
-                upload.current_file_progress
-              );
-
-              if (upload.status === "completed") {
-                clearInterval(progressInterval);
-                hideImportProgress();
-                hidePersistentProgress(uploadId);
-
-                if (window.showToast) {
-                  if (upload.error_count === 0) {
-                    window.showToast("Все файлы успешно загружены!", "success");
-                  } else if (upload.error_count === upload.total_files) {
-                    // All files failed
-                    window.showToast(
-                      `Не удалось загрузить ни одного файла (${upload.error_count}/${upload.total_files})`,
-                      "error"
-                    );
-                  } else {
-                    // Some files failed
-                    window.showToast(
-                      `Загружено ${
-                        upload.completed_files - upload.error_count
-                      }/${upload.total_files} файлов. ${
-                        upload.error_count
-                      } файлов не удалось загрузить.`,
-                      "warning"
-                    );
-                  }
-                }
-              } else if (upload.status === "failed") {
-                clearInterval(progressInterval);
-                hideImportProgress();
-                hidePersistentProgress(uploadId);
-
-                if (window.showToast) {
-                  window.showToast("Ошибка при загрузке файлов", "error");
-                }
-              }
-            }
-          })
-          .catch((err) => {
-            console.error("Error monitoring upload progress:", err);
-            // Don't stop monitoring on network errors, only on 404
-            if (err.message && err.message.includes("404")) {
-              clearInterval(progressInterval);
-              hideImportProgress();
-              hidePersistentProgress(uploadId);
-              removeToastFromStorage(uploadId);
-            }
-          });
-      }, 2000); // Check every 2 seconds
-
-      // Clear interval after 10 minutes to prevent memory leaks
-      setTimeout(function () {
-        clearInterval(progressInterval);
-      }, 600000);
     }
 
     function downloadFiles(
@@ -6698,29 +7135,6 @@ document.addEventListener("DOMContentLoaded", function () {
       } catch (err) {}
     }
 
-    function hideImportProgress() {
-      try {
-        var progressContainer = document.getElementById(
-          "import-progress-container"
-        );
-        if (progressContainer) {
-          progressContainer.remove();
-        }
-
-        // Re-enable modal controls
-        var modal = document.getElementById("popup-import-registrator");
-        var cancelBtn =
-          modal.querySelector('button[onclick*="closeModal"]') ||
-          modal.querySelector('button[onclick*="popupToggle"]');
-        var importBtn = modal.querySelector(
-          'button[onclick*="submitRegistratorImport"]'
-        );
-
-        if (cancelBtn) cancelBtn.disabled = false;
-        if (importBtn) importBtn.disabled = false;
-      } catch (err) {}
-    }
-
     try {
       wireParamChain();
     } catch (_) {}
@@ -6834,199 +7248,11 @@ document.addEventListener("DOMContentLoaded", function () {
   })();
 
   // Persistent progress indicator functions
-  function showPersistentProgressIndicator(
-    uploadId,
-    registratorName,
-    totalFiles
-  ) {
-    try {
-      // Create persistent progress indicator
-      var progressId = "persistent-progress-" + uploadId;
-      var existingIndicator = document.getElementById(progressId);
-      if (existingIndicator) {
-        existingIndicator.remove();
-      }
 
-      var indicator = document.createElement("div");
-      indicator.id = progressId;
-      indicator.className = "persistent-progress-indicator";
-      indicator.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: var(--modal-bg, #ffffff);
-        border: 1px solid var(--control-border, #dee2e6);
-        border-radius: 8px;
-        padding: 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 10000;
-        min-width: 320px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: var(--body-text, #000000);
-      `;
-
-      indicator.innerHTML = `
-        <div style="display: flex; align-items: center; margin-bottom: 12px;">
-          <div style="width: 20px; height: 20px; background: var(--btn-focus, #007bff); border-radius: 50%; margin-right: 12px; animation: pulse 2s infinite;"></div>
-          <div style="font-weight: 600; color: var(--body-text, #000000);">Загрузка с регистратора "${registratorName}"</div>
-          <button onclick="this.parentElement.parentElement.remove()" style="margin-left: auto; background: none; border: none; font-size: 18px; cursor: pointer; color: var(--table-td-text, #666666);">&times;</button>
-        </div>
-        <div style="margin-bottom: 8px;">
-          <div style="display: flex; justify-content: space-between; font-size: 14px; color: var(--table-td-text, #666666);">
-            <span>Файлов: <span id="progress-files-${uploadId}">0/${totalFiles}</span></span>
-            <span id="progress-percent-${uploadId}">0%</span>
-          </div>
-          <div style="width: 100%; height: 8px; background: var(--control-bg, #f8f9fa); border-radius: 4px; margin-top: 8px; overflow: hidden;">
-            <div id="progress-bar-${uploadId}" style="width: 0%; height: 100%; background: var(--btn-focus, #007bff); transition: width 0.3s ease;"></div>
-          </div>
-        </div>
-        <div id="progress-current-${uploadId}" style="font-size: 13px; color: var(--table-td-text, #666666); font-style: italic; margin-bottom: 12px;">Ожидание...</div>
-        <div style="display: flex; gap: 8px;">
-          <button onclick="cancelUpload('${uploadId}')" style="
-            flex: 1;
-            background: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 8px 12px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background 0.2s;
-          " onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
-            Отменить
-          </button>
-          <button onclick="hidePersistentProgress('${uploadId}')" style="
-            background: var(--btn-secondary-bg, #6c757d);
-            color: var(--btn-secondary-fg, #ffffff);
-            border: 1px solid var(--control-border, #6c757d);
-            border-radius: 4px;
-            padding: 8px 12px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background 0.2s;
-          " onmouseover="this.style.background='var(--sidebar-bg, #5a6268)'" onmouseout="this.style.background='var(--btn-secondary-bg, #6c757d)'">
-            Скрыть
-          </button>
-        </div>
-        <style>
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-          }
-        </style>
-      `;
-
-      document.body.appendChild(indicator);
-
-      // Save to localStorage for persistence across page reloads
-      const toastData = {
-        uploadId: uploadId,
-        registratorName: registratorName,
-        totalFiles: totalFiles,
-        completedFiles: 0,
-        currentFile: "",
-        currentFileProgress: 0,
-        status: "uploading",
-        timestamp: Date.now(),
-      };
-      localStorage.setItem(
-        `upload_toast_${uploadId}`,
-        JSON.stringify(toastData)
-      );
-
-      // Auto-remove after 10 minutes
-      setTimeout(function () {
-        var indicator = document.getElementById(progressId);
-        if (indicator) {
-          indicator.remove();
-        }
-        removeToastFromStorage(uploadId);
-      }, 600000);
-    } catch (err) {
-      console.error("Error showing persistent progress:", err);
-    }
-  }
-
-  function updatePersistentProgress(
-    uploadId,
-    completedFiles,
-    totalFiles,
-    currentFile,
-    currentFileProgress
-  ) {
-    try {
-      const storageKey = `upload_toast_${uploadId}`;
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const toastData = JSON.parse(stored);
-        toastData.completedFiles = completedFiles;
-        toastData.totalFiles = totalFiles;
-        toastData.currentFile = currentFile;
-        toastData.currentFileProgress = currentFileProgress;
-        toastData.timestamp = Date.now();
-        localStorage.setItem(storageKey, JSON.stringify(toastData));
-
-        // Update visual progress indicator
-        const progressId = "persistent-progress-" + uploadId;
-        const indicator = document.getElementById(progressId);
-        if (indicator) {
-          const progress = Math.round((completedFiles / totalFiles) * 100);
-
-          // Update progress elements
-          const filesSpan = indicator.querySelector(
-            `#progress-files-${uploadId}`
-          );
-          const percentSpan = indicator.querySelector(
-            `#progress-percent-${uploadId}`
-          );
-          const barDiv = indicator.querySelector(`#progress-bar-${uploadId}`);
-          const currentDiv = indicator.querySelector(
-            `#progress-current-${uploadId}`
-          );
-
-          if (filesSpan)
-            filesSpan.textContent = `${completedFiles}/${totalFiles}`;
-          if (percentSpan) percentSpan.textContent = `${progress}%`;
-          if (barDiv) barDiv.style.width = `${progress}%`;
-          if (currentDiv) {
-            currentDiv.textContent = currentFile || "Обработка...";
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error updating persistent progress:", err);
-    }
-  }
-
-  function hidePersistentProgress(uploadId) {
-    try {
-      // Hide visual progress indicator
-      const progressId = "persistent-progress-" + uploadId;
-      const indicator = document.getElementById(progressId);
-      if (indicator) {
-        indicator.remove();
-      }
-
-      // Remove from localStorage
-      localStorage.removeItem(`upload_toast_${uploadId}`);
-
-      // Hide toast if it exists
-      const toastElement = document.querySelector(
-        `[data-upload-id="${uploadId}"]`
-      );
-      if (toastElement) {
-        toastElement.remove();
-      }
-    } catch (err) {
-      console.error("Error hiding persistent progress:", err);
-    }
-  }
-
-  function removeToastFromStorage(uploadId) {
-    try {
-      localStorage.removeItem(`upload_toast_${uploadId}`);
-    } catch (err) {
-      console.error("Error removing toast from storage:", err);
-    }
+  // Restore persistent upload toasts from localStorage after all functions are defined
+  try {
+    restoreToastsFromStorage();
+  } catch (err) {
+    console.error("Error restoring upload toasts:", err);
   }
 }); // Close DOMContentLoaded
