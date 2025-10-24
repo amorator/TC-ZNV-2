@@ -83,6 +83,11 @@ function getSessionLifetime() {
   return config.session_lifetime || 86400;
 }
 
+function getReconnectInterval() {
+  const config = getWebConfig();
+  return config.reconnect_interval || 5; // Fallback to 5 seconds
+}
+
 // Export functions to global scope
 window.Config = {
   loadConfig,
@@ -94,6 +99,7 @@ window.Config = {
   getAllowedFileTypes,
   getMinPasswordLength,
   getSessionLifetime,
+  getReconnectInterval,
   getDefaultConfig,
 };
 

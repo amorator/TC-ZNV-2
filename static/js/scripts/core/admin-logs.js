@@ -5,26 +5,61 @@ let selectedUser = null; // for log filter
 let isLogPaused = false; // pause auto-refresh for logs when selecting
 let lastContextRow = null; // remember row for context actions
 
+function isJsonResponse(r) {
+  try {
+    const ct =
+      (r.headers && r.headers.get && r.headers.get("Content-Type")) || "";
+    return ct.indexOf("application/json") !== -1;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isMainSocketConnected() {
+  try {
+    const s =
+      (window.SyncManager &&
+        typeof window.SyncManager.getSocket === "function" &&
+        window.SyncManager.getSocket()) ||
+      window.socket;
+    return !!(s && s.connected);
+  } catch (_) {
+    return false;
+  }
+}
+
 function fetchLogs() {
   try {
     if (!isMainSocketConnected()) return Promise.resolve();
 
     const url = selectedUser
-      ? `/admin/logs?user=${encodeURIComponent(selectedUser)}`
-      : "/admin/logs";
+      ? `/admin/logs?user=${encodeURIComponent(selectedUser)}&full=true`
+      : "/admin/logs?full=true";
 
     return fetch(url, { credentials: "same-origin" })
       .then(function (r) {
-        if (!r.ok || !isJsonResponse(r)) {
+        if (!r.ok) {
           return { status: "error" };
         }
-        return r.json().catch(function () {
-          return { status: "error" };
+        return r.text().then(function (text) {
+          try {
+            return JSON.parse(text);
+          } catch (_) {
+            // If not JSON, treat as plain text log
+            return {
+              status: "success",
+              logs: text.split("\n").filter((line) => line.trim()),
+            };
+          }
         });
       })
       .then((j) => {
         if (j && j.status === "success") {
-          renderLogs(j.logs || []);
+          if (Array.isArray(j.logs)) {
+            renderLogs(j.logs);
+          } else if (typeof j.logs === "string") {
+            renderLogs(j.logs.split("\n").filter((line) => line.trim()));
+          }
         }
       })
       .catch(function (e) {
@@ -34,48 +69,99 @@ function fetchLogs() {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "fetchLogs");
     } else {
-      window.ErrorHandler.handleError(err, "unknown")
+      window.ErrorHandler.handleError(err, "unknown");
     }
   }
 }
 
 function renderLogs(logs) {
   try {
-    const container = document.getElementById("logs-container");
-    if (!container) return;
+    const logsView = document.getElementById("logsView");
+    if (!logsView) return;
 
     if (!logs || logs.length === 0) {
-      container.innerHTML = "<p>Нет записей в логах</p>";
+      logsView.textContent = "Нет записей в логах";
       return;
     }
 
-    const html = logs
+    // If logs is already a string (from text response), use it directly
+    if (typeof logs === "string") {
+      // Escape HTML entities to prevent HTML rendering
+      const escapedLogs = logs
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+      logsView.textContent = escapedLogs;
+      return;
+    }
+
+    // If logs is an array, format each entry
+    const formattedLogs = logs
       .map((log) => {
-        const timestamp = new Date(
-          log.timestamp || Date.now()
-        ).toLocaleString();
-        const user = log.user || "Система";
-        const action = log.action || "Неизвестно";
-        const details = log.details || "";
-        const level = log.level || "info";
+        // If log is already a string, escape HTML and use it
+        if (typeof log === "string") {
+          return log
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
 
-        return `
-          <div class="log-item log-${level}" data-log-id="${log.id || ""}">
-            <span class="log-timestamp">${timestamp}</span>
-            <span class="log-user">${user}</span>
-            <span class="log-action">${action}</span>
-            <span class="log-details">${details}</span>
-          </div>
-        `;
+        // If log is an object, format it
+        if (typeof log === "object" && log !== null) {
+          const timestamp = log.timestamp
+            ? new Date(log.timestamp).toLocaleString()
+            : new Date().toLocaleString();
+          const user = log.user || "Система";
+          const action = log.action || "Неизвестно";
+          const details = log.details || "";
+          const level = log.level || "info";
+
+          // Escape HTML in all fields
+          const escapedUser = String(user)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+
+          const escapedAction = String(action)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+
+          const escapedDetails = String(details)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+
+          return `${timestamp} | ${escapedUser} | ${escapedAction} | ${escapedDetails}`;
+        }
+
+        // Escape HTML in any other type
+        return String(log)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
       })
-      .join("");
+      .join("\n");
 
-    container.innerHTML = html;
+    logsView.textContent = formattedLogs;
+
+    // Auto-scroll to bottom to show latest entries
+    logsView.scrollTop = logsView.scrollHeight;
   } catch (err) {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "renderLogs");
-    } else {
-      window.ErrorHandler.handleError(err, "unknown")
     }
   }
 }
@@ -104,7 +190,7 @@ function setLogFilter(user) {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "setLogFilter");
     } else {
-      window.ErrorHandler.handleError(err, "unknown")
+      window.ErrorHandler.handleError(err, "unknown");
     }
   }
 }
@@ -126,7 +212,7 @@ function clearLogFilter() {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "clearLogFilter");
     } else {
-      window.ErrorHandler.handleError(err, "unknown")
+      window.ErrorHandler.handleError(err, "unknown");
     }
   }
 }
@@ -288,12 +374,61 @@ function exportLogs() {
   }
 }
 
+function fetchFullLogs() {
+  try {
+    if (!isMainSocketConnected()) return Promise.resolve();
+
+    const url = selectedUser
+      ? `/admin/logs?user=${encodeURIComponent(
+          selectedUser
+        )}&full=true&from_start=true`
+      : "/admin/logs?full=true&from_start=true";
+
+    return fetch(url, { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) {
+          return { status: "error" };
+        }
+        return r.text().then(function (text) {
+          try {
+            return JSON.parse(text);
+          } catch (_) {
+            // If not JSON, treat as plain text log
+            return {
+              status: "success",
+              logs: text.split("\n").filter((line) => line.trim()),
+            };
+          }
+        });
+      })
+      .then((j) => {
+        if (j && j.status === "success") {
+          if (Array.isArray(j.logs)) {
+            renderLogs(j.logs);
+          } else if (typeof j.logs === "string") {
+            renderLogs(j.logs.split("\n").filter((line) => line.trim()));
+          }
+        }
+      })
+      .catch(function (e) {
+        return Promise.reject(e);
+      });
+  } catch (err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "fetchFullLogs");
+    } else {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
+  }
+}
+
 // Export functions to global scope
 window.AdminLogs = {
   selectedUser,
   isLogPaused,
   lastContextRow,
   fetchLogs,
+  fetchFullLogs,
   renderLogs,
   setLogFilter,
   clearLogFilter,

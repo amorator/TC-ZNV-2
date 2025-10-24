@@ -105,6 +105,11 @@
       window.socket = sock;
     }
 
+    // Join index room for force logout events
+    if (sock && sock.connected) {
+      sock.emit("join-room", "index");
+    }
+
     // UI статуса соединения
     const status = document.getElementById("indexConnStatus");
     const btn = document.getElementById("indexToggleBtn");
@@ -169,6 +174,40 @@
 
       // Отправляем подтверждение с seq для диагностики
       sock.emit && sock.emit("index:ack", { seq: evt?.seq, t: Date.now() });
+    });
+
+    // Handle force logout
+    sock.on("force-logout", function (data) {
+      try {
+        console.log("Force logout received on index page");
+        // Redirect to logout
+        window.location.replace("/logout");
+      } catch (err) {
+        console.error("Force logout error:", err);
+      }
+    });
+
+    // Handle force refresh
+    sock.on("force-refresh", function (data) {
+      try {
+        console.log("Force refresh received on index page", data);
+        // Show notification before refresh
+        if (window.showToast) {
+          window.showToast(
+            "Страница будет обновлена администратором",
+            "warning"
+          );
+        }
+        // Hard refresh the page
+        setTimeout(() => {
+          // Force hard refresh by adding cache-busting parameter
+          const url = new URL(window.location);
+          url.searchParams.set("_refresh", Date.now());
+          window.location.href = url.toString();
+        }, 1000);
+      } catch (err) {
+        console.error("Force refresh error:", err);
+      }
     });
 
     window.indexSocket = sock;

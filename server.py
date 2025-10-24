@@ -239,6 +239,15 @@ setattr(app, 'force_logout_manager', force_logout_manager)
 setattr(app, 'file_cache_manager', file_cache_manager)
 setattr(app, 'upload_manager', upload_manager)
 
+# Clear maintenance locks on server startup
+if redis_client:
+    try:
+        redis_client.delete('push_maintenance_lock')
+        redis_client.delete('files_maintenance_lock')
+        _log.info("Maintenance locks cleared on server startup")
+    except Exception as e:
+        _log.warning(f"Failed to clear maintenance locks: {e}")
+
 # Re-enable presence and force-logout (disabled during testing)
 app.config['PRESENCE_DISABLED'] = False
 app.config['FORCE_LOGOUT_DISABLED'] = False
@@ -650,6 +659,39 @@ def logout():
     try:
         if user_id is not None and presence_manager is not None:
             presence_manager.remove_user_presence(int(user_id))
+
+        # Also remove from Redis presence:users if available
+        if hasattr(app, 'redis_client') and app.redis_client:
+            try:
+                # Get current user info before logout
+                uname = current_user.login if current_user.is_authenticated else 'unknown'
+                ip = request.remote_addr or 'unknown'
+                user_key = f"{uname}|{ip}"
+
+                # Remove from Redis presence
+                app.redis_client.hdel('presence:users', user_key)
+
+                # Also remove from sessions:active
+                cookie_name = getattr(app, 'session_cookie_name', 'session')
+                sid = request.cookies.get(cookie_name) or request.cookies.get(
+                    'session')
+                if sid:
+                    app.redis_client.hdel('sessions:active', sid)
+
+                # Notify admins about user logout
+                if socketio:
+                    try:
+                        socketio.emit('admin:presence:update', {
+                            'type': 'user_logout',
+                            'user': uname,
+                            'ip': ip
+                        },
+                                      room='admin')
+                    except Exception:
+                        pass
+
+            except Exception:
+                pass
     except Exception:
         pass
     # Remove current HTTP session from tracked active sessions (best-effort)

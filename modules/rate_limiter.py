@@ -116,7 +116,7 @@ def create_rate_limiter(redis_client):
         return redis_rate_limit(max_calls, window_sec, redis_client)
     
     return {
-        'login': make_limiter(5, 60),      # 5 attempts per minute
+        'login': make_limiter(20, 60),     # 20 attempts per minute (increased for force logout scenarios)
         'admin': make_limiter(30, 60),      # 30 requests per minute
         'users': make_limiter(60, 60),     # 60 requests per minute
         'files': make_limiter(60, 60),     # 60 requests per minute

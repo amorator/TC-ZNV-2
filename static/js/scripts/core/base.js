@@ -341,17 +341,42 @@
     // Periodic background refresh to keep subscriptions updated for all users
     try {
       setTimeout(() => {
-        setInterval(function () {
-          try {
-            // Only refresh while page is visible to avoid unnecessary work
-            if (
-              typeof document !== "undefined" &&
-              document.visibilityState === "visible"
-            ) {
-              ensurePushFresh();
+        if (window.BackgroundActivityManager) {
+          window.BackgroundActivityManager.register(
+            "base-subscription-refresh",
+            {
+              start: () => {
+                try {
+                  // Only refresh while page is visible to avoid unnecessary work
+                  if (
+                    typeof document !== "undefined" &&
+                    document.visibilityState === "visible"
+                  ) {
+                    ensurePushFresh();
+                  }
+                } catch (__) {}
+              },
+              stop: () => {
+                // No specific stop action needed
+              },
+              interval: 30 * 60 * 1000, // every 30 minutes
+              autoStart: true,
             }
-          } catch (__) {}
-        }, 30 * 60 * 1000); // every 30 minutes
+          );
+        } else {
+          // Fallback to direct interval
+          setInterval(function () {
+            try {
+              // Only refresh while page is visible to avoid unnecessary work
+              if (
+                typeof document !== "undefined" &&
+                document.visibilityState === "visible"
+              ) {
+                ensurePushFresh();
+              }
+            } catch (__) {}
+          }, 30 * 60 * 1000); // every 30 minutes
+        }
       }, 0);
     } catch (__) {}
 

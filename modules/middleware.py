@@ -9,6 +9,34 @@ from modules.logging import log_access, get_logger
 _log = get_logger(__name__)
 
 
+def is_real_page(path):
+    """Check if path is a real page (not API, static, or background request)."""
+    if not path:
+        return False
+    
+    # Filter out API endpoints, static files, and background requests
+    excluded_prefixes = [
+        '/api/', '/admin/presence', '/admin/sessions', '/admin/logs',
+        '/static/', '/favicon.ico', '/_', '/presence/'
+    ]
+    
+    excluded_paths = [
+        '/admin/presence/redis', '/admin/sessions/redis',
+        '/api/heartbeat', '/presence/heartbeat', '/sw.js'
+    ]
+    
+    # Check prefixes
+    for prefix in excluded_prefixes:
+        if path.startswith(prefix):
+            return False
+    
+    # Check exact paths
+    if path in excluded_paths:
+        return False
+    
+    return True
+
+
 def init_middleware(app):
 	"""Initialize middleware for the Flask app."""
 	
@@ -41,6 +69,40 @@ def init_middleware(app):
 						entry = {'created_at': now_ts}
 					entry.update({'user_id': uid, 'user': uname, 'ip': ip, 'ua': ua, 'last_seen': now_ts})
 					app._sessions[sid] = entry
+					
+					# Also update Redis if available
+					if hasattr(app, 'redis_client') and app.redis_client:
+						try:
+							import json
+							session_data = {
+								'sid': sid,
+								'user_id': uid,
+								'user': uname,
+								'ip': ip,
+								'ua': ua,
+								'created_at': entry.get('created_at', now_ts),
+								'last_activity': now_ts
+							}
+							app.redis_client.hset('sessions:active', sid, json.dumps(session_data))
+							app.redis_client.expire('sessions:active', 1800)  # TTL 30 minutes
+							
+							# Also update presence for active users (only for real pages)
+							# Filter out API endpoints, static files, and background requests
+							path = request.path
+							if is_real_page(path):
+								
+								user_key = f"{uname}|{ip}"
+								presence_data = {
+									'user': uname,
+									'ip': ip,
+									'ua': ua,
+									'page': path,
+									'lastSeen': int(now_ts * 1000)  # Convert to milliseconds
+								}
+								app.redis_client.hset('presence:users', user_key, json.dumps(presence_data))
+								app.redis_client.expire('presence:users', 60)  # TTL 1 minute
+						except Exception:
+							pass
 					# prune expired sessions by lifetime
 					try:
 						lifetime = app.config.get('PERMANENT_SESSION_LIFETIME')

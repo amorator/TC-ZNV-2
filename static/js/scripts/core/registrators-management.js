@@ -378,3 +378,8 @@ window.RegistratorsManagement = {
   editRegistrator,
   testRegistrator,
 };
+
+// Also make key functions globally available
+window.createRegistrator = createRegistrator;
+window.updateRegistrator = updateRegistrator;
+window.deleteRegistrator = deleteRegistrator;

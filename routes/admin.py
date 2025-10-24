@@ -10,13 +10,14 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 from flask import render_template, request, jsonify, Response, abort, send_file, make_response
 from flask_login import current_user, login_required
-from flask_socketio import join_room
+from flask_socketio import join_room, emit
 from pywebpush import webpush, WebPushException
 
 from modules.logging import get_logger, log_action
 from modules.permissions import require_permissions, ADMIN_VIEW_PAGE, ADMIN_MANAGE
 from modules.registrators import Registrator, parse_directory_listing
 from modules.sync_manager import emit_admin_changed
+from modules.middleware import is_real_page
 
 _log = get_logger(__name__)
 
@@ -66,13 +67,6 @@ def register(app, socketio=None):
                     groups = []
         except Exception:
             groups = []
-        # Log page view in actions log
-        try:
-            log_action('ADMIN_VIEW', current_user.name,
-                       f'ip={request.remote_addr}',
-                       (request.remote_addr or ''))
-        except Exception:
-            pass
 
         return render_template('admin.j2.html',
                                title='Администрирование — Заявки-Наряды-Файлы',
@@ -122,9 +116,31 @@ def register(app, socketio=None):
                     'status': 'error',
                     'message': 'DB prefix is not configured'
                 }), 500
-            # Глобальный троттлинг по времени
+            # Глобальный троттлинг по времени (в Redis для постоянства)
             from datetime import datetime, timedelta
             now = datetime.utcnow()
+
+            # Проверяем блокировку в Redis
+            redis_key = 'push_maintenance_lock'
+            if hasattr(app, 'redis_client') and app.redis_client:
+                try:
+                    last_run_str = app.redis_client.get(redis_key)
+                    if last_run_str:
+                        last_run = datetime.fromisoformat(
+                            last_run_str.decode('utf-8'))
+                        if (now - last_run) < timedelta(hours=12):
+                            remaining_hours = 12 - (
+                                now - last_run).total_seconds() / 3600
+                            return jsonify({
+                                'status':
+                                'error',
+                                'message':
+                                f'Операция уже выполнялась недавно (ограничение 12 часов). Осталось: {remaining_hours:.1f}ч'
+                            }), 429
+                except Exception as e:
+                    print(f"Redis check error: {e}")
+
+            # Проверяем блокировку в памяти (fallback)
             last_run = getattr(app, '_last_push_maintain', None)
             if last_run and (now - last_run) < timedelta(hours=12):
                 return jsonify({
@@ -133,6 +149,14 @@ def register(app, socketio=None):
                     'message':
                     'Операция уже выполнялась недавно (ограничение 12 часов). Повторите позже.'
                 }), 429
+
+            # Устанавливаем блокировку в Redis и памяти
+            if hasattr(app, 'redis_client') and app.redis_client:
+                try:
+                    app.redis_client.setex(redis_key, 12 * 3600,
+                                           now.isoformat())  # 12 часов TTL
+                except Exception as e:
+                    print(f"Redis set error: {e}")
             app._last_push_maintain = now
             # Порог для “старых ошибок” (N дней), берем из конфигурации либо 7 по умолчанию
             try:
@@ -284,6 +308,352 @@ def register(app, socketio=None):
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
+    # --- Обслуживание таблицы файлов (ручной запуск, с блокировкой на 30 мин) ---
+    @app.route('/admin/files_maintain', methods=['POST'])
+    @require_permissions(ADMIN_MANAGE)
+    def admin_files_maintain():
+        """Ручное обслуживание таблицы файлов: обновление размеров, длин, существования.
+        
+        Ограничение: не чаще 1 раза в 30 минут (глобальная блокировка).
+        """
+        try:
+            # Resolve DB table prefix safely
+            def _get_db_prefix():
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    if isinstance(cfg, dict):
+                        db = cfg.get('db') or {}
+                        return (db.get('prefix') or '').strip()
+                    try:
+                        return (app._sql.config.get(
+                            'db', 'prefix', fallback='') or '').strip()
+                    except Exception:
+                        return ''
+                except Exception:
+                    return ''
+
+            db_prefix = _get_db_prefix()
+            if not db_prefix:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'DB prefix is not configured'
+                }), 500
+
+            # Проверяем блокировку в Redis (30 минут)
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            redis_key = 'files_maintenance_lock'
+
+            if hasattr(app, 'redis_client') and app.redis_client:
+                try:
+                    last_run_str = app.redis_client.get(redis_key)
+                    if last_run_str:
+                        last_run = datetime.fromisoformat(
+                            last_run_str.decode('utf-8'))
+                        if (now - last_run) < timedelta(minutes=30):
+                            remaining_minutes = 30 - (
+                                now - last_run).total_seconds() / 60
+                            return jsonify({
+                                'status':
+                                'error',
+                                'message':
+                                f'Операция уже выполнялась недавно (ограничение 30 минут). Осталось: {remaining_minutes:.1f}мин'
+                            }), 429
+                except Exception as e:
+                    print(f"Redis check error: {e}")
+
+            # Проверяем блокировку в памяти (fallback)
+            last_run = getattr(app, '_last_files_maintain', None)
+            if last_run and (now - last_run) < timedelta(minutes=30):
+                return jsonify({
+                    'status':
+                    'error',
+                    'message':
+                    'Операция уже выполнялась недавно (ограничение 30 минут). Повторите позже.'
+                }), 429
+
+            # Устанавливаем блокировку в Redis и памяти
+            if hasattr(app, 'redis_client') and app.redis_client:
+                try:
+                    app.redis_client.setex(redis_key, 30 * 60,
+                                           now.isoformat())  # 30 минут TTL
+                except Exception as e:
+                    print(f"Redis set error: {e}")
+            app._last_files_maintain = now
+
+            # Получаем конфигурацию путей к файлам
+            try:
+                files_root = app._sql.config.get('files', {}).get(
+                    'root', '/var/www/files')
+                categories_root = app._sql.config.get('files', {}).get(
+                    'categories_root', '/var/www/categories')
+            except Exception:
+                files_root = '/var/www/files'
+                categories_root = '/var/www/categories'
+
+            updated_count = 0
+            created_count = 0
+            errors_count = 0
+
+            # 1. Обновляем существующие записи в БД
+            try:
+                files_query = f"""
+                    SELECT id, real_name, category, subcategory, file_path 
+                    FROM {db_prefix}_files 
+                    WHERE enabled = 1
+                """
+                files_rows = app._sql.execute_query(files_query, [])
+
+                for row in files_rows or []:
+                    file_id, real_name, category, subcategory, file_path = row
+                    try:
+                        # Определяем полный путь к файлу
+                        if file_path and file_path.startswith('/'):
+                            full_path = file_path
+                        else:
+                            # Строим путь по категории и подкатегории
+                            if category and subcategory:
+                                full_path = os.path.join(
+                                    categories_root, category, subcategory,
+                                    real_name)
+                            else:
+                                full_path = os.path.join(files_root, real_name)
+
+                        if os.path.exists(full_path):
+                            stat_info = os.stat(full_path)
+                            file_size = stat_info.st_size
+                            file_mtime = datetime.fromtimestamp(
+                                stat_info.st_mtime)
+
+                            # Определяем тип файла и длину
+                            file_type = "Не опознан"
+                            duration = None
+
+                            if real_name.lower().endswith(
+                                ('.mp4', '.avi', '.mkv', '.mov', '.wmv',
+                                 '.flv', '.webm')):
+                                file_type = "Видео"
+                                # Здесь можно добавить логику определения длительности видео
+                            elif real_name.lower().endswith(
+                                ('.mp3', '.wav', '.flac', '.aac', '.ogg',
+                                 '.m4a')):
+                                file_type = "Аудио"
+                                # Здесь можно добавить логику определения длительности аудио
+
+                            # Обновляем запись в БД
+                            update_query = f"""
+                                UPDATE {db_prefix}_files 
+                                SET file_size = %s, file_mtime = %s, file_type = %s, duration = %s
+                                WHERE id = %s
+                            """
+                            app._sql.execute_non_query(update_query, [
+                                file_size, file_mtime, file_type, duration,
+                                file_id
+                            ])
+                            updated_count += 1
+                        else:
+                            # Файл не существует - помечаем как удаленный
+                            update_query = f"""
+                                UPDATE {db_prefix}_files 
+                                SET enabled = 0, file_type = 'Удален'
+                                WHERE id = %s
+                            """
+                            app._sql.execute_non_query(update_query, [file_id])
+                            updated_count += 1
+
+                    except Exception as e:
+                        print(f"Error updating file {file_id}: {e}")
+                        errors_count += 1
+
+            except Exception as e:
+                print(f"Error updating existing files: {e}")
+                errors_count += 1
+
+            # 2. Сканируем папки категорий и создаем записи для новых файлов
+            try:
+                if os.path.exists(categories_root):
+                    for category_name in os.listdir(categories_root):
+                        category_path = os.path.join(categories_root,
+                                                     category_name)
+                        if not os.path.isdir(category_path):
+                            continue
+
+                        for subcategory_name in os.listdir(category_path):
+                            subcategory_path = os.path.join(
+                                category_path, subcategory_name)
+                            if not os.path.isdir(subcategory_path):
+                                continue
+
+                            for filename in os.listdir(subcategory_path):
+                                file_path = os.path.join(
+                                    subcategory_path, filename)
+                                if not os.path.isfile(file_path):
+                                    continue
+
+                                try:
+                                    # Проверяем, есть ли уже запись в БД
+                                    check_query = f"""
+                                        SELECT id FROM {db_prefix}_files 
+                                        WHERE real_name = %s AND category = %s AND subcategory = %s
+                                    """
+                                    existing = app._sql.execute_query(
+                                        check_query, [
+                                            filename, category_name,
+                                            subcategory_name
+                                        ])
+
+                                    if not existing:
+                                        # Создаем новую запись
+                                        stat_info = os.stat(file_path)
+                                        file_size = stat_info.st_size
+                                        file_mtime = datetime.fromtimestamp(
+                                            stat_info.st_mtime)
+                                        file_ctime = datetime.fromtimestamp(
+                                            stat_info.st_ctime)
+
+                                        # Определяем тип файла
+                                        file_type = "Не опознан"
+                                        if filename.lower().endswith(
+                                            ('.mp4', '.avi', '.mkv', '.mov',
+                                             '.wmv', '.flv', '.webm')):
+                                            file_type = "Видео"
+                                        elif filename.lower().endswith(
+                                            ('.mp3', '.wav', '.flac', '.aac',
+                                             '.ogg', '.m4a')):
+                                            file_type = "Аудио"
+
+                                        # Получаем информацию о текущем пользователе
+                                        admin_name = getattr(
+                                            current_user, 'name',
+                                            None) or 'admin'
+                                        admin_id = getattr(
+                                            current_user, 'id', None)
+
+                                        # Создаем запись в БД
+                                        insert_query = f"""
+                                            INSERT INTO {db_prefix}_files 
+                                            (real_name, category, subcategory, file_path, file_size, file_mtime, file_ctime, 
+                                             file_type, description, editable_description, enabled, created_at, owner, owner_id)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s)
+                                        """
+                                        app._sql.execute_non_query(
+                                            insert_query, [
+                                                filename, category_name,
+                                                subcategory_name, file_path,
+                                                file_size, file_mtime,
+                                                file_ctime, file_type,
+                                                file_type,
+                                                "Загружен из файловой системы",
+                                                now, admin_name, admin_id
+                                            ])
+                                        created_count += 1
+
+                                except Exception as e:
+                                    print(
+                                        f"Error creating file record for {filename}: {e}"
+                                    )
+                                    errors_count += 1
+
+            except Exception as e:
+                print(f"Error scanning categories: {e}")
+                errors_count += 1
+
+            # Отправляем событие синхронизации
+            try:
+                emit_admin_changed(
+                    socketio,
+                    'maintenance',
+                    action='files_maintain_completed',
+                    updated=updated_count,
+                    created=created_count,
+                    errors=errors_count,
+                    seconds_left=30 * 60,  # 30 минут
+                    timestamp=now.isoformat(),
+                )
+            except Exception:
+                pass
+
+            # Отправляем событие для обновления таблицы файлов у всех пользователей
+            try:
+                if socketio:
+                    # Отправляем событие files-refresh во все комнаты
+                    common_rooms = [
+                        'users', 'groups', 'files', 'admin', 'categories',
+                        'registrators', 'index'
+                    ]
+                    for room in common_rooms:
+                        try:
+                            socketio.emit('files-refresh', {
+                                'action': 'files_maintain_completed',
+                                'updated': updated_count,
+                                'created': created_count,
+                                'errors': errors_count,
+                                'timestamp': now.isoformat()
+                            },
+                                          room=room)
+                        except Exception as e:
+                            print(
+                                f"Failed to send files-refresh to room {room}: {e}"
+                            )
+
+                    # Также отправляем в Redis presence
+                    if hasattr(app, 'redis_client') and app.redis_client:
+                        try:
+                            presence_data = app.redis_client.hgetall(
+                                'presence:users')
+                            for key, value in presence_data.items():
+                                try:
+                                    import json
+                                    user_data = json.loads(value)
+                                    user = user_data.get('user', '')
+                                    ip = user_data.get('ip', '')
+                                    if user and ip:
+                                        user_room = f"user:{user}:{ip}"
+                                        socketio.emit(
+                                            'files-refresh', {
+                                                'action':
+                                                'files_maintain_completed',
+                                                'updated': updated_count,
+                                                'created': created_count,
+                                                'errors': errors_count,
+                                                'timestamp': now.isoformat()
+                                            },
+                                            room=user_room)
+                                except Exception:
+                                    continue
+                        except Exception as e:
+                            print(
+                                f"Failed to send files-refresh to Redis users: {e}"
+                            )
+
+            except Exception as e:
+                print(f"Failed to send files-refresh events: {e}")
+
+            # Логируем действие
+            try:
+                log_action(
+                    'ADMIN_FILES_MAINTAIN', current_user.name,
+                    f'updated={updated_count} created={created_count} errors={errors_count}',
+                    (request.remote_addr or ''))
+            except Exception:
+                pass
+
+            return jsonify({
+                'status': 'success',
+                'updated': updated_count,
+                'created': created_count,
+                'errors': errors_count,
+                'seconds_left': 30 * 60
+            })
+
+        except Exception as e:
+            try:
+                _log.error("/admin/files_maintain failed", exc_info=True)
+            except Exception:
+                pass
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
     # --- Logs table server-side pagination & search (HTML tbody fragment) ---
     @app.route('/admin/logs/page', methods=['GET'])
     @require_permissions(ADMIN_VIEW_PAGE)
@@ -390,6 +760,185 @@ def register(app, socketio=None):
         except Exception as e:
             return jsonify({'error': str(e)}), 400
 
+    # --- Redis-optimized presence endpoint ---
+    @app.route('/admin/presence/redis', methods=['GET'])
+    @require_permissions(ADMIN_VIEW_PAGE)
+    def admin_presence_redis():
+        """Return JSON with currently connected users from Redis cache."""
+        try:
+            if not hasattr(app, 'redis_client') or not app.redis_client:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Redis not available'
+                }), 503
+
+            # Get presence data from Redis
+            presence_data = app.redis_client.hgetall('presence:users')
+
+            # Filter active users (last 30 seconds)
+            active_users = []
+            cutoff_time = int(
+                datetime.utcnow().timestamp() * 1000) - 30000  # 30 seconds ago
+
+            for key, value in presence_data.items():
+                try:
+                    import json
+                    user_data = json.loads(value)
+                    last_seen = user_data.get('lastSeen', 0)
+
+                    # Only include users active in last 30 seconds
+                    if last_seen > cutoff_time:
+                        active_users.append({
+                            'user':
+                            user_data.get('user', 'Неизвестно'),
+                            'ip':
+                            user_data.get('ip', 'Неизвестно'),
+                            'ua':
+                            user_data.get('ua', 'Неизвестно'),
+                            'page':
+                            user_data.get('page', 'Неизвестно'),
+                            'lastSeen':
+                            last_seen
+                        })
+                except Exception:
+                    continue
+
+            return jsonify({
+                'status':
+                'success',
+                'items':
+                active_users,
+                'source':
+                'redis',
+                'timestamp':
+                int(datetime.utcnow().timestamp() * 1000),
+                'count':
+                len(active_users)
+            })
+        except Exception as e:
+            _log.error(f"Redis presence error: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    # --- Redis-optimized sessions endpoint ---
+    @app.route('/admin/sessions/redis', methods=['GET'])
+    @require_permissions(ADMIN_VIEW_PAGE)
+    def admin_sessions_redis():
+        """Return JSON with active sessions from Redis cache."""
+        try:
+            if not hasattr(app, 'redis_client') or not app.redis_client:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Redis not available'
+                }), 503
+
+            # Get sessions data from Redis
+            sessions_data = app.redis_client.hgetall('sessions:active')
+
+            sessions = []
+            for key, value in sessions_data.items():
+                try:
+                    import json
+                    session_data = json.loads(value)
+                    sessions.append({
+                        'sid':
+                        session_data.get('sid', key),
+                        'session_id':
+                        session_data.get('sid', key),
+                        'user':
+                        session_data.get('user', 'Неизвестно'),
+                        'ip':
+                        session_data.get('ip', 'Неизвестно'),
+                        'ua':
+                        session_data.get('ua', 'Неизвестно'),
+                        'last_activity':
+                        session_data.get('last_activity', 0)
+                    })
+                except Exception:
+                    continue
+
+            return jsonify({
+                'status':
+                'success',
+                'items':
+                sessions,
+                'source':
+                'redis',
+                'timestamp':
+                int(datetime.utcnow().timestamp() * 1000),
+                'count':
+                len(sessions)
+            })
+        except Exception as e:
+            _log.error(f"Redis sessions error: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    # --- Redis heartbeat endpoint ---
+    @app.route('/api/heartbeat', methods=['POST'])
+    def api_heartbeat():
+        """Update user heartbeat in Redis for admin panel optimization."""
+        try:
+            # Only for authenticated users
+            is_auth_attr = getattr(current_user, 'is_authenticated', False)
+            try:
+                is_authenticated = bool(
+                    is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+            except Exception:
+                is_authenticated = False
+            if not is_authenticated:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Unauthorized'
+                }), 401
+
+            if not hasattr(app, 'redis_client') or not app.redis_client:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Redis not available'
+                }), 503
+
+            data = request.get_json(silent=True) or {}
+            user = getattr(current_user, 'name', None) or 'unknown'
+            uid = getattr(current_user, 'id', None)
+            ip = request.headers.get(
+                'X-Forwarded-For',
+                '').split(',')[0].strip() or request.remote_addr
+            page = data.get('page', '')
+            ua = request.headers.get('User-Agent', '')
+
+            # Only update presence for real pages, not API endpoints or background requests
+            if page and is_real_page(page):
+
+                user_key = f"{user}|{ip}"
+                user_data = {
+                    'user': user,
+                    'ip': ip,
+                    'ua': ua,
+                    'page': page,
+                    'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+                }
+
+                import json
+                app.redis_client.hset('presence:users', user_key,
+                                      json.dumps(user_data))
+                app.redis_client.expire('presence:users', 60)  # TTL 1 minute
+
+            # Send real-time update to admin room
+            if socketio:
+                socketio.emit('admin:presence:update', {
+                    'type': 'user_activity',
+                    'user': user,
+                    'ip': ip,
+                    'ua': ua,
+                    'page': page,
+                    'lastSeen': user_data['lastSeen']
+                },
+                              room='admin')
+
+            return jsonify({'status': 'success'})
+        except Exception as e:
+            _log.error(f"Heartbeat error: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
     # --- Presence: list active sessions ---
     @app.route('/admin/presence', methods=['GET'])
     @require_permissions(ADMIN_VIEW_PAGE)
@@ -468,6 +1017,46 @@ def register(app, socketio=None):
     def admin_sessions():
         """Return JSON with active sessions tracked via middleware (best-effort)."""
         try:
+            # Try Redis first if available
+            if hasattr(app, 'redis_client') and app.redis_client:
+                try:
+                    sessions_data = app.redis_client.hgetall('sessions:active')
+                    sessions = []
+                    for key, value in sessions_data.items():
+                        try:
+                            import json
+                            session_data = json.loads(value)
+                            sessions.append({
+                                'sid':
+                                session_data.get('sid', key),
+                                'session_id':
+                                session_data.get('sid', key),
+                                'user_id':
+                                session_data.get('user_id'),
+                                'user':
+                                session_data.get('user', 'Неизвестно'),
+                                'ip':
+                                session_data.get('ip', 'Неизвестно'),
+                                'ua':
+                                session_data.get('ua', 'Неизвестно'),
+                                'created_at':
+                                int(session_data.get('created_at', 0)),
+                                'last_seen':
+                                int(session_data.get('last_activity', 0)),
+                                'last_activity':
+                                int(session_data.get('last_activity', 0))
+                            })
+                        except Exception:
+                            continue
+
+                    # Sort by last_activity desc
+                    sessions.sort(key=lambda r: r.get('last_activity') or 0,
+                                  reverse=True)
+                    return jsonify({'status': 'success', 'items': sessions})
+                except Exception as e:
+                    _log.warning(f"Redis sessions fallback: {e}")
+
+            # Fallback to in-memory sessions
             sessions = getattr(app, '_sessions', {}) or {}
             # Prune expired sessions based on configured lifetime to avoid showing stale rows
             try:
@@ -490,13 +1079,22 @@ def register(app, socketio=None):
             for sid, info in sessions.items():
                 try:
                     items.append({
-                        'sid': sid,
-                        'user_id': info.get('user_id'),
-                        'user': info.get('user'),
-                        'ip': info.get('ip'),
-                        'ua': info.get('ua'),
-                        'created_at': int(info.get('created_at') or 0),
-                        'last_seen': int(info.get('last_seen') or 0),
+                        'sid':
+                        sid,
+                        'user_id':
+                        info.get('user_id'),
+                        'user':
+                        info.get('user'),
+                        'ip':
+                        info.get('ip'),
+                        'ua':
+                        info.get('ua'),
+                        'created_at':
+                        int(info.get('created_at') or 0),
+                        'last_seen':
+                        int(info.get('last_seen') or 0),
+                        'last_activity':
+                        int(info.get('last_seen') or 0)
                     })
                 except Exception:
                     pass
@@ -791,6 +1389,7 @@ def register(app, socketio=None):
             }
             if socketio:
                 try:
+                    # Send force-logout to all users from in-memory presence
                     presence = getattr(app, '_presence', {}) or {}
                     for psid in list(presence.keys()):
                         try:
@@ -802,6 +1401,43 @@ def register(app, socketio=None):
                             except Exception:
                                 pass
                             count += 1
+                        except Exception:
+                            pass
+
+                    # Also send force-logout to all users from Redis presence
+                    if hasattr(app, 'redis_client') and app.redis_client:
+                        try:
+                            presence_data = app.redis_client.hgetall(
+                                'presence:users')
+                            for key, value in presence_data.items():
+                                try:
+                                    import json
+                                    user_data = json.loads(value)
+                                    user = user_data.get('user', '')
+                                    ip = user_data.get('ip', '')
+                                    if user and ip:
+                                        # Create a unique room for this user+ip combination
+                                        user_room = f"user:{user}:{ip}"
+                                        socketio.emit('force-logout',
+                                                      payload,
+                                                      room=user_room)
+                                        socketio.emit(
+                                            'force-logout', payload, room=user
+                                        )  # Also try user-only room
+                                        count += 1
+                                except Exception:
+                                    continue
+                        except Exception:
+                            pass
+
+                    # Send force-logout to all common rooms that users might be in
+                    common_rooms = [
+                        'users', 'groups', 'files', 'admin', 'categories',
+                        'registrators', 'index'
+                    ]
+                    for room in common_rooms:
+                        try:
+                            socketio.emit('force-logout', payload, room=room)
                         except Exception:
                             pass
                 except Exception:
@@ -832,6 +1468,23 @@ def register(app, socketio=None):
                         app._presence_hb.clear()
                 except Exception:
                     pass
+                # Clear Redis data
+                try:
+                    if hasattr(app, 'redis_client') and app.redis_client:
+                        app.redis_client.delete('presence:users')
+                        app.redis_client.delete('sessions:active')
+                except Exception:
+                    pass
+                # Notify admin room about force logout
+                if socketio:
+                    try:
+                        socketio.emit('admin:force_logout_all', {
+                            'type': 'all_sessions_terminated',
+                            'count': count
+                        },
+                                      room='admin')
+                    except Exception:
+                        pass
             except Exception:
                 pass
             try:
@@ -839,6 +1492,98 @@ def register(app, socketio=None):
                            f'count={count}', (request.remote_addr or ''))
             except Exception:
                 pass
+            return jsonify({'status': 'success', 'count': count})
+        except Exception as e:
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    @app.route('/admin/force_refresh_all', methods=['POST'])
+    @require_permissions(ADMIN_MANAGE)
+    @rate_limit
+    def admin_force_refresh_all():
+        """Force refresh all pages (hard refresh) for all users."""
+        try:
+            count = 0
+            payload = {
+                'reason': 'admin',
+                'title': 'Обновление страницы',
+                'body': 'Администратор принудительно обновил все страницы.'
+            }
+
+            if socketio:
+                try:
+                    # Send force-refresh to all users from in-memory presence
+                    presence = getattr(app, '_presence', {}) or {}
+                    for psid in list(presence.keys()):
+                        try:
+                            socketio.emit('force-refresh', payload, room=psid)
+                            count += 1
+                            print(
+                                f"Sent force-refresh to presence session: {psid}"
+                            )
+                        except Exception as e:
+                            print(
+                                f"Failed to send force-refresh to {psid}: {e}")
+                            pass
+
+                    # Also send force-refresh to all users from Redis presence
+                    if hasattr(app, 'redis_client') and app.redis_client:
+                        try:
+                            presence_data = app.redis_client.hgetall(
+                                'presence:users')
+                            for key, value in presence_data.items():
+                                try:
+                                    import json
+                                    user_data = json.loads(value)
+                                    user = user_data.get('user', '')
+                                    ip = user_data.get('ip', '')
+                                    if user and ip:
+                                        # Create a unique room for this user+ip combination
+                                        user_room = f"user:{user}:{ip}"
+                                        socketio.emit('force-refresh',
+                                                      payload,
+                                                      room=user_room)
+                                        socketio.emit(
+                                            'force-refresh',
+                                            payload,
+                                            room=user
+                                        )  # Also try user-only room
+                                        count += 1
+                                        print(
+                                            f"Sent force-refresh to Redis user: {user} ({ip})"
+                                        )
+                                except Exception as e:
+                                    print(
+                                        f"Failed to process Redis user {key}: {e}"
+                                    )
+                                    continue
+                        except Exception as e:
+                            print(f"Failed to get Redis presence data: {e}")
+                            pass
+
+                    # Send force-refresh to all common rooms that users might be in
+                    common_rooms = [
+                        'users', 'groups', 'files', 'admin', 'categories',
+                        'registrators', 'index'
+                    ]
+                    for room in common_rooms:
+                        try:
+                            socketio.emit('force-refresh', payload, room=room)
+                            print(f"Sent force-refresh to common room: {room}")
+                        except Exception as e:
+                            print(
+                                f"Failed to send force-refresh to room {room}: {e}"
+                            )
+                            pass
+                except Exception:
+                    pass
+
+            try:
+                log_action('ADMIN_FORCE_REFRESH_ALL', current_user.name,
+                           f'count={count}', (request.remote_addr or ''))
+            except Exception:
+                pass
+
             return jsonify({'status': 'success', 'count': count})
         except Exception as e:
             app.flash_error(e)
@@ -1244,3 +1989,171 @@ def register(app, socketio=None):
                         pass
             except Exception:
                 pass
+
+        # --- Redis-optimized Socket.IO events ---
+        @socketio.on('join-room')
+        def handle_join_room(data):
+            """Join admin room for real-time updates."""
+            try:
+                # Handle both string and dict data
+                if isinstance(data, str):
+                    room = data if data else 'admin'
+                else:
+                    room = data.get('room', 'admin') if data else 'admin'
+
+                join_room(room)
+                emit('joined_room', {'room': room})
+            except Exception as e:
+                _log.error(f"Join room error: {e}")
+                try:
+                    emit('error', {'message': str(e)})
+                except:
+                    pass
+
+        @socketio.on('user:heartbeat')
+        def handle_user_heartbeat(data):
+            """Handle user heartbeat for Redis optimization."""
+            try:
+                user = data.get('user')
+                ip = request.environ.get('REMOTE_ADDR')
+                ua = request.environ.get('HTTP_USER_AGENT', '')
+                page = data.get('page', '')
+
+                if not user:
+                    return
+
+                _log.info(f"Heartbeat from {user} at {ip}")
+
+                # Update Redis if available (only for real pages)
+                if hasattr(
+                        app, 'redis_client'
+                ) and app.redis_client and page and is_real_page(page):
+
+                    user_key = f"{user}|{ip}"
+                    user_data = {
+                        'user': user,
+                        'ip': ip,
+                        'ua': ua,
+                        'page': page,
+                        'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+                    }
+
+                    import json
+                    app.redis_client.hset('presence:users', user_key,
+                                          json.dumps(user_data))
+                    app.redis_client.expire('presence:users', 60)
+
+                # Notify admins
+                emit('admin:presence:update', {
+                    'type': 'user_activity',
+                    'user': user,
+                    'ip': ip,
+                    'ua': ua,
+                    'page': page,
+                    'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+                },
+                     room='admin')
+
+            except Exception as e:
+                _log.error(f"Heartbeat error: {e}")
+                emit('error', {'message': str(e)})
+
+        @socketio.on('user:login')
+        def handle_user_login(data):
+            """Handle user login event."""
+            try:
+                user = data.get('user')
+                ip = request.environ.get('REMOTE_ADDR')
+                ua = request.environ.get('HTTP_USER_AGENT', '')
+
+                if not user:
+                    return
+
+                _log.info(f"User login: {user} at {ip}")
+
+                # Update Redis if available
+                if hasattr(app, 'redis_client') and app.redis_client:
+                    user_key = f"{user}|{ip}"
+                    user_data = {
+                        'user': user,
+                        'ip': ip,
+                        'ua': ua,
+                        'page': '/',
+                        'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+                    }
+
+                    import json
+                    app.redis_client.hset('presence:users', user_key,
+                                          json.dumps(user_data))
+                    app.redis_client.expire('presence:users', 60)
+
+                # Notify admins
+                emit('admin:presence:update', {
+                    'type': 'user_login',
+                    'user': user,
+                    'ip': ip,
+                    'ua': ua,
+                    'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+                },
+                     room='admin')
+
+            except Exception as e:
+                _log.error(f"User login error: {e}")
+                emit('error', {'message': str(e)})
+
+        @socketio.on('user:logout')
+        def handle_user_logout(data):
+            """Handle user logout event."""
+            try:
+                user = data.get('user')
+                ip = request.environ.get('REMOTE_ADDR')
+
+                if not user:
+                    return
+
+                _log.info(f"User logout: {user} at {ip}")
+
+                # Remove from Redis if available
+                if hasattr(app, 'redis_client') and app.redis_client:
+                    user_key = f"{user}|{ip}"
+                    app.redis_client.hdel('presence:users', user_key)
+
+                # Notify admins
+                emit('admin:presence:update', {
+                    'type': 'user_logout',
+                    'user': user,
+                    'ip': ip
+                },
+                     room='admin')
+
+            except Exception as e:
+                _log.error(f"User logout error: {e}")
+                emit('error', {'message': str(e)})
+
+        @socketio.on('session:terminate')
+        def handle_session_terminate(data):
+            """Handle session termination event."""
+            try:
+                sid = data.get('sid')
+                user = data.get('user')
+
+                if not sid:
+                    return
+
+                _log.info(f"Terminating session {sid} for user {user}")
+
+                # Remove from Redis if available
+                if hasattr(app, 'redis_client') and app.redis_client:
+                    app.redis_client.hdel('sessions:active', sid)
+
+                # Notify admins
+                emit('admin:sessions:update', {
+                    'type': 'session_terminated',
+                    'sid': sid,
+                    'user': user
+                },
+                     room='admin')
+
+            except Exception as e:
+                _log.error(f"Session terminate error: {e}")
+                emit('error', {'message': str(e)})

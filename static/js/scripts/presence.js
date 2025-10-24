@@ -128,7 +128,7 @@
             }).catch(function (err) {
               if (window.ErrorHandler) {
                 window.ErrorHandler.handleError(err, "unknown");
-              } else window.ErrorHandler.handleError(err, "unknown")
+              } else window.ErrorHandler.handleError(err, "unknown");
             });
           } catch (err) {
             window.ErrorHandler.handleError(err, "unknown");
@@ -228,6 +228,38 @@
       } catch (err) {
         window.ErrorHandler.handleError(err, "unknown");
       }
+
+      // Send additional Redis heartbeat for admin panel optimization
+      try {
+        var redisHbUrl = "/api/heartbeat";
+        var redisCtrl =
+          typeof AbortController !== "undefined" ? new AbortController() : null;
+        if (redisCtrl) {
+          setTimeout(function () {
+            try {
+              redisCtrl.abort();
+            } catch (err) {
+              window.ErrorHandler.handleError(err, "unknown");
+            }
+          }, 3000);
+        }
+        fetch(redisHbUrl, {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user: window.currentUser || "anonymous",
+            page: location.pathname + location.search + location.hash,
+          }),
+          signal: redisCtrl ? redisCtrl.signal : undefined,
+        }).catch(function (err) {
+          // Silent fail for Redis heartbeat
+        });
+      } catch (err) {
+        // Silent fail for Redis heartbeat
+      }
       try {
         var hbUrl =
           (window.location && window.location.origin
@@ -283,18 +315,34 @@
           .catch(function (err) {
             if (window.ErrorHandler) {
               window.ErrorHandler.handleError(err, "unknown");
-            } else window.ErrorHandler.handleError(err, "unknown")
+            } else window.ErrorHandler.handleError(err, "unknown");
           });
       } catch (err) {
         window.ErrorHandler.handleError(err, "unknown");
       }
     }
     // Используем оптимизированный heartbeat
-    if (window.SocketOptimizer) {
-      heartbeatTimer =
-        window.SocketOptimizer.createHeartbeatMonitor(httpHeartbeat);
+    // Register heartbeat with Background Activity Manager
+    if (window.BackgroundActivityManager) {
+      window.BackgroundActivityManager.register("presence-heartbeat", {
+        start: httpHeartbeat,
+        stop: function () {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
+        },
+        interval: 3000,
+        autoStart: true,
+      });
     } else {
-      heartbeatTimer = setInterval(httpHeartbeat, 3000);
+      // Fallback to direct interval if Background Activity Manager is not available
+      if (window.SocketOptimizer) {
+        heartbeatTimer =
+          window.SocketOptimizer.createHeartbeatMonitor(httpHeartbeat);
+      } else {
+        heartbeatTimer = setInterval(httpHeartbeat, 3000);
+      }
     }
 
     // Best-effort leave on explicit logout click

@@ -27,7 +27,12 @@
   {% if current_user.is_authenticated %}
   <script src="{{ url_for('static', filename='js/lib/socket.io.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/sync.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts/core/background-activity-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/presence.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script>
+    // Initialize current user for Redis heartbeat
+    window.currentUser = '{{ current_user.login if current_user.is_authenticated else "anonymous" }}';
+  </script>
   {% endif %}
   <script src="{{ url_for('static', filename='js/lib/bootstrap.bundle.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/lib/jquery.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>

@@ -375,14 +375,33 @@ function setupFormValidation() {
 
 function setupBackgroundProgress() {
   try {
-    // Setup background progress monitoring
+    // Setup background progress monitoring with Background Activity Manager
     if (
       window.FilesBackgroundProgress &&
       window.FilesBackgroundProgress.updateBackgroundProgress
     ) {
-      setInterval(() => {
-        window.FilesBackgroundProgress.updateBackgroundProgress();
-      }, 5000);
+      if (window.BackgroundActivityManager) {
+        window.BackgroundActivityManager.register("files-background-progress", {
+          start: () => {
+            if (
+              window.FilesBackgroundProgress &&
+              window.FilesBackgroundProgress.updateBackgroundProgress
+            ) {
+              window.FilesBackgroundProgress.updateBackgroundProgress();
+            }
+          },
+          stop: () => {
+            // No specific stop action needed
+          },
+          interval: 5000,
+          autoStart: true,
+        });
+      } else {
+        // Fallback to direct interval
+        setInterval(() => {
+          window.FilesBackgroundProgress.updateBackgroundProgress();
+        }, 5000);
+      }
     }
   } catch (err) {
     window.ErrorHandler.handleError(err, "setupFileUploadForms");
@@ -547,3 +566,51 @@ window.reinitFilesDoubleClick = function () {
     window.ErrorHandler.handleError(err, "reinitFilesDoubleClick");
   }
 };
+
+// Setup Socket.IO event handlers for files page
+function setupFilesSocketHandlers() {
+  try {
+    // Get the global socket instance
+    const socket = window.socket || window.SyncManager?.socket;
+    if (!socket) {
+      console.warn("Socket not available for files page");
+      return;
+    }
+
+    // Handle files refresh event
+    socket.on("files-refresh", function (data) {
+      try {
+        console.log("Files refresh received:", data);
+
+        // Show notification
+        if (window.showToast) {
+          window.showToast(
+            `Таблица файлов обновлена. Обновлено: ${data.updated}, Создано: ${data.created}`,
+            "info"
+          );
+        }
+
+        // Soft refresh the page (reload without cache)
+        setTimeout(() => {
+          window.location.reload(false);
+        }, 1000);
+      } catch (err) {
+        console.error("Error handling files-refresh:", err);
+      }
+    });
+
+    console.log("Files socket handlers setup complete");
+  } catch (err) {
+    console.error("Error setting up files socket handlers:", err);
+  }
+}
+
+// Initialize socket handlers when DOM is ready
+document.addEventListener("DOMContentLoaded", function () {
+  try {
+    // Setup socket handlers after a short delay to ensure socket is available
+    setTimeout(setupFilesSocketHandlers, 1000);
+  } catch (err) {
+    console.error("Error initializing files socket handlers:", err);
+  }
+});

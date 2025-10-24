@@ -178,5 +178,15 @@
 {% endblock %}
 
 {% block js %}
+<script src="{{ url_for('static', filename='js/scripts/core/api-client.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/error-handler.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/modal-helpers.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/users-management.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/groups-management.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/sync.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/registrators-management.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/registrators-core.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/registrators-permissions.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/registrators-socket.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/registrators.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}
