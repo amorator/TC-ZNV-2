@@ -511,8 +511,8 @@
             try {
               if (window.stopAllMedia) window.stopAllMedia();
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
             if (!window.__mediaOpenState) {
               window.__mediaOpenState = { opening: false };
             }
@@ -525,30 +525,30 @@
                 try {
                   audio.pause();
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 try {
                   const v = document.getElementById("player-video");
                   if (v) {
                     try {
                       v.pause && v.pause();
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       v.onerror = null;
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       v.removeAttribute("src");
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 audio.muted = false;
                 audio.volume = 1;
                 // Stop any video that may be playing (avoid setting empty src)
@@ -558,49 +558,49 @@
                     try {
                       v.pause && v.pause();
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       v.onerror = null;
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       v.removeAttribute("src");
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 audio.src = url;
                 try {
                   audio.currentTime = 0;
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 audio.onerror = function onAudioErr() {
                   try {
                     audio.onerror = null;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                   if (window.popupClose) {
                     window.popupClose("popup-audio");
                   }
                   try {
                     window.__mediaOpenState.opening = false;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 };
                 audio.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 };
                 if (window.popupToggle) {
                   window.popupToggle("popup-audio");
@@ -612,30 +612,30 @@
                 try {
                   player.pause();
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 try {
                   const a = document.getElementById("player-audio");
                   if (a) {
                     try {
                       a.pause && a.pause();
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       a.onerror = null;
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       a.removeAttribute("src");
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 player.muted = false;
                 player.volume = 1;
                 // Stop any audio that may be playing (avoid setting empty src)
@@ -645,49 +645,49 @@
                     try {
                       a.pause && a.pause();
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       a.onerror = null;
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                     try {
                       a.removeAttribute("src");
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 player.src = url;
                 try {
                   player.currentTime = 0;
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 player.onerror = function onVideoErr() {
                   try {
                     player.onerror = null;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                   if (window.popupClose) {
                     window.popupClose("popup-view");
                   }
                   try {
                     window.__mediaOpenState.opening = false;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 };
                 player.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 };
                 if (window.popupToggle) {
                   window.popupToggle("popup-view");
@@ -717,14 +717,14 @@
               try {
                 window.popupValues(form, id);
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                window.ErrorHandler.handleError(err, "unknown");
+              }
             }
             try {
               window.popupToggle("popup-edit", id);
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
           } else {
             // Missing required functions or ID
           }
@@ -754,8 +754,8 @@
           try {
             window.openRegistratorImport && window.openRegistratorImport();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+            window.ErrorHandler.handleError(err, "unknown");
+          }
           break;
 
         case "refresh":
@@ -774,8 +774,8 @@
                 try {
                   data = await response.json();
                 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                  window.ErrorHandler.handleError(err, "unknown");
+                }
                 if (
                   data &&
                   data.file_exists === false &&
@@ -799,8 +799,8 @@
                       window.markFileAsMissing(id);
                     }
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 }
                 if (response.ok) {
                   // After server refresh, respect active search; otherwise re-render current page
@@ -829,8 +829,8 @@
                         window.softRefreshFilesTable();
                       }
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }, 100);
                 }
               })
@@ -857,8 +857,8 @@
                       window.softRefreshFilesTable &&
                         window.softRefreshFilesTable();
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }, 50);
                 })
                 .catch((error) => {
@@ -883,8 +883,8 @@
             try {
               if (window.modalManager) window.modalManager.activeModal = null;
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -897,8 +897,8 @@
             try {
               if (window.modalManager) window.modalManager.activeModal = null;
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
             window.popupToggle("popup-rec");
           }
           break;
@@ -929,8 +929,8 @@
                 }
               }
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -939,24 +939,37 @@
 
         case "toggle":
           if (rowId) {
-            const toggleUrl = `${window.location.origin}/users/toggle/${rowId}`;
-            const clientId = window.__usersClientId || "";
-            fetch(toggleUrl, {
-              method: "GET",
-              credentials: "same-origin",
-              headers: {
-                "X-Requested-With": "fetch",
-                Accept: "application/json",
-                "X-Client-Id": clientId,
-              },
-            })
-              .then((response) => {
-                if (response.ok) {
-                  if (row) {
-                    const currentEnabled = row.dataset.enabled === "1";
-                    const newEnabled = !currentEnabled;
-                    row.dataset.enabled = newEnabled ? "1" : "0";
+            const currentEnabled = row.dataset.enabled === "1";
+            const newEnabled = !currentEnabled;
 
+            // Use the same toggleUserStatus function as direct toggles
+            if (window.UsersPage && window.UsersPage.toggleUserStatus) {
+              window.UsersPage.toggleUserStatus(rowId, newEnabled);
+            } else {
+              // Fallback: direct API call
+              const formData = new FormData();
+              formData.append("enabled", newEnabled ? "1" : "0");
+
+              fetch(`/users/toggle/${rowId}`, {
+                method: "POST",
+                body: formData,
+                headers: {
+                  "X-Requested-With": "XMLHttpRequest",
+                  "X-Client-Id": window.__usersClientId || "unknown",
+                },
+              })
+                .then((response) => {
+                  if (response.ok) {
+                    return response.json();
+                  }
+                  throw new Error(
+                    `HTTP ${response.status}: ${response.statusText}`
+                  );
+                })
+                .then((data) => {
+                  if (data.status === "success") {
+                    // Update UI
+                    row.dataset.enabled = newEnabled ? "1" : "0";
                     const toggleCell = row.querySelector("td[data-enabled]");
                     if (toggleCell) {
                       toggleCell.setAttribute(
@@ -974,19 +987,48 @@
                         );
                       }
                     }
-                  }
 
-                  // Reinitialize context menu after state change
-                  setTimeout(() => {
-                    if (this.reinitialize) {
-                      this.reinitialize();
+                    // Show success message
+                    if (window.notify) {
+                      window.notify(
+                        `Пользователь ${newEnabled ? "включен" : "отключен"}`,
+                        "success"
+                      );
                     }
-                  }, 100);
-                }
-              })
-              .catch((error) => {
-                console.error("Toggle error:", error);
-              });
+
+                    // Emit socket event for synchronization
+                    if (
+                      window.SyncManager &&
+                      window.SyncManager.isConnected() &&
+                      window.__usersClientId
+                    ) {
+                      const socket = window.SyncManager.getSocket();
+                      if (socket && socket.emit) {
+                        socket.emit("users:toggle", {
+                          userId: rowId,
+                          enabled: newEnabled,
+                          clientId: window.__usersClientId,
+                        });
+                      }
+                    }
+                  }
+                })
+                .catch((error) => {
+                  console.error("Toggle error:", error);
+                  // Revert UI on error
+                  const currentEnabled = row.dataset.enabled === "1";
+                  const toggleCell = row.querySelector("td[data-enabled]");
+                  if (toggleCell) {
+                    const icon = toggleCell.querySelector(".bi");
+                    if (icon) {
+                      icon.classList.remove("bi-toggle-on", "bi-toggle-off");
+                      icon.classList.add(
+                        currentEnabled ? "bi-toggle-on" : "bi-toggle-off"
+                      );
+                    }
+                  }
+                });
+            }
           }
           break;
 
@@ -1013,8 +1055,8 @@
                     try {
                       window.syncPermFormFromRow(form, rowId);
                     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                      window.ErrorHandler.handleError(err, "unknown");
+                    }
                   }, 0);
                 }
                 // Ensure Full Access checkbox reflects hidden value
@@ -1026,12 +1068,12 @@
                       window["refreshPermUI_perm-string-perm"]();
                     }
                   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                    window.ErrorHandler.handleError(err, "unknown");
+                  }
                 }, 0);
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+                window.ErrorHandler.handleError(err, "unknown");
+              }
             }
             window.popupToggle("popup-perm", rowId);
           }
@@ -1083,8 +1125,8 @@
                 }
               }
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    }
+              window.ErrorHandler.handleError(err, "unknown");
+            }
             window.openModal("popup-add");
           } else if (window.popupToggle) {
             window.popupToggle("popup-add");
@@ -1152,8 +1194,8 @@
               try {
                 this.setupEventListeners();
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    } finally {
+                window.ErrorHandler.handleError(err, "unknown");
+              } finally {
                 this._reinitializing = false;
               }
             },
@@ -1165,8 +1207,8 @@
             try {
               this.setupEventListeners();
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
-    } finally {
+              window.ErrorHandler.handleError(err, "unknown");
+            } finally {
               this._reinitializing = false;
             }
           }, 10);

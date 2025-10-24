@@ -35,19 +35,19 @@
                     window.__recStateTimer = null;
                   }
                 } catch (err) {
-                  window.ErrorHandler.handleError(err, "unknown")
+                  window.ErrorHandler.handleError(err, "unknown");
                 }
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
                   try {
                     window.__recCloseRequested = false;
                   } catch (err) {
-                    window.ErrorHandler.handleError(err, "unknown")
+                    window.ErrorHandler.handleError(err, "unknown");
                   }
                   try {
                     window.__recStateTimer = null;
                   } catch (err) {
-                    window.ErrorHandler.handleError(err, "unknown")
+                    window.ErrorHandler.handleError(err, "unknown");
                   }
                 }, 300);
                 e.preventDefault();
@@ -55,7 +55,7 @@
                 return;
               }
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
           }
           this.closeModal(this.activeModal);
@@ -81,19 +81,19 @@
                     window.__recStateTimer = null;
                   }
                 } catch (err) {
-                  window.ErrorHandler.handleError(err, "unknown")
+                  window.ErrorHandler.handleError(err, "unknown");
                 }
                 iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
                 window.__recStateTimer = setTimeout(function () {
                   try {
                     window.__recCloseRequested = false;
                   } catch (err) {
-                    window.ErrorHandler.handleError(err, "unknown")
+                    window.ErrorHandler.handleError(err, "unknown");
                   }
                   try {
                     window.__recStateTimer = null;
                   } catch (err) {
-                    window.ErrorHandler.handleError(err, "unknown")
+                    window.ErrorHandler.handleError(err, "unknown");
                   }
                 }, 300);
                 e.preventDefault();
@@ -101,7 +101,7 @@
                 return;
               }
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
           }
           this.closeModal(this.activeModal);
@@ -167,7 +167,7 @@
           return false;
         }
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
 
       // Close any active modal
@@ -189,7 +189,7 @@
             classes: modal.className,
           });
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       if (modal.classList.contains("modal")) {
         try {
@@ -199,7 +199,7 @@
             window.modlog &&
               window.modlog("openModal bootstrap.show()", modal.id);
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
         } catch (_) {
           // Fallback display if bootstrap not available
@@ -213,7 +213,7 @@
                 modal.id
               );
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
         }
       } else {
@@ -238,17 +238,17 @@
             }
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         try {
           document.body.style.overflow = "hidden";
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         try {
           window.modlog && window.modlog("openModal overlay show", modal.id);
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
       }
 
@@ -259,7 +259,7 @@
           try {
             firstInput.focus();
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
         }, 100);
       }
@@ -277,7 +277,7 @@
       try {
         window.modlog && window.modlog("modal-opened event", modalId);
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       document.dispatchEvent(
         new CustomEvent("modal-opened", {
@@ -310,7 +310,7 @@
             try {
               window.__recCloseReason = "button";
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
             try {
               if (window.__recStateTimer) {
@@ -318,7 +318,7 @@
                 window.__recStateTimer = null;
               }
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
 
             iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
@@ -330,7 +330,7 @@
                 // If no response, assume there's data and show confirm
                 showRecConfirmDialog();
               } catch (err) {
-                window.ErrorHandler.handleError(err, "unknown")
+                window.ErrorHandler.handleError(err, "unknown");
               }
             }, 300);
 
@@ -338,14 +338,14 @@
           }
         }
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
 
       // Hide modal: support Bootstrap and custom overlay
       try {
         window.modlog && window.modlog("closeModal start", { modalId });
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       if (modal.classList.contains("modal")) {
         try {
@@ -357,7 +357,7 @@
             window.modlog &&
               window.modlog("closeModal bootstrap.hide()", modal.id);
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
         } catch (_) {
           modal.classList.remove("show");
@@ -367,7 +367,7 @@
             window.modlog &&
               window.modlog("closeModal bootstrap fallback hide", modal.id);
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
         }
       } else {
@@ -378,12 +378,12 @@
         try {
           document.body.style.overflow = "";
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         try {
           window.modlog && window.modlog("closeModal overlay hide", modal.id);
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
       }
 
@@ -408,7 +408,7 @@
       try {
         window.modlog && window.modlog("modal-closed event", modalId);
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       document.dispatchEvent(
         new CustomEvent("modal-closed", {
@@ -434,12 +434,12 @@
           modal.style.display = "none";
         }
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       try {
         document.body.style.overflow = "";
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       this.activeModal = null;
     }
@@ -748,6 +748,153 @@
     return window.modalManager.closeModal(modalId);
   };
 
+  window.validateForm = (button) => {
+    if (!button) return false;
+
+    // Get the form from the button
+    const form = button.closest("form");
+    if (!form) return false;
+
+    // Validate the form
+    const isValid = window.modalManager.validateForm(form);
+    if (!isValid) return false;
+
+    // If validation passed, submit the form
+    try {
+      // Create FormData
+      const formData = new FormData(form);
+
+      // Add CSRF token if available
+      const csrfToken = document.querySelector('meta[name="csrf-token"]');
+      if (csrfToken) {
+        formData.append("csrf_token", csrfToken.getAttribute("content"));
+      }
+
+      // Submit form via fetch
+      fetch(form.action, {
+        method: form.method || "POST",
+        body: formData,
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Client-Id": window.__usersClientId || "unknown",
+        },
+      })
+        .then((response) => {
+          if (response.ok) {
+            return response.json();
+          }
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        })
+        .then((data) => {
+          // Show success message
+          if (window.notify) {
+            window.notify(
+              data.message || "Операция выполнена успешно",
+              "success"
+            );
+          }
+
+          // Close modal
+          const modal = form.closest(".overlay-container, .modal");
+          if (modal) {
+            window.closeModal(modal.id);
+          }
+
+          // Update locally based on the form action
+          if (window.location.pathname.includes("/users")) {
+            const formAction = form.action;
+            console.log("Form action:", formAction);
+
+            if (formAction.includes("/users/add")) {
+              // User created - refresh entire table
+              if (
+                window.UsersManagement &&
+                window.UsersManagement.softRefreshUsersTable
+              ) {
+                window.UsersManagement.softRefreshUsersTable(true);
+              }
+            } else if (formAction.includes("/users/edit/")) {
+              // User edited - extract user ID and update specific row
+              const userId = formAction.match(/\/users\/edit\/(\d+)/)?.[1];
+              console.log("Extracted userId:", userId);
+              if (
+                userId &&
+                window.UsersPage &&
+                window.UsersPage.updateUserRow
+              ) {
+                console.log("Calling updateUserRow for userId:", userId);
+                window.UsersPage.updateUserRow(userId);
+              } else if (
+                window.UsersManagement &&
+                window.UsersManagement.softRefreshUsersTable
+              ) {
+                console.log("Fallback: calling softRefreshUsersTable");
+                window.UsersManagement.softRefreshUsersTable(true);
+              }
+            } else if (formAction.includes("/users/reset/")) {
+              // Password reset - extract user ID and update specific row
+              const userId = formAction.match(/\/users\/reset\/(\d+)/)?.[1];
+              if (
+                userId &&
+                window.UsersPage &&
+                window.UsersPage.updateUserRow
+              ) {
+                window.UsersPage.updateUserRow(userId);
+              } else if (
+                window.UsersManagement &&
+                window.UsersManagement.softRefreshUsersTable
+              ) {
+                window.UsersManagement.softRefreshUsersTable(true);
+              }
+            } else if (formAction.includes("/users/delete/")) {
+              // User deleted - extract user ID and remove row
+              const userId = formAction.match(/\/users\/delete\/(\d+)/)?.[1];
+              if (
+                userId &&
+                window.UsersPage &&
+                window.UsersPage.removeUserRow
+              ) {
+                window.UsersPage.removeUserRow(userId);
+              } else if (
+                window.UsersManagement &&
+                window.UsersManagement.softRefreshUsersTable
+              ) {
+                window.UsersManagement.softRefreshUsersTable(true);
+              }
+            } else {
+              // Fallback: refresh entire table
+              if (
+                window.UsersManagement &&
+                window.UsersManagement.softRefreshUsersTable
+              ) {
+                window.UsersManagement.softRefreshUsersTable(true);
+              }
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("Form submission error:", error);
+          if (window.notify) {
+            window.notify(
+              "Ошибка при выполнении операции: " + error.message,
+              "error"
+            );
+          }
+        });
+
+      return true;
+    } catch (error) {
+      console.error("Form submission error:", error);
+      if (window.notify) {
+        window.notify(
+          "Ошибка при выполнении операции: " + error.message,
+          "error"
+        );
+      }
+      return false;
+    }
+  };
+
   window.popupToggle = (modalId, rowId = null, data = null) => {
     const isOpen = window.modalManager.isModalOpen(modalId);
     // Intercept recorder modal close to query iframe state and confirm
@@ -762,7 +909,7 @@
               window.__recStateTimer = null;
             }
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown")
+            window.ErrorHandler.handleError(err, "unknown");
           }
           iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
           // Fallback if no response arrives
@@ -770,23 +917,23 @@
             try {
               window.__recCloseRequested = false;
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
             try {
               if (window.showRecConfirmDialog) window.showRecConfirmDialog();
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
             try {
               window.__recStateTimer = null;
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
           }, 300);
           return true;
         }
       } catch (err) {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "unknown");
       }
       // If no iframe, just close
       return window.modalManager.closeModal(modalId);
@@ -812,7 +959,7 @@
             try {
               window.__recCloseReason = "esc";
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
             try {
               if (window.__recStateTimer) {
@@ -820,29 +967,29 @@
                 window.__recStateTimer = null;
               }
             } catch (err) {
-              window.ErrorHandler.handleError(err, "unknown")
+              window.ErrorHandler.handleError(err, "unknown");
             }
             iframe.contentWindow.postMessage({ type: "rec:state?" }, "*");
             window.__recStateTimer = setTimeout(function () {
               try {
                 window.__recCloseRequested = false;
               } catch (err) {
-                window.ErrorHandler.handleError(err, "unknown")
+                window.ErrorHandler.handleError(err, "unknown");
               }
               try {
                 window.__recCloseReason = null;
               } catch (err) {
-                window.ErrorHandler.handleError(err, "unknown")
+                window.ErrorHandler.handleError(err, "unknown");
               }
               try {
                 window.__recStateTimer = null;
               } catch (err) {
-                window.ErrorHandler.handleError(err, "unknown")
+                window.ErrorHandler.handleError(err, "unknown");
               }
             }, 300);
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         return;
       }
@@ -854,7 +1001,7 @@
             window.__recStateTimer = null;
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         const st = data.state || {};
         const isRecording = !!st.recording;
@@ -909,7 +1056,7 @@
             iframe.contentWindow.postMessage({ type: "rec:close" }, "*");
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         const overlay = document.getElementById("popup-rec");
         if (overlay) {
@@ -925,7 +1072,7 @@
             window.modalManager.activeModal = null;
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
       } else if (data.type === "rec:discarded") {
         // after discard in iframe, close popup
@@ -943,7 +1090,7 @@
             window.modalManager.activeModal = null;
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         window.__recSaving = false;
         // Reset popup state and recording variables
@@ -953,7 +1100,7 @@
           window.__recCloseRequested = false;
           window.__recCloseReason = null;
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         // Reset iframe state
         try {
@@ -962,23 +1109,23 @@
             iframe.contentWindow.postMessage({ type: "rec:reset" }, "*");
           }
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
       } else if (data.type === "rec:saved") {
         window.__recSaving = false;
         try {
           window.__recHasSaved = true;
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
         try {
           window.softRefreshFilesTable && window.softRefreshFilesTable();
         } catch (err) {
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "unknown");
         }
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown")
+      window.ErrorHandler.handleError(err, "unknown");
     }
   });
 

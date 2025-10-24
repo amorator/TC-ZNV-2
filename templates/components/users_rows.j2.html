@@ -1,7 +1,17 @@
 {# Renders <tr> rows for users table body (excluding search row). Expects: users, groups, current_user #}
 {% if users %}
   {% for user in users %}
-    {% set is_admin = user.has('admin.any') %}
+    {# Определяем полный доступ с учётом новых прав - как в основном шаблоне #}
+    {% set admin_cfg = config.get('admin') or {} %}
+    {% set admin_group_name = (admin_cfg.get('group') or admin_cfg.get('group_name') or 'Программисты') %}
+    {% set user_group_name = groups[user.gid]|default('') %}
+    {% set is_admin_group = (user_group_name|lower == admin_group_name|lower) %}
+    {% set perm_str = (user.permission_string() or '')|trim %}
+    {% set perm_labels = user.permission_labels() %}
+    {% set full_legacy = (perm_str == 'aef,a,abcdflm,ab,ab,ab,abcd') %}
+    {% set has_z = 'z' in perm_str %}
+    {% set is_admin_login = (user.login|lower == 'admin') %}
+    {% set is_admin = is_admin_login or user.has('admin.any') or full_legacy or has_z %}
     <tr id="{{ user.id }}" class="table__body_row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}" data-is-admin="{{ 1 if user.login|lower == 'admin' else 0 }}" data-full-access="{{ 1 if is_admin else 0 }}">
       <td class="table__body_item">
         <span class="users-page__login">{{ user.login }}</span>

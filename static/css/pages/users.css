@@ -37,6 +37,40 @@
   cursor: pointer;
 }
 
+/* Toggle icons styling */
+.users-page__table tbody tr td[data-enabled] i {
+  cursor: pointer;
+  font-size: 1.2em;
+  transition: color 0.2s ease;
+}
+
+.users-page__table tbody tr td[data-enabled] i:hover {
+  color: var(--primary);
+}
+
+.users-page__table tbody tr td[data-enabled] i.bi-toggle-on {
+  color: var(--success);
+}
+
+.users-page__table tbody tr td[data-enabled] i.bi-toggle-off {
+  color: var(--muted);
+}
+
+.users-page__table tbody tr td[data-enabled] i.bi-hourglass-split {
+  color: var(--warning);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .actions {
   display: flex;
   gap: 6px;

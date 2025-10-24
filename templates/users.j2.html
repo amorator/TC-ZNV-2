@@ -227,6 +227,7 @@
       <h1 class="popup__title mb-4" id="popup-edit-title">Редактирование пользователя</h1>
       <div class="popup__body">
         <form class="popup__form" id="edit" name="edit" action="{{ url_for('users_edit', id='0') }}" method="post" onsubmit="return false;">
+          <input type="hidden" name="permission" value="" />
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="edit-login">Логин:</label>
             <input id="edit-login" type="text" name="login" class="input form-control__control" placeholder="Введите логин..." autocomplete="one-time-code"/>
@@ -328,6 +329,8 @@
 </script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/users-permissions.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/users-management.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/users.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>

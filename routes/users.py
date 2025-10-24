@@ -23,7 +23,11 @@ def register(app):
 
         @app.socketio.on('users:join')
         def _users_join(_data=None):
-            join_room('users')
+            try:
+                join_room('users')
+                _log.info(f"[users] Client joined users room: {_data}")
+            except Exception as e:
+                _log.error(f"[users] Error joining users room: {e}")
 
     rate_limit = app.rate_limiters.get(
         'users',
@@ -433,7 +437,7 @@ def register(app):
                     }, 400
             return redirect(url_for('users'))
 
-    @app.route('/users/toggle/<id>', methods=['GET'])
+    @app.route('/users/toggle/<id>', methods=['POST'])
     @require_permissions(USERS_MANAGE)
     @rate_limit
     def users_toggle(id):
@@ -456,8 +460,12 @@ def register(app):
                            request.remote_addr,
                            success=False)
                 return redirect(url_for('users'))
+
+            # Get enabled value from POST data
+            enabled_value = request.form.get('enabled', '0')
+            new_enabled = 1 if enabled_value == '1' else 0
             old_enabled = 1 if u and u.is_enabled() else 0
-            new_enabled = 1 - old_enabled
+
             app._sql.user_toggle([new_enabled, id])
             log_action(
                 'USER_TOGGLE', current_user.name,
@@ -475,10 +483,29 @@ def register(app):
         finally:
             try:
                 origin = (request.headers.get('X-Client-Id') or '').strip()
+                # Emit general users:changed event
                 emit_users_changed(app.socketio,
                                    'toggled',
                                    id=id,
                                    originClientId=origin)
+
+                # Emit specific users:toggle event for toggle synchronization
+                if app.socketio:
+                    from modules.sync_manager import SyncManager
+                    sync_manager = SyncManager(app.socketio)
+                    toggle_data = {
+                        'userId': id,
+                        'enabled': new_enabled,
+                        'clientId': origin
+                    }
+                    sync_manager.emit_to_room('users:toggle', toggle_data,
+                                              'users', 'toggled')
+                    try:
+                        _log.info(
+                            f"[users] emit users:toggle event: {toggle_data}")
+                    except Exception:
+                        pass
+
                 try:
                     _log.info(f"[users] toggle-exit id={id} origin={origin}")
                 except Exception:

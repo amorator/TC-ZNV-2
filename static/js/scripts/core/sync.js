@@ -289,6 +289,7 @@ window.SyncManager = (function () {
       "subcategories:changed",
       "files:changed",
       "users:changed",
+      "users:toggle",
       "groups:changed",
       "registrators:changed",
       "registrator_permissions_updated",
@@ -371,9 +372,14 @@ window.SyncManager = (function () {
    */
   function joinRoom(room) {
     try {
-      if (!socket || !socket.emit) return;
+      if (!socket || !socket.emit) {
+        console.warn(`[sync] Cannot join room ${room}: socket not available`);
+        return;
+      }
+      console.log(`[sync] Joining room: ${room}`);
       socket.emit(room + ":join", { ts: Date.now() });
     } catch (err) {
+      console.error(`[sync] Error joining room ${room}:`, err);
       window.ErrorHandler.handleError(err, "unknown");
     }
   }
@@ -508,6 +514,7 @@ window.SyncManager = (function () {
           "subcategories:changed",
           "files:changed",
           "users:changed",
+          "users:toggle",
           "groups:changed",
           "registrators:changed",
           "admin:changed",
