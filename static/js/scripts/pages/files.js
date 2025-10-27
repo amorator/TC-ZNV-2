@@ -713,36 +713,38 @@ window.markViewedAjax = function (fileId) {
   try {
     console.log("Marking file as viewed:", fileId);
 
-    // Send AJAX request to mark file as viewed
-    fetch("/files/mark-viewed", {
-      method: "POST",
+    // Get view URL from row data (same as context menu)
+    const row = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
+    const url = row && row.getAttribute("data-view-url");
+    
+    if (!url) {
+      throw new Error("View URL not found for this file");
+    }
+
+    // Send GET request to mark file as viewed (same as context menu)
+    fetch(url, {
+      method: "GET",
+      credentials: "include",
       headers: {
-        "Content-Type": "application/json",
         "X-Requested-With": "XMLHttpRequest",
         "X-Client-Id": window.__filesClientId || "unknown",
       },
-      body: JSON.stringify({
-        file_id: fileId,
-      }),
     })
       .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || data.status !== "success") {
-          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         console.log("File marked as viewed successfully");
-        // Optionally show a toast notification
-        if (window.showToast) {
-          window.showToast("Файл отмечен как просмотренный", "success");
-        }
-        // Refresh the files table to update the UI
-        if (
-          window.FilesManagement &&
-          window.FilesManagement.softRefreshFilesTable
-        ) {
-          window.FilesManagement.softRefreshFilesTable(true);
-        }
-        return data;
+        
+        // Refresh the files table to update the UI after a short delay
+        setTimeout(() => {
+          if (
+            window.FilesManagement &&
+            window.FilesManagement.softRefreshFilesTable
+          ) {
+            window.FilesManagement.softRefreshFilesTable(true);
+          }
+        }, 50);
       })
       .catch((error) => {
         console.error("Error marking file as viewed:", error);
@@ -751,5 +753,119 @@ window.markViewedAjax = function (fileId) {
   } catch (error) {
     console.error("Error in markViewedAjax:", error);
     window.ErrorHandler.handleError(error, "markViewedAjax");
+  }
+};
+
+// Open registrator import modal
+window.openRegistratorImport = function () {
+  try {
+    // Open the modal
+    openModal('popup-import-registrator');
+    
+    // Load registrators list into the picker
+    const picker = document.getElementById('reg-picker');
+    if (!picker) {
+      console.error("Registrator picker not found");
+      return;
+    }
+
+    // Fetch registrators from API
+    fetch('/api/registrators', {
+      credentials: 'same-origin'
+    })
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(data) {
+        const registrators = data.items || [];
+        
+        // Clear and populate picker
+        picker.innerHTML = '<option value="">Выберите регистратор</option>';
+        
+        if (registrators.length > 0) {
+          registrators.forEach(function(r) {
+            const option = document.createElement('option');
+            option.value = r.id;
+            option.textContent = r.name || 'Unnamed';
+            picker.appendChild(option);
+          });
+        } else {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'Нет доступных регистраторов';
+          picker.appendChild(option);
+        }
+      })
+      .catch(function(err) {
+        console.error("Error loading registrators:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "openRegistratorImport");
+        picker.innerHTML = '<option value="">Ошибка загрузки регистраторов</option>';
+      });
+  } catch (error) {
+    console.error("Error opening registrator import modal:", error);
+    window.ErrorHandler.handleError(error, "openRegistratorImport");
+  }
+};
+
+// Submit registrator import
+window.submitRegistratorImport = function () {
+  try {
+    // Get selected registrator
+    const registratorPicker = document.getElementById('reg-picker');
+    if (!registratorPicker || !registratorPicker.value) {
+      window.showToast && window.showToast("Выберите регистратор", "warning");
+      return;
+    }
+
+    const registratorId = registratorPicker.value;
+
+    // Get all parameter values
+    const params = [];
+    for (let i = 1; i <= 5; i++) {
+      const paramEl = document.getElementById(`reg-param-${i}`);
+      if (paramEl && paramEl.value) {
+        params.push(paramEl.value);
+      }
+    }
+
+    if (params.length === 0) {
+      window.showToast && window.showToast("Выберите параметры для импорта", "warning");
+      return;
+    }
+
+    // Send import request
+    fetch(`/registrators/${registratorId}/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Client-Id': window.__filesClientId || 'unknown'
+      },
+      body: JSON.stringify({
+        files: params
+      })
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        window.showToast && window.showToast("Файлы импортированы", "success");
+        closeModal('popup-import-registrator');
+        
+        // Refresh files table
+        if (window.FilesManagement && window.FilesManagement.softRefreshFilesTable) {
+          window.FilesManagement.softRefreshFilesTable(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Error importing from registrator:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError(error, "submitRegistratorImport");
+      });
+
+  } catch (error) {
+    console.error("Error in submitRegistratorImport:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError(error, "submitRegistratorImport");
   }
 };
