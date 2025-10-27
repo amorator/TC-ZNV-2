@@ -28,20 +28,15 @@ function createUser(userData) {
       "X-Client-Id": window.__usersClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.notify) {
-          window.notify("Пользователь создан", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка создания пользователя");
+      if (window.notify) {
+        window.notify("Пользователь создан", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "createUser"));
 }
@@ -67,20 +62,15 @@ function updateUser(userId, userData) {
       "X-Client-Id": window.__usersClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.notify) {
-          window.notify("Пользователь обновлен", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка обновления пользователя");
+      if (window.notify) {
+        window.notify("Пользователь обновлен", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "updateUser"));
 }
@@ -105,20 +95,15 @@ function deleteUser(userId) {
         "X-Client-Id": window.__usersClientId || "unknown",
       },
     })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
-        return response.json();
-      })
-      .then((data) => {
-        if (data.status === "success") {
-          if (window.notify) {
-            window.notify("Пользователь удален", "success");
-          }
-        } else {
-          throw new Error(data.message || "Ошибка удаления пользователя");
+        if (window.notify) {
+          window.notify("Пользователь удален", "success");
         }
+        return data;
       })
       .catch((err) => window.ErrorHandler.handleError(err, "deleteUser"));
   }

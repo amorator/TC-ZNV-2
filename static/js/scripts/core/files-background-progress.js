@@ -9,7 +9,7 @@ function showAllBackgroundProgress() {
     progressContainer.style.display = "block";
     updateBackgroundProgress();
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "showAllBackgroundProgress");
   }
 }
 
@@ -33,7 +33,7 @@ function showBackgroundProgressForUpload(state, uploadKey, index) {
 
     progressContainer.appendChild(progressItem);
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "showBackgroundProgressForUpload");
   }
 }
 
@@ -45,16 +45,24 @@ function showBackgroundProgress() {
     progressContainer.style.display = "block";
     updateBackgroundProgress();
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "showBackgroundProgress");
   }
 }
 
 function updateBackgroundProgress() {
   try {
     // Get all background uploads
-    fetch("/api/background-uploads")
-      .then((response) => response.json())
-      .then((data) => {
+    fetch("/api/background-uploads", {
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Id": window.__filesClientId || "unknown",
+      },
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
         if (data.uploads) {
           data.uploads.forEach((upload) => {
             const progressItem = document.getElementById(
@@ -74,12 +82,13 @@ function updateBackgroundProgress() {
             }
           });
         }
+        return data;
       })
       .catch((err) => {
-        window.ErrorHandler.handleError(err, "unknown")
+        window.ErrorHandler.handleError(err, "updateBackgroundProgress");
       });
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "updateBackgroundProgress");
   }
 }
 
@@ -90,7 +99,7 @@ function hideBackgroundProgress() {
       progressContainer.style.display = "none";
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "hideBackgroundProgress");
   }
 }
 
@@ -101,7 +110,7 @@ function removeBackgroundProgressItem(uploadKey) {
       progressItem.remove();
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "removeBackgroundProgressItem");
   }
 }
 

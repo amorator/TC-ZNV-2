@@ -28,20 +28,15 @@ function createFile(fileData) {
       "X-Client-Id": window.__filesClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.showToast) {
-          window.showToast("Файл создан", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка создания файла");
+      if (window.showToast) {
+        window.showToast("Файл создан", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "createFile"));
 }
@@ -67,20 +62,15 @@ function updateFile(fileId, fileData) {
       "X-Client-Id": window.__filesClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.showToast) {
-          window.showToast("Файл обновлен", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка обновления файла");
+      if (window.showToast) {
+        window.showToast("Файл обновлен", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "updateFile"));
 }
@@ -114,20 +104,23 @@ function deleteFile(fileId) {
         "X-Client-Id": window.__filesClientId || "unknown",
       },
     })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
-        return response.json();
-      })
-      .then((data) => {
-        if (data.status === "success") {
-          if (window.showToast) {
-            window.showToast("Файл удален", "success");
-          }
-        } else {
-          throw new Error(data.message || "Ошибка удаления файла");
+        if (window.showToast) {
+          window.showToast("Файл удален", "success");
         }
+        // Remove file row from UI
+        if (fileRow) {
+          fileRow.remove();
+        }
+        // Trigger soft refresh to sync with other clients
+        if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+          window.FilesManagement.debouncedSync();
+        }
+        return data;
       })
       .catch((err) => window.ErrorHandler.handleError(err, "deleteFile"));
   }
@@ -149,23 +142,18 @@ function startFilesMaintenance() {
         "X-Client-Id": window.__filesClientId || "unknown",
       },
     })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
-        return response.json();
-      })
-      .then((data) => {
-        if (data.status === "success") {
-          if (window.showToast) {
-            window.showToast(
-              `Обслуживание завершено. Обновлено: ${data.updated}, Создано: ${data.created}, Ошибок: ${data.errors}`,
-              "success"
-            );
-          }
-        } else {
-          throw new Error(data.message || "Ошибка обслуживания файлов");
+        if (window.showToast) {
+          window.showToast(
+            `Обслуживание завершено. Обновлено: ${data.updated}, Создано: ${data.created}, Ошибок: ${data.errors}`,
+            "success"
+          );
         }
+        return data;
       })
       .catch((err) =>
         window.ErrorHandler.handleError(err, "startFilesMaintenance")

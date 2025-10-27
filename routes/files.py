@@ -584,7 +584,7 @@ def register(app, media_service, socketio=None) -> None:
             # Insert using new schema only
             id = app._sql.file_add2([
                 name, real_name + target_ext, cat_id, sub_id,
-                f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})',
+                current_user.id,  # owner_id should be user ID, not the owner string
                 desc,
                 dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None
             ])
@@ -705,7 +705,7 @@ def register(app, media_service, socketio=None) -> None:
             try:
                 fid = app._sql.file_add2([
                     name, real_name + '.mp4', cat_id, sub_id,
-                    f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})',
+                    current_user.id,  # owner_id should be user ID, not the owner string
                     desc,
                     dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0
                 ])
@@ -1802,7 +1802,7 @@ def register(app, media_service, socketio=None) -> None:
                     )
                 id = app._sql.file_add2([
                     name, real_target, cat_id, sub_id,
-                    f'{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})',
+                    current_user.id,  # owner_id should be user ID, not the owner string
                     desc,
                     dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0
                 ])

@@ -770,20 +770,37 @@
         formData.append("csrf_token", csrfToken.getAttribute("content"));
       }
 
+      // Add cat_id and sub_id for files add form
+      if (form.action.includes("/files/add")) {
+        // Get category and subcategory IDs
+        // First try from window variables (set by server template)
+        let catId = window.current_category_id;
+        let subId = window.current_subcategory_id;
+        
+        // If not available or invalid, don't send (let server handle it)
+        if (catId && subId && typeof catId === 'number' && typeof subId === 'number') {
+          formData.append("cat_id", catId);
+          formData.append("sub_id", subId);
+        } else {
+          console.warn("Cannot determine cat_id/sub_id for file upload", catId, subId);
+        }
+      }
+
       // Submit form via fetch
       fetch(form.action, {
         method: form.method || "POST",
         body: formData,
         headers: {
           "X-Requested-With": "XMLHttpRequest",
-          "X-Client-Id": window.__usersClientId || "unknown",
+          "X-Client-Id": window.__filesClientId || window.__usersClientId || window.__groupsClientId || "unknown",
         },
       })
-        .then((response) => {
-          if (response.ok) {
-            return response.json();
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || data.error || `HTTP ${response.status}: ${response.statusText}`);
           }
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          return data;
         })
         .then((data) => {
           // Show success message
@@ -870,11 +887,29 @@
                 window.UsersManagement.softRefreshUsersTable(true);
               }
             }
+          } else if (window.location.pathname.includes("/files")) {
+            // Handle files add/edit/delete
+            if (
+              window.FilesManagement &&
+              window.FilesManagement.softRefreshFilesTable
+            ) {
+              window.FilesManagement.softRefreshFilesTable(true);
+            }
+          } else if (window.location.pathname.includes("/groups")) {
+            // Handle groups add/edit/delete
+            if (
+              window.GroupsManagement &&
+              window.GroupsManagement.softRefreshGroupsTable
+            ) {
+              window.GroupsManagement.softRefreshGroupsTable(true);
+            }
           }
         })
         .catch((error) => {
           console.error("Form submission error:", error);
-          if (window.notify) {
+          if (window.ErrorHandler && window.ErrorHandler.handleError) {
+            window.ErrorHandler.handleError(error, "validateForm");
+          } else if (window.notify) {
             window.notify(
               "Ошибка при выполнении операции: " + error.message,
               "error"
@@ -885,7 +920,9 @@
       return true;
     } catch (error) {
       console.error("Form submission error:", error);
-      if (window.notify) {
+      if (window.ErrorHandler && window.ErrorHandler.handleError) {
+        window.ErrorHandler.handleError(error, "validateForm");
+      } else if (window.notify) {
         window.notify(
           "Ошибка при выполнении операции: " + error.message,
           "error"

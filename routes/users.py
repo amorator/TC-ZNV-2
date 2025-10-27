@@ -25,7 +25,6 @@ def register(app):
         def _users_join(_data=None):
             try:
                 join_room('users')
-                _log.info(f"[users] Client joined users room: {_data}")
             except Exception as e:
                 _log.error(f"[users] Error joining users room: {e}")
 

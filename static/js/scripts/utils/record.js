@@ -1538,7 +1538,7 @@ async function onCameraClick() {
     try {
       if (!areAnyStreamsActive()) setSourceControlsEnabled(true);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "onCameraClick");
     }
   } catch (error) {
     window.showAlertModal("Ошибка при настройке записи!", "Ошибка");
@@ -1574,7 +1574,7 @@ function onStartClick() {
     try {
       setSourceControlsEnabled(false);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "onStartClick");
     }
     buttonStart.textContent = "Продолжить";
     try {
@@ -1582,7 +1582,7 @@ function onStartClick() {
         timerInterval = setInterval(timer, 1000);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "onStartClick");
     }
   } else {
     // Resume recording
@@ -1592,14 +1592,14 @@ function onStartClick() {
       try {
         recorderAudio.resume && recorderAudio.resume();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "onStartClick");
     }
     try {
       if (!timerInterval) {
         timerInterval = setInterval(timer, 1000);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "onStartClick");
     }
   }
 
@@ -2080,17 +2080,17 @@ function uploadFile(formData, url) {
     try {
       xhr.withCredentials = true;
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       xhr.setRequestHeader("Accept", "application/json");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       var cid =
@@ -2099,7 +2099,7 @@ function uploadFile(formData, url) {
         "";
       if (cid) xhr.setRequestHeader("X-Client-Id", cid);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
     // Ensure server finds the file even if it expects generic 'file'
     try {
@@ -2107,14 +2107,14 @@ function uploadFile(formData, url) {
       try {
         firstKey = formData.keys().next().value;
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
       if (firstKey && firstKey !== "file") {
         var blob = formData.get(firstKey);
         if (blob) formData.append("file", blob);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "uploadFile");
     }
     xhr.send(formData);
   });

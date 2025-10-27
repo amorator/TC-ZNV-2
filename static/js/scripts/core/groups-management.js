@@ -24,20 +24,15 @@ function createGroup(groupData) {
       "X-Client-Id": window.__groupsClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.notify) {
-          window.notify("Группа создана", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка создания группы");
+      if (window.notify) {
+        window.notify("Группа создана", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "createGroup"));
 }
@@ -60,20 +55,15 @@ function updateGroup(groupId, groupData) {
       "X-Client-Id": window.__groupsClientId || "unknown",
     },
   })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
-      return response.json();
-    })
-    .then((data) => {
-      if (data.status === "success") {
-        if (window.notify) {
-          window.notify("Группа обновлена", "success");
-        }
-      } else {
-        throw new Error(data.message || "Ошибка обновления группы");
+      if (window.notify) {
+        window.notify("Группа обновлена", "success");
       }
+      return data;
     })
     .catch((err) => window.ErrorHandler.handleError(err, "updateGroup"));
 }
@@ -96,20 +86,15 @@ function deleteGroup(groupId) {
         "X-Client-Id": window.__groupsClientId || "unknown",
       },
     })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
-        return response.json();
-      })
-      .then((data) => {
-        if (data.status === "success") {
-          if (window.notify) {
-            window.notify("Группа удалена", "success");
-          }
-        } else {
-          throw new Error(data.message || "Ошибка удаления группы");
+        if (window.notify) {
+          window.notify("Группа удалена", "success");
         }
+        return data;
       })
       .catch((err) => window.ErrorHandler.handleError(err, "deleteGroup"));
   }

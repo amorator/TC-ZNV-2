@@ -754,7 +754,7 @@
           try {
             window.openRegistratorImport && window.openRegistratorImport();
           } catch (err) {
-            window.ErrorHandler.handleError(err, "unknown");
+            window.ErrorHandler.handleError(err, "import-registrator");
           }
           break;
 
@@ -767,6 +767,7 @@
               headers: {
                 "X-Requested-With": "XMLHttpRequest",
                 Accept: "application/json",
+                "X-Client-Id": window.__filesClientId || "unknown",
               },
             })
               .then(async (response) => {
@@ -774,7 +775,10 @@
                 try {
                   data = await response.json();
                 } catch (err) {
-                  window.ErrorHandler.handleError(err, "unknown");
+                  window.ErrorHandler.handleError(err, "refresh");
+                }
+                if (!response.ok || data.status !== "success") {
+                  throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
                 }
                 if (
                   data &&
@@ -799,7 +803,7 @@
                       window.markFileAsMissing(id);
                     }
                   } catch (err) {
-                    window.ErrorHandler.handleError(err, "unknown");
+                    window.ErrorHandler.handleError(err, "refresh");
                   }
                 }
                 if (response.ok) {
@@ -835,13 +839,14 @@
                         );
                       }
                     } catch (err) {
-                      window.ErrorHandler.handleError(err, "unknown");
+                      window.ErrorHandler.handleError(err, "refresh");
                     }
                   }, 100);
                 }
               })
               .catch((error) => {
                 console.error("Refresh error:", error);
+                window.ErrorHandler.handleError(error, "refresh");
               });
           }
           break;
@@ -854,8 +859,18 @@
               document.getElementById(String(id));
             const url = row && row.getAttribute("data-view-url");
             if (url) {
-              fetch(url, { method: "GET", credentials: "include" })
-                .then(() => {
+              fetch(url, { 
+                method: "GET", 
+                credentials: "include",
+                headers: {
+                  "X-Requested-With": "XMLHttpRequest",
+                  "X-Client-Id": window.__filesClientId || "unknown",
+                }
+              })
+                .then(async (response) => {
+                  if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                  }
                   setTimeout(() => {
                     this.currentRow = null;
                     this.isInitialized = true;
@@ -863,12 +878,13 @@
                       window.softRefreshFilesTable &&
                         window.softRefreshFilesTable();
                     } catch (err) {
-                      window.ErrorHandler.handleError(err, "unknown");
+                      window.ErrorHandler.handleError(err, "mark-viewed");
                     }
                   }, 50);
                 })
                 .catch((error) => {
                   console.error("Mark viewed error:", error);
+                  window.ErrorHandler.handleError(error, "mark-viewed");
                 });
             }
           }

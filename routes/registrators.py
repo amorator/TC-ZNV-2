@@ -774,10 +774,10 @@ def register(app, socketio=None):
                     except Exception:
                         pass
                     # Create DB record via new schema with non-editable description marker
-                    owner = f"{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})"
                     desc = f"Регистратор — {name}"
                     file_id = app._sql.file_add2([
-                        fname, real_base + target_ext, cat_id, sub_id, owner,
+                        fname, real_base + target_ext, cat_id, sub_id,
+                        current_user.id,  # owner_id should be user ID, not the owner string
                         desc,
                         datetime.utcnow().strftime('%Y-%m-%d %H:%M'), 0, 0,
                         size_mb, None

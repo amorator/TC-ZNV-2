@@ -27,7 +27,7 @@ function showPersistentProgressIndicator(uploadId, registratorName, fileName) {
     progressContainer.appendChild(progressDiv);
     recalculateIndicatorPositions();
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "showPersistentProgressIndicator");
   }
 }
 
@@ -47,7 +47,7 @@ function updatePersistentProgress(uploadId, percentage, statusText) {
       progressText.textContent = statusText || `${percentage}%`;
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "updatePersistentProgress");
   }
 }
 
@@ -59,7 +59,7 @@ function hidePersistentProgress(uploadId) {
       recalculateIndicatorPositions();
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "hidePersistentProgress");
   }
 }
 
@@ -70,7 +70,7 @@ function recalculateIndicatorPositions() {
       indicator.style.top = `${index * 80 + 20}px`;
     });
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "recalculateIndicatorPositions");
   }
 }
 
@@ -79,7 +79,7 @@ function removeToastFromStorage(uploadId) {
     const storageKey = `upload_toast_${uploadId}`;
     localStorage.removeItem(storageKey);
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "removeToastFromStorage");
   }
 }
 
@@ -102,7 +102,7 @@ function updateImportProgress(current, total, fileName) {
       progressText.textContent = `${current}/${total} - ${fileName}`;
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "updateImportProgress");
   }
 }
 
@@ -113,16 +113,24 @@ function hideImportProgress() {
       progressContainer.style.display = "none";
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "hideImportProgress");
   }
 }
 
 function monitorUploadProgress(uploadId, registratorName) {
   try {
     const interval = setInterval(() => {
-      fetch(`/api/upload-progress/${uploadId}`)
-        .then((response) => response.json())
-        .then((data) => {
+      fetch(`/api/upload-progress/${uploadId}`, {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Client-Id": window.__filesClientId || "unknown",
+        },
+      })
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+          }
           if (data.completed) {
             clearInterval(interval);
             hidePersistentProgress(uploadId);
@@ -134,15 +142,16 @@ function monitorUploadProgress(uploadId, registratorName) {
           } else {
             updatePersistentProgress(uploadId, data.percentage, data.status);
           }
+          return data;
         })
         .catch((err) => {
           clearInterval(interval);
           hidePersistentProgress(uploadId);
-          window.ErrorHandler.handleError(err, "unknown")
+          window.ErrorHandler.handleError(err, "monitorUploadProgress");
         });
     }, 1000);
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "monitorUploadProgress");
   }
 }
 
@@ -162,7 +171,7 @@ function restoreToastsFromStorage() {
       }
     });
   } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    window.ErrorHandler.handleError(err, "restoreToastsFromStorage");
   }
 }
 

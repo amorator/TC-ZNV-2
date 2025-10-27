@@ -47,6 +47,72 @@ function popupValues(form, rowId) {
         "неизвестный";
       fileNameElement.textContent = fileName;
     }
+    
+    // Find the modal popup container
+    const modal = form.closest(".overlay-container");
+    if (modal) {
+      // Find the bold element with placeholder text in the modal body
+      const nameElement = modal.querySelector(".popup__body p b");
+      if (nameElement) {
+        // Determine modal type by checking the modal ID or title
+        const modalId = modal.id;
+        const modalTitle = modal.querySelector(".popup__title");
+        const titleText = modalTitle ? modalTitle.textContent.trim() : "";
+        
+        // Handle users delete modal
+        if (modalId === "popup-delete" && titleText.includes("пользователя")) {
+          const userName = row.getAttribute("data-name") || "";
+          const userLogin = row.getAttribute("data-login") || "";
+          if (userName && userLogin) {
+            nameElement.textContent = `${userLogin} (${userName})`;
+          } else {
+            nameElement.textContent = userLogin || userName || "неизвестный";
+          }
+        }
+        
+        // Handle groups delete modal
+        else if (modalId === "popup-delete" && titleText.includes("группу")) {
+          const groupName = row.getAttribute("data-name") || "неизвестная";
+          nameElement.textContent = groupName;
+        }
+        
+        // Handle requests delete modal (placeholder is "rname")
+        else if (modalId === "popup-delete" && titleText.includes("заявку")) {
+          const requestName = row.getAttribute("data-name") || "неизвестный";
+          nameElement.textContent = requestName;
+        }
+        
+        // Handle orders delete modal (placeholder is "ordname")
+        else if (modalId === "popup-delete" && titleText.includes("заказ")) {
+          const orderName = row.getAttribute("data-name") || "неизвестный";
+          nameElement.textContent = orderName;
+        }
+        
+        // Fallback: try to detect by placeholder text (for backward compatibility)
+        else {
+          const placeholder = nameElement.textContent.trim();
+          
+          if (placeholder === "uname") {
+            const userName = row.getAttribute("data-name") || "";
+            const userLogin = row.getAttribute("data-login") || "";
+            if (userName && userLogin) {
+              nameElement.textContent = `${userLogin} (${userName})`;
+            } else {
+              nameElement.textContent = userLogin || userName || "неизвестный";
+            }
+          } else if (placeholder === "gname") {
+            const groupName = row.getAttribute("data-name") || "неизвестная";
+            nameElement.textContent = groupName;
+          } else if (placeholder === "rname") {
+            const requestName = row.getAttribute("data-name") || "неизвестный";
+            nameElement.textContent = requestName;
+          } else if (placeholder === "ordname") {
+            const orderName = row.getAttribute("data-name") || "неизвестный";
+            nameElement.textContent = orderName;
+          }
+        }
+      }
+    }
   }
 }
 

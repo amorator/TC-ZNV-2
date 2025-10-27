@@ -335,6 +335,25 @@ function setupFileManagement() {
       });
     });
 
+    // Setup file input change handler to auto-fill name field
+    const fileInput = document.getElementById("file");
+    const nameInput = document.getElementById("add-name");
+    if (fileInput && nameInput) {
+      fileInput.addEventListener("change", function() {
+        // Only auto-fill if name field is empty
+        if (!nameInput.value.trim()) {
+          const files = this.files;
+          if (files && files.length > 0) {
+            // If single file or multiple files, use the first file name
+            const fileName = files[0].name;
+            // Remove extension
+            const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
+            nameInput.value = nameWithoutExt;
+          }
+        }
+      });
+    }
+
     // Setup file actions
     const fileActions = document.querySelectorAll("[data-file-action]");
     fileActions.forEach((action) => {
@@ -442,30 +461,34 @@ function downloadFile(fileId) {
 function deleteFile(fileId) {
   try {
     if (confirm("Вы уверены, что хотите удалить этот файл?")) {
-      fetch(`/api/files/${fileId}`, {
-        method: "DELETE",
+      fetch(`/files/delete/${fileId}`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Client-Id": window.__filesClientId || "unknown",
+        },
       })
-        .then((response) => response.json())
-        .then((data) => {
-          if (data.success) {
-            window.showToast("Файл удален", "success");
-            // Remove file from UI
-            const fileElement = document.querySelector(
-              `[data-file-id="${fileId}"]`
-            );
-            if (fileElement) {
-              fileElement.remove();
-            }
-          } else {
-            window.showToast("Ошибка удаления файла", "error");
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
           }
+          if (window.showToast) {
+            window.showToast("Файл удален", "success");
+          }
+          // Remove file from UI
+          const fileElement = document.getElementById(fileId);
+          if (fileElement) {
+            fileElement.remove();
+          }
+          return data;
         })
         .catch((err) => {
-          window.ErrorHandler.handleError(err, "unknown");
+          window.ErrorHandler.handleError(err, "deleteFile");
         });
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "setupFileUploadForms");
+    window.ErrorHandler.handleError(err, "deleteFile");
   }
 }
 
@@ -473,27 +496,31 @@ function moveFile(fileId) {
   try {
     const newCategory = prompt("Введите ID новой категории:");
     if (newCategory) {
-      fetch(`/api/files/${fileId}/move`, {
+      fetch(`/files/move/${fileId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Client-Id": window.__filesClientId || "unknown",
         },
         body: JSON.stringify({ category_id: newCategory }),
       })
-        .then((response) => response.json())
-        .then((data) => {
-          if (data.success) {
-            window.showToast("Файл перемещен", "success");
-          } else {
-            window.showToast("Ошибка перемещения файла", "error");
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
           }
+          if (window.showToast) {
+            window.showToast("Файл перемещен", "success");
+          }
+          return data;
         })
         .catch((err) => {
-          window.ErrorHandler.handleError(err, "unknown");
+          window.ErrorHandler.handleError(err, "moveFile");
         });
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "setupFileUploadForms");
+    window.ErrorHandler.handleError(err, "moveFile");
   }
 }
 
@@ -501,27 +528,31 @@ function renameFile(fileId) {
   try {
     const newName = prompt("Введите новое имя файла:");
     if (newName) {
-      fetch(`/api/files/${fileId}/rename`, {
+      fetch(`/files/edit/${fileId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Client-Id": window.__filesClientId || "unknown",
         },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ display_name: newName }),
       })
-        .then((response) => response.json())
-        .then((data) => {
-          if (data.success) {
-            window.showToast("Файл переименован", "success");
-          } else {
-            window.showToast("Ошибка переименования файла", "error");
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok || data.status !== "success") {
+            throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
           }
+          if (window.showToast) {
+            window.showToast("Файл переименован", "success");
+          }
+          return data;
         })
         .catch((err) => {
-          window.ErrorHandler.handleError(err, "unknown");
+          window.ErrorHandler.handleError(err, "renameFile");
         });
     }
   } catch (err) {
-    window.ErrorHandler.handleError(err, "setupFileUploadForms");
+    window.ErrorHandler.handleError(err, "renameFile");
   }
 }
 
@@ -683,45 +714,42 @@ window.markViewedAjax = function (fileId) {
     console.log("Marking file as viewed:", fileId);
 
     // Send AJAX request to mark file as viewed
-    fetch("/api/mark-viewed", {
+    fetch("/files/mark-viewed", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Id": window.__filesClientId || "unknown",
       },
       body: JSON.stringify({
         file_id: fileId,
       }),
     })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.status === "success") {
-          console.log("File marked as viewed successfully");
-          // Optionally show a toast notification
-          if (window.showToast) {
-            window.showToast("Файл отмечен как просмотренный", "success");
-          }
-          // Refresh the files table to update the UI
-          if (
-            window.FilesManagement &&
-            window.FilesManagement.softRefreshFilesTable
-          ) {
-            window.FilesManagement.softRefreshFilesTable(true);
-          }
-        } else {
-          console.error("Failed to mark file as viewed:", data.message);
-          if (window.showToast) {
-            window.showToast("Ошибка при отметке файла", "error");
-          }
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
+        console.log("File marked as viewed successfully");
+        // Optionally show a toast notification
+        if (window.showToast) {
+          window.showToast("Файл отмечен как просмотренный", "success");
+        }
+        // Refresh the files table to update the UI
+        if (
+          window.FilesManagement &&
+          window.FilesManagement.softRefreshFilesTable
+        ) {
+          window.FilesManagement.softRefreshFilesTable(true);
+        }
+        return data;
       })
       .catch((error) => {
         console.error("Error marking file as viewed:", error);
-        if (window.showToast) {
-          window.showToast("Ошибка при отметке файла", "error");
-        }
+        window.ErrorHandler.handleError(error, "markViewedAjax");
       });
   } catch (error) {
     console.error("Error in markViewedAjax:", error);
+    window.ErrorHandler.handleError(error, "markViewedAjax");
   }
 };

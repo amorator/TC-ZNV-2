@@ -22,7 +22,7 @@
     const originalText = submitBtn ? submitBtn.textContent : '';
     if (submitBtn) {
       try { submitBtn.dataset.originalText = originalText; } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "submitFormAjax");
     }
       submitBtn.disabled = true;
       submitBtn.textContent = 'Отправка...';
@@ -31,14 +31,17 @@
       method: 'POST',
       body: formData,
       credentials: 'include',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      headers: { 
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Client-Id': window.__filesClientId || 'unknown'
+      }
     })
     .then(async response => {
       const contentType = response.headers.get('Content-Type') || '';
       let data = null;
       if (contentType.includes('application/json')) {
         try { data = await response.json(); } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "submitFormAjax");
     }
       }
       if (!response.ok || (data && data.status === 'error')) {
@@ -47,22 +50,22 @@
       }
       if (typeof opts.onSuccess === 'function') {
         try { opts.onSuccess(data); } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "submitFormAjax");
     }
       }
       return data;
     })
     .catch(err => {
       if (window.ErrorHandler) {
-      window.ErrorHandler.handleError(err, "unknown");
-    } else window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "submitFormAjax");
+    } else window.ErrorHandler.handleError(err, "submitFormAjax");
     }
       }
     });
   }
 
   try { window.submitFormAjax = submitFormAjax; } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler.handleError(err, "submitFormAjax");
     }
 })();
 

@@ -266,26 +266,26 @@ function importSelected() {
 
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Id": window.__filesClientId || "unknown",
+      },
       credentials: "same-origin",
       body: JSON.stringify(payload),
     })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (data) {
-        if (data && data.success) {
-          if (window.showToast) {
-            window.showToast("Файлы импортированы", "success");
-          }
-          if (window.refreshLevels) {
-            window.refreshLevels();
-          }
-        } else {
-          if (window.showToast) {
-            window.showToast("Ошибка импорта файлов", "error");
-          }
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || data.status !== "success") {
+          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
         }
+        if (window.showToast) {
+          window.showToast("Файлы импортированы", "success");
+        }
+        if (window.refreshLevels) {
+          window.refreshLevels();
+        }
+        return data;
       })
       .catch(function (err) {
         if (window.ErrorHandler) {

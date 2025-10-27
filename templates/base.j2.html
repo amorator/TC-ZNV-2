@@ -45,6 +45,7 @@
   
   {% block js %}{% endblock %}
   <script src="{{ url_for('static', filename='js/scripts/core/base.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+  <script src="{{ url_for('static', filename='js/scripts/core/table-tooltips.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <!-- passive_poll_seconds removed: replaced by sync_idle_seconds idle-guard -->
   
   
