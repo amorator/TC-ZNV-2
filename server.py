@@ -857,11 +857,8 @@ def signal_handler(signum, frame):
         return
 
     _shutdown_requested = True
-    # Only log shutdown signal once across all workers using Redis
-    temp_redis = _create_redis_client_for_logging()
-    if temp_redis and temp_redis.set(
-            'shutdown_signal_logged', '1', nx=True, ex=20):
-        _log.info(f"Received signal {signum}, initiating graceful shutdown...")
+    # Log shutdown signal (avoid Redis calls in signal handler to prevent gevent issues)
+    _log.info(f"Received signal {signum}, initiating graceful shutdown...")
 
     # Under Gunicorn, worker lifecycle is managed by master; skip socketio.stop()
     running_under_gunicorn = False
@@ -885,11 +882,7 @@ def signal_handler(signum, frame):
     if 'media_service' in globals() and media_service:
         try:
             media_service.stop()
-            # Only log media service stop once across all workers using Redis
-            temp_redis = _create_redis_client_for_logging()
-            if temp_redis and temp_redis.set(
-                    'media_service_stopped_logged', '1', nx=True, ex=20):
-                _log.info('Media service stopped.')
+            _log.info('Media service stopped.')
         except Exception as e:
             _log.warning(f"Media service stop error: {e}")
 
@@ -897,31 +890,19 @@ def signal_handler(signum, frame):
     if 'tp' in globals() and tp:
         try:
             tp.stop()
-            # Only log thread pool stop once across all workers using Redis
-            temp_redis = _create_redis_client_for_logging()
-            if temp_redis and temp_redis.set(
-                    'thread_pool_stopped_logged', '1', nx=True, ex=20):
-                _log.info('Thread pool stopped.')
+            _log.info('Thread pool stopped.')
         except Exception as e:
             _log.warning(f"Thread pool stop error: {e}")
 
     # Close Redis connection gracefully
     if _redis_client is not None:
-        # Only log Redis connection close once across all workers using Redis
-        temp_redis = _create_redis_client_for_logging()
-        if temp_redis and temp_redis.set(
-                'redis_connection_closed_logged', '1', nx=True, ex=20):
-            _log.info("Closing Redis connection...")
+        _log.info("Closing Redis connection...")
         try:
             _redis_client.shutdown()
         except Exception as e:
             _log.warning(f"Error closing Redis connection: {e}")
 
-    # Only log graceful shutdown completion once across all workers using Redis
-    temp_redis = _create_redis_client_for_logging()
-    if temp_redis and temp_redis.set(
-            'graceful_shutdown_completed_logged', '1', nx=True, ex=20):
-        _log.info("Graceful shutdown completed")
+    _log.info("Graceful shutdown completed")
     exit(0)
 
 

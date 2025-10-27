@@ -627,9 +627,9 @@ def register(app, socketio=None):
 
             # Validate user has access to the specific category and subcategory
             try:
-                # Check if category exists and user has access
+                # Check if category exists
                 cat_row = app._sql.execute_scalar(
-                    f"SELECT id FROM {app._sql.config['db']['prefix']}_category WHERE id=%s;",
+                    f"SELECT id FROM {app._sql.config['db']['prefix']}_file_category WHERE id=%s;",
                     [cat_id])
                 if not cat_row:
                     return jsonify({
@@ -639,7 +639,7 @@ def register(app, socketio=None):
 
                 # Check if subcategory exists and belongs to the category
                 sub_row = app._sql.execute_scalar(
-                    f"SELECT id FROM {app._sql.config['db']['prefix']}_subcategory WHERE id=%s AND category_id=%s;",
+                    f"SELECT id FROM {app._sql.config['db']['prefix']}_file_subcategory WHERE id=%s AND category_id=%s;",
                     [sub_id, cat_id])
                 if not sub_row:
                     return jsonify({
@@ -649,9 +649,10 @@ def register(app, socketio=None):
                         'Subcategory not found or does not belong to category'
                     }), 404
             except Exception as e:
+                _log.error(f"[registrators] Error validating category access: {str(e)}")
                 return jsonify({
                     'status': 'error',
-                    'message': 'Error validating category access'
+                    'message': str(e)
                 }), 500
             # Enforce max files
             try:
@@ -847,7 +848,8 @@ def register(app, socketio=None):
             return jsonify({
                 'status': 'success',
                 'created': len(created_ids),
-                'ids': created_ids
+                'ids': created_ids,
+                'upload_id': f'reg_import_{int(time.time())}'  # Generate unique ID for UI tracking
             })
         except Exception as e:
             app.flash_error(e)

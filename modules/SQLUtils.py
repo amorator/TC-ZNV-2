@@ -18,6 +18,9 @@ import secrets
 from .logging import get_logger
 import time
 import threading
+
+# Global flag to ensure schema is initialized only once across all workers
+_schema_initialized = False
 import redis
 
 _log = get_logger(__name__)
@@ -30,7 +33,11 @@ class SQL(Config):
 		super().__init__()
 		self._pool: Optional[mysql.pooling.MySQLConnectionPool] = None
 		# Initialize database schema on startup (only once across all workers)
-		self._ensure_database_schema()
+		# Use a global flag to ensure schema is initialized only once
+		global _schema_initialized
+		if not _schema_initialized:
+			self._ensure_database_schema()
+			_schema_initialized = True
 
 	def _ensure_database_schema(self):
 		"""Create database tables if they don't exist and insert default data.
@@ -207,7 +214,12 @@ class SQL(Config):
 		"""Context manager entry - get connection from pool."""
 		if not self._pool:
 			# Ensure schema and initialize pool if missing (mirrors with_conn)
-			self._ensure_database_schema()
+			# Use a global flag to ensure schema is initialized only once
+			global _schema_initialized
+			if not _schema_initialized:
+				self._ensure_database_schema()
+				_schema_initialized = True
+			
 			# Only log pool creation once across all workers using Redis
 			redis_client = SQL._create_redis_client_for_logging_static()
 			if redis_client and redis_client.set('pool_created_logged', '1', nx=True, ex=20):

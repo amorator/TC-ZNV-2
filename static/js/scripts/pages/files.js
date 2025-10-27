@@ -476,11 +476,11 @@ function deleteFile(fileId) {
           if (window.showToast) {
             window.showToast("Файл удален", "success");
           }
-          // Remove file from UI
+            // Remove file from UI
           const fileElement = document.getElementById(fileId);
-          if (fileElement) {
-            fileElement.remove();
-          }
+            if (fileElement) {
+              fileElement.remove();
+            }
           return data;
         })
         .catch((err) => {
@@ -762,12 +762,34 @@ window.openRegistratorImport = function () {
     // Open the modal
     openModal('popup-import-registrator');
     
+    // Reset all parameter fields
+    for (let i = 1; i <= 5; i++) {
+      const wrap = document.getElementById(`reg-param-${i}-wrap`);
+      const select = document.getElementById(`reg-param-${i}`);
+      if (wrap && select) {
+        wrap.classList.add('d-none');
+        select.innerHTML = '';
+      }
+    }
+    
+    // Hide and reset files list
+    const filesWrap = document.getElementById('reg-files-wrap');
+    const filesList = document.getElementById('reg-files-list');
+    if (filesWrap) filesWrap.classList.add('d-none');
+    if (filesList) filesList.innerHTML = '<div class="text-muted text-center">Выберите параметры для отображения файлов</div>';
+    
     // Load registrators list into the picker
     const picker = document.getElementById('reg-picker');
     if (!picker) {
       console.error("Registrator picker not found");
       return;
     }
+    
+    // Reset picker value
+    picker.value = '';
+    
+    // Remove old change handler to avoid duplicates
+    picker.onchange = null;
 
     // Fetch registrators from API
     fetch('/api/registrators', {
@@ -787,8 +809,18 @@ window.openRegistratorImport = function () {
             const option = document.createElement('option');
             option.value = r.id;
             option.textContent = r.name || 'Unnamed';
+            // Store url_template for buildFileUrl function
+            if (r.url_template) {
+              option.setAttribute('data-template', r.url_template);
+            }
             picker.appendChild(option);
           });
+          
+          // Set up change handler
+          picker.onchange = function() {
+            if (!picker.value) return;
+            loadRegistratorLevel(parseInt(picker.value), 1);
+          };
         } else {
           const option = document.createElement('option');
           option.value = '';
@@ -807,65 +839,1034 @@ window.openRegistratorImport = function () {
   }
 };
 
-// Submit registrator import
-window.submitRegistratorImport = function () {
+// Load registrator level
+function loadRegistratorLevel(rid, level) {
   try {
-    // Get selected registrator
-    const registratorPicker = document.getElementById('reg-picker');
-    if (!registratorPicker || !registratorPicker.value) {
-      window.showToast && window.showToast("Выберите регистратор", "warning");
-      return;
+    const levels = ['date', 'user', 'time', 'type'];
+    const levelNames = ['Дата', 'Пользователь', 'Время', 'Тип'];
+    const currentLevel = levels[level - 1];
+    
+    if (!currentLevel) return;
+    
+    // Build parent path from previous selections
+    const parent = [];
+    for (let i = 1; i < level; i++) {
+      const prevSelect = document.getElementById(`reg-param-${i}`);
+      if (prevSelect && prevSelect.value) {
+        parent.push(prevSelect.value);
+      }
     }
+    
+    // Show current level wrapper
+    const wrap = document.getElementById(`reg-param-${level}-wrap`);
+    const select = document.getElementById(`reg-param-${level}`);
+    const label = document.getElementById(`reg-param-${level}-label`);
+    
+    if (!wrap || !select || !label) return;
+    
+    // Update label
+    label.textContent = levelNames[level - 1];
+    
+    // Fetch entries
+    const url = `/registrators/${rid}/browse?level=${currentLevel}&parent=${parent.join('/')}`;
+    
+    fetch(url, {
+      credentials: 'same-origin'
+    })
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(data) {
+        if (data.status === 'success' && data.entries) {
+          // Populate select
+          select.innerHTML = '<option value="">Выберите...</option>';
+          const filteredEntries = [];
+          data.entries.forEach(function(entry) {
+            // Filter out LOG/ entries for 'type' level
+            if (currentLevel === 'type' && entry.startsWith('LOG')) {
+              return;
+            }
+            filteredEntries.push(entry);
+            const option = document.createElement('option');
+            option.value = entry;
+            option.textContent = entry;
+            select.appendChild(option);
+          });
+          
+          // Show wrapper immediately
+          wrap.classList.remove('d-none');
+          
+          // If only one entry, auto-select it and proceed to next level
+          if (filteredEntries.length === 1) {
+            select.value = filteredEntries[0];
+            // If this is the 'type' level, load files after auto-selecting
+            if (currentLevel === 'type') {
+              setTimeout(function() {
+                loadRegistratorFiles(rid);
+              }, 100);
+            } else {
+              setTimeout(function() {
+                loadRegistratorLevel(rid, level + 1);
+              }, 100);
+            }
+          } else {
+            // Hide and reset all subsequent levels
+            for (let i = level + 1; i <= 4; i++) {
+              const nextWrap = document.getElementById(`reg-param-${i}-wrap`);
+              const nextSelect = document.getElementById(`reg-param-${i}`);
+              if (nextWrap && nextSelect) {
+                nextWrap.classList.add('d-none');
+                nextSelect.innerHTML = '<option value="">Выберите...</option>';
+                nextSelect.onchange = null;
+              }
+            }
+            
+            // Hide files list when parameters change (unless this is the last level)
+            if (currentLevel !== 'type') {
+              const filesWrap = document.getElementById('reg-files-wrap');
+              if (filesWrap) {
+                filesWrap.classList.add('d-none');
+              }
+            }
+            
+            // Check if this is the last level (type) and load files if so
+            if (currentLevel === 'type') {
+              loadRegistratorFiles(rid);
+            }
+            
+            // Set up change handler for next level if not last
+            if (currentLevel !== 'type') {
+              select.onchange = function() {
+                loadRegistratorLevel(rid, level + 1);
+              };
+            } else {
+              // For type level, trigger file load on change
+              select.onchange = function() {
+                // Hide previous files list
+                const filesWrap = document.getElementById('reg-files-wrap');
+                if (filesWrap) {
+                  filesWrap.classList.add('d-none');
+                }
+                // Load new files
+                loadRegistratorFiles(rid);
+              };
+            }
+          }
+        }
+      })
+      .catch(function(err) {
+        console.error("Error loading level:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorLevel");
+      });
+  } catch (error) {
+    console.error("Error in loadRegistratorLevel:", error);
+    window.ErrorHandler.handleError(error, "loadRegistratorLevel");
+  }
+}
 
-    const registratorId = registratorPicker.value;
-
-    // Get all parameter values
+// Load registrator files list
+function loadRegistratorFiles(rid) {
+  try {
+    // Get all parameter values (only first 4 parameters)
     const params = [];
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 4; i++) {
       const paramEl = document.getElementById(`reg-param-${i}`);
       if (paramEl && paramEl.value) {
         params.push(paramEl.value);
       }
     }
+    
+    if (params.length < 4) {
+      // Not all parameters selected yet
+      const filesWrap = document.getElementById('reg-files-wrap');
+      if (filesWrap) {
+        filesWrap.classList.add('d-none');
+      }
+      return;
+    }
+    
+    // Build parent path
+    const parent = params.slice(0, 4).join('/');
+    
+    // Fetch files
+    const url = `/registrators/${rid}/browse?level=file&parent=${parent}`;
+    
+    fetch(url, {
+      credentials: 'same-origin'
+    })
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(data) {
+        const filesWrap = document.getElementById('reg-files-wrap');
+        const filesList = document.getElementById('reg-files-list');
+        
+        if (!filesWrap || !filesList) {
+          return;
+        }
+        
+        if (data.status === 'success' && data.entries && data.entries.length > 0) {
+          // Show files list
+          filesWrap.classList.remove('d-none');
+          
+          // Populate files list
+          filesList.innerHTML = '';
+          data.entries.forEach(function(file) {
+            const checkbox = document.createElement('div');
+            checkbox.className = 'form-check';
+            checkbox.innerHTML = `
+              <input class="form-check-input" type="checkbox" value="${file}" id="reg-file-${file}" data-reg-file="${file}">
+              <label class="form-check-label" for="reg-file-${file}">
+                ${file}
+              </label>
+            `;
+            filesList.appendChild(checkbox);
+          });
+          
+          // Add change listeners to enforce max selection
+          const checkboxes = filesList.querySelectorAll('input[type="checkbox"]');
+          const maxFiles = parseInt(document.getElementById('max-upload-files')?.value || '5') || 5;
+          checkboxes.forEach(function(checkbox) {
+            checkbox.addEventListener('change', function() {
+              const checked = filesList.querySelectorAll('input[type="checkbox"]:checked').length;
+              if (checked >= maxFiles) {
+                checkboxes.forEach(function(cb) {
+                  if (!cb.checked) {
+                    cb.disabled = true;
+                  }
+                });
+              } else {
+                checkboxes.forEach(function(cb) {
+                  cb.disabled = false;
+                });
+              }
+            });
+          });
+        } else {
+          // Show "no files" message
+          filesWrap.classList.remove('d-none');
+          filesList.innerHTML = '<div class="text-muted text-center">Файлы не найдены</div>';
+        }
+      })
+      .catch(function(err) {
+        console.error("Error loading files:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorFiles");
+      });
+  } catch (error) {
+    console.error("Error in loadRegistratorFiles:", error);
+    window.ErrorHandler.handleError(error, "loadRegistratorFiles");
+  }
+}
 
-    if (params.length === 0) {
-      window.showToast && window.showToast("Выберите параметры для импорта", "warning");
+// Submit registrator import
+window.submitRegistratorImport = function () {
+  try {
+    var checkedBoxes = document.querySelectorAll(
+      "#reg-files-list input[type='checkbox']:checked"
+    );
+    if (checkedBoxes.length === 0) {
+          if (window.showToast) {
+        window.showToast(
+          "Выберите хотя бы один файл для загрузки",
+          "error"
+        );
+      }
       return;
     }
 
-    // Send import request
-    fetch(`/registrators/${registratorId}/import`, {
-      method: 'POST',
+    var selectedFiles = Array.from(checkedBoxes).map(function (cb) {
+      return cb.value;
+    });
+
+    // Get registrator info
+    var sel = document.getElementById("reg-picker");
+    var opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+    var registratorName = opt ? opt.textContent : "Неизвестный регистратор";
+    var registratorId = opt ? opt.value : null;
+
+    // Build full URLs for selected files
+    var fileUrls = selectedFiles.map(function (fileName) {
+      return buildFileUrl(fileName);
+    });
+
+    // Check if we can start new upload
+    fetch("/api/active-uploads")
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.can_start_new) {
+          if (window.showToast) {
+            window.showToast(
+              `Достигнут лимит одновременных загрузок (${data.active_uploads}/${data.max_parallel}). Дождитесь завершения одной из загрузок.`,
+              "warning"
+            );
+          }
+          // Don't return here - allow user to configure parameters
+          // The actual upload will be blocked later
+        }
+
+        // Start background upload only if we can start new uploads
+        if (data.can_start_new) {
+          startBackgroundUpload(
+            fileUrls,
+            selectedFiles,
+            registratorName,
+            registratorId
+          );
+        }
+      })
+      .catch((err) => {
+        console.error("Error checking upload limit:", err);
+        if (window.showToast) {
+          window.showToast("Ошибка при проверке лимита загрузок", "error");
+        }
+      });
+  } catch (err) {
+    if (window.showToast) {
+      window.showToast("Ошибка при загрузке файлов", "error");
+    }
+  }
+};
+
+function buildFileUrl(fileName) {
+  try {
+    var sel = document.getElementById("reg-picker");
+    var opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+    var tpl = (opt && opt.getAttribute("data-template")) || "";
+    if (!tpl) return "";
+
+    // Get all selected values from parameters
+    var selectedValues = [];
+    for (var i = 1; i <= 5; i++) {
+      var paramSel = document.getElementById("reg-param-" + i);
+      if (paramSel && paramSel.value) {
+        selectedValues.push(paramSel.value);
+      }
+    }
+
+    // Extract placeholders from template
+    var names = [];
+    try {
+      (tpl.match(/\{\s*([a-zA-Z0-9_\-]+)\s*\}/g) || []).forEach(function (
+        m
+      ) {
+        var n = m.replace(/^[^{]*\{\s*|\s*\}[^}]*$/g, "");
+        if (n && names.indexOf(n) === -1) names.push(n);
+      });
+      (tpl.match(/<\s*([a-zA-Z0-9_\-]+)\s*>/g) || []).forEach(function (m) {
+        var n = m.replace(/^[^<]*<\s*|\s*>[^>]*$/g, "");
+        if (n && names.indexOf(n) === -1) names.push(n);
+      });
+    } catch (_) {}
+
+    // Build URL by replacing placeholders with selected values
+    var url = tpl;
+    for (
+      var j = 0;
+      j < Math.min(selectedValues.length, names.length);
+      j++
+    ) {
+      var placeholder = "{" + names[j] + "}";
+      var altPlaceholder = "<" + names[j] + ">";
+      url = url.replace(placeholder, selectedValues[j]);
+      url = url.replace(altPlaceholder, selectedValues[j]);
+    }
+
+    // Replace file placeholder with actual filename
+    var filePlaceholder = "{file}";
+    var altFilePlaceholder = "<file>";
+    if (url.includes(filePlaceholder)) {
+      url = url.replace(filePlaceholder, fileName);
+    } else if (url.includes(altFilePlaceholder)) {
+      url = url.replace(altFilePlaceholder, fileName);
+    } else {
+      // If no file placeholder, append filename
+      url = url.replace(/\/+$/, "") + "/" + fileName;
+    }
+
+    return url;
+  } catch (err) {
+    return "";
+  }
+}
+
+function startBackgroundUpload(
+  fileUrls,
+  fileNames,
+  registratorName,
+  registratorId
+) {
+  try {
+    // Check upload limit before starting
+    fetch("/api/active-uploads")
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.can_start_new) {
+          if (window.showToast) {
+            window.showToast(
+              `Достигнут лимит одновременных загрузок (${data.active_uploads}/${data.max_parallel}). Дождитесь завершения одной из загрузок.`,
+              "warning"
+            );
+          }
+          return;
+        }
+
+        // Proceed with upload
+        proceedWithUpload(
+          fileUrls,
+          fileNames,
+          registratorName,
+          registratorId
+        );
+      })
+      .catch((err) => {
+        console.error("Error checking upload limit:", err);
+        if (window.showToast) {
+          window.showToast("Ошибка при проверке лимита загрузок", "error");
+        }
+      });
+  } catch (err) {
+    console.error("Error in startBackgroundUpload:", err);
+    if (window.showToast) {
+      window.showToast("Ошибка при запуске загрузки", "error");
+    }
+  }
+}
+
+function proceedWithUpload(
+  fileUrls,
+  fileNames,
+  registratorName,
+  registratorId
+) {
+  try {
+    // Get category and subcategory IDs
+    var catId = window.current_category_id || 0;
+    var subId = window.current_subcategory_id || 0;
+
+    // If not set, try to get from URL parameters
+    if (!catId || !subId) {
+      var urlParams = new URLSearchParams(window.location.search);
+      catId = catId || parseInt(urlParams.get("cat_id")) || 0;
+      subId = subId || parseInt(urlParams.get("sub_id")) || 0;
+    }
+
+    // If still not set, try to get from data attributes
+    if (!catId || !subId) {
+      var modal = document.getElementById("popup-import-registrator");
+      if (modal) {
+        catId = catId || parseInt(modal.dataset.catId) || 0;
+        subId = subId || parseInt(modal.dataset.subId) || 0;
+      }
+    }
+
+    if (!catId || !subId) {
+      if (window.showToast) {
+        window.showToast(
+          "Не удалось определить категорию и подкатегорию для загрузки",
+          "error"
+        );
+      }
+      return;
+    }
+
+    // Start background upload asynchronously to avoid blocking UI
+    setTimeout(() => {
+      fetch("/api/registrator-upload", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-Client-Id': window.__filesClientId || 'unknown'
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
       },
       body: JSON.stringify({
-        files: params
-      })
+          file_urls: fileUrls,
+          file_names: fileNames,
+          registrator_name: registratorName,
+          registrator_id: registratorId,
+          cat_id: catId,
+          sub_id: subId,
+      }),
     })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || data.status !== "success") {
-          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+      .then((response) => response.json())
+      .then((data) => {
+        console.log('[DEBUG] Upload started, response:', data);
+        if (data.status === "success") {
+            console.log('[DEBUG] Starting upload monitoring for:', data.upload_id);
+            
+            // Reset form
+            resetRegistratorForm();
+            
+            // Close modal properly using modal manager
+            if (typeof window.closeModal === "function") {
+              window.closeModal("popup-import-registrator");
+            } else {
+              // Fallback: manual close
+              var modal = document.getElementById("popup-import-registrator");
+              if (modal) {
+                modal.style.display = "none";
+                modal.classList.remove("active");
+                // Remove backdrop if exists
+                var backdrop = document.getElementById("popup-import-registrator-backdrop");
+                if (backdrop) {
+                  backdrop.remove();
+                }
+              }
+            }
+            
+            // Ensure scroll is restored after modal close
+            setTimeout(function() {
+              document.body.style.overflow = "";
+              document.documentElement.style.overflow = "";
+              console.log('[DEBUG] Restored scroll after modal close');
+            }, 100);
+
+            // Start monitoring upload progress
+            monitorUploadProgress(data.upload_id, registratorName);
+
+            // Show persistent progress indicator
+            console.log('[DEBUG] About to show progress indicator');
+            showPersistentProgressIndicator(
+              data.upload_id,
+              registratorName,
+              fileNames.length
+            );
+          } else {
+          if (window.showToast) {
+              // Проверяем, является ли это ошибкой лимита загрузок
+              if (
+                data.error &&
+                data.error.includes(
+                  "Maximum parallel uploads limit reached"
+                )
+              ) {
+                window.showToast(
+                  `Достигнут лимит одновременных загрузок (${data.active_uploads}/${data.max_parallel}). Попробуйте позже или очистите неактивные загрузки.`,
+                  "warning"
+                );
+
+                // Добавляем кнопку очистки в тост
+                setTimeout(() => {
+                  const toast = document.querySelector(".toast.show");
+                  if (toast) {
+                    const toastBody = toast.querySelector(".toast-body");
+                    if (toastBody) {
+                      const cleanupBtn = document.createElement("button");
+                      cleanupBtn.className =
+                        "btn btn-sm btn-outline-warning ms-2";
+                      cleanupBtn.textContent = "Очистить";
+                      cleanupBtn.onclick = () => {
+                        cleanupInactiveUploads();
+                        toast.remove();
+                      };
+                      toastBody.appendChild(cleanupBtn);
+                    }
+                  }
+                }, 100);
+              } else {
+                window.showToast(
+                  data.error || "Ошибка при запуске загрузки",
+                  "error"
+                );
+              }
+            }
+          }
+        })
+        .catch((err) => {
+          console.error("Error starting upload:", err);
+          if (window.showToast) {
+            window.showToast("Ошибка при запуске загрузки", "error");
+          }
+        });
+    }, 100);
+  } catch (err) {
+    console.error("Error in proceedWithUpload:", err);
+    if (window.showToast) {
+      window.showToast("Ошибка при загрузке файлов", "error");
+    }
+  }
+}
+
+function resetRegistratorForm() {
+  try {
+    // Reset registrator picker
+    var regPicker = document.getElementById("reg-picker");
+    if (regPicker) {
+      regPicker.selectedIndex = 0;
+    }
+
+    // Hide all parameter fields
+    for (var i = 1; i <= 5; i++) {
+      var wrap = document.getElementById("reg-param-" + i + "-wrap");
+      if (wrap) {
+        wrap.classList.add("d-none");
+        wrap.style.display = "";
+      }
+    }
+
+    // Clear file list
+    var fileList = document.getElementById("reg-file-list");
+    if (fileList) {
+      fileList.innerHTML = "";
+    }
+
+    // Clear textarea
+    var textarea = document.getElementById("reg-files-textarea");
+    if (textarea) {
+      textarea.value = "";
+    }
+
+    // Reset all checkboxes
+    var checkboxes = document.querySelectorAll("#reg-files-list input[type='checkbox']");
+    checkboxes.forEach(function (cb) {
+      cb.checked = false;
+    });
+  } catch (err) {
+    console.error("Error resetting registrator form:", err);
+  }
+}
+
+function showPersistentProgressIndicator(
+  uploadId,
+  registratorName,
+  totalFiles
+) {
+  try {
+    console.log('[DEBUG] Creating progress indicator for upload:', uploadId);
+    
+    // Create persistent progress indicator
+    var progressId = "persistent-progress-" + uploadId;
+    var existingIndicator = document.getElementById(progressId);
+    if (existingIndicator) {
+      existingIndicator.remove();
+    }
+
+    var indicator = document.createElement("div");
+    indicator.id = progressId;
+    indicator.className = "persistent-progress-indicator";
+    
+    // Add to DOM first, then calculate position
+    document.body.appendChild(indicator);
+    console.log('[DEBUG] Progress indicator added to DOM:', progressId);
+    
+    // Set CSS styles first
+    indicator.style.cssText = `
+      position: fixed;
+      right: 20px;
+      background: var(--modal-bg, #ffffff);
+      border: 1px solid var(--control-border, #dee2e6);
+      border-radius: 6px;
+      padding: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      z-index: 10000;
+      min-width: 280px;
+      max-width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--body-text, #000000);
+    `;
+    
+    // Check if indicator is visible
+    var rect = indicator.getBoundingClientRect();
+    console.log('[DEBUG] Indicator position:', {
+      top: rect.top,
+      right: rect.right,
+      width: rect.width,
+      height: rect.height,
+      visible: rect.width > 0 && rect.height > 0
+    });
+    
+    // Recalculate all toast positions to ensure proper spacing
+    recalculateToastPositions();
+
+    indicator.innerHTML = `
+      <div class="progress-header">
+        <div class="progress-icon"></div>
+        <div class="progress-title">Загрузка с регистратора &quot;${registratorName}&quot;</div>
+        <div class="progress-actions">
+          <button class="progress-btn" onclick="window.cancelUpload('${uploadId}')">Отменить</button>
+          <button class="progress-btn" onclick="this.parentElement.parentElement.remove()">&times;</button>
+        </div>
+      </div>
+      <div class="progress-text">
+        <div style="display: flex; justify-content: space-between;">
+          <span>Файлов: <span id="progress-files-${uploadId}">0/${totalFiles}</span></span>
+          <span id="progress-percent-${uploadId}">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progress-bar-${uploadId}" class="progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+      <div class="progress-status">
+        <div id="progress-status-${uploadId}">Подготовка...</div>
+      </div>
+    `;
+
+    // Store upload info in localStorage for persistence across page reloads
+    var uploadInfo = {
+      upload_id: uploadId,
+      registrator_name: registratorName,
+      total_files: totalFiles,
+      start_time: Date.now(),
+    };
+    localStorage.setItem("upload_" + uploadId, JSON.stringify(uploadInfo));
+  } catch (err) {
+    console.error("Error showing persistent progress indicator:", err);
+  }
+}
+
+function monitorUploadProgress(uploadId, registratorName) {
+  var progressInterval = setInterval(function () {
+    // Проверяем состояние соединения для оптимизации запросов
+    const connectionState = window.SyncManager.getConnectionState();
+    if (!connectionState.connected) {
+      // Если сокет не подключен, пропускаем этот цикл, но не останавливаем мониторинг
+      console.log(
+        `[DEBUG] Socket not connected, skipping progress check for ${uploadId}`
+      );
+      return;
+    }
+
+    console.log(`[DEBUG] Checking upload status for ${uploadId}`);
+    fetch(`/api/upload-status/${uploadId}`)
+      .then((response) => {
+        console.log(`[DEBUG] Upload status response: ${response.status}`);
+        if (response.status === 404) {
+          // Upload job not found (server restart), stop monitoring
+          clearInterval(progressInterval);
+          hideImportProgress();
+          hidePersistentProgress(uploadId);
+          removeToastFromStorage(uploadId);
+
+          if (window.showToast) {
+            window.showToast(
+              "Загрузка была прервана из-за перезагрузки сервера",
+              "warning"
+            );
+          }
+          return null; // Stop processing
         }
-        
-        window.showToast && window.showToast("Файлы импортированы", "success");
-        closeModal('popup-import-registrator');
-        
-        // Refresh files table
-        if (window.FilesManagement && window.FilesManagement.softRefreshFilesTable) {
-          window.FilesManagement.softRefreshFilesTable(true);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data) return; // Skip if 404 was handled
+        console.log(`[DEBUG] Upload status data:`, data);
+        if (data.status === "success") {
+          var upload = data.upload;
+          console.log(
+            `[DEBUG] Upload progress: ${upload.completed_files}/${upload.total_files} (${upload.status})`
+          );
+
+          // Update progress indicators
+          updateProgressIndicators(uploadId, upload);
+
+          if (upload.status === "completed") {
+            // Upload completed successfully
+            clearInterval(progressInterval);
+            hideImportProgress();
+            hidePersistentProgress(uploadId);
+            removeToastFromStorage(uploadId);
+
+            if (window.showToast) {
+              window.showToast(
+                `Загрузка завершена: ${upload.completed_files} файлов`,
+                "success"
+              );
+            }
+
+            // Refresh files table
+            setTimeout(function () {
+          if (
+            window.FilesManagement &&
+            window.FilesManagement.softRefreshFilesTable
+          ) {
+            window.FilesManagement.softRefreshFilesTable(true);
+              }
+            }, 1000);
+          } else if (upload.status === "failed") {
+            // Upload failed
+            clearInterval(progressInterval);
+            hideImportProgress();
+            hidePersistentProgress(uploadId);
+            removeToastFromStorage(uploadId);
+
+            if (window.showToast) {
+              window.showToast(
+                `Загрузка не удалась: ${upload.error || "Неизвестная ошибка"}`,
+                "error"
+              );
+            }
+          }
         }
       })
-      .catch((error) => {
-        console.error("Error importing from registrator:", error);
-        window.ErrorHandler && window.ErrorHandler.handleError(error, "submitRegistratorImport");
+      .catch((err) => {
+        console.error(`[DEBUG] Error checking upload status:`, err);
+        // Don't stop monitoring on network errors, just log them
       });
+  }, 2000); // Check every 2 seconds
+}
 
-  } catch (error) {
-    console.error("Error in submitRegistratorImport:", error);
-    window.ErrorHandler && window.ErrorHandler.handleError(error, "submitRegistratorImport");
+function updateProgressIndicators(uploadId, upload) {
+  try {
+    console.log('[DEBUG] Updating progress indicators for:', uploadId, upload);
+    
+    // Update persistent progress indicator
+    var filesSpan = document.getElementById("progress-files-" + uploadId);
+    var percentSpan = document.getElementById("progress-percent-" + uploadId);
+    var barDiv = document.getElementById("progress-bar-" + uploadId);
+    var statusDiv = document.getElementById("progress-status-" + uploadId);
+
+    console.log('[DEBUG] Found elements:', {
+      filesSpan: !!filesSpan,
+      percentSpan: !!percentSpan,
+      barDiv: !!barDiv,
+      statusDiv: !!statusDiv
+    });
+
+    if (filesSpan) {
+      filesSpan.textContent = `${upload.completed_files}/${upload.total_files}`;
+    }
+    // Calculate progress: completed files + current file progress
+    var completed = upload.completed_files || 0;
+    var total = upload.total_files || 1;
+    var currentFileProgress = upload.current_file_progress || 0;
+    
+    // Add current file's progress (0-100) to completed files count
+    var totalProgress = completed + (currentFileProgress / 100);
+    var percent = Math.round((totalProgress / total) * 100);
+    
+    console.log('[DEBUG] Progress calculation:', {
+      completed,
+      total,
+      currentFileProgress,
+      totalProgress,
+      percent
+    });
+    
+    if (percentSpan) {
+      percentSpan.textContent = percent + "%";
+    }
+    if (barDiv) {
+      barDiv.style.width = percent + "%";
+    }
+    if (statusDiv) {
+      statusDiv.textContent = upload.current_file || "Обработка...";
+    }
+  } catch (err) {
+    console.error("Error updating progress indicators:", err);
+  }
+}
+
+function hideImportProgress() {
+  try {
+    var progressContainer = document.getElementById("import-progress-container");
+    if (progressContainer) {
+      progressContainer.remove();
+    }
+  } catch (err) {}
+}
+
+function hidePersistentProgress(uploadId) {
+  try {
+    var indicator = document.getElementById("persistent-progress-" + uploadId);
+    if (indicator) {
+      indicator.remove();
+      // Recalculate positions of remaining toasts
+      recalculateToastPositions();
+    }
+  } catch (err) {}
+}
+
+function recalculateToastPositions() {
+  try {
+    var indicators = document.querySelectorAll(".persistent-progress-indicator");
+    
+    indicators.forEach(function(indicator, index) {
+      var topOffset = 10 + index * 80; // 80px spacing between indicators
+      indicator.style.top = topOffset + "px";
+    });
+  } catch (err) {
+    console.error("Error recalculating toast positions:", err);
+  }
+}
+
+function removeToastFromStorage(uploadId) {
+  try {
+    localStorage.removeItem("upload_" + uploadId);
+  } catch (err) {}
+}
+
+function cleanupInactiveUploads() {
+  try {
+    fetch("/api/cleanup-inactive-uploads", {
+      method: "POST",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.status === "success") {
+          if (window.showToast) {
+            window.showToast(
+              `Очищено неактивных загрузок: ${data.cleaned_count}`,
+              "success"
+            );
+          }
+        } else {
+          if (window.showToast) {
+            window.showToast("Ошибка при очистке загрузок", "error");
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error cleaning up uploads:", err);
+        if (window.showToast) {
+          window.showToast("Ошибка при очистке загрузок", "error");
+        }
+      });
+  } catch (err) {
+    console.error("Error in cleanupInactiveUploads:", err);
+  }
+}
+
+// Restore upload progress indicators after page reload
+function restoreUploadProgressFromStorage() {
+  try {
+    console.log('[DEBUG] Restoring upload progress from localStorage...');
+    var keys = Object.keys(localStorage);
+    var uploadKeys = keys.filter(function(key) {
+      return key.startsWith('upload_');
+    });
+    
+    console.log('[DEBUG] Found upload keys:', uploadKeys);
+    
+    // Check if uploads are still active on server
+    if (uploadKeys.length > 0) {
+      // First, cleanup inactive uploads on server
+      fetch('/api/cleanup-inactive-uploads', {
+        method: 'POST',
+        credentials: 'include'
+      }).catch(function(err) {
+        console.warn('Failed to cleanup inactive uploads:', err);
+      });
+      
+      fetch('/api/active-uploads-list')
+        .then(function(response) {
+          return response.json();
+        })
+        .then(function(data) {
+          if (data && data.active_uploads) {
+            var activeUploadIds = data.active_uploads.map(function(upload) {
+              return upload.id;
+            });
+            
+            // Only restore uploads that are still active on server
+            uploadKeys.forEach(function(key) {
+              try {
+                var uploadInfo = JSON.parse(localStorage.getItem(key));
+                if (uploadInfo && uploadInfo.upload_id) {
+                  if (activeUploadIds.includes(uploadInfo.upload_id)) {
+                    console.log('[DEBUG] Restoring upload:', uploadInfo);
+                    
+                    // Restore the progress indicator
+                    showPersistentProgressIndicator(
+                      uploadInfo.upload_id,
+                      uploadInfo.registrator_name,
+                      uploadInfo.total_files
+                    );
+                    
+                    // Start monitoring progress
+                    monitorUploadProgress(uploadInfo.upload_id, uploadInfo.registrator_name);
+                  } else {
+                    // Upload is no longer active, remove from localStorage
+                    console.log('[DEBUG] Removing inactive upload:', uploadInfo.upload_id);
+                    localStorage.removeItem(key);
+                  }
+                }
+              } catch (err) {
+                console.error('Error restoring upload from localStorage:', key, err);
+                // Remove corrupted entry
+                localStorage.removeItem(key);
+              }
+            });
+            
+            // Recalculate positions after restoring all toasts
+            recalculateToastPositions();
+          }
+        })
+        .catch(function(err) {
+          console.error('Error checking active uploads:', err);
+        });
+    }
+  } catch (err) {
+    console.error('Error restoring upload progress:', err);
+  }
+}
+
+// Call restore function when page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', restoreUploadProgressFromStorage);
+} else {
+  // DOM already loaded
+  restoreUploadProgressFromStorage();
+}
+
+// Cancel upload function
+window.cancelUpload = function(uploadId) {
+  try {
+    console.log('[DEBUG] Canceling upload:', uploadId);
+    
+    // Confirm cancellation
+    if (!confirm('Вы уверены, что хотите отменить загрузку? Частично загруженные файлы будут удалены.')) {
+      return;
+    }
+    
+    // Send cancel request to server
+    fetch('/api/cancel-upload/' + uploadId, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        return response.json();
+      })
+      .then(function(data) {
+        if (data.success) {
+          console.log('[DEBUG] Upload cancelled successfully:', uploadId);
+          
+          // Hide progress indicator
+          hidePersistentProgress(uploadId);
+          
+          // Remove from localStorage
+          removeToastFromStorage(uploadId);
+          
+          // Show success toast
+          if (window.showToast) {
+            window.showToast('Загрузка отменена', 'success');
+          }
+        } else {
+          console.error('[DEBUG] Failed to cancel upload:', data.error);
+          if (window.showToast) {
+            window.showToast('Ошибка при отмене загрузки: ' + (data.error || 'Unknown error'), 'error');
+          }
+        }
+      })
+      .catch(function(err) {
+        console.error('[DEBUG] Error cancelling upload:', err);
+        if (window.showToast) {
+          window.showToast('Ошибка при отмене загрузки', 'error');
+        }
+      });
+  } catch (err) {
+    console.error('Error in cancelUpload:', err);
+    if (window.showToast) {
+      window.showToast('Ошибка при отмене загрузки', 'error');
+    }
   }
 };

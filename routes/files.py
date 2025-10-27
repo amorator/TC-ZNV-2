@@ -13,7 +13,36 @@ from flask import request, jsonify
 import time
 import threading
 import requests
+import urllib3
+import signal
+import sys
 
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Global list to track active upload threads
+active_upload_threads = []
+shutdown_flag = threading.Event()
+
+def cleanup_upload_threads():
+    """Gracefully shutdown all active upload threads."""
+    global active_upload_threads, shutdown_flag
+    if active_upload_threads:
+        _log.info(f"Shutting down {len(active_upload_threads)} active upload threads...")
+        shutdown_flag.set()  # Signal all threads to stop
+        # Don't wait for threads to finish - just signal them to stop
+        # The threads will check shutdown_flag and exit gracefully
+        active_upload_threads.clear()
+        _log.info("Shutdown signal sent to all upload threads")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals."""
+    cleanup_upload_threads()
+    sys.exit(0)
+
+# Register signal handlers for graceful shutdown
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 def get_file_location_info(file, app):
     """Get category and subcategory names for file logging."""
@@ -440,7 +469,17 @@ def register(app, media_service, socketio=None) -> None:
                     file.update_exists_status()
                     # Update the database with the new exists status
                     app._sql.file_update_exists_status(file.id, file.exists)
-                files.sort(key=lambda f: f.created_at, reverse=True)
+                # Sort files by created_at, handling both string and datetime types
+                def get_sort_key(f):
+                    if isinstance(f.created_at, str):
+                        try:
+                            from datetime import datetime
+                            return datetime.fromisoformat(f.created_at.replace('Z', '+00:00'))
+                        except:
+                            return f.created_at
+                    return f.created_at
+                
+                files.sort(key=get_sort_key, reverse=True)
         # Determine whether to show "Загрузить с регистратора" controls
         can_reg_import = False
         try:
@@ -586,7 +625,8 @@ def register(app, media_service, socketio=None) -> None:
                 name, real_name + target_ext, cat_id, sub_id,
                 current_user.id,  # owner_id should be user ID, not the owner string
                 desc,
-                dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, size_mb, None
+                None,  # Let MySQL set created_at automatically with CURRENT_TIMESTAMP
+                0, 0, size_mb, None
             ])
             # try to detect duration from original .webm and notify clients
             try:
@@ -707,7 +747,8 @@ def register(app, media_service, socketio=None) -> None:
                     name, real_name + '.mp4', cat_id, sub_id,
                     current_user.id,  # owner_id should be user ID, not the owner string
                     desc,
-                    dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0
+                    None,  # Let MySQL set created_at automatically with CURRENT_TIMESTAMP
+                    0, 0, 0
                 ])
                 if not fid:
                     raise RuntimeError('ID созданной записи пуст')
@@ -1804,7 +1845,8 @@ def register(app, media_service, socketio=None) -> None:
                     name, real_target, cat_id, sub_id,
                     current_user.id,  # owner_id should be user ID, not the owner string
                     desc,
-                    dt.now().strftime('%Y-%m-%d %H:%M'), 0, 0, 0.0
+                    None,  # Let MySQL set created_at automatically with CURRENT_TIMESTAMP
+                    0, 0, 0.0
                 ])
             except Exception:
                 return {"error": "Не удалось создать запись файла"}, 400
@@ -2047,7 +2089,7 @@ def register(app, media_service, socketio=None) -> None:
                 return jsonify({'error': 'Missing required parameters'}), 400
 
             # Check parallel upload limit using atomic Redis operation
-            can_start, active_uploads, max_parallel = can_start_new_upload()
+            can_start, active_uploads, max_parallel = can_start_new_upload(current_user.id)
 
             if not can_start:
                 return jsonify({
@@ -2059,6 +2101,13 @@ def register(app, media_service, socketio=None) -> None:
 
             # Create upload job
             upload_id = f"upload_{int(time.time() * 1000)}_{current_user.id}"
+            base_url = request.url_root.rstrip('/')
+            
+            # Save cookies for internal requests
+            cookies_dict = {}
+            for cookie_name, cookie_value in request.cookies.items():
+                cookies_dict[cookie_name] = cookie_value
+            
             upload_job = {
                 'id': upload_id,
                 'user_id': current_user.id,
@@ -2076,8 +2125,11 @@ def register(app, media_service, socketio=None) -> None:
                 'start_time': time.time(),
                 # ensure persistence/cleanup logic can rely on a stable timestamp
                 'created_at': time.time(),
+                'base_url': base_url,
+                'cookies': cookies_dict,  # Save cookies for internal requests
                 'progress': 0,
-                'ip': request.remote_addr or ''
+                'ip': request.remote_addr or '',
+                'uploaded_files': []  # Track uploaded files for potential cancellation
             }
 
             # Save upload job to Redis
@@ -2141,7 +2193,7 @@ def register(app, media_service, socketio=None) -> None:
     def api_active_uploads():
         """Get active uploads count and limit using improved Redis tracking."""
         try:
-            can_start, active_uploads, max_parallel = can_start_new_upload()
+            can_start, active_uploads, max_parallel = can_start_new_upload(current_user.id)
 
             return jsonify({
                 'status': 'success',
@@ -2293,7 +2345,7 @@ def register(app, media_service, socketio=None) -> None:
                             cleaned_count += 1
 
             # Получаем обновленный счетчик активных загрузок
-            active_uploads = get_active_upload_count()
+            active_uploads = get_active_upload_count(current_user.id)
 
             log_action(f"Cleaned up {cleaned_count} inactive upload jobs",
                        f"Remaining active uploads: {active_uploads}",
@@ -2313,6 +2365,50 @@ def register(app, media_service, socketio=None) -> None:
         except Exception as e:
             _log.error(f"API cleanup uploads error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/cleanup-inactive-uploads', methods=['POST'])
+    @require_permissions(FILES_UPLOAD)
+    def api_cleanup_inactive_uploads():
+        """Clean up inactive upload jobs from Redis (alias for cleanup-uploads)."""
+        try:
+            import redis
+            redis_client = redis.Redis(
+                unix_socket_path='/var/run/redis/redis.sock',
+                password='znf25!',
+                db=0)
+
+            keys = redis_client.keys('upload_job:*')
+            cleaned_count = 0
+            current_time = time.time()
+
+            if keys and isinstance(keys, list):
+                for key in keys:
+                    job_data = redis_client.get(key)
+                    if job_data and isinstance(job_data, bytes):
+                        import json
+                        job = json.loads(
+                            job_data.decode('utf-8'))  # type: ignore
+                        job_status = job.get('status', 'unknown')
+                        job_created = job.get('created_at', 0)
+
+                        # Очищаем старые или завершенные загрузки
+                        if (job_status in ['completed', 'failed', 'cancelled']
+                                or (current_time - job_created) > 3600):  # 1 hour
+                            upload_id = job.get('id', '')
+                            if upload_id:
+                                redis_client.srem('active_uploads', upload_id)
+                            redis_client.delete(key)
+                            cleaned_count += 1
+
+            return jsonify({
+                'status': 'success',
+                'cleaned_count': cleaned_count,
+                'message': f'Cleaned up {cleaned_count} inactive uploads'
+            }), 200
+
+        except Exception as e:
+            _log.error(f"API cleanup inactive uploads error: {e}")
+            return jsonify({'error': str(e)}), 500
 
     @app.route('/api/mark-viewed', methods=['POST'])
     def api_mark_viewed():
@@ -2377,8 +2473,8 @@ def register(app, media_service, socketio=None) -> None:
 
 
 # Helper functions for background upload management
-def get_active_upload_count():
-    """Get count of active uploads from Redis with improved tracking."""
+def get_active_upload_count(user_id=None):
+    """Get count of active uploads from Redis for specific user."""
     try:
         import redis
         redis_client = redis.Redis(
@@ -2386,54 +2482,58 @@ def get_active_upload_count():
             password='znf25!',
             db=0)
 
+        # If no user_id provided, get from current user
+        if user_id is None:
+            from flask_login import current_user
+            user_id = current_user.id if current_user.is_authenticated else None
+
+        if not user_id:
+            return 0
+
         # Use Redis set for active uploads tracking
         active_uploads_set = redis_client.smembers(
-            'active_uploads')  # type: ignore  # type: ignore
-        if active_uploads_set:
-            active_count = len(active_uploads_set)  # type: ignore
-        else:
-            active_count = 0
+            'active_uploads')  # type: ignore
+        if not active_uploads_set:
+            return 0
 
-        # Clean up inactive uploads
-        cleaned_count = 0
-        if active_uploads_set:
-            current_time = time.time()
-            for upload_id in active_uploads_set:  # type: ignore
-                upload_id = upload_id.decode('utf-8') if isinstance(
-                    upload_id, bytes) else upload_id  # type: ignore
-                job_data = redis_client.get(f"upload_job:{upload_id}")
+        # Count active uploads for this specific user
+        user_active_count = 0
+        current_time = time.time()
+        
+        for upload_id in active_uploads_set:  # type: ignore
+            upload_id = upload_id.decode('utf-8') if isinstance(
+                upload_id, bytes) else upload_id  # type: ignore
+            job_data = redis_client.get(f"upload_job:{upload_id}")
 
-                if not job_data:
-                    # Job not found, remove from active set
+            if not job_data:
+                redis_client.srem('active_uploads', upload_id)
+                continue
+
+            try:
+                import json
+                job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                job_status = job.get('status', 'unknown')
+                job_created = job.get('created_at') or job.get('start_time') or 0
+                job_user_id = job.get('user_id')
+
+                # Clean up old or completed uploads
+                if (job_status in ['completed', 'failed', 'cancelled']
+                        or ((current_time - float(job_created)) > 7200)):
                     redis_client.srem('active_uploads', upload_id)
-                    cleaned_count += 1
+                    redis_client.delete(f"upload_job:{upload_id}")
                     continue
 
-                try:
-                    import json
-                    job = json.loads(job_data.decode('utf-8'))  # type: ignore
-                    job_status = job.get('status', 'unknown')
-                    # use created_at if present, else fall back to start_time
-                    job_created = job.get('created_at') or job.get(
-                        'start_time') or 0
+                # Count only running uploads for this user
+                if job_user_id == user_id and job_status == 'running':
+                    user_active_count += 1
 
-                    # Remove completed, failed, cancelled or old jobs
-                    # Only purge completed/failed/cancelled, or very old running jobs (> 2h)
-                    if (job_status in ['completed', 'failed', 'cancelled']
-                            or ((current_time - float(job_created)) > 7200)):
-                        redis_client.srem('active_uploads', upload_id)
-                        redis_client.delete(f"upload_job:{upload_id}")
-                        cleaned_count += 1
-                except Exception as e:
-                    _log.warning(f"Error processing upload {upload_id}: {e}")
-                    redis_client.srem('active_uploads', upload_id)
-                    cleaned_count += 1
+            except Exception as e:
+                _log.warning(f"Error processing upload {upload_id}: {e}")
+                redis_client.srem('active_uploads', upload_id)
+                continue
 
-        if cleaned_count > 0:
-            _log.info(
-                f"Cleaned {cleaned_count} inactive upload jobs from Redis")
+        return user_active_count
 
-        return active_count
     except Exception as e:
         _log.error(f"Error getting active upload count: {e}")
         return 0
@@ -2523,8 +2623,8 @@ def update_upload_job(upload_id, updates):
         _log.error(f"Error updating upload job: {e}")
 
 
-def can_start_new_upload():
-    """Atomically check if we can start a new upload (respects max_parallel_uploads)."""
+def can_start_new_upload(user_id=None):
+    """Atomically check if we can start a new upload (respects max_parallel_uploads per user)."""
     try:
         import redis
         redis_client = redis.Redis(
@@ -2533,7 +2633,19 @@ def can_start_new_upload():
             db=0)
 
         # Get max parallel uploads from config (default to 3)
-        max_parallel = 3
+        from flask import current_app
+            # Handle both dict and configparser.ConfigParser
+        config = current_app._sql.config
+        if hasattr(config, 'get'):  # ConfigParser
+            max_parallel = int(config.get('files', 'max_parallel_uploads', fallback=3))
+
+        # If no user_id provided, get from current user
+        if user_id is None:
+            from flask_login import current_user
+            user_id = current_user.id if current_user.is_authenticated else None
+
+        if not user_id:
+            return False, 0, max_parallel
 
         # Use Redis pipeline for atomic operation
         pipe = redis_client.pipeline()
@@ -2563,6 +2675,7 @@ def can_start_new_upload():
                     job = json.loads(job_data.decode('utf-8'))  # type: ignore
                     job_status = job.get('status', 'unknown')
                     job_created = job.get('created_at', 0)
+                    job_user_id = job.get('user_id')
 
                     if (job_status in ['completed', 'failed', 'cancelled']
                             or (current_time - job_created) > 3600):
@@ -2578,7 +2691,23 @@ def can_start_new_upload():
                 active_count = redis_client.scard(
                     'active_uploads')  # type: ignore
 
-        return active_count < max_parallel, active_count, max_parallel  # type: ignore
+        # Count active uploads for this specific user
+        user_active_count = 0
+        if active_uploads:
+            for upload_id in active_uploads:
+                upload_id = upload_id.decode('utf-8') if isinstance(
+                    upload_id, bytes) else upload_id  # type: ignore
+                job_data = redis_client.get(f"upload_job:{upload_id}")
+                if job_data:
+                    try:
+                        import json
+                        job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                        if job.get('user_id') == user_id and job.get('status') == 'running':
+                            user_active_count += 1
+                    except Exception:
+                        continue
+
+        return user_active_count < max_parallel, user_active_count, max_parallel
 
     except Exception as e:
         _log.error(f"Error checking upload limit: {e}")
@@ -2597,6 +2726,7 @@ def get_active_upload_list():
         active_uploads_set = redis_client.smembers(
             'active_uploads')  # type: ignore
         active_uploads = []
+        completed_uploads = []  # Track completed uploads for cleanup
 
         if active_uploads_set:
             for upload_id in active_uploads_set:  # type: ignore
@@ -2609,7 +2739,15 @@ def get_active_upload_list():
                         import json
                         job = json.loads(
                             job_data.decode('utf-8'))  # type: ignore
-                        if job.get('status') == 'running':
+                        job_status = job.get('status', 'unknown')
+                        job_created = job.get('created_at', 0)
+                        current_time = time.time()
+                        
+                        # Check if upload is completed, failed, cancelled, or too old
+                        if (job_status in ['completed', 'failed', 'cancelled'] or 
+                            (current_time - job_created) > 3600):  # 1 hour timeout
+                            completed_uploads.append(upload_id)
+                        elif job_status == 'running':
                             active_uploads.append({
                                 'id':
                                 upload_id,
@@ -2631,6 +2769,13 @@ def get_active_upload_list():
                             f"Error processing upload {upload_id}: {e}")
                         # Remove invalid upload from active set
                         redis_client.srem('active_uploads', upload_id)
+
+        # Clean up completed uploads
+        if completed_uploads:
+            _log.info(f"Cleaning up {len(completed_uploads)} completed uploads")
+            for upload_id in completed_uploads:
+                redis_client.srem('active_uploads', upload_id)
+                redis_client.delete(f"upload_job:{upload_id}")
 
         return active_uploads
 
@@ -2667,13 +2812,23 @@ def start_background_upload(upload_job):
             upload_id = upload_job['id']
             _log.info(f"Starting background upload {upload_id}")
 
+            completed_files_count = 0  # Track actual completed files count
             for i, (file_url, file_name) in enumerate(
                     zip(upload_job['file_urls'], upload_job['file_names'])):
+                # Check for shutdown signal
+                if shutdown_flag.is_set():
+                    _log.info(f"Shutdown signal received, stopping upload {upload_id}")
+                    update_upload_job(upload_id, {
+                        'status': 'cancelled',
+                        'error': 'Server shutdown',
+                        'end_time': time.time()
+                    })
+                    return
+                
                 try:
-                    # Update progress - mark file as started
+                    # Update progress - mark file as started (don't update completed_files yet)
                     update_upload_job(
                         upload_id, {
-                            'completed_files': i,
                             'current_file': file_name,
                             'current_file_progress': 0,
                             'status': 'running'
@@ -2720,11 +2875,12 @@ def start_background_upload(upload_job):
                     )
 
                     if response.status_code == 200:
-                        # Download file with progress tracking
+                        # Download file directly to temporary file to avoid memory issues
+                        import tempfile
+                        import os
+                        
                         content_length = int(
                             response.headers.get('content-length', 0))
-                        downloaded_size = 0
-                        file_content = b''
 
                         _log.info(
                             f"Starting to download {file_name}, content-length: {content_length}"
@@ -2735,46 +2891,52 @@ def start_background_upload(upload_job):
                             f"📊 Performance Debug - File size: {content_length / 1024 / 1024:.2f} MB"
                         )
                         _log.info(
-                            f"📊 Performance Debug - Chunk size: 65536 bytes (64KB)"
+                            f"📊 Performance Debug - Chunk size: 4194304 bytes (4MB)"
                         )
 
-                        download_start = time.time()
-                        chunk_count = 0
-                        last_logged_progress = -1  # Track last logged progress to avoid duplicates
-                        for chunk in response.iter_content(
-                                chunk_size=65536):  # 64KB chunks
-                            if chunk:
-                                file_content += chunk
-                                downloaded_size += len(chunk)
-                                chunk_count += 1
-                                # Log progress every 100 chunks to avoid spam (64KB * 100 = 6.4MB)
-                                if chunk_count % 100 == 0:
-                                    _log.info(
-                                        f"Downloaded {downloaded_size}/{content_length} bytes for {file_name}"
-                                    )
+                        # Create temporary file
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as temp_file:
+                            temp_file_path = temp_file.name
+                            
+                            download_start = time.time()
+                            downloaded_size = 0
+                            chunk_count = 0
+                            last_logged_progress = -1
+                            
+                            # Stream directly to file to avoid memory consumption
+                            for chunk in response.iter_content(
+                                    chunk_size=4194304):  # 4MB chunks for better performance
+                                if chunk:
+                                    temp_file.write(chunk)
+                                    downloaded_size += len(chunk)
+                                    chunk_count += 1
+                                    
+                                    # Log progress every 5 chunks to avoid spam (4MB * 5 = 20MB)
+                                    if chunk_count % 5 == 0:
+                                        _log.info(
+                                            f"Downloaded {downloaded_size}/{content_length} bytes for {file_name}"
+                                        )
 
-                                # Update progress every 1MB or when complete
-                                if content_length > 0:
-                                    progress = int(
-                                        (downloaded_size / content_length) *
-                                        100)
-                                    # Update progress more frequently for better UX
-                                    if progress % 2 == 0 or downloaded_size == content_length:  # Update every 2%
-                                        update_upload_job(
-                                            upload_id,
-                                            {
-                                                'current_file_progress':
-                                                progress,
-                                                'status': 'running',
-                                                'completed_files':
-                                                i  # Update completed files count during download
-                                            })
-                                        # Reduced logging - only log significant progress updates
-                                        if progress % 10 == 0 and progress != last_logged_progress:  # Log every 10% but only once per percentage
-                                            _log.info(
-                                                f"Upload progress: {i} files completed, {progress}% current file"
-                                            )
-                                            last_logged_progress = progress
+                                    # Update progress every 1MB or when complete
+                                    if content_length > 0:
+                                        progress = int(
+                                            (downloaded_size / content_length) *
+                                            100)
+                                        # Update progress more frequently for better UX
+                                        if progress % 2 == 0 or downloaded_size == content_length:  # Update every 2%
+                                            update_upload_job(
+                                                upload_id,
+                                                {
+                                                    'current_file_progress':
+                                                    progress,
+                                                    'status': 'running'
+                                                })
+                                            # Reduced logging - only log significant progress updates
+                                            if progress % 10 == 0 and progress != last_logged_progress:  # Log every 10% but only once per percentage
+                                                _log.info(
+                                                    f"Upload progress: {completed_files_count} files completed, {progress}% current file"
+                                                )
+                                                last_logged_progress = progress
 
                         # Log download performance
                         download_time = time.time() - download_start
@@ -2797,47 +2959,105 @@ def start_background_upload(upload_job):
                             if chunk_count >
                             0 else "📊 Performance Debug - No chunks processed")
 
-                        # Upload file
-                        files = {
-                            'file': (file_name, file_content,
-                                     'application/octet-stream')
-                        }
-                        data = {
-                            'name': file_name,
-                            'description':
-                            f"[Регистратор - {upload_job['registrator_name']}]",
-                            'cat_id': upload_job['cat_id'],
-                            'sub_id': upload_job['sub_id']
-                        }
+                        # Upload file via HTTP but with optimized settings
+                        # Now we stream from the already-downloaded file
+                        
+                        try:
+                            # Log upload start
+                            upload_start_time = time.time()
+                            _log.info(
+                                f"📊 Performance Debug - Starting optimized file upload"
+                            )
 
-                        # Log upload start
-                        upload_start_time = time.time()
-                        _log.info(
-                            f"📊 Performance Debug - Starting upload to localhost:8080"
-                        )
+                            # Use HTTP POST with streaming from file
+                            with open(temp_file_path, 'rb') as f:
+                                # Remove extension from filename for storage
+                                base_filename = os.path.splitext(file_name)[0]
+                                files = {
+                                    'file': (file_name, f, 'application/octet-stream')
+                                }
+                                data = {
+                                    'name': base_filename,  # Store without extension
+                                    'description': f"[Регистратор - {upload_job['registrator_name']}]",
+                                    'cat_id': str(upload_job['cat_id']),
+                                    'sub_id': str(upload_job['sub_id'])
+                                }
 
-                        upload_response = requests.post(
-                            f"http://localhost:8080/files/add?cat_id={upload_job['cat_id']}&sub_id={upload_job['sub_id']}",
-                            files=files,
-                            data=data,
-                            timeout=300)
+                                # Get current server URL dynamically
+                                base_url = upload_job.get('base_url', 'https://localhost:8080')
+                                upload_url = f"{base_url}/files/add?cat_id={upload_job['cat_id']}&sub_id={upload_job['sub_id']}"
+                                
+                                # Prepare cookies for internal request
+                                cookies_dict = upload_job.get('cookies', {})
+                                _log.info(f"📊 Debug - Using cookies: {list(cookies_dict.keys())}")
+                                
+                                upload_response = requests.post(
+                                    upload_url,
+                                    files=files,
+                                    data=data,
+                                    cookies=cookies_dict,  # Use saved cookies for authentication
+                                    timeout=300,
+                                    headers={
+                                        'Connection': 'keep-alive',  # Keep connection alive
+                                        'X-Requested-With': 'XMLHttpRequest',  # Ensure JSON response
+                                        'Accept': 'application/json'  # Request JSON response
+                                    },
+                                    verify=False  # Disable SSL verification for self-signed certificates
+                                )
+                        finally:
+                            # Clean up temporary file
+                            try:
+                                os.unlink(temp_file_path)
+                            except Exception:
+                                pass
 
                         upload_time = time.time() - upload_start_time
                         _log.info(
                             f"📊 Performance Debug - Upload completed in {upload_time:.2f}s"
                         )
+                        _log.info(f"📊 Debug - Response status: {upload_response.status_code}")
 
                         if upload_response.status_code == 200:
                             _log.info(f"Successfully uploaded {file_name}")
                             _log.info(
                                 f"📊 Performance Debug - Upload successful: {upload_response.status_code}"
                             )
-                            # Update completed files count after successful upload
-                            update_upload_job(
-                                upload_id, {
-                                    'completed_files': i + 1,
-                                    'current_file_progress': 100
+                            
+                            # Extract file ID from response
+                            try:
+                                response_data = upload_response.json()
+                                uploaded_file_id = response_data.get('id')
+                                _log.info(f"📊 Debug - Response data: {response_data}")
+                                _log.info(f"📊 Debug - Extracted file ID: {uploaded_file_id}")
+                            except Exception as e:
+                                uploaded_file_id = None
+                                _log.error(f"📊 Debug - Failed to parse response JSON: {e}")
+                                _log.error(f"📊 Debug - Response text: {upload_response.text[:200]}")
+                            
+                            # Update upload job with completed files count and uploaded file info
+                            completed_files_count += 1  # Increment completed files count
+                            update_data = {
+                                'completed_files': completed_files_count,
+                                'current_file_progress': 100
+                            }
+                            
+                            # Add uploaded file info to track for potential cancellation
+                            if uploaded_file_id:
+                                # Get current uploaded_files list
+                                try:
+                                    job_data = get_upload_job(upload_id)
+                                    uploaded_files = job_data.get('uploaded_files', []) if job_data else []
+                                except Exception:
+                                    uploaded_files = []
+                                
+                                uploaded_files.append({
+                                    'file_id': uploaded_file_id,
+                                    'filename': file_name,
+                                    'file_path': None  # Will be fetched if needed
                                 })
+                                update_data['uploaded_files'] = uploaded_files
+                            
+                            update_upload_job(upload_id, update_data)
                         else:
                             _log.error(
                                 f"Failed to upload {file_name}: {upload_response.status_code}"
@@ -2891,6 +3111,10 @@ def start_background_upload(upload_job):
             })
 
     # Start background thread
-    thread = threading.Thread(target=background_upload_worker)
+    thread = threading.Thread(target=background_upload_worker, name=f"upload-{upload_job['id']}")
     thread.daemon = True
+    
+    # Register thread for cleanup
+    active_upload_threads.append(thread)
+    
     thread.start()

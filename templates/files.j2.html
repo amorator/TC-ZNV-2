@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/popup.css')}}" />
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/progress.css')}}"/>
 {% endblock %}
 
 {% block js %}
@@ -303,6 +304,12 @@
             </div>
           </div>
           <small class="form-text text-muted">Поля появляются по мере выбора предыдущих.</small>
+        </div>
+        <div class="mb-3 d-none" id="reg-files-wrap">
+          <div class="form-control__label">Файлы для импорта:</div>
+          <div id="reg-files-list" class="border p-3" style="max-height: 200px; overflow-y: auto;">
+            <div class="text-muted text-center">Выберите параметры для отображения файлов</div>
+          </div>
         </div>
       </div>
       <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
