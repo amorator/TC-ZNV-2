@@ -178,10 +178,7 @@ class SQL(Config):
 				_log.error(f"Failed to get connection after {retries} retries, pool size: {self._pool.pool_size}")
 				raise last_err or mysql_errors.PoolError("Failed getting connection; pool exhausted")
 			# Ensure connection is alive; reconnect if needed
-			try:
-				self.conn.ping(reconnect=True, attempts=1, delay=0)
-			except Exception:
-				pass
+			self.conn.ping(reconnect=True, attempts=1, delay=0)
 			# Use buffered cursor to allow fetch after execute reliably
 			self.cur = self.conn.cursor(buffered=True)
 			try:
@@ -189,25 +186,16 @@ class SQL(Config):
 				return data
 			finally:
 				# Always clean up cursor and return connection to pool
-				try:
-					self.cur.close()
-				except Exception:
-					pass
-				try:
-					self.conn.close()  # This returns connection to pool
-				except Exception:
-					pass
+				self.cur.close()
+				self.conn.close()  # This returns connection to pool
 		return _with_conn
 
 	def get_pool_status(self):
 		"""Get connection pool status for monitoring."""
 		if not self._pool:
 			return {"pool_size": 0, "available_connections": 0, "in_use": 0}
-		try:
-			q = getattr(self._pool, '_cnx_queue', None)
-			available = int(q.qsize()) if (q is not None and hasattr(q, 'qsize')) else 0
-		except Exception:
-			available = 0
+		q = getattr(self._pool, '_cnx_queue', None)
+		available = int(q.qsize()) if (q is not None and hasattr(q, 'qsize')) else 0
 		in_use = max(0, int(self._pool.pool_size) - available)
 		return {
 			"pool_size": int(self._pool.pool_size),
@@ -258,16 +246,10 @@ class SQL(Config):
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		"""Context manager exit - return connection to pool."""
-		try:
-			if hasattr(self, 'cur') and self.cur:
-				self.cur.close()
-		except Exception:
-			pass
-		try:
-			if hasattr(self, 'conn') and self.conn:
-				self.conn.close()  # Returns connection to pool
-		except Exception:
-			pass
+		if hasattr(self, 'cur') and self.cur:
+			self.cur.close()
+		if hasattr(self, 'conn') and self.conn:
+			self.conn.close()  # Returns connection to pool
 
 	@with_conn
 	def execute_non_query(self, command, args=[]):
@@ -300,7 +282,7 @@ class SQLUtils(SQL):
 		
 		# Common SQL query fragments for optimization
 		# Note: path is deprecated in DB; use category_id/subcategory_id/file_name. Keep legacy path for fallback.
-		self._FILE_SELECT_FIELDS_CORE = "id, display_name, file_name as real_name, owner, description, created_at as date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists"
+		self._FILE_SELECT_FIELDS_CORE = "id, display_name, file_name as real_name, owner_id, description, created_at as date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists"
 		self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
 		self._GROUP_SELECT_FIELDS = "id, name, description"
 		self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
@@ -329,14 +311,8 @@ class SQLUtils(SQL):
 				);
 			""")
 			# Lower lock wait timeouts to avoid startup hangs when DDL locks are present
-			try:
-				self.execute_non_query("SET SESSION lock_wait_timeout = 3;")
-			except Exception:
-				pass
-			try:
-				self.execute_non_query("SET SESSION innodb_lock_wait_timeout = 3;")
-			except Exception:
-				pass
+			self.execute_non_query("SET SESSION lock_wait_timeout = 3;")
+			self.execute_non_query("SET SESSION innodb_lock_wait_timeout = 3;")
 			# Add indexes and columns if missing (best-effort)
 			try:
 				self.execute_non_query(f"CREATE UNIQUE INDEX ux_{prefix}_push_sub_endpoint ON {prefix}_push_sub (endpoint(255));")
@@ -587,9 +563,9 @@ class SQLUtils(SQL):
 		if not row:
 			return None
 		(
-			fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists
+			fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists
 		) = row
-		return File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists)
+		return File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists)
 
 	def file_by_path(self, args):
 		"""Backward-compatible: resolve by absolute directory path, then fetch by category/subcategory.
@@ -613,8 +589,8 @@ class SQLUtils(SQL):
 			from classes.file import File
 			files = []
 			for r in rows or []:
-				(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-				files.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+				(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+				files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 			return files
 		except Exception:
 			return []
@@ -636,8 +612,8 @@ class SQLUtils(SQL):
 		from classes.file import File
 		files = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-			files.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+			files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 		return files
 
 	def file_all(self):
@@ -651,73 +627,52 @@ class SQLUtils(SQL):
 		from classes.file import File
 		result = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-			result.append(File(fid, display_name, file_name, owner, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
+			result.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
 		return result
 
 	def file_add(self, args):
-		"""Deprecated signature kept for compatibility: will map to new columns.
-		Args: [display_name, file_name, category_id, subcategory_id, owner, description, date, ready, length_seconds, size_mb, order_id]
+		"""Deprecated signature - use file_add2 instead.
+		Args: [display_name, file_name, category_id, subcategory_id, owner_id, description, date, ready, length_seconds, size_mb, order_id]
 		"""
-		# Try to infer category/subcategory from path
-		try:
-			_, _, cat_folder, sub_folder = os.path.normpath(args[2]).rsplit(os.sep, 3)
-		except Exception:
-			cat_folder, sub_folder = None, None
-		cat_id = self.category_id_by_folder(cat_folder) if cat_folder else None
-		sub_id = self.subcategory_id_by_folder(cat_id or 0, sub_folder) if (cat_id and sub_folder) else None
-		return self.file_add2([
-			args[0],			   # display_name
-			args[1],			   # file_name
-			cat_id, sub_id,
-			args[3],			   # owner
-			args[4],			   # description
-			args[5],			   # date
-			args[6],			   # ready
-			args[7],			   # length_seconds
-			args[8],			   # size_mb
-			args[9] if len(args) > 9 else None  # order_id
-		])
+		return self.file_add2(args)
 
 	def file_add2(self, args):
 		"""Add new file (new schema).
 		Incoming args:
-		  [display_name, file_name, category_id, subcategory_id, owner, description,
+		  [display_name, file_name, category_id, subcategory_id, owner_id, description,
 		   date, ready, length_seconds, size_mb, order_id]
-
-		New schema columns: display_name, file_name, category_id, subcategory_id, owner, description,
-							created_at, ready, length_seconds, size_mb, order_id, file_exists
 		"""
 		self._ensure_files_new_columns()
 		display_name = args[0]
 		file_name = args[1]
 		category_id = int(args[2] or 0)
 		subcategory_id = int(args[3] or 0)
-		owner = args[4]
+		owner_id = int(args[4])
 		description = args[5]
 		date_s = args[6]
 		ready = args[7]
 		length_seconds = args[8]
 		size_mb = args[9]
 		order_id = args[10] if len(args) > 10 else None
-		# Build absolute storage directory
-		path_dir = self._build_storage_dir(category_id, subcategory_id)
+		
 		values = [
 			display_name,
-			file_name,   # file_name
-			category_id,
-			subcategory_id,
-			owner,
+			file_name,
+			owner_id,
 			description,
 			date_s,
 			ready,
 			length_seconds,
 			size_mb,
 			order_id,
+			category_id,
+			subcategory_id,
 			1,  # file_exists = True for new files
 		]
+		
 		return self.execute_insert(
-			f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, category_id, subcategory_id, owner, description, created_at, ready, length_seconds, size_mb, order_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+			f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, created_at, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
 			values,
 		)
 
@@ -884,7 +839,7 @@ class SQLUtils(SQL):
 					id INT AUTO_INCREMENT PRIMARY KEY,
 					display_name VARCHAR(255) NOT NULL,
 					file_name VARCHAR(255) NOT NULL,
-					owner VARCHAR(255) NOT NULL,
+					owner_id INT NOT NULL,
 					description TEXT DEFAULT '',
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					ready TINYINT DEFAULT 0,
@@ -897,13 +852,14 @@ class SQLUtils(SQL):
 					subcategory_id INT NULL,
 					file_exists TINYINT(1) DEFAULT 1,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-					INDEX idx_owner (owner),
+					INDEX idx_owner_id (owner_id),
 					INDEX idx_ready (ready),
 					INDEX idx_created_at (created_at),
 					INDEX idx_category_id (category_id),
 					INDEX idx_subcategory_id (subcategory_id),
 					INDEX idx_file_exists (file_exists),
-					INDEX idx_order_id (order_id)
+					INDEX idx_order_id (order_id),
+					FOREIGN KEY (owner_id) REFERENCES {prefix}_user(id) ON DELETE RESTRICT
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
 
@@ -1598,3 +1554,37 @@ class SQLUtils(SQL):
 			[sub_id]
 		)
 		return int(row_cnt[0]) if row_cnt else 0
+
+	def get_file_owner_display(self, file_id):
+		"""Get display name for file owner in 'Name (Group)' format.
+		
+		Args:
+			file_id: ID of the file
+			
+		Returns:
+			String in format 'Name (Group)' or 'Name' or 'Unknown'
+		"""
+		try:
+			prefix = self.config['db']['prefix']
+			result = self.execute_query(f"""
+				SELECT u.name, g.name 
+				FROM {prefix}_file f
+				LEFT JOIN {prefix}_user u ON f.owner_id = u.id
+				LEFT JOIN {prefix}_group g ON u.gid = g.id
+				WHERE f.id = %s
+				LIMIT 1
+			""", [file_id])
+			
+			if result:
+				user_name, group_name = result[0]
+				if user_name:
+					if group_name:
+						return f"{user_name} ({group_name})"
+					else:
+						return user_name
+				else:
+					return "Неизвестно"
+			else:
+				return "Неизвестно"
+		except Exception:
+			return "Неизвестно"

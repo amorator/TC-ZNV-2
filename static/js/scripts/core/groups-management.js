@@ -174,7 +174,10 @@ function softRefreshGroupsTable(force = false) {
     reinitializeContextMenu();
     if (window.rebindGroupsTable) window.rebindGroupsTable();
   } else {
-    window.location.reload();
+    // Always use soft refresh
+    if (window.softRefreshGroupsTable) {
+      window.softRefreshGroupsTable(true);
+    }
   }
 }
 
@@ -213,54 +216,7 @@ function reinitializeContextMenu() {
   }
 }
 
-/**
- * Fill form with group data from table row
- * @param {HTMLFormElement} form - Form element
- * @param {string} rowId - Row ID
- */
-function popupValues(form, rowId) {
-  if (!form || !rowId) return;
-
-  const row = document.getElementById(rowId);
-  if (!row) return;
-
-  const name = row.dataset.name || "";
-  const description = row.dataset.description || "";
-
-  // Fill form fields
-  const nameInput = form.querySelector('input[name="name"]');
-  const descriptionInput = form.querySelector(
-    'input[name="description"], textarea[name="description"]'
-  );
-
-  if (nameInput) nameInput.value = name;
-  if (descriptionInput) descriptionInput.value = description;
-
-  // Update form action URL with group ID
-  form.action = form.action.replace("/0", `/${rowId}`);
-
-  // Update delete confirmation text
-  if (form.id === "delete") {
-    const popupBody = form.closest(".popup__body");
-    const gnameElement = popupBody ? popupBody.querySelector("b") : null;
-    if (gnameElement) {
-      gnameElement.textContent = name;
-    }
-  }
-}
-
-/**
- * Toggle popup modal
- * @param {string} popupId - Popup ID
- * @param {string} rowId - Row ID (optional)
- */
-function popupToggle(popupId, rowId) {
-  if (window.openModal) {
-    window.openModal(popupId);
-  } else if (window.popupToggle) {
-    window.popupToggle(popupId, rowId);
-  }
-}
+// popupValues and popupToggle functions moved to popup-utils.js
 
 // Export functions to global scope
 window.GroupsManagement = {
@@ -270,10 +226,7 @@ window.GroupsManagement = {
   softRefreshGroupsTable,
   debouncedSync,
   reinitializeContextMenu,
-  popupValues,
-  popupToggle,
 };
 
 // Also make key functions globally available
-window.popupValues = popupValues;
-window.popupToggle = popupToggle;
+// Note: popupValues and popupToggle are now provided by popup-utils.js

@@ -45,7 +45,7 @@ def register(app):
     except Exception:
         pass
 
-    @app.route('/', methods=['GET'], endpoint='index')
+    @app.route('/', methods=['GET'])
     def index():
         """Home page.
 

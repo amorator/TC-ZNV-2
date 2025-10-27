@@ -96,54 +96,7 @@ function updateUserPermissions(userId, permissions) {
     );
 }
 
-/**
- * Fill form with user data from table row
- * @param {HTMLFormElement} form - Form element
- * @param {string} rowId - Row ID
- */
-function popupValues(form, rowId) {
-  if (!form || !rowId) return;
-
-  const row = document.getElementById(rowId);
-  if (!row) return;
-
-  const login = row.dataset.login || "";
-  const name = row.dataset.name || "";
-  const group = row.dataset.groupname || "";
-  const enabled = row.dataset.enabled === "1";
-
-  // Fill form fields
-  const loginInput = form.querySelector('input[name="login"]');
-  const nameInput = form.querySelector('input[name="name"]');
-  const groupSelect = form.querySelector('select[name="group"]');
-  const enabledCheckbox = form.querySelector('input[name="enabled"]');
-
-  if (loginInput) loginInput.value = login;
-  if (nameInput) nameInput.value = name;
-  if (groupSelect) {
-    const options = groupSelect.querySelectorAll("option");
-    for (const option of options) {
-      if (option.textContent.trim() === group) {
-        option.selected = true;
-        break;
-      }
-    }
-  }
-  if (enabledCheckbox) enabledCheckbox.checked = enabled;
-
-  // Update form action URL with user ID
-  form.action = form.action.replace("/0", `/${rowId}`);
-
-  // Update delete confirmation text
-  if (form.id === "delete") {
-    const popupBody = form.closest(".popup__body");
-    const unameElement = popupBody ? popupBody.querySelector("b") : null;
-    if (unameElement) {
-      const displayName = name ? `${login} (${name})` : login;
-      unameElement.textContent = displayName;
-    }
-  }
-}
+// popupValues function moved to popup-utils.js
 
 /**
  * Sync permission form from row data
@@ -197,12 +150,11 @@ window.UsersPermissions = {
   isFullAccessLegacy,
   enforceAdminCollapse,
   updateUserPermissions,
-  popupValues,
   syncPermFormFromRow,
   refreshPermissionUI,
 };
 
 // Also make key functions globally available
-window.popupValues = popupValues;
+// Note: popupValues is now provided by popup-utils.js
 window.syncPermFormFromRow = syncPermFormFromRow;
 window.refreshPermissionUI = refreshPermissionUI;

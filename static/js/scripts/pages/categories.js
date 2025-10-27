@@ -1430,7 +1430,7 @@ function setupSocket() {
           }
           // Hard refresh the page
           setTimeout(() => {
-            // Force hard refresh by adding cache-busting parameter
+            // Force refresh all pages - use hard refresh for complete reset
             const url = new URL(window.location);
             url.searchParams.set("_refresh", Date.now());
             window.location.href = url.toString();

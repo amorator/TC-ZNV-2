@@ -288,6 +288,8 @@ window.SyncManager = (function () {
       "categories:changed",
       "subcategories:changed",
       "files:changed",
+      "files:maintenance_completed",
+      "files:metadata_updated",
       "users:changed",
       "users:toggle",
       "groups:changed",

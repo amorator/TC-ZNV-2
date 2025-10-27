@@ -632,7 +632,10 @@ function updateGroupRow(groupId) {
   ) {
     window.GroupsManagement.softRefreshGroupsTable(true);
   } else {
-    window.location.reload();
+    // Always use soft refresh
+    if (window.softRefreshGroupsTable) {
+      window.softRefreshGroupsTable(true);
+    }
   }
 }
 

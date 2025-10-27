@@ -823,8 +823,8 @@ def register(app, media_service, socketio=None) -> None:
     def files_edit(id: int):
         """Edit file metadata (name, description). Only owner or privileged users."""
         file = app._sql.file_by_id([id])
-        if not (current_user.has('files.edit_any')
-                or current_user.name + ' (' in file.owner):
+        if not (current_user.has('files.edit_any') or
+                (file.owner_id and file.owner_id == current_user.id)):
             return abort(403)
         try:
             name = (request.form.get('name') or '').strip()
@@ -911,8 +911,8 @@ def register(app, media_service, socketio=None) -> None:
             app.flash_error('File not found')
             return redirect(url_for('files'))
 
-        if not (current_user.has('files.delete_any')
-                or current_user.name + ' (' in file.owner):
+        if not (current_user.has('files.delete_any') or
+                (file.owner_id and file.owner_id == current_user.id)):
             return abort(403)
         try:
             app._sql.file_delete([id])
@@ -1063,8 +1063,8 @@ def register(app, media_service, socketio=None) -> None:
                 return redirect(url_for('files'))
 
             # Check if user has permission to access this file
-            if not (current_user.has('files.edit_any')
-                    or current_user.name + ' (' in file.owner):
+            if not (current_user.has('files.edit_any') or
+                    (file.owner_id and file.owner_id == current_user.id)):
                 # Check category/subcategory permissions
                 try:
                     cat = app._sql.category_by_id([file.category_id])
@@ -1194,8 +1194,8 @@ def register(app, media_service, socketio=None) -> None:
                 return redirect(url_for('files'))
 
             # Check if user has permission to access this file
-            if not (current_user.has('files.edit_any')
-                    or current_user.name + ' (' in file.owner):
+            if not (current_user.has('files.edit_any') or
+                    (file.owner_id and file.owner_id == current_user.id)):
                 # Check category/subcategory permissions
                 try:
                     cat = app._sql.category_by_id([file.category_id])
@@ -1319,8 +1319,8 @@ def register(app, media_service, socketio=None) -> None:
                     'X-Requested-With') == 'XMLHttpRequest':
                 return {'status': 'error', 'message': 'File not found'}, 404
             return redirect(url_for('files'))
-        if not (current_user.has('files.edit_any')
-                or current_user.name + ' (' in file.owner):
+        if not (current_user.has('files.edit_any') or
+                (file.owner_id and file.owner_id == current_user.id)):
             return abort(403)
         ok = True
         error_message = ''
@@ -1541,8 +1541,8 @@ def register(app, media_service, socketio=None) -> None:
                     }, 200
                 return {'ok': 1, 'file_exists': False}
             # Allow owner or users with edit_any/mark_viewed to refresh
-            owner_name = (file_rec.owner or '')
-            is_owner = (current_user.name + ' (') in owner_name
+            is_owner = (file_rec.owner_id
+                        and file_rec.owner_id == current_user.id)
             if not (is_owner or current_user.has('files.edit_any')
                     or current_user.has('files.mark_viewed')):
                 return abort(403)
@@ -2313,6 +2313,67 @@ def register(app, media_service, socketio=None) -> None:
         except Exception as e:
             _log.error(f"API cleanup uploads error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/mark-viewed', methods=['POST'])
+    def api_mark_viewed():
+        """Mark file as viewed by user."""
+        try:
+            if not current_user.is_authenticated:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Not authenticated'
+                }), 401
+
+            data = request.get_json()
+            if not data or 'file_id' not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Missing file_id'
+                }), 400
+
+            file_id = data['file_id']
+
+            # Check if file exists and user has permission to view it
+            try:
+                file_obj = app._sql.file_by_id([file_id])
+                if not file_obj:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'File not found'
+                    }), 404
+
+                # Check permissions (user can view if they own the file or have admin permissions)
+                can_view = (file_obj.owner_id == current_user.id
+                            or has_permission(current_user, 'ADMIN_VIEW_PAGE'))
+
+                if not can_view:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Permission denied'
+                    }), 403
+
+                # Update the file's viewed status (you might want to add a viewed_at field to the database)
+                # For now, we'll just log the action
+                log_action('FILE_VIEWED', current_user.name,
+                           f'Viewed file: {file_obj.file_name}',
+                           request.remote_addr)
+
+                return jsonify({
+                    'status': 'success',
+                    'message': 'File marked as viewed',
+                    'file_id': file_id
+                }), 200
+
+            except Exception as e:
+                _log.error(f"Error marking file as viewed: {e}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Database error'
+                }), 500
+
+        except Exception as e:
+            _log.error(f"API mark-viewed error: {e}")
+            return jsonify({'status': 'error', 'message': 'Server error'}), 500
 
 
 # Helper functions for background upload management

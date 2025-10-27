@@ -153,8 +153,7 @@ def register(app, socketio=None):
             # Устанавливаем блокировку в Redis и памяти
             if hasattr(app, 'redis_client') and app.redis_client:
                 try:
-                    app.redis_client.setex(redis_key, 12 * 3600,
-                                           now.isoformat())  # 12 часов TTL
+                    app.redis_client.set(redis_key, now.isoformat(), ex=12 * 3600)  # 12 часов TTL
                 except Exception as e:
                     print(f"Redis set error: {e}")
             app._last_push_maintain = now
@@ -375,21 +374,18 @@ def register(app, socketio=None):
             # Устанавливаем блокировку в Redis и памяти
             if hasattr(app, 'redis_client') and app.redis_client:
                 try:
-                    app.redis_client.setex(redis_key, 30 * 60,
-                                           now.isoformat())  # 30 минут TTL
+                    app.redis_client.set(redis_key, now.isoformat(), ex=30 * 60)  # 30 минут TTL
                 except Exception as e:
                     print(f"Redis set error: {e}")
             app._last_files_maintain = now
 
             # Получаем конфигурацию путей к файлам
             try:
-                files_root = app._sql.config.get('files', {}).get(
-                    'root', '/var/www/files')
-                categories_root = app._sql.config.get('files', {}).get(
-                    'categories_root', '/var/www/categories')
+                files_root = app._sql.config['files']['root']
+                categories_root = os.path.join(files_root, 'files')
             except Exception:
                 files_root = '/var/www/files'
-                categories_root = '/var/www/categories'
+                categories_root = os.path.join(files_root, 'files')
 
             updated_count = 0
             created_count = 0
@@ -398,26 +394,42 @@ def register(app, socketio=None):
             # 1. Обновляем существующие записи в БД
             try:
                 files_query = f"""
-                    SELECT id, real_name, category, subcategory, file_path 
-                    FROM {db_prefix}_files 
-                    WHERE enabled = 1
+                    SELECT id, file_name, category_id, subcategory_id 
+                    FROM {db_prefix}_file 
+                    WHERE file_exists = 1
                 """
                 files_rows = app._sql.execute_query(files_query, [])
 
                 for row in files_rows or []:
-                    file_id, real_name, category, subcategory, file_path = row
+                    file_id, file_name, category_id, subcategory_id = row
                     try:
-                        # Определяем полный путь к файлу
-                        if file_path and file_path.startswith('/'):
-                            full_path = file_path
-                        else:
-                            # Строим путь по категории и подкатегории
-                            if category and subcategory:
+                        # Строим путь по category_id и subcategory_id
+                        # Получаем названия категорий по ID
+                        try:
+                            cat_name = None
+                            sub_name = None
+                            if category_id:
+                                cat_query = f"SELECT folder_name FROM {db_prefix}_file_category WHERE id = %s"
+                                cat_result = app._sql.execute_query(
+                                    cat_query, [category_id])
+                                if cat_result:
+                                    cat_name = cat_result[0][0]
+                            if subcategory_id:
+                                sub_query = f"SELECT folder_name FROM {db_prefix}_file_subcategory WHERE id = %s"
+                                sub_result = app._sql.execute_query(
+                                    sub_query, [subcategory_id])
+                                if sub_result:
+                                    sub_name = sub_result[0][0]
+
+                            if cat_name and sub_name:
                                 full_path = os.path.join(
-                                    categories_root, category, subcategory,
-                                    real_name)
+                                    categories_root, cat_name, sub_name,
+                                    file_name)
                             else:
-                                full_path = os.path.join(files_root, real_name)
+                                full_path = os.path.join(
+                                    files_root, file_name)
+                        except Exception:
+                            full_path = os.path.join(files_root, file_name)
 
                         if os.path.exists(full_path):
                             stat_info = os.stat(full_path)
@@ -429,12 +441,12 @@ def register(app, socketio=None):
                             file_type = "Не опознан"
                             duration = None
 
-                            if real_name.lower().endswith(
+                            if file_name.lower().endswith(
                                 ('.mp4', '.avi', '.mkv', '.mov', '.wmv',
                                  '.flv', '.webm')):
                                 file_type = "Видео"
                                 # Здесь можно добавить логику определения длительности видео
-                            elif real_name.lower().endswith(
+                            elif file_name.lower().endswith(
                                 ('.mp3', '.wav', '.flac', '.aac', '.ogg',
                                  '.m4a')):
                                 file_type = "Аудио"
@@ -442,20 +454,20 @@ def register(app, socketio=None):
 
                             # Обновляем запись в БД
                             update_query = f"""
-                                UPDATE {db_prefix}_files 
-                                SET file_size = %s, file_mtime = %s, file_type = %s, duration = %s
+                                UPDATE {db_prefix}_file 
+                                SET size_mb = %s, updated_at = %s, description = %s
                                 WHERE id = %s
                             """
                             app._sql.execute_non_query(update_query, [
-                                file_size, file_mtime, file_type, duration,
-                                file_id
+                                file_size /
+                                (1024 * 1024), file_mtime, file_type, file_id
                             ])
                             updated_count += 1
                         else:
                             # Файл не существует - помечаем как удаленный
                             update_query = f"""
-                                UPDATE {db_prefix}_files 
-                                SET enabled = 0, file_type = 'Удален'
+                                UPDATE {db_prefix}_file 
+                                SET file_exists = 0, description = 'Удален'
                                 WHERE id = %s
                             """
                             app._sql.execute_non_query(update_query, [file_id])
@@ -491,16 +503,33 @@ def register(app, socketio=None):
                                     continue
 
                                 try:
+                                    # Получаем ID категории и подкатегории для проверки
+                                    cat_id = None
+                                    sub_id = None
+                                    try:
+                                        if category_name:
+                                            cat_query = f"SELECT id FROM {db_prefix}_file_category WHERE folder_name = %s"
+                                            cat_result = app._sql.execute_query(
+                                                cat_query, [category_name])
+                                            if cat_result:
+                                                cat_id = cat_result[0][0]
+                                        if subcategory_name:
+                                            sub_query = f"SELECT id FROM {db_prefix}_file_subcategory WHERE folder_name = %s"
+                                            sub_result = app._sql.execute_query(
+                                                sub_query, [subcategory_name])
+                                            if sub_result:
+                                                sub_id = sub_result[0][0]
+                                    except Exception:
+                                        pass
+
                                     # Проверяем, есть ли уже запись в БД
                                     check_query = f"""
-                                        SELECT id FROM {db_prefix}_files 
-                                        WHERE real_name = %s AND category = %s AND subcategory = %s
+                                        SELECT id FROM {db_prefix}_file 
+                                        WHERE file_name = %s AND category_id = %s AND subcategory_id = %s
                                     """
                                     existing = app._sql.execute_query(
-                                        check_query, [
-                                            filename, category_name,
-                                            subcategory_name
-                                        ])
+                                        check_query,
+                                        [filename, cat_id, sub_id])
 
                                     if not existing:
                                         # Создаем новую запись
@@ -529,22 +558,34 @@ def register(app, socketio=None):
                                         admin_id = getattr(
                                             current_user, 'id', None)
 
+                                        # Если admin_id не найден, ищем пользователя admin по логину
+                                        if not admin_id:
+                                            try:
+                                                admin_user = app._sql.execute_query(
+                                                    f"SELECT id FROM {db_prefix}_user WHERE login = 'admin' LIMIT 1",
+                                                    [])
+                                                if admin_user:
+                                                    admin_id = admin_user[0][0]
+                                                else:
+                                                    admin_id = 1  # Fallback к ID 1
+                                            except Exception:
+                                                admin_id = 1  # Fallback к ID 1
+
+                                        # cat_id и sub_id уже получены выше
+
                                         # Создаем запись в БД
                                         insert_query = f"""
-                                            INSERT INTO {db_prefix}_files 
-                                            (real_name, category, subcategory, file_path, file_size, file_mtime, file_ctime, 
-                                             file_type, description, editable_description, enabled, created_at, owner, owner_id)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, %s)
+                                            INSERT INTO {db_prefix}_file 
+                                            (display_name, file_name, owner_id, description, created_at, ready, 
+                                             length_seconds, size_mb, category_id, subcategory_id, file_exists, note)
+                                            VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, %s, 1, %s)
                                         """
                                         app._sql.execute_non_query(
                                             insert_query, [
-                                                filename, category_name,
-                                                subcategory_name, file_path,
-                                                file_size, file_mtime,
-                                                file_ctime, file_type,
-                                                file_type,
-                                                "Загружен из файловой системы",
-                                                now, admin_name, admin_id
+                                                filename, filename, admin_id,
+                                                file_type, now, 0, file_size /
+                                                (1024 * 1024), cat_id, sub_id,
+                                                "Загружен из файловой системы"
                                             ])
                                         created_count += 1
 
@@ -573,61 +614,54 @@ def register(app, socketio=None):
             except Exception:
                 pass
 
-            # Отправляем событие для обновления таблицы файлов у всех пользователей
+            # Отправляем события синхронизации через SyncManager
             try:
                 if socketio:
-                    # Отправляем событие files-refresh во все комнаты
+                    from modules.sync_manager import SyncManager
+                    sync_manager = SyncManager(socketio)
+
+                    # Отправляем событие завершения обслуживания файлов
+                    maintenance_data = {
+                        'updated':
+                        updated_count,
+                        'created':
+                        created_count,
+                        'errors':
+                        errors_count,
+                        'timestamp':
+                        now.isoformat(),
+                        'originClientId': (request.headers.get('X-Client-Id')
+                                           or '').strip()
+                    }
+
+                    # Отправляем в комнату files для пользователей на странице файлов
+                    sync_manager.emit_to_room('files:maintenance_completed',
+                                              maintenance_data, 'files',
+                                              'maintenance_completed')
+
+                    # Отправляем общее событие изменения файлов для всех комнат
+                    sync_manager.emit_to_room('files:changed',
+                                              maintenance_data, 'files',
+                                              'maintenance_completed')
+
+                    # Также отправляем в другие комнаты для уведомления
                     common_rooms = [
-                        'users', 'groups', 'files', 'admin', 'categories',
+                        'admin', 'users', 'groups', 'categories',
                         'registrators', 'index'
                     ]
                     for room in common_rooms:
                         try:
-                            socketio.emit('files-refresh', {
-                                'action': 'files_maintain_completed',
-                                'updated': updated_count,
-                                'created': created_count,
-                                'errors': errors_count,
-                                'timestamp': now.isoformat()
-                            },
-                                          room=room)
+                            sync_manager.emit_to_room(
+                                'files:maintenance_completed',
+                                maintenance_data, room,
+                                'maintenance_completed')
                         except Exception as e:
                             print(
-                                f"Failed to send files-refresh to room {room}: {e}"
-                            )
-
-                    # Также отправляем в Redis presence
-                    if hasattr(app, 'redis_client') and app.redis_client:
-                        try:
-                            presence_data = app.redis_client.hgetall(
-                                'presence:users')
-                            for key, value in presence_data.items():
-                                try:
-                                    import json
-                                    user_data = json.loads(value)
-                                    user = user_data.get('user', '')
-                                    ip = user_data.get('ip', '')
-                                    if user and ip:
-                                        user_room = f"user:{user}:{ip}"
-                                        socketio.emit(
-                                            'files-refresh', {
-                                                'action':
-                                                'files_maintain_completed',
-                                                'updated': updated_count,
-                                                'created': created_count,
-                                                'errors': errors_count,
-                                                'timestamp': now.isoformat()
-                                            },
-                                            room=user_room)
-                                except Exception:
-                                    continue
-                        except Exception as e:
-                            print(
-                                f"Failed to send files-refresh to Redis users: {e}"
+                                f"Failed to send files:maintenance_completed to room {room}: {e}"
                             )
 
             except Exception as e:
-                print(f"Failed to send files-refresh events: {e}")
+                print(f"Failed to send files sync events: {e}")
 
             # Логируем действие
             try:

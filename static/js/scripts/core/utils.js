@@ -47,8 +47,14 @@ window.Utils = (function () {
     if (typeof refreshFn === "function") {
       refreshFn();
     } else {
-      // Fallback: полная перезагрузка
-      window.location.reload();
+      // Always use soft refresh
+      if (pageName === "files" && window.softRefreshFilesTable) {
+        window.softRefreshFilesTable(true);
+      } else if (pageName === "groups" && window.softRefreshGroupsTable) {
+        window.softRefreshGroupsTable(true);
+      } else if (pageName === "users" && window.softRefreshUsersTable) {
+        window.softRefreshUsersTable(true);
+      }
     }
   }
 

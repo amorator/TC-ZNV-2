@@ -12,7 +12,7 @@ class File:
         id: int,
         display_name: str,
         file_name: str,
-        owner: str,
+        owner_id: int,
         description: str = '',
         created_at: str = '',
         ready: int = 1,
@@ -47,24 +47,40 @@ class File:
         self.description: str = description if description else 'Нет описания...'
         self.created_at: str = created_at if created_at else dt.now().strftime(
             '%Y-%m-%d %H:%M')
-        self.owner: str = owner
         self.id: int = id
         self.ready: int = ready
         self.viewed: Optional[str] = viewed
         self.note: str = note if note else ''
         self.length_seconds: int = int(length_seconds or 0)
-        try:
-            self.size_mb: float = float(size_mb or 0)
-        except Exception:
-            self.size_mb = 0.0
+        self.size_mb: float = float(size_mb or 0)
         self.order_id: Optional[int] = order_id
         self.category_id: Optional[int] = category_id
         self.subcategory_id: Optional[int] = subcategory_id
         self.exists: bool = bool(file_exists)
+        self.owner_id: int = owner_id
+
+        # Поле owner теперь является свойством (property)
 
         # Legacy compatibility - will be computed dynamically
         self.real_name: str = file_name
         self.path: str = ""  # Will be computed when needed
+
+    @property
+    def owner(self) -> str:
+        """Get display name for file owner.
+        
+        Returns:
+            String with user name or 'Unknown'
+        """
+        try:
+            from flask import current_app
+            if hasattr(current_app, '_sql'):
+                return current_app._sql.get_file_owner_display(self.id)
+        except Exception:
+            pass
+
+        # Fallback - возвращаем "Неизвестно" если не можем получить данные
+        return "Неизвестно"
 
     def _get_storage_path(self) -> str:
         """Get the storage path for this file based on category/subcategory."""

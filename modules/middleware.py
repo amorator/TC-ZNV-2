@@ -5,6 +5,7 @@ from flask_login import logout_user, current_user
 from time import time
 from datetime import timedelta
 from modules.logging import log_access, get_logger
+import json
 
 _log = get_logger(__name__)
 
@@ -103,86 +104,96 @@ def init_middleware(app):
 								app.redis_client.expire('presence:users', 60)  # TTL 1 minute
 						except Exception:
 							pass
-					# prune expired sessions by lifetime
-					try:
-						lifetime = app.config.get('PERMANENT_SESSION_LIFETIME')
-						if isinstance(lifetime, timedelta):
-							max_age = int(lifetime.total_seconds())
-						else:
-							max_age = int(lifetime or 31*24*3600)
-					except Exception:
-						max_age = 31*24*3600
-					cutoff = time() - max_age
-					for k, v in list(getattr(app, '_sessions', {}).items()):
-						try:
-							if float(v.get('last_seen') or 0) < cutoff:
+					# prune expired sessions by lifetime (not more than once per minute)
+					now_ts = time()
+					last_cleanup = getattr(app, '_last_session_cleanup', 0)
+					if now_ts - last_cleanup > 60:  # Clean up at most once per minute
+						app._last_session_cleanup = now_ts
+						
+						# Get session lifetime from config.ini
+						lifetime = app._sql.config.get('web', 'session_lifetime', fallback='86400')
+						max_age = int(lifetime)
+						cutoff = now_ts - max_age
+						
+						# Clean up in-memory sessions
+						for k, v in list(getattr(app, '_sessions', {}).items()):
+							if float(v.get('last_seen', 0)) < cutoff:
 								app._sessions.pop(k, None)
-						except Exception:
-							pass
+						
+						# Clean up Redis sessions and presence
+						if hasattr(app, 'redis_client') and app.redis_client:
+							# Get all sessions from Redis
+							sessions_data = app.redis_client.hgetall('sessions:active')
+							for sid, session_json in sessions_data.items():
+								try:
+									session_data = json.loads(session_json)
+									last_seen = float(session_data.get('last_seen', 0))
+									if last_seen < cutoff:
+										app.redis_client.hdel('sessions:active', sid)
+								except Exception:
+									# If session data is corrupted, remove it
+									app.redis_client.hdel('sessions:active', sid)
+							
+							# Clean up expired presence entries
+							presence_data = app.redis_client.hgetall('presence:users')
+							for user_key, presence_json in presence_data.items():
+								try:
+									presence_info = json.loads(presence_json)
+									last_activity = float(presence_info.get('last_activity', 0))
+									if last_activity < cutoff:
+										app.redis_client.hdel('presence:users', user_key)
+								except Exception:
+									# If presence data is corrupted, remove it
+									app.redis_client.hdel('presence:users', user_key)
 		except Exception:
 			pass
 		# Enforce server-side force-logout if flagged by admin (by user or session)
-		try:
-			# Temporarily disable Redis force-logout checks if flag set
-			if getattr(app.config, 'get', lambda *_: False)('FORCE_LOGOUT_DISABLED') or app.config.get('FORCE_LOGOUT_DISABLED'):
-				return
-			is_auth_attr = getattr(current_user, 'is_authenticated', False)
-			is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
-			uid = getattr(current_user, 'id', None)
-			cookie_name = getattr(app, 'session_cookie_name', 'session')
-			sid = request.cookies.get(cookie_name) or request.cookies.get('session')
-			
-			# Check Redis-based force logout first
-			force_logout = False
-			if hasattr(app, 'force_logout_manager') and app.force_logout_manager:
-				if is_authenticated and uid:
-					if app.force_logout_manager.is_user_forced_logout(uid):
-						force_logout = True
-						app.force_logout_manager.remove_user_logout(uid)
-				if sid and app.force_logout_manager.is_session_forced_logout(sid):
+		# Temporarily disable Redis force-logout checks if flag set
+		if getattr(app.config, 'get', lambda *_: False)('FORCE_LOGOUT_DISABLED') or app.config.get('FORCE_LOGOUT_DISABLED'):
+			return
+		is_auth_attr = getattr(current_user, 'is_authenticated', False)
+		is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+		uid = getattr(current_user, 'id', None)
+		cookie_name = getattr(app, 'session_cookie_name', 'session')
+		sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+		
+		# Check Redis-based force logout first
+		force_logout = False
+		if hasattr(app, 'force_logout_manager') and app.force_logout_manager:
+			if is_authenticated and uid:
+				if app.force_logout_manager.is_user_forced_logout(uid):
 					force_logout = True
-					app.force_logout_manager.remove_session_logout(sid)
+					app.force_logout_manager.remove_user_logout(uid)
+			if sid and app.force_logout_manager.is_session_forced_logout(sid):
+				force_logout = True
+				app.force_logout_manager.remove_session_logout(sid)
+		else:
+			# Fallback to in-memory force logout
+			if is_authenticated and (uid in getattr(app, '_force_logout_users', set()) or (sid and sid in getattr(app, '_force_logout_sessions', set()))):
+				force_logout = True
+				app._force_logout_users.discard(uid)
+				if sid:
+					app._force_logout_sessions.discard(sid)
+					if hasattr(app, '_sessions'):
+						app._sessions.pop(sid, None)
+		
+		if force_logout:
+			logout_user()
+			g.force_logout = True
+			# Also purge presence for this user
+			if hasattr(app, 'presence_manager') and app.presence_manager and uid:
+				app.presence_manager.remove_user_presence(uid)
 			else:
-				# Fallback to in-memory force logout
-				if is_authenticated and (uid in getattr(app, '_force_logout_users', set()) or (sid and sid in getattr(app, '_force_logout_sessions', set()))):
-					force_logout = True
-					try:
-						app._force_logout_users.discard(uid)
-					except Exception:
-						pass
-					try:
-						if sid:
-							app._force_logout_sessions.discard(sid)
-							if hasattr(app, '_sessions'):
-								app._sessions.pop(sid, None)
-					except Exception:
-						pass
-			
-			if force_logout:
-				logout_user()
-				g.force_logout = True
-				# Also purge presence for this user
-				if hasattr(app, 'presence_manager') and app.presence_manager and uid:
-					app.presence_manager.remove_user_presence(uid)
-				else:
-					# Fallback to in-memory presence cleanup
-					try:
-						presence = getattr(app, '_presence', {}) or {}
-						for psid, info in list(presence.items()):
-							try:
-								if int(info.get('user_id') or -1) == int(uid or -2):
-									app._presence.pop(psid, None)
-							except Exception:
-								pass
-						presence_hb = getattr(app, '_presence_hb', {}) or {}
-						prefix = f"hb:{uid}:"
-						for key in list(presence_hb.keys()):
-							if isinstance(key, str) and key.startswith(prefix):
-								app._presence_hb.pop(key, None)
-					except Exception:
-						pass
-		except Exception:
-			pass
+				# Fallback to in-memory presence cleanup
+				presence = getattr(app, '_presence', {}) or {}
+				for psid, info in list(presence.items()):
+					if int(info.get('user_id') or -1) == int(uid or -2):
+						app._presence.pop(psid, None)
+				presence_hb = getattr(app, '_presence_hb', {}) or {}
+				prefix = f"hb:{uid}:"
+				for key in list(presence_hb.keys()):
+					if isinstance(key, str) and key.startswith(prefix):
+						app._presence_hb.pop(key, None)
 	
 	@app.after_request
 	def after_request(response):
@@ -190,12 +201,9 @@ def init_middleware(app):
 		try:
 			# If force logout was requested, delete session cookies on response
 			if getattr(g, 'force_logout', False):
-				try:
-					response.delete_cookie(app.session_cookie_name, path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
-					response.delete_cookie('session', path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
-					response.delete_cookie('remember_token', path='/', samesite=app.config.get('REMEMBER_COOKIE_SAMESITE', 'Lax'))
-				except Exception:
-					pass
+				response.delete_cookie(app.session_cookie_name, path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
+				response.delete_cookie('session', path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
+				response.delete_cookie('remember_token', path='/', samesite=app.config.get('REMEMBER_COOKIE_SAMESITE', 'Lax'))
 			# Get request info
 			method = request.method
 			path = request.path

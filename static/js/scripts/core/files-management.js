@@ -1,157 +1,338 @@
-// Files Management Module
-// Управление файлами
+/**
+ * Files Management Module
+ * Управление файлами
+ */
 
-function updateMoveSubcategories(selectedCategoryId, subSelect) {
-  try {
-    if (!subSelect) return;
+// Debouncing for sync events
+let syncTimeout = null;
+let pendingSync = false;
 
-    // Clear existing options
-    subSelect.innerHTML = '<option value="">Выберите подкатегорию</option>';
+/**
+ * Create new file
+ * @param {Object} fileData - File data object
+ */
+function createFile(fileData) {
+  const formData = new FormData();
+  formData.append("display_name", fileData.display_name || "");
+  formData.append("file_name", fileData.file_name || "");
+  formData.append("description", fileData.description || "");
+  formData.append("category_id", fileData.category_id || "");
+  formData.append("subcategory_id", fileData.subcategory_id || "");
+  formData.append("note", fileData.note || "");
 
-    if (!selectedCategoryId) return;
-
-    fetch(`/api/categories/${selectedCategoryId}/subcategories`)
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.subcategories) {
-          data.subcategories.forEach((sub) => {
-            const option = document.createElement("option");
-            option.value = sub.id;
-            option.textContent = sub.name;
-            subSelect.appendChild(option);
-          });
-        }
-      })
-      .catch((err) => {
-        window.ErrorHandler.handleError(err, "unknown")
-      });
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
-  }
-}
-
-function popupValues(form, id) {
-  try {
-    const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
-
-    // Store form data for later use
-    window.formData = data;
-
-    // Show popup with form values
-    const popup = document.createElement("div");
-    popup.className = "form-popup";
-    popup.innerHTML = `
-      <div class="popup-content">
-        <h3>Данные формы</h3>
-        <pre>${JSON.stringify(data, null, 2)}</pre>
-        <button onclick="this.parentElement.parentElement.remove()">Закрыть</button>
-      </div>
-    `;
-
-    document.body.appendChild(popup);
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
-  }
-}
-
-function startUploadWithProgress(form) {
-  try {
-    const formData = new FormData(form);
-    const uploadId = Date.now().toString();
-    const registratorName = formData.get("registrator_name") || "Неизвестно";
-    const fileName = formData.get("file")?.name || "Файл";
-
-    // Show progress indicator
-    showPersistentProgressIndicator(uploadId, registratorName, fileName);
-
-    // Start upload
-    fetch("/api/upload", {
-      method: "POST",
-      body: formData,
+  fetch("/files/add", {
+    method: "POST",
+    body: formData,
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+      "X-Client-Id": window.__filesClientId || "unknown",
+    },
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
     })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.success) {
-          updatePersistentProgress(uploadId, 100, "Завершено");
-          setTimeout(() => hidePersistentProgress(uploadId), 2000);
-          window.showToast("Файл загружен успешно", "success");
-        } else {
-          hidePersistentProgress(uploadId);
-          window.showToast("Ошибка загрузки файла", "error");
+    .then((data) => {
+      if (data.status === "success") {
+        if (window.showToast) {
+          window.showToast("Файл создан", "success");
         }
-      })
-      .catch((err) => {
-        hidePersistentProgress(uploadId);
-        window.ErrorHandler.handleError(err, "unknown")
-      });
-
-    // Start monitoring progress
-    monitorUploadProgress(uploadId, registratorName);
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
-  }
+      } else {
+        throw new Error(data.message || "Ошибка создания файла");
+      }
+    })
+    .catch((err) => window.ErrorHandler.handleError(err, "createFile"));
 }
 
-function renderCombinedProgress(loaded, total, fileIndex) {
-  try {
-    const progressContainer = document.getElementById("combined-progress");
-    if (!progressContainer) return;
+/**
+ * Update existing file
+ * @param {string} fileId - File ID
+ * @param {Object} fileData - File data object
+ */
+function updateFile(fileId, fileData) {
+  const formData = new FormData();
+  formData.append("display_name", fileData.display_name || "");
+  formData.append("description", fileData.description || "");
+  formData.append("category_id", fileData.category_id || "");
+  formData.append("subcategory_id", fileData.subcategory_id || "");
+  formData.append("note", fileData.note || "");
 
-    const percentage = Math.round((loaded / total) * 100);
-    const progressBar = progressContainer.querySelector(
-      ".progress-bar .progress-fill"
+  fetch(`/files/edit/${fileId}`, {
+    method: "POST",
+    body: formData,
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+      "X-Client-Id": window.__filesClientId || "unknown",
+    },
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
+    })
+    .then((data) => {
+      if (data.status === "success") {
+        if (window.showToast) {
+          window.showToast("Файл обновлен", "success");
+        }
+      } else {
+        throw new Error(data.message || "Ошибка обновления файла");
+      }
+    })
+    .catch((err) => window.ErrorHandler.handleError(err, "updateFile"));
+}
+
+/**
+ * Delete file with confirmation dialog
+ * @param {string} fileId - File ID
+ */
+function deleteFile(fileId) {
+  if (!fileId) {
+    window.ErrorHandler.handleError(
+      new Error("Некорректный ID файла"),
+      "deleteFile"
     );
-    const progressText = progressContainer.querySelector(".progress-text");
-
-    if (progressBar) {
-      progressBar.style.width = `${percentage}%`;
-    }
-
-    if (progressText) {
-      progressText.textContent = `Файл ${
-        fileIndex + 1
-      }: ${loaded}/${total} (${percentage}%)`;
-    }
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+    return;
   }
-}
 
-function handleUploadError(message) {
-  try {
-    window.ErrorHandler.handleError(err, "unknown")
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
-  }
-}
+  const fileRow = document.getElementById(fileId);
+  const fileName = fileRow
+    ? fileRow.dataset.fileName || "неизвестный"
+    : "неизвестный";
+  const displayName = fileRow
+    ? fileRow.dataset.displayName || fileName
+    : fileName;
 
-function cancelUploadRegular(uploadId) {
-  try {
-    fetch(`/api/cancel-upload/${uploadId}`, {
+  if (confirm(`Вы действительно хотите удалить файл ${displayName}?`)) {
+    fetch(`/files/delete/${fileId}`, {
       method: "POST",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Id": window.__filesClientId || "unknown",
+      },
     })
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
       .then((data) => {
-        if (data.success) {
-          hidePersistentProgress(uploadId);
-          window.showToast("Загрузка отменена", "info");
+        if (data.status === "success") {
+          if (window.showToast) {
+            window.showToast("Файл удален", "success");
+          }
+        } else {
+          throw new Error(data.message || "Ошибка удаления файла");
         }
       })
-      .catch((err) => {
-        window.ErrorHandler.handleError(err, "unknown")
+      .catch((err) => window.ErrorHandler.handleError(err, "deleteFile"));
+  }
+}
+
+/**
+ * Start files maintenance
+ */
+function startFilesMaintenance() {
+  if (
+    confirm(
+      "Начать обслуживание таблицы файлов? Это может занять некоторое время."
+    )
+  ) {
+    fetch("/admin/files_maintain", {
+      method: "POST",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Client-Id": window.__filesClientId || "unknown",
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (data.status === "success") {
+          if (window.showToast) {
+            window.showToast(
+              `Обслуживание завершено. Обновлено: ${data.updated}, Создано: ${data.created}, Ошибок: ${data.errors}`,
+              "success"
+            );
+          }
+        } else {
+          throw new Error(data.message || "Ошибка обслуживания файлов");
+        }
+      })
+      .catch((err) =>
+        window.ErrorHandler.handleError(err, "startFilesMaintenance")
+      );
+  }
+}
+
+/**
+ * Debounced sync function to prevent multiple simultaneous refreshes
+ */
+function debouncedSync() {
+  if (pendingSync) return;
+
+  pendingSync = true;
+
+  if (syncTimeout) {
+    clearTimeout(syncTimeout);
+  }
+
+  syncTimeout = setTimeout(() => {
+    pendingSync = false;
+    softRefreshFilesTable(true);
+  }, 100);
+}
+
+/**
+ * Soft refresh files table with proper search and pagination support
+ * @param {boolean} force - Force refresh even if table has data
+ */
+function softRefreshFilesTable(force = false) {
+  const input = document.getElementById("searchinp");
+  const q = input && typeof input.value === "string" ? input.value.trim() : "";
+
+  if (q && typeof window.filesDoFilter === "function") {
+    return window.filesDoFilter(q).then(() => {
+      reinitializeContextMenu();
+      if (window.rebindFilesTable) window.rebindFilesTable();
+    });
+  }
+
+  const table = document.getElementById("maintable");
+  const tbody = table && table.tBodies && table.tBodies[0];
+  const pager = document.getElementById("files-pagination");
+
+  if (!force) {
+    if (
+      tbody &&
+      pager &&
+      tbody.querySelectorAll("tr.table__body_row").length > 0 &&
+      pager.innerHTML
+    ) {
+      return;
+    }
+    if (tbody && tbody.querySelectorAll("tr.table__body_row").length > 0) {
+      return;
+    }
+  }
+
+  if (window.filesPager && typeof window.filesPager.renderPage === "function") {
+    window.filesPager.renderPage(1);
+    reinitializeContextMenu();
+    if (window.rebindFilesTable) window.rebindFilesTable();
+  } else {
+    // Use AJAX to refresh the table
+    refreshTableWithAjax();
+  }
+}
+
+/**
+ * Refresh table with AJAX request
+ */
+function refreshTableWithAjax() {
+  try {
+    const table = document.getElementById("maintable");
+    if (!table) return;
+
+    // Get current page parameters
+    const url = new URL(window.location);
+    const params = new URLSearchParams(url.search);
+
+    // Add timestamp to prevent caching
+    params.set("_t", Date.now());
+
+    fetch(`${url.pathname}?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        Accept: "text/html",
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.text();
+      })
+      .then((html) => {
+        // Parse the response and update the table
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        const newTable = doc.getElementById("maintable");
+
+        if (newTable) {
+          const tbody = table.tBodies[0];
+          const newTbody = newTable.tBodies[0];
+
+          if (tbody && newTbody) {
+            tbody.innerHTML = newTbody.innerHTML;
+            reinitializeContextMenu();
+            if (window.rebindFilesTable) window.rebindFilesTable();
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to refresh files table:", error);
       });
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "unknown")
+  } catch (error) {
+    console.error("Error in refreshTableWithAjax:", error);
+  }
+}
+
+/**
+ * Reinitialize context menu after table update
+ */
+function reinitializeContextMenu() {
+  const now = Date.now();
+  if (
+    window._lastContextMenuReinit &&
+    now - window._lastContextMenuReinit < 500
+  ) {
+    return;
+  }
+  window._lastContextMenuReinit = now;
+
+  if (window.requestIdleCallback) {
+    window.requestIdleCallback(
+      () => {
+        const event = new CustomEvent("context-menu-reinit", {
+          detail: { timestamp: Date.now() },
+        });
+        document.dispatchEvent(event);
+        document.dispatchEvent(new Event("table-updated"));
+      },
+      { timeout: 1000 }
+    );
+  } else {
+    setTimeout(() => {
+      const event = new CustomEvent("context-menu-reinit", {
+        detail: { timestamp: Date.now() },
+      });
+      document.dispatchEvent(event);
+      document.dispatchEvent(new Event("table-updated"));
+    }, 10);
   }
 }
 
 // Export functions to global scope
 window.FilesManagement = {
-  updateMoveSubcategories,
-  popupValues,
-  startUploadWithProgress,
-  renderCombinedProgress,
-  handleUploadError,
-  cancelUploadRegular,
+  createFile,
+  updateFile,
+  deleteFile,
+  startFilesMaintenance,
+  softRefreshFilesTable,
+  refreshTableWithAjax,
+  debouncedSync,
+  reinitializeContextMenu,
 };
+
+// Export key functions globally
+window.softRefreshFilesTable = softRefreshFilesTable;

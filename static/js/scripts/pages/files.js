@@ -534,6 +534,17 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
+/**
+ * Remove file row
+ * @param {string} fileId - File ID
+ */
+function removeFileRow(fileId) {
+  const fileRow = document.getElementById(fileId);
+  if (fileRow) {
+    fileRow.remove();
+  }
+}
+
 // Export functions to global scope
 window.FilesPage = {
   initFilesPage,
@@ -554,6 +565,7 @@ window.FilesPage = {
   deleteFile,
   moveFile,
   renameFile,
+  removeFileRow,
 };
 
 // Global function to reinitialize double-click handlers (for use after table updates)
@@ -567,50 +579,149 @@ window.reinitFilesDoubleClick = function () {
   }
 };
 
-// Setup Socket.IO event handlers for files page
-function setupFilesSocketHandlers() {
-  try {
-    // Get the global socket instance
-    const socket = window.socket || window.SyncManager?.socket;
-    if (!socket) {
-      console.warn("Socket not available for files page");
-      return;
-    }
+/**
+ * Setup socket synchronization for files page
+ */
+function setupFilesSocketSync() {
+  if (window._filesSocketSyncInitialized) return;
+  window._filesSocketSyncInitialized = true;
 
-    // Handle files refresh event
-    socket.on("files-refresh", function (data) {
-      try {
-        console.log("Files refresh received:", data);
+  if (window.SyncManager && typeof window.SyncManager.on === "function") {
+    if (!window.__filesSyncBound) {
+      window.__filesSyncBound = true;
 
-        // Show notification
-        if (window.showToast) {
-          window.showToast(
-            `Таблица файлов обновлена. Обновлено: ${data.updated}, Создано: ${data.created}`,
-            "info"
-          );
+      let joinAttempts = 0;
+      const maxJoinAttempts = 50;
+      const joinRoomWhenReady = () => {
+        if (window.SyncManager && window.SyncManager.isConnected()) {
+          window.SyncManager.joinRoom("files");
+        } else if (joinAttempts < maxJoinAttempts) {
+          joinAttempts++;
+          setTimeout(joinRoomWhenReady, 100);
+        }
+      };
+
+      joinRoomWhenReady();
+
+      // Handle files:changed event for general file updates
+      window.SyncManager.on("files:changed", (data) => {
+        if (
+          data.originClientId &&
+          data.originClientId === window.__filesClientId
+        ) {
+          return;
         }
 
-        // Soft refresh the page (reload without cache)
-        setTimeout(() => {
-          window.location.reload(false);
-        }, 1000);
-      } catch (err) {
-        console.error("Error handling files-refresh:", err);
-      }
-    });
+        if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+          window.FilesManagement.debouncedSync();
+        }
+      });
 
-    console.log("Files socket handlers setup complete");
-  } catch (err) {
-    console.error("Error setting up files socket handlers:", err);
+      // Handle files:maintenance_completed event for maintenance completion
+      window.SyncManager.on("files:maintenance_completed", (data) => {
+        try {
+          console.log("Files maintenance completed:", data);
+
+          if (window.showToast) {
+            window.showToast(
+              `Обслуживание файлов завершено. Обновлено: ${data.updated}, Создано: ${data.created}, Ошибок: ${data.errors}`,
+              "success"
+            );
+          }
+
+          // Force refresh the files table
+          if (
+            window.FilesManagement &&
+            window.FilesManagement.softRefreshFilesTable
+          ) {
+            setTimeout(() => {
+              window.FilesManagement.softRefreshFilesTable(true);
+            }, 1000);
+          }
+        } catch (err) {
+          console.error("Error handling files:maintenance_completed:", err);
+        }
+      });
+
+      // Handle files:metadata_updated event for metadata updates
+      window.SyncManager.on("files:metadata_updated", (data) => {
+        try {
+          console.log("Files metadata updated:", data);
+
+          if (window.showToast) {
+            window.showToast("Метаданные файлов обновлены", "info");
+          }
+
+          // Soft refresh the files table
+          if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+            window.FilesManagement.debouncedSync();
+          }
+        } catch (err) {
+          console.error("Error handling files:metadata_updated:", err);
+        }
+      });
+    }
   }
 }
 
-// Initialize socket handlers when DOM is ready
+// Initialize socket sync when DOM is ready
 document.addEventListener("DOMContentLoaded", function () {
   try {
-    // Setup socket handlers after a short delay to ensure socket is available
-    setTimeout(setupFilesSocketHandlers, 1000);
+    // Use requestAnimationFrame for better performance
+    requestAnimationFrame(() => {
+      // Delay to ensure other scripts are loaded
+      setTimeout(setupFilesSocketSync, 500); // Reduced from 1000ms
+    });
   } catch (err) {
-    console.error("Error initializing files socket handlers:", err);
+    console.error("Error initializing files socket sync:", err);
   }
 });
+
+// Mark file as viewed
+window.markViewedAjax = function (fileId) {
+  try {
+    console.log("Marking file as viewed:", fileId);
+
+    // Send AJAX request to mark file as viewed
+    fetch("/api/mark-viewed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: JSON.stringify({
+        file_id: fileId,
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.status === "success") {
+          console.log("File marked as viewed successfully");
+          // Optionally show a toast notification
+          if (window.showToast) {
+            window.showToast("Файл отмечен как просмотренный", "success");
+          }
+          // Refresh the files table to update the UI
+          if (
+            window.FilesManagement &&
+            window.FilesManagement.softRefreshFilesTable
+          ) {
+            window.FilesManagement.softRefreshFilesTable(true);
+          }
+        } else {
+          console.error("Failed to mark file as viewed:", data.message);
+          if (window.showToast) {
+            window.showToast("Ошибка при отметке файла", "error");
+          }
+        }
+      })
+      .catch((error) => {
+        console.error("Error marking file as viewed:", error);
+        if (window.showToast) {
+          window.showToast("Ошибка при отметке файла", "error");
+        }
+      });
+  } catch (error) {
+    console.error("Error in markViewedAjax:", error);
+  }
+};

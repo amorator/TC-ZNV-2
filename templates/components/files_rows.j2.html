@@ -3,8 +3,8 @@
   {% for file in files %}
     {% if file.ready %}
       <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show_by_id', file_id=file.id) }}" data-download="{{ url_for('files_show_by_id', file_id=file.id, dl=1) }}"
-        data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
-        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
+        data-can-edit="{{ 1 if ((file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 }}"
+        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
         data-view-url="{{ url_for('files_view', id=file.id) if current_user.has('files.mark_viewed') else '' }}"
         data-viewed="{{ 1 if file.viewed else 0 }}"
@@ -48,8 +48,8 @@
         data-id="{{ file.id }}"
         data-url="{{ url_for('files_orig_by_id', file_id=file.id) }}"
         data-download="{{ url_for('files_orig_by_id', file_id=file.id) }}"
-        data-can-edit="{{ 1 if (current_user.name + ' (' in file.owner or current_user.has('files.edit_any')) else 0 }}"
-        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or current_user.name + ' (' in file.owner) else 0 }}"
+        data-can-edit="{{ 1 if ((file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 }}"
+        data-can-delete="{{ 1 if (current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
         data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
         data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
@@ -66,7 +66,7 @@
           Обрабатывается...
           <div class="d-inline-flex gap-2 ms-2 align-items-center">
             <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig_by_id", file_id=file.id) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
-            {% if current_user.has('files.delete_any') or current_user.name + ' (' in file.owner %}
+            {% if current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id) %}
               <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
             {% endif %}
           </div>

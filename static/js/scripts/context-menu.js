@@ -824,9 +824,15 @@
                           window.filesPager.readPage()
                         );
                       } else if (
-                        typeof window.softRefreshFilesTable === "function"
+                        window.FilesManagement &&
+                        typeof window.FilesManagement.softRefreshFilesTable ===
+                          "function"
                       ) {
-                        window.softRefreshFilesTable();
+                        window.FilesManagement.softRefreshFilesTable(true);
+                      } else {
+                        console.warn(
+                          "No suitable refresh method found for files table"
+                        );
                       }
                     } catch (err) {
                       window.ErrorHandler.handleError(err, "unknown");

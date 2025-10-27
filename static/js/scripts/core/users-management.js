@@ -180,7 +180,10 @@ function softRefreshUsersTable(force = false) {
     reinitializeContextMenu();
     if (window.rebindUsersTable) window.rebindUsersTable();
   } else {
-    window.location.reload();
+    // Always use soft refresh
+    if (window.softRefreshUsersTable) {
+      window.softRefreshUsersTable(true);
+    }
   }
 }
 
