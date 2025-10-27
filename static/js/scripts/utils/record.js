@@ -1346,7 +1346,7 @@ async function onCameraClick() {
             audioBitsPerSecond: 192000,
           });
         } catch (error) {
-          console.error("Failed to create screen MediaRecorder:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create screen MediaRecorder:", error, "app");
           window.showAlertModal(
             "Ошибка: браузер не поддерживает запись экрана. Попробуйте другой браузер.",
             "Ошибка"
@@ -1375,7 +1375,7 @@ async function onCameraClick() {
             audioBitsPerSecond: 192000,
           });
         } catch (error) {
-          console.error("Failed to create camera MediaRecorder:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create camera MediaRecorder:", error, "app");
           window.showAlertModal(
             "Ошибка: браузер не поддерживает запись с камеры. Попробуйте другой браузер.",
             "Ошибка"
@@ -1404,7 +1404,7 @@ async function onCameraClick() {
             audioBitsPerSecond: 192000,
           });
         } catch (error) {
-          console.error("Failed to create screen MediaRecorder:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create screen MediaRecorder:", error, "app");
           window.showAlertModal(
             "Ошибка: браузер не поддерживает запись экрана. Попробуйте другой браузер.",
             "Ошибка"
@@ -1438,7 +1438,7 @@ async function onCameraClick() {
         try {
           recorderAudio = new MediaRecorder(currentStreamAudio, audioOptions);
         } catch (error) {
-          console.error("Failed to create audio MediaRecorder:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create audio MediaRecorder:", error, "app");
           window.showAlertModal(
             "Ошибка: браузер не поддерживает аудио-запись. Попробуйте другой браузер.",
             "Ошибка"
@@ -1467,7 +1467,7 @@ async function onCameraClick() {
             audioBitsPerSecond: 192000,
           });
         } catch (error) {
-          console.error("Failed to create camera MediaRecorder:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create camera MediaRecorder:", error, "app");
           window.showAlertModal(
             "Ошибка: браузер не поддерживает запись с камеры. Попробуйте другой браузер.",
             "Ошибка"

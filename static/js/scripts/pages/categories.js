@@ -213,7 +213,7 @@ function loadCategories() {
       }
     })
     .catch((error) => {
-      console.error("Error loading categories:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("Error loading categories:", error, "app");
       showEmptyCategories();
     });
 }
@@ -313,12 +313,10 @@ function selectCategory(categoryId) {
 
 // Load subcategories
 function loadSubcategories(categoryId) {
-  console.log("Loading subcategories for category:", categoryId);
   fetch(`/api/subcategories/${categoryId}`)
     .then((response) => response.json())
     .then((subcategories) => {
       subcategoriesCache = Array.isArray(subcategories) ? subcategories : [];
-      console.log("Subcategories loaded:", subcategories);
 
       if (subcategories.length === 0) {
         showEmptySubcategories();
@@ -338,7 +336,7 @@ function loadSubcategories(categoryId) {
       }
     })
     .catch((error) => {
-      console.error("Error loading subcategories:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("Error loading subcategories:", error, "app");
       showEmptySubcategories();
     });
 }
@@ -361,7 +359,6 @@ function showSubcategoryTabs(subcategories) {
   if (!subcategoryNav) return;
 
   subcategoryNav.innerHTML = "";
-  console.log("Rendering subcategory tabs, count:", subcategories.length);
 
   if (subcategories.length === 0) {
     // Show "Add subcategory" button when no subcategories exist
@@ -489,7 +486,7 @@ function loadPermissions(subcategoryId) {
       updateDeleteButtonsState();
     })
     .catch((error) => {
-      console.error("Error loading permissions:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("Error loading permissions:", error, "app");
       // Still show empty tables with headers and search
       lastSavedPermissions = { user: {}, group: {} };
       currentPermissionsDraft = { user: {}, group: {} };
@@ -978,10 +975,10 @@ function savePermissions(which) {
           }
         } catch (_) {}
       } else {
-        console.error("Save failed", data && data.error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Save failed", data && data.error, "app");
       }
     })
-    .catch((e) => console.error("Save error", e))
+    .catch((e) => window.ErrorHandler && window.ErrorHandler.handleError("Save error", e, "app"))
     .finally(() => updateSaveButtonsState());
 }
 
@@ -1083,7 +1080,7 @@ function loadPage(which, page, q) {
       wireSearchbar("groups");
       wireSearchbar("users");
     })
-    .catch((err) => console.error("Error loading page", which, err));
+    .catch((err) => window.ErrorHandler && window.ErrorHandler.handleError("Error loading page", which, err, "app"));
 }
 
 function renderPagination(which, resp) {
@@ -1232,7 +1229,7 @@ function populateDisplayOrderCombo(selectId) {
       }
     })
     .catch((error) => {
-      console.error("Error loading categories for display order:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("Error loading categories for display order:", error, "app");
       select.innerHTML = "";
       for (let i = 1; i <= 5; i++) {
         const option = document.createElement("option");
@@ -1282,7 +1279,7 @@ function populateSubcategoryDisplayOrderCombo(selectId) {
         }
       })
       .catch((error) => {
-        console.error("Error loading subcategories for display order:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error loading subcategories for display order:", error, "app");
         select.innerHTML = "";
         for (let i = 1; i <= 5; i++) {
           const option = document.createElement("option");
@@ -1326,13 +1323,11 @@ function setupSocket() {
       }
 
       socket.on("connect_error", (err) => {
-        console.warn("Socket.IO connect_error:", err && (err.message || err));
         try {
           socket.close();
         } catch (_) {}
       });
       socket.on("error", (err) => {
-        console.warn("Socket.IO error:", err && (err.message || err));
       });
 
       try {
@@ -1354,7 +1349,6 @@ function setupSocket() {
         if (String(data.subcategory_id) !== String(currentSubcategoryId))
           return;
         if (isDirtyGroups || isDirtyUsers) {
-          console.log(
             "Remote update received but local changes are pending; skipping auto-refresh"
           );
           return;
@@ -1409,18 +1403,16 @@ function setupSocket() {
       // Handle force logout
       socket.on("force-logout", function (data) {
         try {
-          console.log("Force logout received on categories page");
           // Redirect to logout
           window.location.replace("/logout");
         } catch (err) {
-          console.error("Force logout error:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Force logout error:", err, "app");
         }
       });
 
       // Handle force refresh
       socket.on("force-refresh", function (data) {
         try {
-          console.log("Force refresh received on categories page", data);
           // Show notification before refresh
           if (window.showToast) {
             window.showToast(
@@ -1436,12 +1428,11 @@ function setupSocket() {
             window.location.href = url.toString();
           }, 1000);
         } catch (err) {
-          console.error("Force refresh error:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
         }
       });
     }
   } catch (e) {
-    console.warn("Socket.IO not available:", e);
   }
 }
 
@@ -1668,42 +1659,34 @@ function initCategoriesContextMenu() {
 // Placeholder functions for modal operations
 function showEditCategoryModal() {
   // Implementation needed
-  console.log("Edit category modal not implemented yet");
 }
 
 function showEditSubcategoryModal() {
   // Implementation needed
-  console.log("Edit subcategory modal not implemented yet");
 }
 
 function openConfirmDeleteCategory() {
   // Implementation needed
-  console.log("Delete category confirmation not implemented yet");
 }
 
 function openConfirmDeleteSubcategory() {
   // Implementation needed
-  console.log("Delete subcategory confirmation not implemented yet");
 }
 
 function openConfirmToggleCategory() {
   // Implementation needed
-  console.log("Toggle category confirmation not implemented yet");
 }
 
 function openConfirmToggleSubcategory() {
   // Implementation needed
-  console.log("Toggle subcategory confirmation not implemented yet");
 }
 
 function tryDeleteCategory() {
   // Implementation needed
-  console.log("Delete category not implemented yet");
 }
 
 function tryDeleteSubcategory() {
   // Implementation needed
-  console.log("Delete subcategory not implemented yet");
 }
 
 // Export for global access

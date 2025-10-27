@@ -443,7 +443,6 @@ function handleFileAction(actionType, fileId) {
         renameFile(fileId);
         break;
       default:
-        console.warn("Unknown file action:", actionType);
     }
   } catch (err) {
     window.ErrorHandler.handleError(err, "setupFileUploadForms");
@@ -458,39 +457,6 @@ function downloadFile(fileId) {
   }
 }
 
-function deleteFile(fileId) {
-  try {
-    if (confirm("Вы уверены, что хотите удалить этот файл?")) {
-      fetch(`/files/delete/${fileId}`, {
-        method: "POST",
-        headers: {
-          "X-Requested-With": "XMLHttpRequest",
-          "X-Client-Id": window.__filesClientId || "unknown",
-        },
-      })
-        .then(async (response) => {
-          const data = await response.json();
-          if (!response.ok || data.status !== "success") {
-            throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
-          }
-          if (window.showToast) {
-            window.showToast("Файл удален", "success");
-          }
-            // Remove file from UI
-          const fileElement = document.getElementById(fileId);
-            if (fileElement) {
-              fileElement.remove();
-            }
-          return data;
-        })
-        .catch((err) => {
-          window.ErrorHandler.handleError(err, "deleteFile");
-        });
-    }
-  } catch (err) {
-    window.ErrorHandler.handleError(err, "deleteFile");
-  }
-}
 
 function moveFile(fileId) {
   try {
@@ -651,7 +617,6 @@ function setupFilesSocketSync() {
       // Handle files:maintenance_completed event for maintenance completion
       window.SyncManager.on("files:maintenance_completed", (data) => {
         try {
-          console.log("Files maintenance completed:", data);
 
           if (window.showToast) {
             window.showToast(
@@ -670,14 +635,13 @@ function setupFilesSocketSync() {
             }, 1000);
           }
         } catch (err) {
-          console.error("Error handling files:maintenance_completed:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Error handling files:maintenance_completed:", err, "files");
         }
       });
 
       // Handle files:metadata_updated event for metadata updates
       window.SyncManager.on("files:metadata_updated", (data) => {
         try {
-          console.log("Files metadata updated:", data);
 
           if (window.showToast) {
             window.showToast("Метаданные файлов обновлены", "info");
@@ -688,7 +652,7 @@ function setupFilesSocketSync() {
             window.FilesManagement.debouncedSync();
           }
         } catch (err) {
-          console.error("Error handling files:metadata_updated:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Error handling files:metadata_updated:", err, "files");
         }
       });
     }
@@ -704,14 +668,13 @@ document.addEventListener("DOMContentLoaded", function () {
       setTimeout(setupFilesSocketSync, 500); // Reduced from 1000ms
     });
   } catch (err) {
-    console.error("Error initializing files socket sync:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error initializing files socket sync:", err, "files");
   }
 });
 
 // Mark file as viewed
 window.markViewedAjax = function (fileId) {
   try {
-    console.log("Marking file as viewed:", fileId);
 
     // Get view URL from row data (same as context menu)
     const row = document.querySelector(`tr[data-id="${fileId}"]`) || document.getElementById(String(fileId));
@@ -734,7 +697,6 @@ window.markViewedAjax = function (fileId) {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        console.log("File marked as viewed successfully");
         
         // Refresh the files table to update the UI after a short delay
         setTimeout(() => {
@@ -747,11 +709,11 @@ window.markViewedAjax = function (fileId) {
         }, 50);
       })
       .catch((error) => {
-        console.error("Error marking file as viewed:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error marking file as viewed:", error, "files");
         window.ErrorHandler.handleError(error, "markViewedAjax");
       });
   } catch (error) {
-    console.error("Error in markViewedAjax:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in markViewedAjax:", error, "files");
     window.ErrorHandler.handleError(error, "markViewedAjax");
   }
 };
@@ -781,7 +743,7 @@ window.openRegistratorImport = function () {
     // Load registrators list into the picker
     const picker = document.getElementById('reg-picker');
     if (!picker) {
-      console.error("Registrator picker not found");
+      window.ErrorHandler && window.ErrorHandler.handleError("Registrator picker not found", "files");
       return;
     }
     
@@ -829,12 +791,12 @@ window.openRegistratorImport = function () {
         }
       })
       .catch(function(err) {
-        console.error("Error loading registrators:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error loading registrators:", err, "files");
         window.ErrorHandler && window.ErrorHandler.handleError(err, "openRegistratorImport");
         picker.innerHTML = '<option value="">Ошибка загрузки регистраторов</option>';
       });
   } catch (error) {
-    console.error("Error opening registrator import modal:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error opening registrator import modal:", error, "files");
     window.ErrorHandler.handleError(error, "openRegistratorImport");
   }
 };
@@ -955,11 +917,11 @@ function loadRegistratorLevel(rid, level) {
         }
       })
       .catch(function(err) {
-        console.error("Error loading level:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error loading level:", err, "files");
         window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorLevel");
       });
   } catch (error) {
-    console.error("Error in loadRegistratorLevel:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in loadRegistratorLevel:", error, "files");
     window.ErrorHandler.handleError(error, "loadRegistratorLevel");
   }
 }
@@ -1049,11 +1011,11 @@ function loadRegistratorFiles(rid) {
         }
       })
       .catch(function(err) {
-        console.error("Error loading files:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error loading files:", err, "files");
         window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorFiles");
       });
   } catch (error) {
-    console.error("Error in loadRegistratorFiles:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in loadRegistratorFiles:", error, "files");
     window.ErrorHandler.handleError(error, "loadRegistratorFiles");
   }
 }
@@ -1115,7 +1077,7 @@ window.submitRegistratorImport = function () {
         }
       })
       .catch((err) => {
-        console.error("Error checking upload limit:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error checking upload limit:", err, "files");
         if (window.showToast) {
           window.showToast("Ошибка при проверке лимита загрузок", "error");
         }
@@ -1219,13 +1181,13 @@ function startBackgroundUpload(
         );
       })
       .catch((err) => {
-        console.error("Error checking upload limit:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error checking upload limit:", err, "files");
         if (window.showToast) {
           window.showToast("Ошибка при проверке лимита загрузок", "error");
         }
       });
   } catch (err) {
-    console.error("Error in startBackgroundUpload:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in startBackgroundUpload:", err, "files");
     if (window.showToast) {
       window.showToast("Ошибка при запуске загрузки", "error");
     }
@@ -1288,9 +1250,7 @@ function proceedWithUpload(
     })
       .then((response) => response.json())
       .then((data) => {
-        console.log('[DEBUG] Upload started, response:', data);
         if (data.status === "success") {
-            console.log('[DEBUG] Starting upload monitoring for:', data.upload_id);
             
             // Reset form
             resetRegistratorForm();
@@ -1316,14 +1276,12 @@ function proceedWithUpload(
             setTimeout(function() {
               document.body.style.overflow = "";
               document.documentElement.style.overflow = "";
-              console.log('[DEBUG] Restored scroll after modal close');
             }, 100);
 
             // Start monitoring upload progress
             monitorUploadProgress(data.upload_id, registratorName);
 
             // Show persistent progress indicator
-            console.log('[DEBUG] About to show progress indicator');
             showPersistentProgressIndicator(
               data.upload_id,
               registratorName,
@@ -1371,14 +1329,14 @@ function proceedWithUpload(
           }
         })
         .catch((err) => {
-          console.error("Error starting upload:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Error starting upload:", err, "files");
           if (window.showToast) {
             window.showToast("Ошибка при запуске загрузки", "error");
           }
         });
     }, 100);
   } catch (err) {
-    console.error("Error in proceedWithUpload:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in proceedWithUpload:", err, "files");
     if (window.showToast) {
       window.showToast("Ошибка при загрузке файлов", "error");
     }
@@ -1420,7 +1378,7 @@ function resetRegistratorForm() {
       cb.checked = false;
     });
   } catch (err) {
-    console.error("Error resetting registrator form:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error resetting registrator form:", err, "files");
   }
 }
 
@@ -1430,7 +1388,6 @@ function showPersistentProgressIndicator(
   totalFiles
 ) {
   try {
-    console.log('[DEBUG] Creating progress indicator for upload:', uploadId);
     
     // Create persistent progress indicator
     var progressId = "persistent-progress-" + uploadId;
@@ -1445,7 +1402,6 @@ function showPersistentProgressIndicator(
     
     // Add to DOM first, then calculate position
     document.body.appendChild(indicator);
-    console.log('[DEBUG] Progress indicator added to DOM:', progressId);
     
     // Set CSS styles first
     indicator.style.cssText = `
@@ -1465,13 +1421,6 @@ function showPersistentProgressIndicator(
     
     // Check if indicator is visible
     var rect = indicator.getBoundingClientRect();
-    console.log('[DEBUG] Indicator position:', {
-      top: rect.top,
-      right: rect.right,
-      width: rect.width,
-      height: rect.height,
-      visible: rect.width > 0 && rect.height > 0
-    });
     
     // Recalculate all toast positions to ensure proper spacing
     recalculateToastPositions();
@@ -1508,7 +1457,7 @@ function showPersistentProgressIndicator(
     };
     localStorage.setItem("upload_" + uploadId, JSON.stringify(uploadInfo));
   } catch (err) {
-    console.error("Error showing persistent progress indicator:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error showing persistent progress indicator:", err, "files");
   }
 }
 
@@ -1518,16 +1467,11 @@ function monitorUploadProgress(uploadId, registratorName) {
     const connectionState = window.SyncManager.getConnectionState();
     if (!connectionState.connected) {
       // Если сокет не подключен, пропускаем этот цикл, но не останавливаем мониторинг
-      console.log(
-        `[DEBUG] Socket not connected, skipping progress check for ${uploadId}`
-      );
       return;
     }
 
-    console.log(`[DEBUG] Checking upload status for ${uploadId}`);
     fetch(`/api/upload-status/${uploadId}`)
       .then((response) => {
-        console.log(`[DEBUG] Upload status response: ${response.status}`);
         if (response.status === 404) {
           // Upload job not found (server restart), stop monitoring
           clearInterval(progressInterval);
@@ -1550,12 +1494,8 @@ function monitorUploadProgress(uploadId, registratorName) {
       })
       .then((data) => {
         if (!data) return; // Skip if 404 was handled
-        console.log(`[DEBUG] Upload status data:`, data);
         if (data.status === "success") {
           var upload = data.upload;
-          console.log(
-            `[DEBUG] Upload progress: ${upload.completed_files}/${upload.total_files} (${upload.status})`
-          );
 
           // Update progress indicators
           updateProgressIndicators(uploadId, upload);
@@ -1600,7 +1540,7 @@ function monitorUploadProgress(uploadId, registratorName) {
         }
       })
       .catch((err) => {
-        console.error(`[DEBUG] Error checking upload status:`, err);
+        window.ErrorHandler && window.ErrorHandler.handleError(`[DEBUG] Error checking upload status:`, err, "files");
         // Don't stop monitoring on network errors, just log them
       });
   }, 2000); // Check every 2 seconds
@@ -1608,20 +1548,12 @@ function monitorUploadProgress(uploadId, registratorName) {
 
 function updateProgressIndicators(uploadId, upload) {
   try {
-    console.log('[DEBUG] Updating progress indicators for:', uploadId, upload);
     
     // Update persistent progress indicator
     var filesSpan = document.getElementById("progress-files-" + uploadId);
     var percentSpan = document.getElementById("progress-percent-" + uploadId);
     var barDiv = document.getElementById("progress-bar-" + uploadId);
     var statusDiv = document.getElementById("progress-status-" + uploadId);
-
-    console.log('[DEBUG] Found elements:', {
-      filesSpan: !!filesSpan,
-      percentSpan: !!percentSpan,
-      barDiv: !!barDiv,
-      statusDiv: !!statusDiv
-    });
 
     if (filesSpan) {
       filesSpan.textContent = `${upload.completed_files}/${upload.total_files}`;
@@ -1635,14 +1567,6 @@ function updateProgressIndicators(uploadId, upload) {
     var totalProgress = completed + (currentFileProgress / 100);
     var percent = Math.round((totalProgress / total) * 100);
     
-    console.log('[DEBUG] Progress calculation:', {
-      completed,
-      total,
-      currentFileProgress,
-      totalProgress,
-      percent
-    });
-    
     if (percentSpan) {
       percentSpan.textContent = percent + "%";
     }
@@ -1653,7 +1577,7 @@ function updateProgressIndicators(uploadId, upload) {
       statusDiv.textContent = upload.current_file || "Обработка...";
     }
   } catch (err) {
-    console.error("Error updating progress indicators:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error updating progress indicators:", err, "files");
   }
 }
 
@@ -1686,7 +1610,7 @@ function recalculateToastPositions() {
       indicator.style.top = topOffset + "px";
     });
   } catch (err) {
-    console.error("Error recalculating toast positions:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error recalculating toast positions:", err, "files");
   }
 }
 
@@ -1720,26 +1644,24 @@ function cleanupInactiveUploads() {
         }
       })
       .catch((err) => {
-        console.error("Error cleaning up uploads:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Error cleaning up uploads:", err, "files");
         if (window.showToast) {
           window.showToast("Ошибка при очистке загрузок", "error");
         }
       });
   } catch (err) {
-    console.error("Error in cleanupInactiveUploads:", err);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in cleanupInactiveUploads:", err, "files");
   }
 }
 
 // Restore upload progress indicators after page reload
 function restoreUploadProgressFromStorage() {
   try {
-    console.log('[DEBUG] Restoring upload progress from localStorage...');
     var keys = Object.keys(localStorage);
     var uploadKeys = keys.filter(function(key) {
       return key.startsWith('upload_');
     });
     
-    console.log('[DEBUG] Found upload keys:', uploadKeys);
     
     // Check if uploads are still active on server
     if (uploadKeys.length > 0) {
@@ -1748,7 +1670,6 @@ function restoreUploadProgressFromStorage() {
         method: 'POST',
         credentials: 'include'
       }).catch(function(err) {
-        console.warn('Failed to cleanup inactive uploads:', err);
       });
       
       fetch('/api/active-uploads-list')
@@ -1767,7 +1688,6 @@ function restoreUploadProgressFromStorage() {
                 var uploadInfo = JSON.parse(localStorage.getItem(key));
                 if (uploadInfo && uploadInfo.upload_id) {
                   if (activeUploadIds.includes(uploadInfo.upload_id)) {
-                    console.log('[DEBUG] Restoring upload:', uploadInfo);
                     
                     // Restore the progress indicator
                     showPersistentProgressIndicator(
@@ -1780,12 +1700,11 @@ function restoreUploadProgressFromStorage() {
                     monitorUploadProgress(uploadInfo.upload_id, uploadInfo.registrator_name);
                   } else {
                     // Upload is no longer active, remove from localStorage
-                    console.log('[DEBUG] Removing inactive upload:', uploadInfo.upload_id);
                     localStorage.removeItem(key);
                   }
                 }
               } catch (err) {
-                console.error('Error restoring upload from localStorage:', key, err);
+                window.ErrorHandler && window.ErrorHandler.handleError('Error restoring upload from localStorage:', key, err, "files");
                 // Remove corrupted entry
                 localStorage.removeItem(key);
               }
@@ -1796,11 +1715,11 @@ function restoreUploadProgressFromStorage() {
           }
         })
         .catch(function(err) {
-          console.error('Error checking active uploads:', err);
+          window.ErrorHandler && window.ErrorHandler.handleError('Error checking active uploads:', err, "files");
         });
     }
   } catch (err) {
-    console.error('Error restoring upload progress:', err);
+    window.ErrorHandler && window.ErrorHandler.handleError('Error restoring upload progress:', err, "files");
   }
 }
 
@@ -1815,8 +1734,6 @@ if (document.readyState === 'loading') {
 // Cancel upload function
 window.cancelUpload = function(uploadId) {
   try {
-    console.log('[DEBUG] Canceling upload:', uploadId);
-    
     // Confirm cancellation
     if (!confirm('Вы уверены, что хотите отменить загрузку? Частично загруженные файлы будут удалены.')) {
       return;
@@ -1838,8 +1755,6 @@ window.cancelUpload = function(uploadId) {
       })
       .then(function(data) {
         if (data.success) {
-          console.log('[DEBUG] Upload cancelled successfully:', uploadId);
-          
           // Hide progress indicator
           hidePersistentProgress(uploadId);
           
@@ -1851,20 +1766,17 @@ window.cancelUpload = function(uploadId) {
             window.showToast('Загрузка отменена', 'success');
           }
         } else {
-          console.error('[DEBUG] Failed to cancel upload:', data.error);
           if (window.showToast) {
             window.showToast('Ошибка при отмене загрузки: ' + (data.error || 'Unknown error'), 'error');
           }
         }
       })
       .catch(function(err) {
-        console.error('[DEBUG] Error cancelling upload:', err);
         if (window.showToast) {
           window.showToast('Ошибка при отмене загрузки', 'error');
         }
       });
   } catch (err) {
-    console.error('Error in cancelUpload:', err);
     if (window.showToast) {
       window.showToast('Ошибка при отмене загрузки', 'error');
     }

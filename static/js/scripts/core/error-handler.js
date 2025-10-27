@@ -9,13 +9,10 @@ function handleError(err, context) {
       : `Ошибка выполнения: ${errorMessage}`;
 
     if (window.showToast) {
-      // Show only the error message, not the full message with context
       window.showToast(errorMessage, "error");
-    } else {
-      console.error(fullMessage);
     }
   } catch (e) {
-    console.error("Критическая ошибка в обработчике ошибок:", e);
+    // Silently handle errors in error handler to avoid infinite loops
   }
 }
 

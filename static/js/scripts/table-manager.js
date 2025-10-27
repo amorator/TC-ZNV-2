@@ -158,7 +158,7 @@
         tableData.lastRefresh = Date.now();
         return true;
       } catch (error) {
-        console.error('Table refresh error:', error);
+        window.ErrorHandler && window.ErrorHandler.handleError('Table refresh error:', error, "app");
         return false;
       }
     }

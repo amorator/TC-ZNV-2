@@ -29,86 +29,49 @@ def register(app, socketio=None):
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
 
     def _emit_categories_changed(payload: dict) -> None:
-        try:
-            _log.info(f"[categories] emit categories:changed: {payload}")
-        except Exception:
-            pass
-        try:
-            _sock = socketio if socketio else getattr(app, 'socketio', None)
-        except Exception:
-            _sock = None
+        _log.info(f"[categories] emit categories:changed: {payload}")
+        _sock = socketio if socketio else getattr(app, 'socketio', None)
         if not _sock:
-            try:
-                _log.error("[categories] emit failed: socketio missing")
-            except Exception:
-                pass
+            _log.error("[categories] emit failed: socketio missing")
             return
-        # default namespace
         try:
             _sock.emit('categories:changed', payload)
-        except Exception as e:
-            try:
-                _log.error(f"[categories] emit default namespace failed: {e}")
-            except Exception:
-                pass
-        # explicit '/'
-        try:
             _sock.emit('categories:changed', payload, namespace='/')
         except Exception as e:
-            try:
-                _log.error(f"[categories] emit / namespace failed: {e}")
-            except Exception:
-                pass
+            _log.error(f"[categories] emit failed: {e}")
 
     def _wants_json_response() -> bool:
-        """Определение, ожидает ли клиент JSON‑ответ (AJAX/fetch).
-
-		Возвращает True, если заголовки/параметры запроса указывают на AJAX.
-		"""
-        try:
-            xrw = request.headers.get('X-Requested-With', '').lower()
-            if xrw in ('xmlhttprequest', 'fetch'):  # fetch/XMLHttpRequest
-                return True
-            accept = request.headers.get('Accept', '')
-            if 'application/json' in (accept or '').lower():
-                return True
-            if request.args.get('ajax') == '1':
-                return True
-        except Exception:
-            pass
+        """Определение, ожидает ли клиент JSON‑ответ (AJAX/fetch)."""
+        xrw = request.headers.get('X-Requested-With', '').lower()
+        if xrw in ('xmlhttprequest', 'fetch'):
+            return True
+        accept = request.headers.get('Accept', '')
+        if 'application/json' in (accept or '').lower():
+            return True
+        if request.args.get('ajax') == '1':
+            return True
         return False
 
     # Files root resolver with fallback
     def _files_root() -> str:
-        """Resolve files root from config, supporting dict and ConfigParser.
-
-		Priority: app._sql.config['files']['root'] else <app.root_path>/files
-		"""
-        try:
-            cfg = getattr(app, '_sql', None)
-            conf = getattr(cfg, 'config', None)
-            base = None
-            if conf is not None:
-                # Try dict-style first
-                try:
-                    files = conf['files']  # type: ignore[index]
-                    base = str(files.get('root') or '').strip() or None
-                except Exception:
-                    pass
-                # Try ConfigParser-style
-                if not base:
-                    try:
-                        base = str(conf.get(
-                            'files', 'root',
-                            fallback='')).strip()  # type: ignore[call-arg]
-                    except Exception:
-                        pass
-            if base:
-                return base if os.path.isabs(base) else os.path.abspath(base)
-            # Original fallback (intentional): project-root files directory
-            return os.path.join(app.root_path, 'files')
-        except Exception:
-            return os.path.join(app.root_path, 'files')
+        """Resolve files root from config, supporting dict and ConfigParser."""
+        cfg = getattr(app, '_sql', None)
+        conf = getattr(cfg, 'config', None)
+        if conf:
+            try:
+                files = conf['files']
+                base = str(files.get('root') or '').strip()
+                if base:
+                    return base if os.path.isabs(base) else os.path.abspath(base)
+            except Exception:
+                pass
+            try:
+                base = str(conf.get('files', 'root', fallback='')).strip()
+                if base:
+                    return base if os.path.isabs(base) else os.path.abspath(base)
+            except Exception:
+                pass
+        return os.path.join(app.root_path, 'files')
 
     # Startup directory initialization removed to avoid root-owned folders.
 
@@ -124,22 +87,14 @@ def register(app, socketio=None):
         ]
         subcategories = app._sql.subcategory_all()
 
-        # Group subcategories by category
         subcategories_by_category = {}
         for subcat in subcategories:
             if subcat.category_id not in subcategories_by_category:
                 subcategories_by_category[subcat.category_id] = []
             subcategories_by_category[subcat.category_id].append(subcat)
 
-        # Capability flags for client-side UI gating
-        try:
-            can_cats_manage = current_user.has(CATEGORIES_MANAGE)
-        except Exception:
-            can_cats_manage = False
-        try:
-            can_subs_manage = current_user.has(SUBCATEGORIES_MANAGE)
-        except Exception:
-            can_subs_manage = False
+        can_cats_manage = current_user.has(CATEGORIES_MANAGE)
+        can_subs_manage = current_user.has(SUBCATEGORIES_MANAGE)
 
         return render_template(
             'categories.j2.html',

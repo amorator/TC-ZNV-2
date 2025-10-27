@@ -31,7 +31,6 @@ function stopAllMedia() {
       element.onerror = null;
       element.removeAttribute("src");
     } catch (error) {
-      console.warn("Error stopping media element:", error);
     }
   });
 }
@@ -80,7 +79,6 @@ function popupToggle(popupId) {
         element.onerror = null;
         element.removeAttribute("src");
       } catch (error) {
-        console.warn("Error stopping media:", error);
       }
     });
 
@@ -192,7 +190,6 @@ function popupClose(popupId) {
       element.onerror = null;
       element.removeAttribute("src");
     } catch (error) {
-      console.warn("Error stopping media:", error);
     }
   });
 

@@ -148,7 +148,7 @@
         : document.getElementById(modalId);
 
       if (!modal) {
-        console.error(`Modal ${modalId} not found`);
+        window.ErrorHandler && window.ErrorHandler.handleError(`Modal ${modalId} not found`, "app");
         return false;
       }
 
@@ -689,7 +689,7 @@
           throw new Error(error);
         }
       } catch (error) {
-        console.error("Form submission error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Form submission error:", error, "app");
         if (onError) onError(error);
         throw error;
       } finally {
@@ -782,7 +782,6 @@
           formData.append("cat_id", catId);
           formData.append("sub_id", subId);
         } else {
-          console.warn("Cannot determine cat_id/sub_id for file upload", catId, subId);
         }
       }
 
@@ -820,7 +819,6 @@
           // Update locally based on the form action
           if (window.location.pathname.includes("/users")) {
             const formAction = form.action;
-            console.log("Form action:", formAction);
 
             if (formAction.includes("/users/add")) {
               // User created - refresh entire table
@@ -833,19 +831,16 @@
             } else if (formAction.includes("/users/edit/")) {
               // User edited - extract user ID and update specific row
               const userId = formAction.match(/\/users\/edit\/(\d+)/)?.[1];
-              console.log("Extracted userId:", userId);
               if (
                 userId &&
                 window.UsersPage &&
                 window.UsersPage.updateUserRow
               ) {
-                console.log("Calling updateUserRow for userId:", userId);
                 window.UsersPage.updateUserRow(userId);
               } else if (
                 window.UsersManagement &&
                 window.UsersManagement.softRefreshUsersTable
               ) {
-                console.log("Fallback: calling softRefreshUsersTable");
                 window.UsersManagement.softRefreshUsersTable(true);
               }
             } else if (formAction.includes("/users/reset/")) {
@@ -906,7 +901,7 @@
           }
         })
         .catch((error) => {
-          console.error("Form submission error:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError("Form submission error:", error, "app");
           if (window.ErrorHandler && window.ErrorHandler.handleError) {
             window.ErrorHandler.handleError(error, "validateForm");
           } else if (window.notify) {
@@ -919,7 +914,7 @@
 
       return true;
     } catch (error) {
-      console.error("Form submission error:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("Form submission error:", error, "app");
       if (window.ErrorHandler && window.ErrorHandler.handleError) {
         window.ErrorHandler.handleError(error, "validateForm");
       } else if (window.notify) {

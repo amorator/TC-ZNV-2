@@ -8,7 +8,78 @@ async function validateForm(element) {
   try {
     const form = element.closest("form");
     if (!form) return false;
+    
+    // Special handling for delete form
+    if (form.id === "delete" && form.action.includes('/files/delete/') && element) {
+      const formAction = form.action;
+      
+      // Extract ID from URL like /files/delete/123
+      const match = formAction.match(/\/files\/delete\/(\d+)/);
+      if (match) {
+        const fileId = match[1];
+        
+        // Close modal and call deleteFile
+        closeModal('popup-delete');
+        setTimeout(() => {
+          if (window.FilesManagement && window.FilesManagement.deleteFile) {
+            window.FilesManagement.deleteFile(fileId);
+          }
+        }, 100);
+        return false;
+      }
+      return false;
+    }
 
+    // Special handling for note form
+    if (form.id === "note" && form.action.includes('/files/note/') && element) {
+      const formAction = form.action;
+      
+      // Extract ID from URL like /files/note/123
+      const match = formAction.match(/\/files\/note\/(\d+)/);
+      if (match) {
+        const fileId = match[1];
+        
+        // Submit the note form via fetch
+        submitNoteForm(form, fileId);
+        return false;
+      }
+      return false;
+    }
+
+    // Special handling for edit form
+    if (form.id === "edit" && form.action.includes('/files/edit/') && element) {
+      const formAction = form.action;
+      
+      // Extract ID from URL like /files/edit/123
+      const match = formAction.match(/\/files\/edit\/(\d+)/);
+      if (match) {
+        const fileId = match[1];
+        
+        // Submit the edit form via fetch
+        submitEditForm(form, fileId);
+        return false;
+      }
+      return false;
+    }
+
+    // Special handling for move form
+    if (form.id === "move" && form.action.includes('/files/move/') && element) {
+      const formAction = form.action;
+      
+      // Extract ID from URL like /files/move/123
+      const match = formAction.match(/\/files\/move\/(\d+)/);
+      if (match) {
+        const fileId = match[1];
+        
+        // Submit the move form via fetch
+        submitMoveForm(form, fileId);
+        return false;
+      }
+      return false;
+    }
+
+    // For all other forms, delegate to modal-manager's validateForm if available
+    // This ensures backward compatibility
     const formData = new FormData(form);
     const errors = [];
 
@@ -188,6 +259,132 @@ async function validateFileUpload(form) {
   }
 }
 
+/**
+ * Submit note form
+ * @param {HTMLFormElement} form - Form element
+ * @param {string} fileId - File ID
+ */
+async function submitNoteForm(form, fileId) {
+  try {
+    const formData = new FormData(form);
+    
+    const response = await fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Client-Id': window.__filesClientId || 'unknown',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    if (window.showToast) {
+      window.showToast('Примечание сохранено', 'success');
+    }
+    
+    // Close modal
+    closeModal('popup-note');
+    
+    // Trigger refresh
+    if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+      window.FilesManagement.debouncedSync();
+    }
+    
+    return data;
+  } catch (err) {
+    window.ErrorHandler.handleError(err, 'submitNoteForm');
+  }
+}
+
+/**
+ * Submit edit form
+ * @param {HTMLFormElement} form - Form element
+ * @param {string} fileId - File ID
+ */
+async function submitEditForm(form, fileId) {
+  try {
+    const formData = new FormData(form);
+    
+    const response = await fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Client-Id': window.__filesClientId || 'unknown',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    if (window.showToast) {
+      window.showToast('Файл обновлен', 'success');
+    }
+    
+    // Close modal
+    closeModal('popup-edit');
+    
+    // Trigger refresh
+    if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+      window.FilesManagement.debouncedSync();
+    }
+    
+    return data;
+  } catch (err) {
+    window.ErrorHandler.handleError(err, 'submitEditForm');
+  }
+}
+
+/**
+ * Submit move form
+ * @param {HTMLFormElement} form - Form element
+ * @param {string} fileId - File ID
+ */
+async function submitMoveForm(form, fileId) {
+  try {
+    const formData = new FormData(form);
+    
+    const response = await fetch(form.action, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Client-Id': window.__filesClientId || 'unknown',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok || data.status !== 'success') {
+      throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    if (window.showToast) {
+      window.showToast('Файл перемещен', 'success');
+    }
+    
+    // Close modal
+    closeModal('popup-move');
+    
+    // Trigger refresh
+    if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+      window.FilesManagement.debouncedSync();
+    }
+    
+    return data;
+  } catch (err) {
+    window.ErrorHandler.handleError(err, 'submitMoveForm');
+  }
+}
+
 // Export functions to global scope
 window.FilesFormValidation = {
   validateForm,
@@ -195,7 +392,13 @@ window.FilesFormValidation = {
   showValidationErrors,
   clearValidationErrors,
   validateFileUpload,
+  submitNoteForm,
+  submitEditForm,
+  submitMoveForm,
 };
 // Backward compatibility for inline handlers
 window.validateForm = validateForm;
 window.validateFileUpload = validateFileUpload;
+window.submitNoteForm = submitNoteForm;
+window.submitEditForm = submitEditForm;
+window.submitMoveForm = submitMoveForm;

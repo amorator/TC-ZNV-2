@@ -76,7 +76,7 @@ function updateFile(fileId, fileData) {
 }
 
 /**
- * Delete file with confirmation dialog
+ * Delete file
  * @param {string} fileId - File ID
  */
 function deleteFile(fileId) {
@@ -89,41 +89,35 @@ function deleteFile(fileId) {
   }
 
   const fileRow = document.getElementById(fileId);
-  const fileName = fileRow
-    ? fileRow.dataset.fileName || "неизвестный"
-    : "неизвестный";
-  const displayName = fileRow
-    ? fileRow.dataset.displayName || fileName
-    : fileName;
-
-  if (confirm(`Вы действительно хотите удалить файл ${displayName}?`)) {
-    fetch(`/files/delete/${fileId}`, {
-      method: "POST",
-      headers: {
-        "X-Requested-With": "XMLHttpRequest",
-        "X-Client-Id": window.__filesClientId || "unknown",
-      },
+  
+  fetch(`/files/delete/${fileId}`, {
+    method: "POST",
+    headers: {
+      "X-Requested-With": "XMLHttpRequest",
+      "X-Client-Id": window.__filesClientId || "unknown",
+    },
+  })
+    .then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.status !== "success") {
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      if (window.showToast) {
+        window.showToast("Файл удален", "success");
+      }
+      // Remove file row from UI
+      if (fileRow) {
+        fileRow.remove();
+      }
+      // Trigger soft refresh to sync with other clients
+      if (window.FilesManagement && window.FilesManagement.debouncedSync) {
+        window.FilesManagement.debouncedSync();
+      }
+      return data;
     })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || data.status !== "success") {
-          throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
-        }
-        if (window.showToast) {
-          window.showToast("Файл удален", "success");
-        }
-        // Remove file row from UI
-        if (fileRow) {
-          fileRow.remove();
-        }
-        // Trigger soft refresh to sync with other clients
-        if (window.FilesManagement && window.FilesManagement.debouncedSync) {
-          window.FilesManagement.debouncedSync();
-        }
-        return data;
-      })
-      .catch((err) => window.ErrorHandler.handleError(err, "deleteFile"));
-  }
+    .catch((err) => {
+      window.ErrorHandler.handleError(err, "deleteFile");
+    });
 }
 
 /**
@@ -268,10 +262,10 @@ function refreshTableWithAjax() {
         }
       })
       .catch((error) => {
-        console.error("Failed to refresh files table:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Failed to refresh files table:", error, "app");
       });
   } catch (error) {
-    console.error("Error in refreshTableWithAjax:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in refreshTableWithAjax:", error, "app");
   }
 }
 
@@ -324,3 +318,4 @@ window.FilesManagement = {
 
 // Export key functions globally
 window.softRefreshFilesTable = softRefreshFilesTable;
+window.deleteFile = deleteFile;

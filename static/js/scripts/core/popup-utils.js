@@ -22,15 +22,20 @@ function popupValues(form, rowId) {
     if (!name) return;
 
     // Try to find corresponding data attribute in the row
-    const dataValue = row.getAttribute(`data-${name}`);
+    let dataValue = row.getAttribute(`data-${name}`);
     if (dataValue !== null) {
       if (input.type === "checkbox") {
         input.checked = dataValue === "true" || dataValue === "1";
       } else {
+        // Remove [Регистратор - XXX] from description for editing
+        if (name === "description" && dataValue.includes("[Регистратор - ")) {
+          dataValue = dataValue.replace(/\s*\[Регистратор - [^\]]+\]\s*/, "");
+        }
         input.value = dataValue;
       }
     }
   });
+
 
   // Update form action URL with row ID
   if (form.action && form.action.includes("/0")) {
@@ -131,7 +136,6 @@ function popupToggle(popupId, rowId) {
       // Fallback to direct modal manipulation
       const popupElement = document.getElementById(popupId);
       if (!popupElement) {
-        console.warn(`Modal element not found: ${popupId}`);
         return;
       }
 
@@ -146,7 +150,7 @@ function popupToggle(popupId, rowId) {
       document.body.appendChild(backdrop);
     }
   } catch (error) {
-    console.error("Error in popupToggle:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Error in popupToggle:", error, "app");
   }
 }
 

@@ -62,7 +62,7 @@ function validateForm(x) {
         }
       }
     }
-    console.error("Login form submission error:", error);
+    window.ErrorHandler && window.ErrorHandler.handleError("Login form submission error:", error, "app");
     return false;
   }
 

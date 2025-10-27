@@ -129,7 +129,7 @@ window.Utils = (function () {
         return response.json();
       })
       .catch((error) => {
-        console.error("Fetch error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Fetch error:", error, "app");
         showToast("Ошибка сети: " + error.message, "error");
         throw error;
       });

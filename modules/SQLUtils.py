@@ -668,25 +668,44 @@ class SQLUtils(SQL):
 		size_mb = args[9]
 		order_id = args[10] if len(args) > 10 else None
 		
-		values = [
-			display_name,
-			file_name,
-			owner_id,
-			description,
-			date_s,
-			ready,
-			length_seconds,
-			size_mb,
-			order_id,
-			category_id,
-			subcategory_id,
-			1,  # file_exists = True for new files
-		]
-		
-		return self.execute_insert(
-			f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, created_at, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
-			values,
-		)
+		if date_s is None:
+			# Use MySQL's DEFAULT CURRENT_TIMESTAMP
+			values = [
+				display_name,
+				file_name,
+				owner_id,
+				description,
+				ready,
+				length_seconds,
+				size_mb,
+				order_id,
+				category_id,
+				subcategory_id,
+				1,  # file_exists = True for new files
+			]
+			return self.execute_insert(
+				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+				values,
+			)
+		else:
+			values = [
+				display_name,
+				file_name,
+				owner_id,
+				description,
+				date_s,
+				ready,
+				length_seconds,
+				size_mb,
+				order_id,
+				category_id,
+				subcategory_id,
+				1,  # file_exists = True for new files
+			]
+			return self.execute_insert(
+				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, created_at, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+				values,
+			)
 
 	def file_edit(self, args):
 		"""Edit file. Args: [display_name, description, id]"""

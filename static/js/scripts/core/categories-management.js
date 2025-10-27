@@ -41,7 +41,6 @@ function showEmptyCategories() {
   try {
     const tabsContainer = document.getElementById("category-tabs");
     if (!tabsContainer) {
-      console.warn("Element 'category-tabs' not found in DOM");
       return;
     }
     tabsContainer.innerHTML = "<p>Нет категорий</p>";

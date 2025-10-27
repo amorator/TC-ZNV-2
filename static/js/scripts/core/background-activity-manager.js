@@ -254,13 +254,13 @@
           window.socket = newSocket;
           return true;
         } catch (err) {
-          console.error("Failed to create new socket:", err);
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to create new socket:", err, "app");
         }
       }
 
       return false;
     } catch (err) {
-      console.error("Force reconnect error:", err);
+      window.ErrorHandler && window.ErrorHandler.handleError("Force reconnect error:", err, "app");
       return false;
     }
   }
@@ -275,11 +275,6 @@
 
       if (connected && !wasConnected) {
         // Socket connected - start all activities
-        if (reconnectAttempts > 0) {
-          console.log(
-            `Reconnection successful after ${reconnectAttempts} attempts`
-          );
-        }
         startAllActivities();
         reconnectAttempts = 0;
         isReconnecting = false; // Reset reconnection flag
@@ -315,11 +310,6 @@
 
       reconnectAttempts++;
       const reconnectDelay = getReconnectInterval();
-      console.log(
-        `Reconnection attempt ${reconnectAttempts} (next in ${
-          reconnectDelay / 1000
-        }s)`
-      );
 
       reconnectTimer = setTimeout(() => {
         try {

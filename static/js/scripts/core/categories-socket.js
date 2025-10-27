@@ -4,7 +4,6 @@
 function setupSocket() {
   try {
     if (!window.SyncManager) {
-      console.warn("SyncManager not available");
       return;
     }
 

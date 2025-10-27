@@ -61,7 +61,7 @@
             "error"
           );
         } else {
-          console.error(`Ошибка в ${operationType}:`, err);
+          window.ErrorHandler && window.ErrorHandler.handleError(`Ошибка в ${operationType}:`, err, "app");
         }
       }
     }, getOptimalInterval(operationType));

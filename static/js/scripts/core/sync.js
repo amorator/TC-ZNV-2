@@ -55,7 +55,6 @@ window.SyncManager = (function () {
   function setupSocket() {
     if (!window.io) {
       if (debugEnabled) {
-        console.warn("[sync] Socket.IO not available");
       }
       return;
     }
@@ -103,7 +102,6 @@ window.SyncManager = (function () {
     socket.on("connect_error", (err) => {
       const msg = (err && (err.message || err)) || "";
       if (debugEnabled) {
-        console.warn("[sync] socket connect_error:", msg);
       }
       // Adaptive fallback on 400/xhr errors
       if (/400|bad request|xhr/i.test(String(msg))) {
@@ -127,7 +125,6 @@ window.SyncManager = (function () {
 
     socket.on("error", (err) => {
       if (debugEnabled) {
-        console.warn("[sync] socket error:", err && (err.message || err));
       }
     });
 
@@ -375,13 +372,11 @@ window.SyncManager = (function () {
   function joinRoom(room) {
     try {
       if (!socket || !socket.emit) {
-        console.warn(`[sync] Cannot join room ${room}: socket not available`);
         return;
       }
-      console.log(`[sync] Joining room: ${room}`);
       socket.emit(room + ":join", { ts: Date.now() });
     } catch (err) {
-      console.error(`[sync] Error joining room ${room}:`, err);
+      window.ErrorHandler && window.ErrorHandler.handleError(`[sync] Error joining room ${room}:`, err, "app");
       window.ErrorHandler.handleError(err, "unknown");
     }
   }

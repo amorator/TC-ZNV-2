@@ -23,7 +23,7 @@
       }
       return cid;
     } catch (error) {
-      console.error("getClientId error:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError("getClientId error:", error, "app");
       return Math.random().toString(36).slice(2) + Date.now();
     }
   }
@@ -74,7 +74,7 @@
           if (window.showToast) {
             window.showToast("Ошибка парсинга JSON", "error");
           } else {
-            console.error("Ошибка парсинга JSON", err);
+            window.ErrorHandler && window.ErrorHandler.handleError("Ошибка парсинга JSON", err, "app");
           }
           return {};
         });
@@ -179,18 +179,16 @@
     // Handle force logout
     sock.on("force-logout", function (data) {
       try {
-        console.log("Force logout received on index page");
         // Redirect to logout
         window.location.replace("/logout");
       } catch (err) {
-        console.error("Force logout error:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Force logout error:", err, "app");
       }
     });
 
     // Handle force refresh
     sock.on("force-refresh", function (data) {
       try {
-        console.log("Force refresh received on index page", data);
         // Show notification before refresh
         if (window.showToast) {
           window.showToast(
@@ -206,7 +204,7 @@
           window.location.href = url.toString();
         }, 1000);
       } catch (err) {
-        console.error("Force refresh error:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
       }
     });
 

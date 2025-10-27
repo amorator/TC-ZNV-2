@@ -26,7 +26,6 @@ $(document).ready(function () {
 function sortTable(n) {
   const table = document.getElementById("table");
   if (!table) {
-    console.warn("Table with id 'table' not found");
     return;
   }
 

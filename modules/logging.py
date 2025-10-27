@@ -58,15 +58,11 @@ class LoggingConfig:
 			def doRollover(self):
 				try:
 					super().doRollover()
-				except FileNotFoundError:
+				except (FileNotFoundError, PermissionError):
 					try:
-						# Best-effort: ensure base file exists then continue
 						open(self.baseFilename, 'a').close()
 					except Exception:
 						pass
-				except PermissionError:
-					# Ignore read-only FS issues to keep the app running
-					pass
 		# Root logger
 		root_logger = logging.getLogger()
 		root_logger.setLevel(logging.DEBUG)

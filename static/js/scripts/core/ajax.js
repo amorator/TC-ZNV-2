@@ -21,7 +21,7 @@ window.CommonAjax = {
    */
   submitForm: function (form, options = {}) {
     if (!form || !form.action) {
-      console.error("Invalid form or missing action");
+      window.ErrorHandler && window.ErrorHandler.handleError("Invalid form or missing action", "app");
       return;
     }
 
@@ -86,7 +86,7 @@ window.CommonAjax = {
         }
       })
       .catch((error) => {
-        console.error("AJAX Error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("AJAX Error:", error, "app");
         const errorMsg = "Ошибка при отправке данных";
         if (options.onError) {
           options.onError(errorMsg, null, form);

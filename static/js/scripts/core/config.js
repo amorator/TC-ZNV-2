@@ -19,7 +19,7 @@ async function loadConfig() {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "loadConfig");
     } else {
-      console.error("Ошибка загрузки конфигурации:", err);
+      window.ErrorHandler && window.ErrorHandler.handleError("Ошибка загрузки конфигурации:", err, "app");
     }
     // Fallback к значениям по умолчанию
     return getDefaultConfig();

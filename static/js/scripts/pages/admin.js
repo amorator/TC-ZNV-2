@@ -40,7 +40,6 @@ function initAdminPage() {
 function setupSocket() {
   try {
     if (!window.SyncManager) {
-      console.warn("SyncManager not available");
       return;
     }
 
@@ -144,7 +143,6 @@ function setupRealtimeListeners(socket) {
     // Force refresh event
     socket.on("force-refresh", (data) => {
       try {
-        console.log("Force refresh received on admin page", data);
         // Show notification before refresh
         if (window.showToast) {
           window.showToast(
@@ -160,14 +158,13 @@ function setupRealtimeListeners(socket) {
           window.location.href = url.toString();
         }, 1000);
       } catch (err) {
-        console.error("Force refresh error:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
       }
     });
 
     // Files refresh event
     socket.on("files-refresh", (data) => {
       try {
-        console.log("Files refresh received on admin page", data);
         // Show notification
         if (window.showToast) {
           window.showToast(
@@ -176,7 +173,7 @@ function setupRealtimeListeners(socket) {
           );
         }
       } catch (err) {
-        console.error("Files refresh error:", err);
+        window.ErrorHandler && window.ErrorHandler.handleError("Files refresh error:", err, "app");
       }
     });
   } catch (err) {
@@ -395,7 +392,6 @@ function setupButtonHandlers() {
         e.preventDefault();
         e.stopPropagation();
 
-        console.log("Force logout button clicked");
 
         // Use async/await to properly wait for confirmation
         const confirmed = await new Promise((resolve) => {
@@ -406,10 +402,8 @@ function setupButtonHandlers() {
         });
 
         if (confirmed) {
-          console.log("User confirmed force logout");
           handleForceLogoutAll();
         } else {
-          console.log("User cancelled force logout");
         }
       });
     }
@@ -423,7 +417,6 @@ function setupButtonHandlers() {
         e.preventDefault();
         e.stopPropagation();
 
-        console.log("Force refresh button clicked");
 
         // Use async/await to properly wait for confirmation
         const confirmed = await new Promise((resolve) => {
@@ -434,10 +427,8 @@ function setupButtonHandlers() {
         });
 
         if (confirmed) {
-          console.log("User confirmed force refresh");
           handleForceRefreshAll();
         } else {
-          console.log("User cancelled force refresh");
         }
       });
     }
@@ -591,7 +582,6 @@ function handleLogExport() {
  */
 function handleForceLogoutAll() {
   try {
-    console.log(
       "handleForceLogoutAll called - this should only happen after confirmation"
     );
 
@@ -635,7 +625,7 @@ function handleForceLogoutAll() {
         }
       })
       .catch((error) => {
-        console.error("Force logout error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Force logout error:", error, "app");
         if (window.ErrorHandler) {
           window.ErrorHandler.handleError(error, "handleForceLogoutAll");
         }
@@ -671,7 +661,6 @@ function handleForceLogoutAll() {
  */
 function handleForceRefreshAll() {
   try {
-    console.log(
       "handleForceRefreshAll called - this should only happen after confirmation"
     );
 
@@ -693,7 +682,6 @@ function handleForceRefreshAll() {
         return response.json();
       })
       .then((data) => {
-        console.log("Force refresh all response:", data);
         if (data.status === "success") {
           // Show success toast after a delay
           setTimeout(() => {
@@ -701,7 +689,6 @@ function handleForceRefreshAll() {
 
             // Also refresh the admin page itself after a delay
             setTimeout(() => {
-              console.log("Refreshing admin page...");
               if (window.showToast) {
                 window.showToast("Админ-панель будет обновлена", "warning");
               }
@@ -721,7 +708,7 @@ function handleForceRefreshAll() {
         }
       })
       .catch((error) => {
-        console.error("Force refresh error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", error, "app");
         if (window.ErrorHandler) {
           window.ErrorHandler.handleError(error, "handleForceRefreshAll");
         }
@@ -777,30 +764,23 @@ function handlePushMaintenance() {
         return response.json();
       })
       .then((data) => {
-        console.log("Push maintenance response:", data);
         if (data.status === "success") {
           // Show success toast after a delay to ensure it appears after confirmation
-          console.log("Showing success toast...");
           setTimeout(() => {
-            console.log("Executing showToast...");
-            console.log("window.showToast:", typeof window.showToast);
-            console.log(
               "toast-container element:",
               document.getElementById("toast-container")
             );
             if (window.showToast) {
               try {
                 window.showToast("Обслуживание подписок запущено", "success");
-                console.log("showToast called successfully");
               } catch (err) {
-                console.error("Error calling showToast:", err);
+                window.ErrorHandler && window.ErrorHandler.handleError("Error calling showToast:", err, "app");
               }
             } else {
-              console.error("window.showToast is not defined");
+              window.ErrorHandler && window.ErrorHandler.handleError("window.showToast is not defined", "app");
             }
           }, 500);
         } else {
-          console.log("Showing error toast...");
           window.showToast(
             data.message || "Ошибка при запуске обслуживания",
             "error"
@@ -808,7 +788,7 @@ function handlePushMaintenance() {
         }
       })
       .catch((error) => {
-        console.error("Push maintenance error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Push maintenance error:", error, "app");
         if (window.ErrorHandler) {
           window.ErrorHandler.handleError(error, "handlePushMaintenance");
         }
@@ -865,14 +845,9 @@ function handleFilesMaintenance() {
         return response.json();
       })
       .then((data) => {
-        console.log("Files maintenance response:", data);
         if (data.status === "success") {
           // Show success toast after a delay to ensure it appears after confirmation
-          console.log("Showing success toast...");
           setTimeout(() => {
-            console.log("Executing showToast...");
-            console.log("window.showToast:", typeof window.showToast);
-            console.log(
               "toast-container element:",
               document.getElementById("toast-container")
             );
@@ -882,16 +857,14 @@ function handleFilesMaintenance() {
                   `Обслуживание файлов завершено. Обновлено: ${data.updated}, Создано: ${data.created}, Ошибок: ${data.errors}`,
                   "success"
                 );
-                console.log("showToast called successfully");
               } catch (err) {
-                console.error("Error calling showToast:", err);
+                window.ErrorHandler && window.ErrorHandler.handleError("Error calling showToast:", err, "app");
               }
             } else {
-              console.error("window.showToast is not defined");
+              window.ErrorHandler && window.ErrorHandler.handleError("window.showToast is not defined", "app");
             }
           }, 500);
         } else {
-          console.log("Showing error toast...");
           window.showToast(
             data.message || "Ошибка при запуске обслуживания файлов",
             "error"
@@ -899,7 +872,7 @@ function handleFilesMaintenance() {
         }
       })
       .catch((error) => {
-        console.error("Files maintenance error:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError("Files maintenance error:", error, "app");
         if (window.ErrorHandler) {
           window.ErrorHandler.handleError(error, "handleFilesMaintenance");
         }

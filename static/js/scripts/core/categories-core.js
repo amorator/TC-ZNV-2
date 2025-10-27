@@ -54,7 +54,6 @@ function notify(message, variant) {
     if (window.showToast) {
       window.showToast(message, variant || "info");
     } else {
-      console.log(`[${variant || "info"}] ${message}`);
     }
   } catch (err) {
     window.ErrorHandler.handleError(err, "unknown")

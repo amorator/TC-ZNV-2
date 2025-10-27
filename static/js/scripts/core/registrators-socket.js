@@ -410,17 +410,15 @@ function setupRegistratorsSocket() {
       if (socket) {
         socket.on("force-logout", function (data) {
           try {
-            console.log("Force logout received on registrators page");
             // Redirect to logout
             window.location.replace("/logout");
           } catch (err) {
-            console.error("Force logout error:", err);
+            window.ErrorHandler && window.ErrorHandler.handleError("Force logout error:", err, "app");
           }
         });
 
         socket.on("force-refresh", function (data) {
           try {
-            console.log("Force refresh received on registrators page", data);
             // Show notification before refresh
             if (window.showToast) {
               window.showToast(
@@ -436,7 +434,7 @@ function setupRegistratorsSocket() {
               window.location.href = url.toString();
             }, 1000);
           } catch (err) {
-            console.error("Force refresh error:", err);
+            window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
           }
         });
       }

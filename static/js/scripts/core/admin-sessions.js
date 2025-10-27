@@ -509,7 +509,6 @@ function triggerUserHardRefresh(sid) {
     );
 
     if (sessionItem && sessionItem.user) {
-      console.log(`Triggering hard refresh for user: ${sessionItem.user}`);
 
       // Send socket event to force user logout and hard refresh
       if (window.SyncManager && window.SyncManager.getSocket) {

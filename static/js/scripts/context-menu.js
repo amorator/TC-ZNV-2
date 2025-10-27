@@ -47,7 +47,7 @@
         this.isInitialized = true;
         return true;
       } catch (e) {
-        console.error("Context menu initialization failed:", e);
+        window.ErrorHandler && window.ErrorHandler.handleError("Context menu initialization failed:", e, "app");
         return false;
       }
     }
@@ -833,10 +833,6 @@
                           "function"
                       ) {
                         window.FilesManagement.softRefreshFilesTable(true);
-                      } else {
-                        console.warn(
-                          "No suitable refresh method found for files table"
-                        );
                       }
                     } catch (err) {
                       window.ErrorHandler.handleError(err, "refresh");
@@ -845,7 +841,7 @@
                 }
               })
               .catch((error) => {
-                console.error("Refresh error:", error);
+                window.ErrorHandler && window.ErrorHandler.handleError("Refresh error:", error, "app");
                 window.ErrorHandler.handleError(error, "refresh");
               });
           }
@@ -883,7 +879,7 @@
                   }, 50);
                 })
                 .catch((error) => {
-                  console.error("Mark viewed error:", error);
+                  window.ErrorHandler && window.ErrorHandler.handleError("Mark viewed error:", error, "app");
                   window.ErrorHandler.handleError(error, "mark-viewed");
                 });
             }
@@ -1036,7 +1032,7 @@
                   }
                 })
                 .catch((error) => {
-                  console.error("Toggle error:", error);
+                  window.ErrorHandler && window.ErrorHandler.handleError("Toggle error:", error, "app");
                   // Revert UI on error
                   const currentEnabled = row.dataset.enabled === "1";
                   const toggleCell = row.querySelector("td[data-enabled]");
@@ -1236,7 +1232,7 @@
           }, 10);
         }
       } catch (e) {
-        console.error("Context menu reinitialization failed:", e);
+        window.ErrorHandler && window.ErrorHandler.handleError("Context menu reinitialization failed:", e, "app");
         this._reinitializing = false;
       }
     }

@@ -16,9 +16,11 @@ import requests
 import urllib3
 import signal
 import sys
+import os
 
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 # Global list to track active upload threads
 active_upload_threads = []
@@ -29,9 +31,7 @@ def cleanup_upload_threads():
     global active_upload_threads, shutdown_flag
     if active_upload_threads:
         _log.info(f"Shutting down {len(active_upload_threads)} active upload threads...")
-        shutdown_flag.set()  # Signal all threads to stop
-        # Don't wait for threads to finish - just signal them to stop
-        # The threads will check shutdown_flag and exit gracefully
+        shutdown_flag.set()
         active_upload_threads.clear()
         _log.info("Shutdown signal sent to all upload threads")
 
@@ -490,6 +490,7 @@ def register(app, media_service, socketio=None) -> None:
         except Exception:
             can_reg_import = False
         # Pre-compute category/subcategory ID mappings for move modal
+        # Exclude current category/subcategory from list
         move_categories = []
         try:
             for i, dir_entry in enumerate(_dirs):
@@ -502,7 +503,7 @@ def register(app, media_service, socketio=None) -> None:
                     root_name = vals[0]
                     cat_id = app._sql.category_id_by_folder(root_key)
 
-                    # Build subcategory mapping
+                    # Build subcategory mapping, excluding current subcategory
                     subs = {}
                     for j in range(1, len(keys)):
                         try:
@@ -512,12 +513,21 @@ def register(app, media_service, socketio=None) -> None:
                                 cat_id, sub_key) if cat_id else None
                             # Only include valid subcategory IDs (not None)
                             if sub_id is not None:
+                                # Exclude current category/subcategory
+                                if cat_id == current_category_id and sub_id == current_subcategory_id:
+                                    continue
                                 subs[sub_id] = sub_name
                         except Exception:
                             continue
 
                     # Only add categories with valid IDs
+                    # Skip current category if it has only one subcategory and it's the current one
                     if cat_id is not None:
+                        # Check if this is current category
+                        if cat_id == current_category_id:
+                            # If it has only one subcategory (the current one), skip it
+                            if len(subs) == 0:
+                                continue
                         move_categories.append({
                             'id': cat_id,
                             'name': root_name,
@@ -593,11 +603,7 @@ def register(app, media_service, socketio=None) -> None:
             validate_uploaded_file(file_part, app)
 
             real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f'))
-            # Ensure directory exists and writable
-            try:
-                os.makedirs(dir, exist_ok=True)
-            except Exception:
-                pass
+            os.makedirs(dir, exist_ok=True)
             if not os.access(dir, os.W_OK):
                 raise PermissionError(f"Нет прав записи в каталог: {dir}")
             fpath = path.join(dir, real_name)
@@ -609,14 +615,9 @@ def register(app, media_service, socketio=None) -> None:
             if not file_part:
                 raise ValueError('Файл не получен')
             file_part.save(fpath + '.webm')
-            # initial metadata: length=0, size in MB from uploaded file size
-            try:
-                file_part.seek(0, os.SEEK_END)
-                size_bytes = file_part.tell()
-                file_part.seek(0)
-            except Exception:
-                size_bytes = 0
-            size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else 0
+            # Get file size from saved .webm
+            stat = os.stat(fpath + '.webm')
+            size_mb = round(stat.st_size / (1024 * 1024), 1)
             # Decide target extension by uploaded file type
             is_audio = _is_audio_filename(file_part.filename or '', app)
             target_ext = '.m4a' if is_audio else '.mp4'
@@ -628,37 +629,36 @@ def register(app, media_service, socketio=None) -> None:
                 None,  # Let MySQL set created_at automatically with CURRENT_TIMESTAMP
                 0, 0, size_mb, None
             ])
-            # try to detect duration from original .webm and notify clients
+            # Probe duration from saved .webm using ffprobe
+            length_seconds = 0
             try:
-                p = subprocess.Popen([
-                    "ffprobe", "-v", "error", "-show_entries",
-                    "format=duration", "-of",
-                    "default=noprint_wrappers=1:nokey=1", fpath + '.webm'
-                ],
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,
-                                     universal_newlines=True)
-                sout, _ = p.communicate(timeout=10)
-                length_seconds = int(float((sout or '0').strip()) or 0)
-                app._sql.file_update_metadata([length_seconds, size_mb, id])
-                if socketio:
-                    try:
-                        origin = (request.headers.get('X-Client-Id')
-                                  or '').strip()
-                        emit_files_changed(
-                            app.socketio,
-                            'metadata',
-                            id=id,
-                            originClientId=origin,
-                            meta={
-                                'length': length_seconds,
-                                'size': size_mb,
-                            },
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                p = subprocess.Popen(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                     "default=noprint_wrappers=1:nokey=1", fpath + '.webm'],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+                )
+                sout, serr = p.communicate(timeout=10)
+                if sout:
+                    length_seconds = int(float(sout.strip()) or 0)
+                if not length_seconds and is_audio:
+                    # Fallback for audio: probe audio stream
+                    p = subprocess.Popen(
+                        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                         "-show_entries", "stream=duration", "-of",
+                         "default=noprint_wrappers=1:nokey=1", fpath + '.webm'],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+                    )
+                    sout, _ = p.communicate(timeout=10)
+                    if sout:
+                        length_seconds = int(float(sout.strip()) or 0)
+            except Exception as e:
+                _log.error(f"Failed to probe duration: {e}")
+            
+            app._sql.file_update_metadata([length_seconds, size_mb, id])
+            if socketio:
+                origin = (request.headers.get('X-Client-Id') or '').strip()
+                emit_files_changed(app.socketio, 'metadata', id=id, originClientId=origin,
+                                   meta={'length': length_seconds, 'size': size_mb})
             log_action(
                 'FILE_UPLOAD', current_user.name,
                 f'uploaded file {name} to cat_id={cat_id} sub_id={sub_id}',
@@ -870,9 +870,6 @@ def register(app, media_service, socketio=None) -> None:
         try:
             name = (request.form.get('name') or '').strip()
             desc = (request.form.get('description') or '').strip()
-            _log.info(
-                f"[files] edit processing id={id} name='{name}' desc='{desc[:50]}...'"
-            )
             # Preserve registrator info in description
             try:
                 if file and isinstance(file.description, str):
@@ -894,14 +891,12 @@ def register(app, media_service, socketio=None) -> None:
                 'FILE_EDIT', current_user.name,
                 f'edited file {name} (id={id}){get_file_location_info(file, app)}',
                 (request.remote_addr or ''))
-            _log.info(f"[files] edit success id={id}")
         except Exception as e:
-            _log.error(f"[files] edit error id={id}: {e}")
             app.flash_error(e)
             log_action(
                 'FILE_EDIT',
                 current_user.name,
-                f'failed to edit file {file.name}: {str(e)}{get_file_location_info(file, app)}',
+                f'failed to edit file {file.display_name}: {str(e)}{get_file_location_info(file, app)}',
                 (request.remote_addr or ''),
                 success=False)
         finally:
@@ -909,37 +904,29 @@ def register(app, media_service, socketio=None) -> None:
             if socketio:
                 try:
                     origin = (request.headers.get('X-Client-Id') or '').strip()
-                    _log.info(
-                        f"[files] edit emitting files:changed id={id} origin={origin}"
-                    )
                     emit_files_changed(app.socketio,
                                        'edited',
                                        id=id,
                                        originClientId=origin)
-                except Exception as e:
-                    _log.error(f"[files] edit emit error: {e}")
+                except Exception:
+                    pass
 
             # Return JSON for AJAX requests, redirect for traditional forms
             try:
                 accept = (request.headers.get('Accept') or '').lower()
                 xrw = (request.headers.get('X-Requested-With') or '').lower()
-                _log.info(
-                    f"[files] edit headers: accept='{accept}' xrw='{xrw}'")
                 if 'application/json' in accept or xrw in ('xmlhttprequest',
                                                            'fetch'):
-                    _log.info(f"[files] edit returning JSON response")
                     return {
                         'status': 'success',
                         'message': 'File updated successfully'
                     }, 200
-                else:
-                    _log.info(f"[files] edit returning redirect (not AJAX)")
-            except Exception as e:
-                _log.error(f"[files] edit header check error: {e}")
+            except Exception:
+                pass
             return redirect(url_for('files'))
 
     @app.route('/files/delete/<int:id>', methods=['POST'])
-    @require_permissions(FILES_UPLOAD)
+    @require_permissions(FILES_DELETE_ANY)
     @rate_limit
     def files_delete(id: int):
         """Delete file: remove DB record and any existing media files (.mp4, .webm)."""
@@ -952,21 +939,24 @@ def register(app, media_service, socketio=None) -> None:
             app.flash_error('File not found')
             return redirect(url_for('files'))
 
-        if not (current_user.has('files.delete_any') or
-                (file.owner_id and file.owner_id == current_user.id)):
-            return abort(403)
+        # Set the file path
+        try:
+            file.path = app._sql.get_file_storage_path(file.category_id, file.subcategory_id)
+        except Exception:
+            file.path = ""
+
         try:
             app._sql.file_delete([id])
             # Distinguish cleanup-initiated deletes for better tracing
             if request.headers.get('X-Upload-Cleanup') == '1':
                 log_action(
                     'FILE_DELETE_CLEANUP', current_user.name,
-                    f'cleanup deleted file {file.name} (id={id}){get_file_location_info(file, app)}',
+                    f'cleanup deleted file {file.display_name} (id={id}){get_file_location_info(file, app)}',
                     (request.remote_addr or ''))
             else:
                 log_action(
                     'FILE_DELETE', current_user.name,
-                    f'deleted file {file.name} (id={id}){get_file_location_info(file, app)}',
+                    f'deleted file {file.display_name} (id={id}){get_file_location_info(file, app)}',
                     (request.remote_addr or ''))
             # Remove converted file if exists
             try:
@@ -991,11 +981,12 @@ def register(app, media_service, socketio=None) -> None:
                 except Exception:
                     pass
         except Exception as e:
+            _log.error(f"Error deleting file id={id}: {str(e)}")
             app.flash_error(e)
             log_action(
                 'FILE_DELETE',
                 current_user.name,
-                f'failed to delete file {file.name}: {str(e)}{get_file_location_info(file, app)}',
+                f'failed to delete file {file.display_name}: {str(e)}{get_file_location_info(file, app)}',
                 (request.remote_addr or ''),
                 success=False)
         finally:
@@ -1852,6 +1843,38 @@ def register(app, media_service, socketio=None) -> None:
                 return {"error": "Не удалось создать запись файла"}, 400
             media_service.convert_async(fname + '.webm', convert_dst,
                                         ('file', id))
+            # Probe duration and size from saved .webm and notify clients immediately
+            try:
+                # Size
+                try:
+                    stat = os.stat(fname + '.webm')
+                    size_bytes = stat.st_size
+                except Exception:
+                    size_bytes = 0
+                size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else 0
+                # Duration
+                length_seconds = 0
+                try:
+                    p = subprocess.Popen([
+                        "ffprobe", "-v", "error", "-show_entries",
+                        "format=duration", "-of",
+                        "default=noprint_wrappers=1:nokey=1", fname + '.webm'
+                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                         universal_newlines=True)
+                    sout, _ = p.communicate(timeout=10)
+                    length_seconds = int(float((sout or '0').strip()) or 0)
+                except Exception:
+                    pass
+                app._sql.file_update_metadata([length_seconds, size_mb, id])
+                if socketio:
+                    try:
+                        origin = (request.headers.get('X-Client-Id') or '').strip()
+                        emit_files_changed(app.socketio, 'metadata', id=id, originClientId=origin,
+                                           meta={'length': length_seconds, 'size': size_mb})
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Log successful end of recording save
             try:
                 log_action(
@@ -2136,14 +2159,7 @@ def register(app, media_service, socketio=None) -> None:
             save_upload_job(upload_job)
 
             # Log detailed start information
-            _log.info(f"📊 Performance Debug - Starting registrator import")
-            _log.info(f"📊 Performance Debug - Registrator: {registrator_name}")
-            _log.info(f"📊 Performance Debug - Files count: {len(file_urls)}")
-            _log.info(f"📊 Performance Debug - User: {current_user.name}")
-            _log.info(f"📊 Performance Debug - Upload ID: {upload_id}")
-            _log.info(
-                f"📊 Performance Debug - Category ID: {cat_id}, Subcategory ID: {sub_id}"
-            )
+            _log.info(f"Starting registrator import from {registrator_name}, {len(file_urls)} files")
 
             # Start background upload
             start_background_upload(upload_job)
@@ -2257,25 +2273,32 @@ def register(app, media_service, socketio=None) -> None:
             # Remove from active uploads set
             redis_client.srem('active_uploads', upload_id)
 
-            # Delete uploaded files from database and filesystem
+            # Delete only partially uploaded files (not fully completed ones)
             deleted_files = []
             if 'uploaded_files' in job_info:
-                for file_info in job_info['uploaded_files']:
-                    try:
-                        # Delete from database
-                        file_id = file_info.get('file_id')
-                        if file_id:
-                            app._sql.delete_file(file_id)
-                            deleted_files.append(
-                                file_info.get('filename', 'unknown'))
+                # Get current progress to determine which files are partially uploaded
+                current_file_index = job_info.get('current_file_index', 0)
+                completed_files = job_info.get('completed_files', 0)
+                
+                for i, file_info in enumerate(job_info['uploaded_files']):
+                    # Only delete files that were uploaded but not fully completed
+                    # (i.e., files that are in uploaded_files but not in completed_files)
+                    if i >= completed_files:
+                        try:
+                            # Delete from database
+                            file_id = file_info.get('file_id')
+                            if file_id:
+                                app._sql.delete_file(file_id)
+                                deleted_files.append(
+                                    file_info.get('filename', 'unknown'))
 
-                        # Delete from filesystem
-                        file_path = file_info.get('file_path')
-                        if file_path and os.path.exists(file_path):
-                            os.remove(file_path)
+                            # Delete from filesystem
+                            file_path = file_info.get('file_path')
+                            if file_path and os.path.exists(file_path):
+                                os.remove(file_path)
 
-                    except Exception as e:
-                        _log.error(f"Error deleting file {file_info}: {e}")
+                        except Exception as e:
+                            _log.error(f"Error deleting file {file_info}: {e}")
 
             # Log the cancellation
             log_action(
@@ -2286,7 +2309,7 @@ def register(app, media_service, socketio=None) -> None:
             return jsonify({
                 'success': True,
                 'message':
-                f'Upload cancelled. Deleted {len(deleted_files)} files.',
+                f'Upload cancelled. Deleted {len(deleted_files)} partially uploaded files.',
                 'deleted_files': deleted_files
             }), 200
 
@@ -2849,17 +2872,11 @@ def start_background_upload(upload_job):
                         'Connection': 'keep-alive'
                     }
 
-                    _log.info(
-                        f"Starting download of {file_name} from {file_url}")
+                    _log.info(f"Starting download of {file_name} from {file_url}")
 
                     import time
                     start_time = time.time()
 
-                    # Log additional debug info for performance analysis
-                    _log.info(
-                        f"📊 Performance Debug - File: {file_name}, URL: {file_url}"
-                    )
-                    _log.info(f"📊 Performance Debug - Headers: {headers}")
                     response = requests.get(file_url,
                                             timeout=300,
                                             verify=False,
@@ -2869,10 +2886,6 @@ def start_background_upload(upload_job):
                     _log.info(
                         f"Download response status: {response.status_code}")
 
-                    # Log response headers for debugging
-                    _log.info(
-                        f"📊 Performance Debug - Response headers: {dict(response.headers)}"
-                    )
 
                     if response.status_code == 200:
                         # Download file directly to temporary file to avoid memory issues
@@ -2882,17 +2895,8 @@ def start_background_upload(upload_job):
                         content_length = int(
                             response.headers.get('content-length', 0))
 
-                        _log.info(
-                            f"Starting to download {file_name}, content-length: {content_length}"
-                        )
+                        _log.info(f"Starting to download {file_name}, content-length: {content_length}")
 
-                        # Log additional performance metrics
-                        _log.info(
-                            f"📊 Performance Debug - File size: {content_length / 1024 / 1024:.2f} MB"
-                        )
-                        _log.info(
-                            f"📊 Performance Debug - Chunk size: 4194304 bytes (4MB)"
-                        )
 
                         # Create temporary file
                         with tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as temp_file:
@@ -2904,18 +2908,16 @@ def start_background_upload(upload_job):
                             last_logged_progress = -1
                             
                             # Stream directly to file to avoid memory consumption
-                            for chunk in response.iter_content(
-                                    chunk_size=4194304):  # 4MB chunks for better performance
+                            # Using 8MB chunks optimized for 700MB/s network
+                            chunk_size_bytes = 8388608  # 8MB chunks
+                            
+                            
+                            for chunk in response.iter_content(chunk_size=chunk_size_bytes):
                                 if chunk:
                                     temp_file.write(chunk)
                                     downloaded_size += len(chunk)
                                     chunk_count += 1
                                     
-                                    # Log progress every 5 chunks to avoid spam (4MB * 5 = 20MB)
-                                    if chunk_count % 5 == 0:
-                                        _log.info(
-                                            f"Downloaded {downloaded_size}/{content_length} bytes for {file_name}"
-                                        )
 
                                     # Update progress every 1MB or when complete
                                     if content_length > 0:
@@ -2931,12 +2933,7 @@ def start_background_upload(upload_job):
                                                     progress,
                                                     'status': 'running'
                                                 })
-                                            # Reduced logging - only log significant progress updates
-                                            if progress % 10 == 0 and progress != last_logged_progress:  # Log every 10% but only once per percentage
-                                                _log.info(
-                                                    f"Upload progress: {completed_files_count} files completed, {progress}% current file"
-                                                )
-                                                last_logged_progress = progress
+                                            last_logged_progress = progress
 
                         # Log download performance
                         download_time = time.time() - download_start
@@ -2944,30 +2941,12 @@ def start_background_upload(upload_job):
                             downloaded_size / 1024 /
                             1024) / download_time if download_time > 0 else 0
 
-                        # Enhanced performance logging
-                        _log.info(
-                            f"📊 Performance Debug - Download completed: {downloaded_size} bytes in {download_time:.2f}s"
-                        )
-                        _log.info(
-                            f"📊 Performance Debug - Download speed: {download_speed:.2f} MB/s"
-                        )
-                        _log.info(
-                            f"📊 Performance Debug - Total chunks processed: {chunk_count}"
-                        )
-                        _log.info(
-                            f"📊 Performance Debug - Average chunk time: {download_time/chunk_count*1000:.2f}ms per chunk"
-                            if chunk_count >
-                            0 else "📊 Performance Debug - No chunks processed")
 
                         # Upload file via HTTP but with optimized settings
                         # Now we stream from the already-downloaded file
                         
                         try:
-                            # Log upload start
                             upload_start_time = time.time()
-                            _log.info(
-                                f"📊 Performance Debug - Starting optimized file upload"
-                            )
 
                             # Use HTTP POST with streaming from file
                             with open(temp_file_path, 'rb') as f:
@@ -2989,7 +2968,6 @@ def start_background_upload(upload_job):
                                 
                                 # Prepare cookies for internal request
                                 cookies_dict = upload_job.get('cookies', {})
-                                _log.info(f"📊 Debug - Using cookies: {list(cookies_dict.keys())}")
                                 
                                 upload_response = requests.post(
                                     upload_url,
@@ -3012,27 +2990,19 @@ def start_background_upload(upload_job):
                                 pass
 
                         upload_time = time.time() - upload_start_time
-                        _log.info(
-                            f"📊 Performance Debug - Upload completed in {upload_time:.2f}s"
-                        )
-                        _log.info(f"📊 Debug - Response status: {upload_response.status_code}")
+                        _log.info(f"Upload completed in {upload_time:.2f}s")
 
                         if upload_response.status_code == 200:
                             _log.info(f"Successfully uploaded {file_name}")
-                            _log.info(
-                                f"📊 Performance Debug - Upload successful: {upload_response.status_code}"
-                            )
                             
                             # Extract file ID from response
                             try:
                                 response_data = upload_response.json()
                                 uploaded_file_id = response_data.get('id')
-                                _log.info(f"📊 Debug - Response data: {response_data}")
-                                _log.info(f"📊 Debug - Extracted file ID: {uploaded_file_id}")
                             except Exception as e:
                                 uploaded_file_id = None
-                                _log.error(f"📊 Debug - Failed to parse response JSON: {e}")
-                                _log.error(f"📊 Debug - Response text: {upload_response.text[:200]}")
+                                _log.error(f"Failed to parse response JSON: {e}")
+                                _log.error(f"Response text: {upload_response.text[:200]}")
                             
                             # Update upload job with completed files count and uploaded file info
                             completed_files_count += 1  # Increment completed files count
@@ -3062,9 +3032,6 @@ def start_background_upload(upload_job):
                             _log.error(
                                 f"Failed to upload {file_name}: {upload_response.status_code}"
                             )
-                            _log.error(
-                                f"📊 Performance Debug - Upload failed: {upload_response.status_code}, Response: {upload_response.text[:200]}"
-                            )
                             increment_upload_error(upload_id)
                     else:
                         _log.error(
@@ -3092,15 +3059,9 @@ def start_background_upload(upload_job):
                 upload_job['ip'])
 
             _log.info(f"Completed background upload {upload_id}")
-            _log.info(
-                f"📊 Performance Summary - Total time: {total_time:.2f}s for {upload_job['total_files']} files"
-            )
-            _log.info(
-                f"📊 Performance Summary - Average time per file: {total_time/upload_job['total_files']:.2f}s"
-            )
-            _log.info(
-                f"📊 Performance Summary - Registrator: {upload_job['registrator_name']}"
-            )
+            _log.info(f"Performance Summary - Total time: {total_time:.2f}s for {upload_job['total_files']} files")
+            _log.info(f"Performance Summary - Average time per file: {total_time/upload_job['total_files']:.2f}s")
+            _log.info(f"Performance Summary - Registrator: {upload_job['registrator_name']}")
 
         except Exception as e:
             _log.error(f"Background upload error: {e}")

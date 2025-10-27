@@ -41,7 +41,6 @@ function showEmptySubcategories() {
   try {
     const tabsContainer = document.getElementById("subcategory-tabs");
     if (!tabsContainer) {
-      console.warn("Element 'subcategory-tabs' not found in DOM");
       return;
     }
     tabsContainer.innerHTML = "<p>Нет подкатегорий</p>";
