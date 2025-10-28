@@ -461,6 +461,8 @@ function loadPermissions(subcategoryId) {
         (groupsResp && groupsResp.items) || [],
         currentPermissionsDraft.group || {}
       );
+      // Cache groups for user rows display (group label after login)
+      try { window.categoriesGroupsData = (groupsResp && groupsResp.items) || []; } catch(_) {}
       renderPagination("groups", groupsResp);
 
       // Load users permissions table
@@ -715,10 +717,23 @@ function loadUsersPermissionsTable(users, permissions) {
           : "own"
         : "none";
 
+    const groupLabel = (function() {
+      let gn = user && (user.groupname || user.group_name || user.group || user.groupName);
+      if (!gn) {
+        try {
+          const gid = user && (user.gid || user.group_id || user.groupId);
+          const list = window.categoriesGroupsData || [];
+          const g = list.find((it) => String(it && it.id) === String(gid));
+          if (g && g.name) gn = g.name;
+        } catch(_) {}
+      }
+      return gn ? ` (${String(gn)})` : "";
+    })();
+
     row.innerHTML = `
             <td><span title="${user.name}" data-bs-toggle="tooltip">${
       user.login
-    }</span></td>
+    }${groupLabel}</span></td>
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
@@ -1015,11 +1030,24 @@ function getSearchContainer(which) {
 function getSearchInput(which) {
   const cont = getSearchContainer(which);
   if (!cont) return null;
-  const inp = cont.querySelector(".searchbar__input");
-  if (inp && inp.id) {
+  // Prefer explicit IDs used in templates
+  let inp = null;
+  try {
+    inp = document.getElementById(which === 'groups' ? 'groups-search' : 'users-search');
+  } catch(_) {}
+  if (!inp) {
+    // Fallbacks to common patterns inside the container
+    inp = cont.querySelector('#groups-search, #users-search, .searchbar__input, input[type="text"], input');
+  }
+  // Ensure accessibility: keep or set stable id and name
+  if (inp) {
+    const desiredId = which === 'groups' ? 'groups-search' : 'users-search';
     try {
-      inp.removeAttribute("id");
-    } catch (_) {}
+      if (!inp.id) inp.id = desiredId;
+    } catch(_) {}
+    try {
+      if (!inp.name) inp.name = desiredId;
+    } catch(_) {}
   }
   return inp;
 }
@@ -1029,40 +1057,90 @@ function wireSearchbar(which) {
   if (!cont) return;
 
   const input = getSearchInput(which);
-  const clearBtn = cont.querySelector("button");
+  let clearBtn = cont.querySelector("button");
 
   if (input) {
     input.placeholder =
       which === "groups" ? "Поиск по группам..." : "Поиск по пользователям...";
-    input.oninput = function () {
-      filterTable(which);
-    };
+    // Restore saved term
+    try {
+      const sid = String(currentSubcategoryId || '0');
+      const skey = `categories:search:${which}:${sid}`;
+      const saved = localStorage.getItem(skey) || '';
+      if (saved && !input._restored) { input._restored = true; input.value = saved; }
+    } catch(_) {}
+    if (!input._catBound) {
+      input._catBound = true;
+      let t = null;
+      const handler = function(){
+        const val = (input.value || '').trim();
+        try { const sid = String(currentSubcategoryId || '0'); const skey = `categories:search:${which}:${sid}`; if (val) localStorage.setItem(skey, val); else localStorage.removeItem(skey); } catch(_) {}
+        filterTable(which);
+      };
+      input.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(handler, 250); });
+      input.addEventListener('change', handler);
+      input.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); clearTimeout(t); handler(); }});
+    }
   }
   if (clearBtn) {
     clearBtn.onclick = function () {
       clearSearch(which);
     };
+  } else {
+    // Inject clear button if missing
+    try {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-outline-secondary ms-2';
+      btn.innerHTML = '<i class="bi bi-x"></i>';
+      btn.title = 'Очистить';
+      btn.addEventListener('click', function(){ clearSearch(which); });
+      cont.appendChild(btn);
+    } catch(_) {}
   }
 }
 
 function filterTable(which) {
   const term = (getSearchInput(which)?.value || "").trim();
-  loadPage(which, 1, term);
+  if (!term) {
+    // Restore last page if available
+    let restorePage = 1;
+    try {
+      const sid = String(currentSubcategoryId || '0');
+      const pkey = `categories:lastPage:${which}:${sid}`;
+      const saved = parseInt(localStorage.getItem(pkey) || '0', 10) || 0;
+      if (saved > 0) restorePage = saved;
+    } catch(_) {}
+    loadPage(which, restorePage, "");
+  } else {
+    loadPage(which, 1, term);
+  }
 }
 
 function clearSearch(which) {
   const input = getSearchInput(which);
   if (!input) return;
   input.value = "";
-  loadPage(which, 1, "");
+  try { const sid = String(currentSubcategoryId || '0'); const skey = `categories:search:${which}:${sid}`; localStorage.removeItem(skey); } catch(_) {}
+  // Restore last page if available
+  let restorePage = 1;
+  try {
+    const sid = String(currentSubcategoryId || '0');
+    const pkey = `categories:lastPage:${which}:${sid}`;
+    const saved = parseInt(localStorage.getItem(pkey) || '0', 10) || 0;
+    if (saved > 0) restorePage = saved;
+  } catch(_) {}
+  loadPage(which, restorePage, "");
   input.focus();
 }
 
 function loadPage(which, page, q) {
   const url = which === "groups" ? "/api/groups" : "/api/users";
-  fetch(
-    `${url}?page=${page}&page_size=5${q ? `&q=${encodeURIComponent(q)}` : ""}`
-  )
+  // Backend expects 'search' param; keep 'q' fallback if supported
+  const qs = q
+    ? `&search=${encodeURIComponent(q)}&q=${encodeURIComponent(q)}`
+    : "";
+  fetch(`${url}?page=${page}&page_size=10${qs}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
     .then((r) => r.json())
     .then((resp) => {
       if (which === "groups") {
@@ -1087,7 +1165,7 @@ function renderPagination(which, resp) {
   if (!resp) return;
   const total = resp.total || 0;
   const page = resp.page || 1;
-  const size = resp.page_size || 5;
+  const size = resp.page_size || 10;
   const pages = Math.max(1, Math.ceil(total / size));
   const q = (getSearchInput(which)?.value || "").trim();
   const ul = document.getElementById(which + "-pagination");
@@ -1105,7 +1183,16 @@ function renderPagination(which, resp) {
     a.className = "page-link";
     a.href = "javascript:void(0)";
     a.textContent = label;
-    a.onclick = () => !disabled && loadPage(which, targetPage, q);
+    a.onclick = () => {
+      if (disabled) return;
+      // Persist page per subcategory
+      try {
+        const sid = String(currentSubcategoryId || '0');
+        const pkey = `categories:lastPage:${which}:${sid}`;
+        localStorage.setItem(pkey, String(targetPage));
+      } catch(_) {}
+      loadPage(which, targetPage, q);
+    };
     li.appendChild(a);
     return li;
   };
@@ -1113,10 +1200,37 @@ function renderPagination(which, resp) {
   ul.appendChild(mk("«", 1, page === 1));
   ul.appendChild(mk("‹", Math.max(1, page - 1), page === 1));
 
-  const start = Math.max(1, page - 2);
-  const end = Math.min(pages, start + 4);
+  // Always show first page
+  ul.appendChild(mk("1", 1, false, page === 1));
+
+  // Middle window of pages
+  const windowSize = 3;
+  let start = Math.max(2, page - 1);
+  let end = Math.min(pages - 1, page + 1);
+  while (end - start + 1 < windowSize && start > 2) start--;
+  while (end - start + 1 < windowSize && end < pages - 1) end++;
+
+  if (start > 2) {
+    const li = document.createElement("li");
+    li.className = "page-item disabled";
+    li.innerHTML = '<span class="page-link">…</span>';
+    ul.appendChild(li);
+  }
+
   for (let p = start; p <= end; p++) {
     ul.appendChild(mk(String(p), p, false, p === page));
+  }
+
+  if (end < pages - 1) {
+    const li = document.createElement("li");
+    li.className = "page-item disabled";
+    li.innerHTML = '<span class="page-link">…</span>';
+    ul.appendChild(li);
+  }
+
+  // Always show last page if > 1
+  if (pages > 1) {
+    ul.appendChild(mk(String(pages), pages, false, page === pages));
   }
 
   ul.appendChild(mk("›", Math.min(pages, page + 1), page === pages));

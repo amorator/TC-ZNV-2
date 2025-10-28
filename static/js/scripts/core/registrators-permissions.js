@@ -10,20 +10,26 @@ function loadRegPermissions(pageGroups, pageUsers, termGroups, termUsers) {
     fetch(
       "/api/groups?page=" +
         (pageGroups || 1) +
-        "&page_size=5" +
-        (termGroups ? "&search=" + encodeURIComponent(termGroups) : "")
-    ).then(function (r) {
+        "&page_size=10" +
+        (termGroups
+          ? "&search=" + encodeURIComponent(termGroups) +
+            "&q=" + encodeURIComponent(termGroups)
+          : "")
+    , { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then(function (r) {
       return r.json();
     }),
     fetch(
       "/api/users?page=" +
         (pageUsers || 1) +
-        "&page_size=5" +
-        (termUsers ? "&search=" + encodeURIComponent(termUsers) : "")
-    ).then(function (r) {
+        "&page_size=10" +
+        (termUsers
+          ? "&search=" + encodeURIComponent(termUsers) +
+            "&q=" + encodeURIComponent(termUsers)
+          : "")
+    , { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then(function (r) {
       return r.json();
     }),
-    fetch("/registrators/" + encodeURIComponent(rid) + "/permissions").then(
+    fetch("/registrators/" + encodeURIComponent(rid) + "/permissions", { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then(
       function (r) {
         return r.json();
       }
@@ -83,6 +89,19 @@ function loadRegPermissions(pageGroups, pageUsers, termGroups, termUsers) {
       );
       renderPagination("groups", groupsResp);
       renderPagination("users", usersResp);
+
+      // Persist current pages per registrator
+      try {
+        var gid = String(window.currentRegistratorId || '0');
+        if (groupsResp && (groupsResp.page || groupsResp.page === 1)) {
+          localStorage.setItem('registrators:lastPage:groups:' + gid, String(groupsResp.page || 1));
+        }
+        if (usersResp && (usersResp.page || usersResp.page === 1)) {
+          localStorage.setItem('registrators:lastPage:users:' + gid, String(usersResp.page || 1));
+        }
+      } catch(_) {}
+      // Re-bind search inputs after DOM updates
+      bindRegistratorsSearchbars();
     })
     .catch(function (err) {
       if (window.ErrorHandler) {
@@ -510,46 +529,86 @@ function renderPagination(which, resp) {
   var pagination = document.getElementById(which + "-pagination");
   if (!pagination) return;
   pagination.innerHTML = "";
-  if (!resp || !resp.pagination) return;
-  var p = resp.pagination;
-  if (p.pages <= 1) return;
-  var current = p.page || 1;
-  var pages = p.pages || 1;
-  var start = Math.max(1, current - 2);
-  var end = Math.min(pages, current + 2);
-  if (current > 1) {
-    var prev = document.createElement("li");
-    prev.className = "page-item";
-    prev.innerHTML =
-      '<a class="page-link" href="#" data-page="' + (current - 1) + '">‹</a>';
-    prev.onclick = function (e) {
-      e.preventDefault();
-      loadPage(which, current - 1);
-    };
-    pagination.appendChild(prev);
-  }
-  for (var i = start; i <= end; i++) {
+  if (!resp) return;
+  var p = (resp && resp.pagination) || {};
+  // Fallback to total/page/page_size if pagination object is absent
+  var total = typeof resp.total === 'number' ? resp.total : (p.total || 0);
+  var pageSize = typeof resp.page_size === 'number' ? resp.page_size : (p.page_size || 10);
+  var pages = p.pages ? (parseInt(p.pages, 10) || 1) : Math.max(1, Math.ceil((total || 0) / (pageSize || 10)));
+  var current = p.page ? (parseInt(p.page, 10) || 1) : (parseInt(resp.page, 10) || 1);
+  current = Math.min(Math.max(1, current || 1), pages);
+  // Render controls even for single page to keep consistent UI
+
+  var getRegSearchValue = function(which){
+    try {
+      var inputId = which === 'groups' ? 'groups-search' : 'users-search';
+      var input = document.getElementById(inputId);
+      return ((input && input.value) || '').trim();
+    } catch(_) { return ''; }
+  };
+
+  var mk = function (label, targetPage, disabled, active) {
     var li = document.createElement("li");
-    li.className = "page-item" + (i === current ? " active" : "");
-    li.innerHTML =
-      '<a class="page-link" href="#" data-page="' + i + '">' + i + "</a>";
-    li.onclick = function (e) {
+    li.className = "page-item" + (disabled ? " disabled" : "") + (active ? " active" : "");
+    var a = document.createElement("a");
+    a.className = "page-link";
+    a.href = "#";
+    a.setAttribute("data-page", String(targetPage));
+    a.textContent = String(label);
+    a.onclick = function (e) {
       e.preventDefault();
-      loadPage(which, parseInt(e.target.getAttribute("data-page")));
+      if (disabled) return;
+      try {
+        var key = 'registrators:lastPage:' + which + ':' + String(window.currentRegistratorId || '0');
+        localStorage.setItem(key, String(targetPage));
+      } catch(_) {}
+      var q = getRegSearchValue(which);
+      loadPage(which, targetPage, q);
     };
-    pagination.appendChild(li);
+    li.appendChild(a);
+    return li;
+  };
+
+  // Prev controls
+  pagination.appendChild(mk("«", 1, current === 1, false));
+  pagination.appendChild(mk("‹", Math.max(1, current - 1), current === 1, false));
+
+  // Always first page
+  pagination.appendChild(mk("1", 1, false, current === 1));
+
+  // Middle window
+  var windowSize = 3;
+  var start = Math.max(2, current - 1);
+  var end = Math.min(pages - 1, current + 1);
+  while (end - start + 1 < windowSize && start > 2) start--;
+  while (end - start + 1 < windowSize && end < pages - 1) end++;
+
+  if (start > 2) {
+    var li1 = document.createElement("li");
+    li1.className = "page-item disabled";
+    li1.innerHTML = '<span class="page-link">…</span>';
+    pagination.appendChild(li1);
   }
-  if (current < pages) {
-    var next = document.createElement("li");
-    next.className = "page-item";
-    next.innerHTML =
-      '<a class="page-link" href="#" data-page="' + (current + 1) + '">›</a>';
-    next.onclick = function (e) {
-      e.preventDefault();
-      loadPage(which, current + 1);
-    };
-    pagination.appendChild(next);
+
+  for (var i = start; i <= end; i++) {
+    pagination.appendChild(mk(String(i), i, false, i === current));
   }
+
+  if (end < pages - 1) {
+    var li2 = document.createElement("li");
+    li2.className = "page-item disabled";
+    li2.innerHTML = '<span class="page-link">…</span>';
+    pagination.appendChild(li2);
+  }
+
+  // Always last page
+  if (pages > 1) {
+    pagination.appendChild(mk(String(pages), pages, false, current === pages));
+  }
+
+  // Next controls
+  pagination.appendChild(mk("›", Math.min(pages, current + 1), current === pages, false));
+  pagination.appendChild(mk("»", pages, current === pages, false));
 }
 
 // Load page
@@ -560,6 +619,110 @@ function loadPage(which, page, q) {
     loadRegPermissions(null, page, null, q);
   }
 }
+
+// Bind searchbars (groups/users) to server-side filtering
+function bindRegistratorsSearchbars() {
+  try {
+    var gx = document.getElementById('groups-search') || (function(){ var el = document.querySelector('#registrars-tab .searchbar input[name="groups-search"], #registrars-tab #groups-search, #registrars-tab .searchbar input, #registrars-tab input[type="text"]'); if (el && !el.id) el.id = 'groups-search'; if (el && !el.name) el.name = 'groups-search'; return el; })();
+    var ux = document.getElementById('users-search') || (function(){ var el = document.querySelector('#registrars-tab .searchbar input[name="users-search"], #registrars-tab #users-search, #registrars-tab .searchbar input, #registrars-tab input[type="text"]'); if (el && !el.id) el.id = 'users-search'; if (el && !el.name) el.name = 'users-search'; return el; })();
+    var debounce = function(fn, ms){
+      var t;
+      return function(){
+        var args = arguments, self = this;
+        clearTimeout(t);
+        t = setTimeout(function(){ fn.apply(self, args); }, ms);
+      };
+    };
+    if (gx && !gx._regBound) {
+      gx._regBound = true;
+      // Restore saved term
+      try { var gid = String(window.currentRegistratorId || '0'); var skey = 'registrators:search:groups:' + gid; var saved = localStorage.getItem(skey) || ''; if (saved) gx.value = saved; } catch(_) {}
+      var gHandler = debounce(function(){
+        var val = (gx.value || '').trim();
+        // Persist term
+        try { var gid = String(window.currentRegistratorId || '0'); var skey = 'registrators:search:groups:' + gid; if (val) localStorage.setItem(skey, val); else localStorage.removeItem(skey); } catch(_) {}
+        // Restore saved page on empty, otherwise go to 1
+        var page = 1;
+        if (!val) {
+          try {
+            var key = 'registrators:lastPage:groups:' + String(window.currentRegistratorId || '0');
+            var saved = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+            if (saved > 0) page = saved;
+          } catch(_) {}
+        }
+        loadPage('groups', page, val);
+      }, 300);
+      gx.addEventListener('input', gHandler);
+      gx.addEventListener('change', gHandler);
+      gx.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); gHandler(); }});
+      // Ensure clear button exists next to input
+      try {
+        var wrap = gx.parentElement;
+        var hasBtn = wrap && wrap.querySelector('button[data-role="clear-search-groups"]');
+        if (!hasBtn && wrap) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-sm btn-outline-secondary ms-2';
+          btn.setAttribute('data-role', 'clear-search-groups');
+          btn.title = 'Очистить';
+          btn.innerHTML = '<i class="bi bi-x"></i>';
+          btn.addEventListener('click', function(){ gx.value=''; gHandler(); gx.focus(); });
+          wrap.appendChild(btn);
+        }
+      } catch(_) {}
+    }
+    if (ux && !ux._regBound) {
+      ux._regBound = true;
+      // Restore saved term
+      try { var gid2 = String(window.currentRegistratorId || '0'); var skey2 = 'registrators:search:users:' + gid2; var saved2 = localStorage.getItem(skey2) || ''; if (saved2) ux.value = saved2; } catch(_) {}
+      var uHandler = debounce(function(){
+        var val = (ux.value || '').trim();
+        // Persist term
+        try { var gid2 = String(window.currentRegistratorId || '0'); var skey2 = 'registrators:search:users:' + gid2; if (val) localStorage.setItem(skey2, val); else localStorage.removeItem(skey2); } catch(_) {}
+        var page = 1;
+        if (!val) {
+          try {
+            var key = 'registrators:lastPage:users:' + String(window.currentRegistratorId || '0');
+            var saved = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+            if (saved > 0) page = saved;
+          } catch(_) {}
+        }
+        loadPage('users', page, val);
+      }, 300);
+      ux.addEventListener('input', uHandler);
+      ux.addEventListener('change', uHandler);
+      ux.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); uHandler(); }});
+      // Ensure clear button exists next to input
+      try {
+        var wrap2 = ux.parentElement;
+        var hasBtn2 = wrap2 && wrap2.querySelector('button[data-role="clear-search-users"]');
+        if (!hasBtn2 && wrap2) {
+          var btn2 = document.createElement('button');
+          btn2.type = 'button';
+          btn2.className = 'btn btn-sm btn-outline-secondary ms-2';
+          btn2.setAttribute('data-role', 'clear-search-users');
+          btn2.title = 'Очистить';
+          btn2.innerHTML = '<i class="bi bi-x"></i>';
+          btn2.addEventListener('click', function(){ ux.value=''; uHandler(); ux.focus(); });
+          wrap2.appendChild(btn2);
+        }
+      } catch(_) {}
+    }
+  } catch(err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, 'bindRegistratorsSearchbars');
+    }
+  }
+}
+
+// Bind on DOM ready
+(function(){
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindRegistratorsSearchbars);
+  } else {
+    bindRegistratorsSearchbars();
+  }
+})();
 
 // Export functions to global scope
 window.loadRegPermissions = loadRegPermissions;

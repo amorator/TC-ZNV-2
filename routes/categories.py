@@ -870,7 +870,7 @@ def register(app, socketio=None):
             f"SELECT COUNT(1) FROM {prefix}_user {where};", params)
         total = int(total_row[0]) if total_row else 0
         rows = app._sql.execute_query(
-            f"SELECT id, login, name, enabled, permission FROM {prefix}_user {where} ORDER BY name LIMIT %s OFFSET %s;",
+            f"SELECT id, login, name, enabled, permission, gid FROM {prefix}_user {where} ORDER BY name LIMIT %s OFFSET %s;",
             params + [page_size, offset])
         total_pages = max(1, (total + page_size - 1) // page_size)
         return jsonify({
@@ -879,7 +879,8 @@ def register(app, socketio=None):
                 'login': r[1],
                 'name': r[2],
                 'enabled': r[3],
-                'permission': r[4]
+                'permission': r[4],
+                'gid': r[5],
             } for r in rows],
             'page':
             page,

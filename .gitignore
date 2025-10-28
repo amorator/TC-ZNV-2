@@ -8,6 +8,7 @@ certs/
 logs/
 artifacts/
 ops/
+bak/
 server.sock
 Pipfile.lock
 .coverage

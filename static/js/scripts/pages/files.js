@@ -273,6 +273,17 @@ function initFilesPage() {
     // Setup background progress
     setupBackgroundProgress();
 
+    // Setup server-side search
+    if (window.FilesSearch && typeof window.FilesSearch.setupFilesSearch === 'function') {
+      window.FilesSearch.setupFilesSearch();
+    }
+
+    // Setup pagination click handler
+    setupFilesPaginationClickHandler();
+
+    // Initialize files pagination data on first load (when not searching)
+    initFilesPagination();
+
     // Restore toasts from storage
     if (
       window.FilesUploadProgress &&
@@ -282,6 +293,178 @@ function initFilesPage() {
     }
   } catch (err) {
     window.ErrorHandler.handleError(err, "initFilesPage");
+  }
+}
+
+// Initialize files pagination from server (/files/page)
+function initFilesPagination() {
+  try {
+    const input = document.getElementById('searchinp');
+    const q = input && typeof input.value === 'string' ? input.value.trim() : '';
+    if (q) return; // search module manages its own pagination
+
+    const pager = document.getElementById('files-pagination');
+    const table = document.getElementById('maintable');
+    if (!pager || !table) return;
+
+    // Ensure pager auto-recovers if cleared by other scripts
+    try {
+      if (!pager.__recoveryObserverAttached) {
+        const recoveryObserver = new MutationObserver(function () {
+          try {
+            const htmlLen = (pager.innerHTML || '').trim().length;
+            if (htmlLen === 0 && window.__filesPagerState) {
+              const st = window.__filesPagerState;
+              renderFilesPaginationControls(pager, st.total, st.page, st.pageSize);
+              setupFilesPaginationClickHandler();
+            }
+          } catch (_) {}
+        });
+        recoveryObserver.observe(pager, { childList: true, subtree: true });
+        pager.__recoveryObserverAttached = true;
+      }
+    } catch (_) {}
+
+    const url = new URL(window.location);
+    const catId = (window.current_category_id != null) ? window.current_category_id : (url.searchParams.get('cat_id'));
+    const subId = (window.current_subcategory_id != null) ? window.current_subcategory_id : (url.searchParams.get('sub_id'));
+    if (!catId || !subId) return;
+
+    // Restore last page from localStorage if available
+    let page = parseInt(url.searchParams.get('page') || '1', 10) || 1;
+    try {
+      const key = `files:lastPage:${catId}:${subId}`;
+      const saved = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+      if (saved > 0) page = saved;
+    } catch(_) {}
+    fetchFilesPage(page, { catId, subId });
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'initFilesPagination');
+  }
+}
+
+// Fetch a page of files and render table + pagination
+function fetchFilesPage(page, ids) {
+  try {
+    const table = document.getElementById('maintable');
+    const pager = document.getElementById('files-pagination');
+    if (!table || !pager) return;
+
+    // Use backend JSON pagination endpoint
+    const url = new URL('/files/page', window.location.origin);
+    const pageSize = 10;
+    const catId = (ids && ids.catId) || document.body.getAttribute('data-current-category-id') || window.current_category_id;
+    const subId = (ids && ids.subId) || document.body.getAttribute('data-current-subcategory-id') || window.current_subcategory_id;
+    if (!catId || !subId) return;
+
+    url.searchParams.set('cat_id', String(catId));
+    url.searchParams.set('sub_id', String(subId));
+    url.searchParams.set('page', String(page || 1));
+    url.searchParams.set('page_size', String(pageSize));
+    url.searchParams.set('_t', Date.now());
+
+    fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        Accept: 'application/json',
+      },
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        return response.json();
+      })
+      .then((data) => {
+        const tbody = table.tBodies && table.tBodies[0];
+        if (tbody && typeof data.html === 'string') {
+          const searchRow = tbody.querySelector('#search');
+          const searchHTML = searchRow ? searchRow.outerHTML : '';
+          tbody.innerHTML = searchHTML + data.html;
+        }
+        const total = data.total || 0;
+        const pageNum = data.page || 1;
+        const ps = data.page_size || pageSize;
+        // Persist current page for this cat/sub
+        try {
+          const key = `files:lastPage:${catId}:${subId}`;
+          localStorage.setItem(key, String(pageNum));
+        } catch(_) {}
+        renderFilesPaginationControls(pager, total, pageNum, ps);
+        // Save last known pager state for recovery
+        window.__filesPagerState = { total: total, page: pageNum, pageSize: ps };
+
+        // Update URL page param (keep current path and other params)
+        const cur = new URL(window.location);
+        cur.searchParams.set('page', String(data.page || 1));
+        window.history.pushState({}, '', cur.pathname + cur.search);
+
+        // Rebind handlers
+        setupFilesPaginationClickHandler();
+        reinitializeContextMenu();
+        if (window.rebindFilesTable) window.rebindFilesTable();
+      })
+      .catch((err) => {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'fetchFilesPage');
+      });
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'fetchFilesPage');
+  }
+}
+
+// Render pagination controls for files (non-search)
+function renderFilesPaginationControls(pagerEl, total, currentPage, pageSize) {
+  try {
+    if (!pagerEl) return;
+    const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 10)));
+  const cp = Math.min(Math.max(1, currentPage || 1), totalPages);
+
+  const btn = (text, pageNum, disabled, active = false) =>
+    `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">` +
+    `<a class="page-link" href="#" data-page="${pageNum}">${text}</a>` +
+    `</li>`;
+
+  const items = [];
+  items.push(btn('«', 1, cp === 1));
+  items.push(btn('‹', Math.max(1, cp - 1), cp === 1));
+
+  // Always show page 1
+  items.push(btn('1', 1, false, cp === 1));
+
+  // Calculate window around current page (excluding first and last)
+  const windowSize = 3; // show up to 3 pages around current
+  let start = Math.max(2, cp - 1);
+  let end = Math.min(totalPages - 1, cp + 1);
+
+  // Ensure at least windowSize pages in the middle when possible
+  while ((end - start + 1) < windowSize && start > 2) start--;
+  while ((end - start + 1) < windowSize && end < totalPages - 1) end++;
+
+  // Ellipsis after first if needed
+  if (start > 2) {
+    items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
+  }
+
+  for (let i = start; i <= end; i++) {
+    items.push(btn(String(i), i, false, i === cp));
+  }
+
+  // Ellipsis before last if needed
+  if (end < totalPages - 1) {
+    items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
+  }
+
+  // Always show last page if more than one page
+  if (totalPages > 1) {
+    items.push(btn(String(totalPages), totalPages, false, cp === totalPages));
+  }
+
+  items.push(btn('›', Math.min(totalPages, cp + 1), cp === totalPages));
+  items.push(btn('»', totalPages, cp === totalPages));
+
+    pagerEl.innerHTML = `<nav><ul class=\"pagination mb-0\">${items.join('')}</ul></nav>`;
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'renderFilesPaginationControls');
   }
 }
 
@@ -526,6 +709,43 @@ function renameFile(fileId) {
 document.addEventListener("DOMContentLoaded", function () {
   try {
     initFilesPage();
+    
+    // Initialize files pagination if table has data
+    const mainTable = document.getElementById("maintable");
+    const tbody = mainTable && mainTable.tBodies && mainTable.tBodies[0];
+    
+    if (tbody && tbody.querySelectorAll("tr.table__body_row").length > 0) {
+      const pager = document.getElementById("files-pagination");
+      if (pager && !pager.innerHTML) {
+        // Re-render current page to initialize pagination
+        const url = new URL(window.location);
+        const params = new URLSearchParams(url.search);
+        params.set("_t", Date.now());
+        
+        fetch(`${url.pathname}?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "text/html",
+          },
+        })
+          .then((response) => {
+            if (!response.ok) return;
+            return response.text();
+          })
+          .then((html) => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+            const newPagination = doc.getElementById("files-pagination");
+            const curPagination = document.getElementById("files-pagination");
+            if (newPagination && curPagination) {
+              curPagination.innerHTML = newPagination.innerHTML;
+              setupFilesPaginationClickHandler();
+            }
+          })
+          .catch(() => {});
+      }
+    }
   } catch (err) {
     window.ErrorHandler.handleError(err, "setupFileUploadForms");
   }
@@ -539,6 +759,50 @@ function removeFileRow(fileId) {
   const fileRow = document.getElementById(fileId);
   if (fileRow) {
     fileRow.remove();
+  }
+}
+
+/**
+ * Setup files pagination click handler
+ */
+function setupFilesPaginationClickHandler() {
+  try {
+    const pager = document.getElementById("files-pagination");
+    if (!pager) return;
+
+    // Remove existing handler if any
+    if (pager._clickBound) {
+      pager.removeEventListener("click", pager._onPagerClick);
+      pager._clickBound = false;
+    }
+
+    const onPagerClick = (e) => {
+      const a = e.target && e.target.closest("[data-page]");
+      if (!a) return;
+      e.preventDefault();
+
+      const nextPage = parseInt(a.getAttribute("data-page"), 10) || 1;
+      // If search is active, delegate to search pager
+      const input = document.getElementById("searchinp");
+      const q = input && typeof input.value === "string" ? input.value.trim() : "";
+      if (q && typeof window.filesDoFilter === 'function') {
+        window.filesDoFilter(q, nextPage);
+        return;
+      }
+      // Otherwise use files page pager
+      const url = new URL(window.location);
+      const catId = (window.current_category_id != null) ? window.current_category_id : (url.searchParams.get('cat_id'));
+      const subId = (window.current_subcategory_id != null) ? window.current_subcategory_id : (url.searchParams.get('sub_id'));
+      fetchFilesPage(nextPage, { catId, subId });
+    };
+
+    pager.addEventListener("click", onPagerClick);
+    pager._clickBound = true;
+    pager._onPagerClick = onPagerClick;
+  } catch (err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "setupFilesPaginationClickHandler");
+    }
   }
 }
 
@@ -563,6 +827,7 @@ window.FilesPage = {
   moveFile,
   renameFile,
   removeFileRow,
+  setupFilesPaginationClickHandler,
 };
 
 // Global function to reinitialize double-click handlers (for use after table updates)
@@ -575,6 +840,9 @@ window.reinitFilesDoubleClick = function () {
     window.ErrorHandler.handleError(err, "reinitFilesDoubleClick");
   }
 };
+
+// Alias for rebindFilesTable (for consistency with other pages)
+window.rebindFilesTable = window.reinitFilesDoubleClick;
 
 /**
  * Setup socket synchronization for files page

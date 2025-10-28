@@ -154,7 +154,7 @@ function initUsersPagination() {
     return;
   }
 
-  const pageSize = 15;
+  const pageSize = 10;
 
   function render(page) {
     const url = new URL(window.location.origin + "/users/page");
@@ -199,6 +199,8 @@ function initUsersPagination() {
         const total = j.total || 0;
         const pages = Math.max(1, Math.ceil(total / pageSize));
         const page = j.page || 1;
+        // Persist current page
+        try { localStorage.setItem('users:lastPage', String(page)); } catch(_) {}
 
         const btn = (label, targetPage, disabled = false, extraClass = "") =>
           `<li class="page-item ${extraClass} ${
@@ -357,14 +359,19 @@ function initUsersPagination() {
     return;
   }
 
-  render(1);
+  // Restore last page if available
+  let startPage = 1;
+  try { const saved = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (saved > 0) startPage = saved; } catch(_) {}
+  render(startPage);
 }
 
 /**
  * Global search function
  */
+var __usersSearchAbortController = null;
+var __usersSearchSeq = 0; var __usersSearchActiveSeq = 0;
 if (!window.usersDoFilter) {
-  window.usersDoFilter = function usersDoFilter(query) {
+  window.usersDoFilter = function usersDoFilter(query, page) {
     const tableEl = document.getElementById("maintable");
     if (!tableEl || !tableEl.tBodies || !tableEl.tBodies[0])
       return Promise.resolve(false);
@@ -379,7 +386,9 @@ if (!window.usersDoFilter) {
         window.usersPager &&
         typeof window.usersPager.renderPage === "function"
       ) {
-        window.usersPager.renderPage(1);
+        // Restore last page if exists
+        let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
+        window.usersPager.renderPage(restore);
       }
       return Promise.resolve(true);
     }
@@ -388,16 +397,21 @@ if (!window.usersDoFilter) {
       if (pager) pager.classList.add("d-none");
       const url = new URL(window.location.origin + "/users/search");
       url.searchParams.set("q", q);
-      url.searchParams.set("page", "1");
-      url.searchParams.set("page_size", "30");
+      url.searchParams.set("page", String(page || 1));
+      url.searchParams.set("page_size", "10");
       url.searchParams.set("t", String(Date.now()));
-
+      // Abort previous
+      try { if (__usersSearchAbortController) { __usersSearchAbortController.abort(); } } catch(_) {}
+      __usersSearchAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const mySeq = ++__usersSearchSeq; __usersSearchActiveSeq = mySeq;
       return fetch(String(url), {
         credentials: "same-origin",
         headers: { "X-Requested-With": "XMLHttpRequest" },
+        signal: (__usersSearchAbortController && __usersSearchAbortController.signal) || undefined,
       })
         .then((r) => (r.ok ? r.json() : { html: "" }))
         .then((j) => {
+          if (mySeq !== __usersSearchActiveSeq) return false;
           if (!j || !j.html) return false;
 
           const searchRow = tbodyEl.querySelector("tr#search");
@@ -418,7 +432,10 @@ if (!window.usersDoFilter) {
 
           return true;
         })
-        .catch(() => false);
+        .catch((err) => {
+          if (err && (err.name === 'AbortError' || String(err).indexOf('AbortError') !== -1)) return false;
+          return false;
+        });
     }
   };
 }

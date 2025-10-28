@@ -30,6 +30,32 @@
       document.addEventListener("search-clear", () => {
         this.clearSearch();
       });
+
+      // Auto-register common search inputs on DOM ready
+      const onReady = () => {
+        try {
+          // Generic id used on multiple pages
+          const generic = document.getElementById("searchinp");
+          if (generic) {
+            this.registerSearchInput("searchinp");
+          }
+          // Users page
+          const u = document.getElementById("users-search");
+          if (u) {
+            this.registerSearchInput("users-search", { tableId: "maintable" });
+          }
+          // Groups page
+          const g = document.getElementById("groups-search");
+          if (g) {
+            this.registerSearchInput("groups-search", { tableId: "maintable" });
+          }
+        } catch (_) {}
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', onReady);
+      } else {
+        onReady();
+      }
     }
 
     /**
@@ -73,6 +99,32 @@
       if (!searchData) return;
 
       const { element: input, config } = searchData;
+
+      // Provide default onSearch for generic searchinp to call server-side handlers
+      if (!config.onSearch && (inputId === 'searchinp')) {
+        searchData.config.onSearch = (q) => {
+          try {
+            var query = (q || '').trim();
+            // Files page
+            if (window.FilesSearch && typeof window.FilesSearch.filterFilesTable === 'function') {
+              if (query) return window.FilesSearch.filterFilesTable(query, 1);
+              // On clear, restore server pagination
+              if (typeof window.initFilesPagination === 'function') window.initFilesPagination();
+              return;
+            }
+            // Users page
+            if (typeof window.usersDoFilter === 'function') {
+              return window.usersDoFilter(query);
+            }
+            // Groups page
+            if (typeof window.groupsDoFilter === 'function') {
+              return window.groupsDoFilter(query);
+            }
+          } catch (err) {
+            if (window.ErrorHandler) window.ErrorHandler.handleError(err, 'SearchManager.onSearch');
+          }
+        };
+      }
 
       // Input event with debouncing
       input.addEventListener("input", (e) => {
@@ -385,6 +437,34 @@
   // Create global instance
   window.SearchManager = SearchManager;
   window.searchManager = new SearchManager();
+
+  // Provide global clear function for templates using onclick="searchClean()"
+  window.searchClean = function (btn) {
+    try {
+      // If a button element is passed, find nearest input within the searchbar
+      if (btn && btn.closest) {
+        const wrap = btn.closest('.searchbar');
+        const input = wrap && wrap.querySelector('input[name="q"], .searchbar__input, input[type="search"], input');
+        if (input) {
+          input.value = '';
+          const id = input.id || 'searchinp';
+          // If registered, clear via manager; else dispatch input event
+          if (window.searchManager && window.searchManager.searchInputs.has(id)) {
+            window.searchManager.clearSearch(id);
+          } else {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          return;
+        }
+      }
+      // Fallback: clear all
+      if (window.searchManager) window.searchManager.clearSearch();
+    } catch (err) {
+      if (window.ErrorHandler) {
+        window.ErrorHandler.handleError(err, 'searchClean');
+      }
+    }
+  };
 
   // Load history on initialization
   window.searchManager.loadHistory();

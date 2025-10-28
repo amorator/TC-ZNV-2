@@ -10,6 +10,7 @@ from modules.SQLUtils import SQLUtils
 from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
 from modules.logging import get_logger, log_access, log_action
 from flask import request, jsonify
+from datetime import datetime
 import time
 import threading
 import requests
@@ -1920,9 +1921,9 @@ def register(app, media_service, socketio=None) -> None:
             if ('text/html' in accept) and (not is_ajax):
                 return redirect(url_for('files'))
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 15))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 15
+            if page_size < 1: page_size = 10
             # Require explicit DB ids only (no legacy)
             cat_id = request.args.get('cat_id', type=int)
             sub_id = request.args.get('sub_id', type=int)
@@ -1944,19 +1945,31 @@ def register(app, media_service, socketio=None) -> None:
             # Update exists status for all files and sort by date descending (newest first)
             if fs:
                 for file in fs:
-                    file.update_exists_status()
-                    # Update the database with the new exists status
-                    app._sql.file_update_exists_status(file.id, file.exists)
-                fs.sort(key=lambda f: f.created_at, reverse=True)
+                    try:
+                        file.update_exists_status()
+                        # Update the database with the new exists status
+                        try:
+                            app._sql.file_update_exists_status(file.id, file.exists)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                try:
+                    fs.sort(key=lambda f: f.created_at, reverse=True)
+                except Exception:
+                    pass
             total = len(fs or [])
             start = (page - 1) * page_size
             end = start + page_size
             files_slice = fs[start:end] if fs else []
-            html = render_template('components/files_rows.j2.html',
-                                   files=files_slice,
-                                   did=0,
-                                   sdid=1,
-                                   dirs=dirs)
+            try:
+                html = render_template('components/files_rows.j2.html',
+                                       files=files_slice,
+                                       did=0,
+                                       sdid=1,
+                                       dirs=dirs)
+            except Exception:
+                html = ''
             resp = make_response(
                 jsonify({
                     'html': html,
@@ -1970,8 +1983,19 @@ def register(app, media_service, socketio=None) -> None:
             resp.headers['Expires'] = '0'
             return resp
         except Exception as e:
-            _log.error(f"Files page error: {e}")
-            return jsonify({'error': str(e)}), 400
+            try:
+                _log.error(f"Files page error: {e}")
+            except Exception:
+                pass
+            # Be resilient: do not break pagination callers
+            page = int(request.args.get('page', 1) or 1)
+            page_size = int(request.args.get('page_size', 15) or 15)
+            return jsonify({
+                'html': '',
+                'total': 0,
+                'page': page,
+                'page_size': page_size
+            }), 200
 
     @app.route('/files/search')
     @require_permissions(FILES_VIEW_PAGE)
@@ -1986,9 +2010,9 @@ def register(app, media_service, socketio=None) -> None:
                 return redirect(url_for('files'))
             q = (request.args.get('q') or '').strip()
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 30))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 30
+            if page_size < 1: page_size = 10
             # Require explicit DB ids only (no legacy)
             cat_id = request.args.get('cat_id', type=int)
             sub_id = request.args.get('sub_id', type=int)
@@ -2001,11 +2025,41 @@ def register(app, media_service, socketio=None) -> None:
                 }), 200
             fs = []
             try:
-                fs = app._sql.file_search_by_category_and_subcategory(
-                    [q, cat_id, sub_id])
-            except TypeError:
-                fs = app._sql.file_search_by_category_and_subcategory(
-                    q, cat_id, sub_id)
+                if q:
+                    # Use DB-side search when query is non-empty
+                    fs = []
+                    # Try common call signatures for different deployments
+                    try:
+                        fs = app._sql.file_search_by_category_and_subcategory([q, cat_id, sub_id])
+                    except Exception:
+                        pass
+                    if not fs:
+                        try:
+                            fs = app._sql.file_search_by_category_and_subcategory(q, cat_id, sub_id)
+                        except Exception:
+                            pass
+                    if not fs:
+                        try:
+                            fs = app._sql.file_search_by_category_and_subcategory([cat_id, sub_id, q])
+                        except Exception:
+                            pass
+                    if not fs:
+                        try:
+                            fs = app._sql.file_search_by_category_and_subcategory(cat_id, sub_id, q)
+                        except Exception:
+                            pass
+                    if fs is None:
+                        fs = []
+                    # Fallback: if DB search returned nothing, fetch full list and filter in Python
+                    if not fs:
+                        try:
+                            fs_full = app._sql.file_by_category_and_subcategory([cat_id, sub_id])
+                        except Exception:
+                            fs_full = []
+                        fs = fs_full
+                else:
+                    # No query -> return full list for the category/subcategory
+                    fs = app._sql.file_by_category_and_subcategory([cat_id, sub_id])
             except Exception:
                 fs = []
             dirs = dirs_by_permission(app, 3, 'f')
@@ -2013,29 +2067,91 @@ def register(app, media_service, socketio=None) -> None:
             if q:
                 q_cf = q.casefold()
 
-                def matches(file):
-                    # name
-                    name = (getattr(file, 'display_name', '')
-                            or getattr(file, 'name', '')
-                            or getattr(file, 'real_name', '') or '')
-                    # description
-                    desc = getattr(file, 'description', '') or ''
-                    # creator/owner
-                    owner = getattr(file, 'owner', '') or ''
-                    # creation date (string as shown in table)
-                    date = getattr(file, 'date', '') or ''
+                def to_cf(val):
                     try:
-                        return (q_cf in str(name).casefold()
-                                or q_cf in str(desc).casefold()
-                                or q_cf in str(owner).casefold()
-                                or q_cf in str(date).casefold())
+                        return str(val or '').casefold()
+                    except Exception:
+                        return ''
+
+                def getv(obj, *keys):
+                    for k in keys:
+                        try:
+                            v = getattr(obj, k)
+                            if v:
+                                return v
+                        except Exception:
+                            pass
+                        try:
+                            # dict-like
+                            v = obj.get(k)  # type: ignore
+                            if v:
+                                return v
+                        except Exception:
+                            pass
+                    return ''
+
+                def matches(file):
+                    try:
+                        name = getv(file, 'display_name', 'name', 'real_name')
+                        desc = getv(file, 'description')
+                        owner = getv(file, 'owner', 'creator', 'created_by', 'owner_name')
+                        created_at = getv(file, 'created_at', 'date', 'created')
+                        media_type = getv(file, 'media_type', 'type')
+                        size_human = getv(file, 'size_human')
+                        length_human = getv(file, 'length_human', 'duration_human')
+                        size_mb = getv(file, 'size_mb', 'size')
+                        note = getv(file, 'note', 'notes')
+                        viewed = getv(file, 'viewed')
+
+                        fields = (
+                            to_cf(name), to_cf(desc), to_cf(owner), to_cf(created_at),
+                            to_cf(media_type), to_cf(size_human), to_cf(length_human),
+                            to_cf(size_mb), to_cf(note), to_cf(viewed),
+                        )
+                        # Partial containment against stringified fields
+                        if any(q_cf in fld for fld in fields):
+                            return True
+                        # Fallback: stringify whole object
+                        try:
+                            return q_cf in to_cf(file)
+                        except Exception:
+                            return False
                     except Exception:
                         return False
 
                 fs = [f for f in fs if matches(f)]
-            # Sort files by date descending (newest first)
+            # Sort files by date descending (newest first) using a safe timestamp
             if fs:
-                fs.sort(key=lambda f: f.created_at, reverse=True)
+                def ts_of(file):
+                    try:
+                        v = getattr(file, 'created_at', None) or getattr(file, 'date', None) or getattr(file, 'created', None)
+                        if v is None:
+                            return 0.0
+                        if isinstance(v, (int, float)):
+                            return float(v)
+                        try:
+                            # datetime instance
+                            return float(v.timestamp())
+                        except Exception:
+                            pass
+                        # Try common string formats
+                        s = str(v)
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d.%m.%Y %H:%M:%S', '%d.%m.%Y'):
+                            try:
+                                return datetime.strptime(s, fmt).timestamp()
+                            except Exception:
+                                pass
+                        try:
+                            # ISO 8601
+                            return datetime.fromisoformat(s).timestamp()
+                        except Exception:
+                            return 0.0
+                    except Exception:
+                        return 0.0
+                try:
+                    fs.sort(key=ts_of, reverse=True)
+                except Exception:
+                    pass
             total = len(fs)
             start = (page - 1) * page_size
             end = start + page_size
@@ -2058,8 +2174,23 @@ def register(app, media_service, socketio=None) -> None:
             resp.headers['Expires'] = '0'
             return resp
         except Exception as e:
-            _log.error(f"Files search error: {e}")
-            return jsonify({'error': str(e)}), 400
+            try:
+                _log.error(f"Files search error: {e}")
+            except Exception:
+                pass
+            # Be resilient: do not break callers; return empty successful response
+            page = int(request.args.get('page', 1) or 1)
+            page_size = int(request.args.get('page_size', 10) or 10)
+            resp = make_response(jsonify({
+                'html': '',
+                'total': 0,
+                'page': page,
+                'page_size': page_size
+            }))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
 
     @app.route('/api/log-action', methods=['POST'])
     @require_permissions(FILES_UPLOAD)

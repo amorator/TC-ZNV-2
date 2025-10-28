@@ -459,12 +459,12 @@ def register(app, socketio=None):
                             # Обновляем запись в БД
                             update_query = f"""
                                 UPDATE {db_prefix}_file 
-                                SET size_mb = %s, updated_at = %s, description = %s
+                                SET size_mb = %s, updated_at = %s
                                 WHERE id = %s
                             """
                             app._sql.execute_non_query(update_query, [
                                 file_size /
-                                (1024 * 1024), file_mtime, file_type, file_id
+                                (1024 * 1024), file_mtime, file_id
                             ])
                             updated_count += 1
                         else:

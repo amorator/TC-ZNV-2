@@ -212,7 +212,10 @@ function softRefreshFilesTable(force = false) {
     if (window.rebindFilesTable) window.rebindFilesTable();
   } else {
     // Use AJAX to refresh the table
-    refreshTableWithAjax();
+    refreshTableWithAjax().then(() => {
+      reinitializeContextMenu();
+      if (window.rebindFilesTable) window.rebindFilesTable();
+    });
   }
 }
 
@@ -220,53 +223,75 @@ function softRefreshFilesTable(force = false) {
  * Refresh table with AJAX request
  */
 function refreshTableWithAjax() {
-  try {
-    const table = document.getElementById("maintable");
-    if (!table) return;
+  return new Promise((resolve, reject) => {
+    try {
+      const table = document.getElementById("maintable");
+      if (!table) {
+        resolve();
+        return;
+      }
 
-    // Get current page parameters
-    const url = new URL(window.location);
-    const params = new URLSearchParams(url.search);
+      // Get current page parameters
+      const url = new URL(window.location);
+      const params = new URLSearchParams(url.search);
 
-    // Add timestamp to prevent caching
-    params.set("_t", Date.now());
+      // Add timestamp to prevent caching
+      params.set("_t", Date.now());
 
-    fetch(`${url.pathname}?${params.toString()}`, {
-      method: "GET",
-      headers: {
-        "X-Requested-With": "XMLHttpRequest",
-        Accept: "text/html",
-      },
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        return response.text();
+      fetch(`${url.pathname}?${params.toString()}`, {
+        method: "GET",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          Accept: "text/html",
+        },
       })
-      .then((html) => {
-        // Parse the response and update the table
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, "text/html");
-        const newTable = doc.getElementById("maintable");
-
-        if (newTable) {
-          const tbody = table.tBodies[0];
-          const newTbody = newTable.tBodies[0];
-
-          if (tbody && newTbody) {
-            tbody.innerHTML = newTbody.innerHTML;
-            reinitializeContextMenu();
-            if (window.rebindFilesTable) window.rebindFilesTable();
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
-        }
-      })
-      .catch((error) => {
-        window.ErrorHandler && window.ErrorHandler.handleError("Failed to refresh files table:", error, "app");
-      });
-  } catch (error) {
-    window.ErrorHandler && window.ErrorHandler.handleError("Error in refreshTableWithAjax:", error, "app");
-  }
+          return response.text();
+        })
+        .then((html) => {
+          // Parse the response and update the table
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, "text/html");
+          const newTable = doc.getElementById("maintable");
+
+          if (newTable) {
+            const tbody = table.tBodies[0];
+            const newTbody = newTable.tBodies[0];
+
+            if (tbody && newTbody) {
+              tbody.innerHTML = newTbody.innerHTML;
+              
+              // Update pagination (preserve if incoming is empty)
+              const newPagination = doc.getElementById("files-pagination");
+              const curPagination = document.getElementById("files-pagination");
+              if (newPagination && curPagination) {
+                var incoming = (newPagination.innerHTML || "").trim();
+                if (incoming.length > 0) {
+                  curPagination.innerHTML = newPagination.innerHTML;
+                }
+                if (typeof window.FilesPage === 'object' && typeof window.FilesPage.setupFilesPaginationClickHandler === 'function') {
+                  try { window.FilesPage.setupFilesPaginationClickHandler(); } catch(_) {}
+                }
+              }
+              
+              reinitializeContextMenu();
+              if (window.rebindFilesTable) window.rebindFilesTable();
+            }
+          }
+          resolve();
+        })
+        .catch((error) => {
+          window.ErrorHandler && window.ErrorHandler.handleError("Failed to refresh files table:", error, "app");
+          reject(error);
+        });
+    } catch (error) {
+      window.ErrorHandler && window.ErrorHandler.handleError("Error in refreshTableWithAjax:", error, "app");
+      reject(error);
+    }
+  });
 }
 
 /**
