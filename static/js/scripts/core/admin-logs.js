@@ -4,6 +4,7 @@
 let selectedUser = null; // for log filter
 let isLogPaused = false; // pause auto-refresh for logs when selecting
 let lastContextRow = null; // remember row for context actions
+let lastActionsFetch = 0; // prevent frequent actions fetching
 
 function isJsonResponse(r) {
   try {
@@ -78,6 +79,12 @@ function renderLogs(logs) {
   try {
     const logsView = document.getElementById("logsView");
     if (!logsView) return;
+
+    // Check if logsView contains actions log (starts with timestamp pattern)
+    const currentContent = logsView.textContent;
+    if (currentContent && currentContent.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)) {
+      return;
+    }
 
     if (!logs || logs.length === 0) {
       logsView.textContent = "Нет записей в логах";
@@ -422,6 +429,61 @@ function fetchFullLogs() {
   }
 }
 
+function fetchActions() {
+  try {
+    // Prevent frequent fetching (max once per 2 seconds)
+    const now = Date.now();
+    if (now - lastActionsFetch < 2000) {
+      return Promise.resolve();
+    }
+    lastActionsFetch = now;
+
+    return fetch("/logs/actions", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) {
+          return { status: "error" };
+        }
+        return r.text();
+      })
+      .then(function (text) {
+        // Display actions log in logsView element
+        const logsView = document.getElementById("logsView");
+        if (logsView) {
+          if (text && text.trim()) {
+            // Split into lines and reverse order (newest first)
+            const lines = text.split('\n').filter(line => line.trim());
+            const reversedLines = lines.reverse();
+            const sortedText = reversedLines.join('\n');
+            
+            // Escape HTML entities to prevent HTML rendering
+            const escapedText = sortedText
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#39;");
+            
+            logsView.textContent = escapedText;
+          } else {
+            logsView.textContent = "Нет записей в журнале действий";
+          }
+        }
+      })
+      .catch(function (e) {
+        if (window.ErrorHandler) {
+          window.ErrorHandler.handleError(e, "fetchActions");
+        }
+        return Promise.reject(e);
+      });
+  } catch (err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "fetchActions");
+    } else {
+      window.ErrorHandler.handleError(err, "unknown");
+    }
+  }
+}
+
 // Export functions to global scope
 window.AdminLogs = {
   selectedUser,
@@ -429,6 +491,7 @@ window.AdminLogs = {
   lastContextRow,
   fetchLogs,
   fetchFullLogs,
+  fetchActions,
   renderLogs,
   setLogFilter,
   clearLogFilter,

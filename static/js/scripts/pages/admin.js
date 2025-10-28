@@ -69,6 +69,9 @@ function setupSocket() {
       if (window.AdminLogs && window.AdminLogs.fetchLogs) {
         window.AdminLogs.fetchLogs();
       }
+      if (window.AdminLogs && window.AdminLogs.fetchActions) {
+        window.AdminLogs.fetchActions();
+      }
     });
   } catch (err) {
     if (window.ErrorHandler) {
@@ -300,6 +303,9 @@ function setupLogsMonitoring() {
           if (window.AdminLogs && window.AdminLogs.fetchLogs) {
             window.AdminLogs.fetchLogs();
           }
+          if (window.AdminLogs && window.AdminLogs.fetchActions) {
+            window.AdminLogs.fetchActions();
+          }
         },
         null
       );
@@ -308,6 +314,9 @@ function setupLogsMonitoring() {
       setInterval(() => {
         if (window.AdminLogs && window.AdminLogs.fetchLogs) {
           window.AdminLogs.fetchLogs();
+        }
+        if (window.AdminLogs && window.AdminLogs.fetchActions) {
+          window.AdminLogs.fetchActions();
         }
       }, 5000); // Update every 5 seconds for real-time logs
     }
@@ -352,6 +361,11 @@ function loadInitialData() {
     // Load logs data
     if (window.AdminLogs && window.AdminLogs.fetchLogs) {
       window.AdminLogs.fetchLogs();
+    }
+
+    // Load actions log
+    if (window.AdminLogs && window.AdminLogs.fetchActions) {
+      window.AdminLogs.fetchActions();
     }
   } catch (err) {
     if (window.ErrorHandler) {
@@ -517,6 +531,9 @@ function setupButtonHandlers() {
         refreshBtn.addEventListener("click", () => {
           if (window.AdminLogs && window.AdminLogs.fetchLogs) {
             window.AdminLogs.fetchLogs();
+          }
+          if (window.AdminLogs && window.AdminLogs.fetchActions) {
+            window.AdminLogs.fetchActions();
           }
         });
 
