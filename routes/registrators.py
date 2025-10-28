@@ -69,11 +69,36 @@ def register(app, socketio=None):
             gid = str(getattr(current_user, 'gid', 0))
             umap = (data.get('user') or {}) if isinstance(data, dict) else {}
             gmap = (data.get('group') or {}) if isinstance(data, dict) else {}
+            uby = (data.get('user_by_id') or {}) if isinstance(data, dict) else {}
 
-            # Check direct user permission
-            if uid in umap and int(umap.get(uid) or 0) == 1:
+            # Effective: explicit user deny has priority; 'inherit' (default) uses group; explicit allow allows
+            sel = None
+            try:
+                per_user = uby.get(uid) if isinstance(uby, dict) else None
+                if isinstance(per_user, dict):
+                    # user selection: 'inherit' indicated by inherit=1; 'none' by explicit 0 with no owns/groups
+                    inh = int(per_user.get('inherit', per_user.get('view_inherit', 0)) or 0)
+                    if inh == 1:
+                        sel = 'inherit'
+                    else:
+                        val = umap.get(uid)
+                        if val is None:
+                            # explicit none stored as inherit=0 and no allow flag
+                            sel = 'none'
+                        else:
+                            sel = 'allow' if int(val or 0) == 1 else 'none'
+                else:
+                    # fallback to legacy user map
+                    if uid in umap:
+                        sel = 'allow' if int(umap.get(uid) or 0) == 1 else 'none'
+            except Exception:
+                sel = None
+
+            if sel == 'allow':
                 return True
-            # Check group permission (cascade inheritance)
+            if sel == 'none':
+                return False
+            # inherit (or unset): use group
             if gid in gmap and int(gmap.get(gid) or 0) == 1:
                 return True
         except Exception:
@@ -410,47 +435,13 @@ def register(app, socketio=None):
                 if force_access:
                     perms['user'][str(user_id)] = 1
 
-            # Apply cascade inheritance from groups to users
-            perms = apply_group_cascade_permissions(perms, groups, users)
-
+            # Do NOT cascade group -> user in stored permissions; inheritance is visual/runtime only
             return perms
         except Exception as e:
             app.flash_error(e)
             return perms
 
-    def apply_group_cascade_permissions(perms, groups, users):
-        """Apply cascade inheritance from groups to users for registrator permissions."""
-        try:
-            # Create group ID to name mapping
-            group_map = {str(gid): name for gid, name in groups}
-
-            # Create user ID to group ID mapping
-            user_group_map = {
-                str(uid): str(gid)
-                for uid, login, permission, gid in users
-            }
-
-            # Apply cascade inheritance
-            for user_id, login, permission, gid in users:
-                user_id_str = str(user_id)
-                gid_str = str(gid)
-
-                # Check if user's group has permission
-                if gid_str in perms.get('group',
-                                        {}) and perms['group'][gid_str] == 1:
-                    # User inherits permission from group
-                    perms['user'][user_id_str] = 1
-                # If group permission is removed, user permission is also removed
-                elif gid_str in perms.get('group',
-                                          {}) and perms['group'][gid_str] == 0:
-                    # Only remove if user doesn't have explicit permission
-                    if user_id_str not in perms.get('user', {}):
-                        perms['user'][user_id_str] = 0
-
-            return perms
-        except Exception as e:
-            app.flash_error(e)
-            return perms
+    # Removed group cascade; inheritance is handled on frontend and checks via OR
 
     # expose for tests
     globals(
@@ -472,6 +463,8 @@ def register(app, socketio=None):
                 and isinstance(stored.get('user'), dict) else {},
                 'group': stored.get('group') if isinstance(stored, dict)
                 and isinstance(stored.get('group'), dict) else {},
+                'user_by_id': stored.get('user_by_id') if isinstance(stored, dict)
+                and isinstance(stored.get('user_by_id'), dict) else {},
             }
             # Enforce admin access
             perms = enforce_admin_access_permissions(perms)
@@ -501,14 +494,31 @@ def register(app, socketio=None):
                 existing, dict) and isinstance(existing.get('group'),
                                                dict) else {}
 
-            final_user = incoming.get('user') if isinstance(
-                incoming.get('user'), dict) else existing_user
-            final_group = incoming.get('group') if isinstance(
-                incoming.get('group'), dict) else existing_group
+            final_user = existing_user
+            final_group = existing_group
+            final_user_by = existing.get('user_by_id') if isinstance(existing, dict) and isinstance(existing.get('user_by_id'), dict) else {}
+            if isinstance(incoming.get('user'), dict):
+                final_user = incoming.get('user')
+            if isinstance(incoming.get('group'), dict):
+                final_group = incoming.get('group')
+            if isinstance(incoming.get('user_by_id'), dict):
+                upd = incoming.get('user_by_id') or {}
+                for uid, matrix in upd.items():
+                    try:
+                        if not isinstance(matrix, dict):
+                            continue
+                        base = final_user_by.get(str(uid), {}) if isinstance(final_user_by.get(str(uid)), dict) else {}
+                        # accept inherit and explicit allow/none
+                        for k, v in matrix.items():
+                            base[str(k)] = 1 if (v in (1, '1', True)) else 0
+                        final_user_by[str(uid)] = base
+                    except Exception:
+                        continue
 
             perms = {
                 'user': final_user or {},
                 'group': final_group or {},
+                'user_by_id': final_user_by or {},
             }
             # Enforce admin access before saving
             perms = enforce_admin_access_permissions(perms)
@@ -679,51 +689,12 @@ def register(app, socketio=None):
                     'message': 'registrator disabled'
                 }), 400
 
-            # Check if user has permission to use this specific registrator
+            # Check permission using unified logic (supports user_by_id inherit/none/all)
             try:
-                # Get registrator permissions for this user
-                perm_key = f"registrator_permissions:{rid}"
-                perm_data = app._sql.setting_get(perm_key)
-                if perm_data:
-                    try:
-                        perms = loads(perm_data)
-                        user_perms = perms.get('user', {})
-                        group_perms = perms.get('group', {})
-
-                        # Check if user has direct permission
-                        user_id = str(current_user.id)
-                        has_user_permission = user_perms.get(user_id) == 1
-
-                        # Check if user's group has permission
-                        has_group_permission = False
-                        if current_user.gid:
-                            group_id = str(current_user.gid)
-                            has_group_permission = group_perms.get(
-                                group_id) == 1
-
-                        if not (has_user_permission or has_group_permission):
-                            return jsonify({
-                                'status':
-                                'error',
-                                'message':
-                                'No permission to use this registrator'
-                            }), 403
-                    except Exception:
-                        # If permission data is corrupted, deny access
-                        return jsonify({
-                            'status':
-                            'error',
-                            'message':
-                            'Invalid registrator permissions'
-                        }), 403
+                if not _can_view_registrator(app, rid):
+                    return jsonify({'status': 'error', 'message': 'No permission to use this registrator'}), 403
             except Exception:
-                # If we can't check permissions, deny access for security
-                return jsonify({
-                    'status':
-                    'error',
-                    'message':
-                    'Cannot verify registrator permissions'
-                }), 403
+                return jsonify({'status': 'error', 'message': 'Cannot verify registrator permissions'}), 403
             r = Registrator(name, url_template, "", True, rid)
             # Resolve storage dir
             storage_dir = app._sql._build_storage_dir(cat_id, sub_id)

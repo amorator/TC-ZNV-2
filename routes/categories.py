@@ -16,6 +16,7 @@ import time
 from functools import wraps
 import os
 import re
+from json import loads, dumps
 
 _log = get_logger(__name__)
 
@@ -74,6 +75,146 @@ def register(app, socketio=None):
         return os.path.join(app.root_path, 'files')
 
     # Startup directory initialization removed to avoid root-owned folders.
+
+    # --- Permissions helpers (shared with registrators pattern) ---
+    def enforce_admin_access_permissions(perms: dict) -> dict:
+        """Ensure admin group/users always have access; cascade group->user."""
+        try:
+            admin_group_name = app.config.get('admin', {}).get('group', 'Программисты')
+            groups = app._sql.execute_query(
+                f"SELECT id, name FROM {app._sql.config['db']['prefix']}_group ORDER BY name;",
+                []) or []
+            users = app._sql.execute_query(
+                f"SELECT id, login, permission, gid FROM {app._sql.config['db']['prefix']}_user ORDER BY login;",
+                []) or []
+
+            if not isinstance(perms, dict):
+                perms = {}
+            if 'group' not in perms:
+                perms['group'] = {}
+            if 'user' not in perms:
+                perms['user'] = {}
+            if 'group_by_id' not in perms:
+                perms['group_by_id'] = {}
+
+            # Force admin group
+            for group_id, group_name in groups:
+                try:
+                    if str(group_name).lower() == str(admin_group_name).lower():
+                        perms['group'][str(group_id)] = 1
+                        # Force full matrix for categories: view/edit/delete = all
+                        gb = perms['group_by_id'].get(str(group_id), {}) if isinstance(perms['group_by_id'].get(str(group_id)), dict) else {}
+                        for action in ('view', 'edit', 'delete'):
+                            gb[f'{action}_own'] = 0
+                            gb[f'{action}_group'] = 0
+                            gb[f'{action}_all'] = 1
+                        perms['group_by_id'][str(group_id)] = gb
+                except Exception:
+                    continue
+
+            # Force admin/full-access users
+            for user_id, login, permission, gid in users:
+                try:
+                    force = False
+                    if str(login).lower() == 'admin':
+                        force = True
+                    if permission:
+                        perm_str = str(permission).strip()
+                        if (
+                            perm_str == 'aef,a,abcdflm,ab,ab,ab,abcd'
+                            or perm_str == 'aef,a,abcdflm,ab,ab,ab'
+                            or 'z' in perm_str
+                            or 'полный доступ' in perm_str
+                            or 'full access' in perm_str
+                        ):
+                            force = True
+                    if force:
+                        perms['user'][str(user_id)] = 1
+                except Exception:
+                    continue
+
+            # Cascade group -> user
+            perms = apply_group_cascade_permissions(perms, groups, users)
+            return perms
+        except Exception:
+            return perms
+
+    def apply_group_cascade_permissions(perms: dict, groups, users) -> dict:
+        try:
+            for user_id, login, permission, gid in users:
+                uid = str(user_id)
+                gid_s = str(gid)
+                if gid_s in perms.get('group', {}) and perms['group'][gid_s] == 1:
+                    perms['user'][uid] = 1
+                elif gid_s in perms.get('group', {}) and perms['group'][gid_s] == 0:
+                    if uid not in perms.get('user', {}):
+                        perms['user'][uid] = 0
+            return perms
+        except Exception:
+            return perms
+
+    # --- Effective permissions computation (server-side) ---
+    def _axis_selected(per_user: dict, action: str) -> str:
+        """Return one of: 'inherit' (default), 'none', 'own', 'group', 'all'."""
+        try:
+            if not isinstance(per_user, dict):
+                return 'inherit'
+            inherit_key = f"{action}_inherit"
+            has_axis = any(k.startswith(f"{action}_") for k in per_user.keys())
+            if not has_axis:
+                return 'inherit'
+            if int(per_user.get(inherit_key, 0) or 0) == 1:
+                return 'inherit'
+            if int(per_user.get(f"{action}_all", 0) or 0) == 1:
+                return 'all'
+            if int(per_user.get(f"{action}_group", 0) or 0) == 1:
+                return 'group'
+            if int(per_user.get(f"{action}_own", 0) or 0) == 1:
+                return 'own'
+            return 'none'
+        except Exception:
+            return 'inherit'
+
+    def _group_level(per_group: dict, action: str) -> str:
+        try:
+            if not isinstance(per_group, dict):
+                return 'none'
+            if int(per_group.get(f"{action}_all", 0) or 0) == 1:
+                return 'all'
+            if int(per_group.get(f"{action}_group", 0) or 0) == 1:
+                return 'group'
+            if int(per_group.get(f"{action}_own", 0) or 0) == 1:
+                return 'own'
+            return 'none'
+        except Exception:
+            return 'none'
+
+    def compute_effective_permissions(perms: dict, user_id: int, group_id: int) -> dict:
+        """Compute effective rights for a (user, group) against provided perms dict.
+        Rules:
+          - If user axis is 'none' → deny (priority ban over group).
+          - If user axis is 'inherit' or any other value → take group level as effective.
+        Returns dict: {action: level} with level in {'none','own','group','all'} for actions view/edit/delete.
+        """
+        try:
+            uid = str(user_id)
+            gid = str(group_id)
+            per_user = (perms or {}).get('user_by_id', {}).get(uid, {}) if isinstance(perms, dict) else {}
+            per_group = (perms or {}).get('group_by_id', {}).get(gid, {}) if isinstance(perms, dict) else {}
+            result = {}
+            for action in ('view', 'edit', 'delete'):
+                sel = _axis_selected(per_user, action)
+                if sel == 'none':
+                    eff = 'none'
+                else:
+                    eff = _group_level(per_group, action)
+                result[action] = eff
+            return result
+        except Exception:
+            return {'view': 'none', 'edit': 'none', 'delete': 'none'}
+
+    # expose for reuse/tests
+    globals()['compute_effective_permissions'] = compute_effective_permissions
 
     @app.route('/categories')
     @login_required
@@ -597,8 +738,8 @@ def register(app, socketio=None):
                     group_upload = 0
                 args = [
                     category_id, display_name, folder_name, display_order,
-                    enabled
-                ] + perms + [user_upload, group_upload, subcategory_id]
+                    enabled, subcategory_id
+                ]
                 before_enabled = int(getattr(existing, 'enabled', 1))
                 app._sql.subcategory_edit(args)
                 try:
@@ -647,17 +788,10 @@ def register(app, socketio=None):
             # Keep original folder_name unchanged
             folder_name = existing.folder_name
             # Get permissions from form
-            permissions = []
-            for action in ['view', 'edit', 'delete']:
-                for scope in ['own', 'group', 'all']:
-                    for entity in ['user', 'group']:
-                        field_name = f"{entity}_{action}_{scope}"
-                        permissions.append(
-                            1 if request.form.get(field_name) else 0)
-
             args = [
-                category_id, display_name, folder_name, display_order, enabled
-            ] + permissions + [subcategory_id]
+                category_id, display_name, folder_name, display_order, enabled,
+                subcategory_id
+            ]
             app._sql.subcategory_edit(args)
             try:
                 _emit_categories_changed({
@@ -780,18 +914,29 @@ def register(app, socketio=None):
     def api_subcategories(category_id):
         """API: список подкатегорий категории (JSON)."""
         subcategories = app._sql.subcategory_by_category([category_id])
-        return jsonify([{
-            'id': subcat.id,
-            'category_id': subcat.category_id,
-            'display_name': subcat.display_name,
-            'folder_name': subcat.folder_name,
-            'display_order': subcat.display_order,
-            'enabled': subcat.enabled,
-            'permissions': {
-                'user': subcat.get_user_permissions(),
-                'group': subcat.get_group_permissions()
+        items = []
+        for subcat in subcategories:
+            key = f"subcategory_permissions:{subcat.id}"
+            try:
+                raw = app._sql.setting_get(key)
+                stored = loads(raw) if raw else {}
+            except Exception:
+                stored = {}
+            perms = {
+                'user': stored.get('user') if isinstance(stored, dict) and isinstance(stored.get('user'), dict) else {},
+                'group': stored.get('group') if isinstance(stored, dict) and isinstance(stored.get('group'), dict) else {},
             }
-        } for subcat in subcategories])
+            perms = enforce_admin_access_permissions(perms)
+            items.append({
+                'id': subcat.id,
+                'category_id': subcat.category_id,
+                'display_name': subcat.display_name,
+                'folder_name': subcat.folder_name,
+                'display_order': subcat.display_order,
+                'enabled': subcat.enabled,
+                'permissions': perms,
+            })
+        return jsonify(items)
 
     @app.route('/api/groups')
     @login_required
@@ -899,61 +1044,25 @@ def register(app, socketio=None):
         """API: получить права подкатегории (JSON)."""
         try:
             subcategory = app._sql.subcategory_by_id([subcategory_id])
-        except Exception as e:
-            # Fallback for older schemas missing permission columns
-            _log.warning(
-                f"Falling back to basic subcategory fetch for id={subcategory_id}: {e}"
-            )
+        except Exception:
             subcategory = app._sql.subcategory_basic_by_id([subcategory_id])
         if not subcategory:
             return jsonify({'error': 'Subcategory not found'}), 404
-        # If permissions attributes are absent (older schema), default to zeros
+        key = f"subcategory_permissions:{subcategory_id}"
+        val = app._sql.setting_get(key)
         try:
-            user_perms = subcategory.get_user_permissions()
-            group_perms = subcategory.get_group_permissions()
+            stored = loads(val) if val else {}
         except Exception:
-            user_perms = {
-                'view_own': 0,
-                'view_group': 0,
-                'view_all': 0,
-                'edit_own': 0,
-                'edit_group': 0,
-                'edit_all': 0,
-                'delete_own': 0,
-                'delete_group': 0,
-                'delete_all': 0,
-            }
-            group_perms = {
-                'view_own': 0,
-                'view_group': 0,
-                'view_all': 0,
-                'edit_own': 0,
-                'edit_group': 0,
-                'edit_all': 0,
-                'delete_own': 0,
-                'delete_group': 0,
-                'delete_all': 0,
-            }
-        # Enforce admin group Upload=1 in response
-        try:
-            admin_group_name = (app.config.get('admin', {}).get('group')
-                                or 'Программисты').strip().lower()
-            group_name = (getattr(subcategory, 'group_name', '')
-                          or '').strip().lower()
-        except Exception:
-            admin_group_name = 'программисты'
-            group_name = ''
-        # If this subcategory response is per subcategory, we cannot infer specific group rows here.
-        # Instead, mark that admin group must have upload=1 at client: provide a hint flag.
-        group_perms['upload_admin_enforced'] = 1
-        return jsonify({
-            'id': subcategory.id,
-            'display_name': subcategory.display_name,
-            'permissions': {
-                'user': user_perms,
-                'group': group_perms
-            }
-        })
+            stored = {}
+        perms = {
+            'user': stored.get('user') if isinstance(stored, dict) and isinstance(stored.get('user'), dict) else {},
+            'group': stored.get('group') if isinstance(stored, dict) and isinstance(stored.get('group'), dict) else {},
+            # Optional per-user and per-group matrices for granular overrides
+            'user_by_id': stored.get('user_by_id') if isinstance(stored, dict) and isinstance(stored.get('user_by_id'), dict) else {},
+            'group_by_id': stored.get('group_by_id') if isinstance(stored, dict) and isinstance(stored.get('group_by_id'), dict) else {},
+        }
+        perms = enforce_admin_access_permissions(perms)
+        return jsonify({'id': subcategory.id, 'display_name': subcategory.display_name, 'permissions': perms})
 
     @app.route('/api/subcategory/<int:subcategory_id>/stats')
     @login_required
@@ -974,95 +1083,83 @@ def register(app, socketio=None):
     def api_update_subcategory_permissions(subcategory_id):
         """API: обновить права подкатегории (JSON)."""
         try:
-            data = request.get_json()
-            permissions = data.get('permissions', {}) or {}
-
-            # Get current subcategory
-            subcategory = app._sql.subcategory_by_id([subcategory_id])
-            if not subcategory:
+            data = request.get_json(silent=True) or {}
+            incoming = data.get('permissions') or {}
+            # Ensure subcategory exists
+            sub = app._sql.subcategory_by_id([subcategory_id])
+            if not sub:
                 return jsonify({'error': 'Subcategory not found'}), 404
 
-            # Normalize nested or flat permission payloads to flat booleans in canonical order
-            def get_perm(entity: str, action: str, scope: str) -> int:
-                # Support nested structure: { user: {view_own: 1/true}, group: {...} }
-                nested = permissions.get(entity)
-                if isinstance(nested, dict):
-                    val = nested.get(f"{action}_{scope}")
-                    return 1 if (val is True or val == 1 or val == '1') else 0
-                # Also support flat keys: { 'user_view_own': 1 }
-                flat = permissions.get(f"{entity}_{action}_{scope}")
-                return 1 if (flat is True or flat == 1 or flat == '1') else 0
-
-            perms = []
-            for action in ['view', 'edit', 'delete']:
-                for scope in ['own', 'group', 'all']:
-                    # user first, then group to match SQL order defined in SQLUtils._SUBCATEGORY_SELECT_FIELDS
-                    perms.append(get_perm('user', action, scope))
-                    perms.append(get_perm('group', action, scope))
-            # Append upload flags (binary): user_upload, group_upload
-            def get_upload(entity: str) -> int:
-                nested = permissions.get(entity)
-                if isinstance(nested, dict):
-                    val = nested.get('upload')
-                    return 1 if (val is True or val == 1 or val == '1') else 0
-                flat = permissions.get(f"{entity}_upload")
-                return 1 if (flat is True or flat == 1 or flat == '1') else 0
-
-            user_upload = get_upload('user')
-            group_upload = get_upload('group')
-            # Enforce admin group Upload=1 regardless of input
+            key = f"subcategory_permissions:{subcategory_id}"
+            existing_raw = app._sql.setting_get(key)
             try:
-                admin_group_name = (app.config.get('admin', {}).get('group')
-                                    or 'Программисты').strip().lower()
-                # If payload contains group-specific overrides list, map them; otherwise rely on single flag
-                # Here we only have a single binary for the whole group set; enforce to 1
-                group_upload = 1
+                existing = loads(existing_raw) if existing_raw else {}
             except Exception:
-                pass
-            # Enforce global config: if uploads effectively disabled, force 0
-            try:
-                cfg = getattr(app, '_sql', None)
-                conf = getattr(cfg, 'config', None)
-                files = (conf.get('files') or {}) if conf else {}
-                max_upload_files = files.get('max_upload_files', '0')
-                uploads_enabled = False
-                try:
-                    uploads_enabled = int(
-                        str(max_upload_files).strip() or '0') > 0
-                except Exception:
-                    uploads_enabled = False
-                if not uploads_enabled:
-                    user_upload = 0
-                    group_upload = 0
-            except Exception:
-                pass
-            perms.append(user_upload)
-            perms.append(group_upload)
+                existing = {}
+            existing_user = existing.get('user') if isinstance(existing, dict) and isinstance(existing.get('user'), dict) else {}
+            existing_group = existing.get('group') if isinstance(existing, dict) and isinstance(existing.get('group'), dict) else {}
+            existing_user_by_id = existing.get('user_by_id') if isinstance(existing, dict) and isinstance(existing.get('user_by_id'), dict) else {}
+            existing_group_by_id = existing.get('group_by_id') if isinstance(existing, dict) and isinstance(existing.get('group_by_id'), dict) else {}
 
-            # Update subcategory with new permissions
-            args = [
-                subcategory.category_id, subcategory.display_name,
-                subcategory.folder_name, subcategory.display_order,
-                subcategory.enabled
-            ] + perms + [subcategory_id]
+            # Merge partial payloads (either group, user, or user_by_id).
+            final_user = existing_user
+            final_group = existing_group
+            final_user_by_id = existing_user_by_id
+            final_group_by_id = existing_group_by_id
+            if isinstance(incoming.get('user'), dict):
+                final_user = incoming.get('user')
+            if isinstance(incoming.get('group'), dict):
+                final_group = incoming.get('group')
+            if isinstance(incoming.get('user_by_id'), dict):
+                # Shallow merge per-user maps
+                upd = incoming.get('user_by_id') or {}
+                for uid, matrix in upd.items():
+                    try:
+                        if not isinstance(matrix, dict):
+                            continue
+                        base = final_user_by_id.get(str(uid), {}) if isinstance(final_user_by_id.get(str(uid)), dict) else {}
+                        base.update({k: 1 if (v in (1, '1', True)) else 0 for k, v in matrix.items()})
+                        final_user_by_id[str(uid)] = base
+                    except Exception:
+                        continue
+            if isinstance(incoming.get('group_by_id'), dict):
+                # Shallow merge per-group maps
+                gupd = incoming.get('group_by_id') or {}
+                for gid, gmatrix in gupd.items():
+                    try:
+                        if not isinstance(gmatrix, dict):
+                            continue
+                        gbase = final_group_by_id.get(str(gid), {}) if isinstance(final_group_by_id.get(str(gid)), dict) else {}
+                        gbase.update({k: 1 if (v in (1, '1', True)) else 0 for k, v in gmatrix.items()})
+                        final_group_by_id[str(gid)] = gbase
+                    except Exception:
+                        continue
+            perms = {
+                'user': final_user or {},
+                'group': final_group or {},
+                'user_by_id': final_user_by_id or {},
+                'group_by_id': final_group_by_id or {},
+            }
+            perms = enforce_admin_access_permissions(perms)
+            app._sql.setting_set(key, dumps(perms, ensure_ascii=False))
 
-            app._sql.subcategory_edit(args)
-
-            # Log the permission change
-            log_action(
-                'SUBCATEGORY_PERMISSIONS_UPDATE', current_user.name,
-                f'updated permissions for subcategory id={subcategory_id} name={subcategory.display_name}',
-                (request.remote_addr or ''))
-
-            # Notify others via socket for soft refresh
+            log_action('SUBCATEGORY_PERMISSIONS_UPDATE', current_user.name,
+                       f'updated permissions for subcategory id={subcategory_id}',
+                       (request.remote_addr or ''))
             try:
                 if socketio:
-                    socketio.emit('subcategory_permissions_updated',
-                                  {'subcategory_id': subcategory_id})
-            except Exception as se:
-                _log.error(f"Socket emit failed: {se}")
-            return jsonify({'success': True})
-
+                    socketio.emit('subcategory_permissions_updated', {'subcategory_id': subcategory_id})
+                    # Soft refresh files for clients affected by permission changes
+                    try:
+                        socketio.emit('files:changed', {
+                            'reason': 'subcategory-permissions',
+                            'subcategory_id': subcategory_id
+                        })
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return jsonify({'status': 'success'})
         except Exception as e:
             _log.error(f"Error updating subcategory permissions: {e}")
             return jsonify({'error': str(e)}), 500

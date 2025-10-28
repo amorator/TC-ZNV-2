@@ -3,7 +3,7 @@ from datetime import datetime as dt
 
 
 class Subcategory:
-    """Domain model for a file subcategory with permissions."""
+    """Domain model for a file subcategory (permissions stored separately)."""
 
     def __init__(
         self,
@@ -13,29 +13,6 @@ class Subcategory:
         folder_name: str,
         display_order: int = 0,
         enabled: int = 1,
-        # User permissions
-        user_view_own: int = 0,
-        user_view_group: int = 0,
-        user_view_all: int = 0,
-        user_edit_own: int = 0,
-        user_edit_group: int = 0,
-        user_edit_all: int = 0,
-        user_delete_own: int = 0,
-        user_delete_group: int = 0,
-        user_delete_all: int = 0,
-        # Group permissions
-        group_view_own: int = 0,
-        group_view_group: int = 0,
-        group_view_all: int = 0,
-        group_edit_own: int = 0,
-        group_edit_group: int = 0,
-        group_edit_all: int = 0,
-        group_delete_own: int = 0,
-        group_delete_group: int = 0,
-        group_delete_all: int = 0,
-        # Upload/Write flags
-        user_upload: int = 0,
-        group_upload: int = 0,
     ) -> None:
         """Create a subcategory entity.
 
@@ -73,30 +50,7 @@ class Subcategory:
         # enabled может быть 0/1; нельзя использовать "or 1", иначе 0 станет 1
         self.enabled: int = int(1 if enabled is None else enabled)
 
-        # User permissions
-        self.user_view_own: int = int(user_view_own or 0)
-        self.user_view_group: int = int(user_view_group or 0)
-        self.user_view_all: int = int(user_view_all or 0)
-        self.user_edit_own: int = int(user_edit_own or 0)
-        self.user_edit_group: int = int(user_edit_group or 0)
-        self.user_edit_all: int = int(user_edit_all or 0)
-        self.user_delete_own: int = int(user_delete_own or 0)
-        self.user_delete_group: int = int(user_delete_group or 0)
-        self.user_delete_all: int = int(user_delete_all or 0)
-
-        # Group permissions
-        self.group_view_own: int = int(group_view_own or 0)
-        self.group_view_group: int = int(group_view_group or 0)
-        self.group_view_all: int = int(group_view_all or 0)
-        self.group_edit_own: int = int(group_edit_own or 0)
-        self.group_edit_group: int = int(group_edit_group or 0)
-        self.group_edit_all: int = int(group_edit_all or 0)
-        self.group_delete_own: int = int(group_delete_own or 0)
-        self.group_delete_group: int = int(group_delete_group or 0)
-        self.group_delete_all: int = int(group_delete_all or 0)
-        # Upload/Write flags
-        self.user_upload: int = int(user_upload or 0)
-        self.group_upload: int = int(group_upload or 0)
+        # Permissions are stored separately (settings key per subcategory)
 
     @property
     def is_enabled(self) -> bool:

@@ -437,13 +437,12 @@ if (document.readyState === "loading") {
 function loadPermissions(subcategoryId) {
   // Load groups and users data
   Promise.all([
-    fetch("/api/groups?page=1&page_size=5").then((response) => response.json()),
-    fetch("/api/users?page=1&page_size=5").then((response) => response.json()),
-    fetch(`/api/subcategory/${subcategoryId}/permissions`).then((response) =>
-      response.json()
-    ),
+    fetch("/api/groups?page=1&page_size=5").then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch("/api/users?page=1&page_size=5").then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch(`/api/subcategory/${subcategoryId}/permissions`).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
   ])
     .then(([groupsResp, usersResp, permissionsData]) => {
+      try { console.debug && console.debug("[categories] permissions payload", { groupsResp, usersResp, permissionsData }); } catch(_) {}
       // Fallback if permissions API failed
       const perms =
         permissionsData && permissionsData.permissions
@@ -452,6 +451,12 @@ function loadPermissions(subcategoryId) {
       // Initialize draft and lastSaved snapshots
       lastSavedPermissions = deepClone(perms);
       currentPermissionsDraft = deepClone(perms);
+      // Normalize per-user matrix holder
+      if (!currentPermissionsDraft.user_by_id) currentPermissionsDraft.user_by_id = {};
+      // Initialize group levels for visual inheritance
+      try {
+        window.catGroupLevels = { view: 'none', edit: 'none', delete: 'none' };
+      } catch(_) {}
       isDirtyGroups = false;
       isDirtyUsers = false;
       updateSaveButtonsState();
@@ -461,8 +466,9 @@ function loadPermissions(subcategoryId) {
         (groupsResp && groupsResp.items) || [],
         currentPermissionsDraft.group || {}
       );
-      // Cache groups for user rows display (group label after login)
+      // Cache groups and users for display and inheritance
       try { window.categoriesGroupsData = (groupsResp && groupsResp.items) || []; } catch(_) {}
+      try { window.categoriesUsersData = (usersResp && usersResp.items) || []; } catch(_) {}
       renderPagination("groups", groupsResp);
 
       // Load users permissions table
@@ -488,7 +494,7 @@ function loadPermissions(subcategoryId) {
       updateDeleteButtonsState();
     })
     .catch((error) => {
-      window.ErrorHandler && window.ErrorHandler.handleError("Error loading permissions:", error, "app");
+      window.ErrorHandler && window.ErrorHandler.handleError(error, "Error loading permissions");
       // Still show empty tables with headers and search
       lastSavedPermissions = { user: {}, group: {} };
       currentPermissionsDraft = { user: {}, group: {} };
@@ -515,74 +521,84 @@ function loadGroupsPermissionsTable(groups, permissions) {
 
   (groups || []).forEach((group) => {
     const row = document.createElement("tr");
-    const viewValue =
-      permissions.view_all || permissions.view_group || permissions.view_own
-        ? permissions.view_all
-          ? "all"
-          : permissions.view_group
-          ? "group"
-          : "own"
-        : "none";
-    const editValue =
-      permissions.edit_all || permissions.edit_group || permissions.edit_own
-        ? permissions.edit_all
-          ? "all"
-          : permissions.edit_group
-          ? "group"
-          : "own"
-        : "none";
-    const deleteValue =
-      permissions.delete_all ||
-      permissions.delete_group ||
-      permissions.delete_own
-        ? permissions.delete_all
-          ? "all"
-          : permissions.delete_group
-          ? "group"
-          : "own"
-        : "none";
+    // Detect admin group by configured name
+    let isAdminGroup = false;
+    try {
+      const adminName = (window.adminGroupName || "Программисты").toLowerCase();
+      const gName = String(group && group.name ? group.name : "").toLowerCase();
+      isAdminGroup = gName === adminName;
+    } catch(_) {}
+    // Prefer per-group matrix if present
+    const gid = String(group.id);
+    const gmatrix = (currentPermissionsDraft.group_by_id && currentPermissionsDraft.group_by_id[gid]) || permissions || {};
+    function levelFrom(perms, action) {
+      const own = !!perms[`${action}_own`];
+      const grp = !!perms[`${action}_group`];
+      const all = !!perms[`${action}_all`];
+      if (all) return 'all';
+      if (grp) return 'group';
+      if (own) return 'own';
+      // defaults: no permission
+      return 'none';
+    }
+    let viewValue = levelFrom(gmatrix, 'view');
+    let editValue = levelFrom(gmatrix, 'edit');
+    let deleteValue = levelFrom(gmatrix, 'delete');
+    if (isAdminGroup) {
+      viewValue = 'all'; editValue = 'all'; deleteValue = 'all';
+    }
+
+    // Update global group levels for visual inheritance (use strongest across groups)
+    try {
+      if (!window.catGroupLevels) window.catGroupLevels = { view: 'none', edit: 'none', delete: 'none' };
+      const order = { none: 0, own: 1, group: 2, all: 3 };
+      const pick = (cur, next) => (order[next] > order[cur] ? next : cur);
+      window.catGroupLevels.view = pick(window.catGroupLevels.view, viewValue);
+      window.catGroupLevels.edit = pick(window.catGroupLevels.edit, editValue);
+      window.catGroupLevels.delete = pick(window.catGroupLevels.delete, deleteValue);
+    } catch(_) {}
 
     row.innerHTML = `
             <td>${group.name}</td>
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_view_${
+                        <input class="form-check-input" type="radio" name="cat-g_view_${
                           group.id
-                        }" id="group_view_none_${group.id}" value="none" ${
+                        }" id="cat-g_view_none_${group.id}" value="none" ${
       viewValue === "none" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
-                        <label class="form-check-label" for="group_view_none_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+                        <label class="form-check-label" for="cat-g_view_none_${
                           group.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_view_${
+                        <input class="form-check-input" type="radio" name="cat-g_view_${
                           group.id
-                        }" id="group_view_own_${group.id}" value="own" ${
+                        }" id="cat-g_view_own_${group.id}" value="own" ${
       viewValue === "own" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
-                        <label class="form-check-label" for="group_view_own_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+                        <label class="form-check-label" for="cat-g_view_own_${
                           group.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_view_${
+                        <input class="form-check-input" type="radio" name="cat-g_view_${
                           group.id
-                        }" id="group_view_group_${group.id}" value="group" ${
+                        }" id="cat-g_view_group_${group.id}" value="group" ${
       viewValue === "group" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
-                        <label class="form-check-label" for="group_view_group_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+                        <label class="form-check-label" for="cat-g_view_group_${
                           group.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_view_${
+                        <input class="form-check-input" type="radio" name="cat-g_view_${
                           group.id
-                        }" id="group_view_all_${group.id}" value="all" ${
+                        }" id="cat-g_view_all_${group.id}" value="all" ${
       viewValue === "all" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
-                        <label class="form-check-label" for="group_view_all_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+                        <label class="form-check-label" for="cat-g_view_all_${
                           group.id
                         }">Все</label>
                     </div>
@@ -591,42 +607,42 @@ function loadGroupsPermissionsTable(groups, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_edit_${
+                        <input class="form-check-input" type="radio" name="cat-g_edit_${
                           group.id
-                        }" id="group_edit_none_${group.id}" value="none" ${
+                        }" id="cat-g_edit_none_${group.id}" value="none" ${
       editValue === "none" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="group_edit_none_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+                        <label class="form-check-label" for="cat-g_edit_none_${
                           group.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_edit_${
+                        <input class="form-check-input" type="radio" name="cat-g_edit_${
                           group.id
-                        }" id="group_edit_own_${group.id}" value="own" ${
+                        }" id="cat-g_edit_own_${group.id}" value="own" ${
       editValue === "own" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="group_edit_own_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+                        <label class="form-check-label" for="cat-g_edit_own_${
                           group.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_edit_${
+                        <input class="form-check-input" type="radio" name="cat-g_edit_${
                           group.id
-                        }" id="group_edit_group_${group.id}" value="group" ${
+                        }" id="cat-g_edit_group_${group.id}" value="group" ${
       editValue === "group" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="group_edit_group_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+                        <label class="form-check-label" for="cat-g_edit_group_${
                           group.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_edit_${
+                        <input class="form-check-input" type="radio" name="cat-g_edit_${
                           group.id
-                        }" id="group_edit_all_${group.id}" value="all" ${
+                        }" id="cat-g_edit_all_${group.id}" value="all" ${
       editValue === "all" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="group_edit_all_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+                        <label class="form-check-label" for="cat-g_edit_all_${
                           group.id
                         }">Все</label>
                     </div>
@@ -635,42 +651,42 @@ function loadGroupsPermissionsTable(groups, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_delete_${
+                        <input class="form-check-input" type="radio" name="cat-g_delete_${
                           group.id
-                        }" id="group_delete_none_${group.id}" value="none" ${
+                        }" id="cat-g_delete_none_${group.id}" value="none" ${
       deleteValue === "none" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="group_delete_none_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+                        <label class="form-check-label" for="cat-g_delete_none_${
                           group.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_delete_${
+                        <input class="form-check-input" type="radio" name="cat-g_delete_${
                           group.id
-                        }" id="group_delete_own_${group.id}" value="own" ${
+                        }" id="cat-g_delete_own_${group.id}" value="own" ${
       deleteValue === "own" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="group_delete_own_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+                        <label class="form-check-label" for="cat-g_delete_own_${
                           group.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_delete_${
+                        <input class="form-check-input" type="radio" name="cat-g_delete_${
                           group.id
-                        }" id="group_delete_group_${group.id}" value="group" ${
+                        }" id="cat-g_delete_group_${group.id}" value="group" ${
       deleteValue === "group" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="group_delete_group_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+                        <label class="form-check-label" for="cat-g_delete_group_${
                           group.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="group_delete_${
+                        <input class="form-check-input" type="radio" name="cat-g_delete_${
                           group.id
-                        }" id="group_delete_all_${group.id}" value="all" ${
+                        }" id="cat-g_delete_all_${group.id}" value="all" ${
       deleteValue === "all" ? "checked" : ""
-    } onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="group_delete_all_${
+    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+                        <label class="form-check-label" for="cat-g_delete_all_${
                           group.id
                         }">Все</label>
                     </div>
@@ -690,32 +706,75 @@ function loadUsersPermissionsTable(users, permissions) {
 
   (users || []).forEach((user) => {
     const row = document.createElement("tr");
-    const viewValue =
-      permissions.view_all || permissions.view_group || permissions.view_own
-        ? permissions.view_all
-          ? "all"
-          : permissions.view_group
-          ? "group"
-          : "own"
-        : "none";
-    const editValue =
-      permissions.edit_all || permissions.edit_group || permissions.edit_own
-        ? permissions.edit_all
-          ? "all"
-          : permissions.edit_group
-          ? "group"
-          : "own"
-        : "none";
-    const deleteValue =
-      permissions.delete_all ||
-      permissions.delete_group ||
-      permissions.delete_own
-        ? permissions.delete_all
-          ? "all"
-          : permissions.delete_group
-          ? "group"
-          : "own"
-        : "none";
+    // Determine user's individual level from permissions map
+    function levelFrom(perms, action) {
+      const own = !!perms[`${action}_own`];
+      const grp = !!perms[`${action}_group`];
+      const all = !!perms[`${action}_all`];
+      if (all) return 'all';
+      if (grp) return 'group';
+      if (own) return 'own';
+      return 'none';
+    }
+    // Determine strongest of two levels
+    function maxLevel(a, b) {
+      const order = { none: 0, own: 1, group: 2, all: 3 };
+      return (order[b] > order[a]) ? b : a;
+    }
+    // Prefer per-user matrix if present. If per-user explicitly sets NONE for action, it is a priority deny over group
+    const uidStr = String(user.id);
+    const perUser = (currentPermissionsDraft.user_by_id && currentPermissionsDraft.user_by_id[uidStr]) || {};
+    // Per-axis inherit flags (default ON if absent)
+    const inheritView = (perUser.hasOwnProperty('view_inherit')) ? Number(perUser.view_inherit) : 1;
+    const inheritEdit = (perUser.hasOwnProperty('edit_inherit')) ? Number(perUser.edit_inherit) : 1;
+    const inheritDelete = (perUser.hasOwnProperty('delete_inherit')) ? Number(perUser.delete_inherit) : 1;
+    const uView = levelFrom(perUser, 'view');
+    const uEdit = levelFrom(perUser, 'edit');
+    const uDelete = levelFrom(perUser, 'delete');
+    // Determine group level ONLY from the user's group, not globally
+    let gView = 'none', gEdit = 'none', gDelete = 'none';
+    let isAdminGroupUser = false;
+    try {
+      const gidStr = String(user.gid || '');
+      const gmatrix = (currentPermissionsDraft.group_by_id && currentPermissionsDraft.group_by_id[gidStr]) || {};
+      gView = levelFrom(gmatrix, 'view');
+      gEdit = levelFrom(gmatrix, 'edit');
+      gDelete = levelFrom(gmatrix, 'delete');
+      // Admin group forces all
+      const adminName = (window.adminGroupName || 'Программисты').toLowerCase();
+      const gr = (window.categoriesGroupsData || []).find((g)=> String(g.id)===gidStr);
+      if (gr && String(gr.name||'').toLowerCase() === adminName) {
+        gView = 'all'; gEdit = 'all'; gDelete = 'all';
+        isAdminGroupUser = true;
+      }
+    } catch(_) {}
+    // Explicit user NONE denies over group. If per-user has any flag for action (including all zeros), treat that as explicit choice
+    function hasExplicit(perms, action) {
+      return (perms && (perms.hasOwnProperty(`${action}_own`) || perms.hasOwnProperty(`${action}_group`) || perms.hasOwnProperty(`${action}_all`)));
+    }
+    // If inherit ON → take group; if OFF → take user's own (per axis)
+    const effView = inheritView === 1 ? gView : uView;
+    const effEdit = inheritEdit === 1 ? gEdit : uEdit;
+    const effDelete = inheritDelete === 1 ? gDelete : uDelete;
+
+    // Determine locks: admin/full-access user, or inherited from group
+    let forceUser = false;
+    try {
+      const permStr = String((user && user.permission) || '').trim();
+      const login = String((user && user.login) || '').toLowerCase();
+      if (login === 'admin') forceUser = true;
+      else if (permStr) {
+        forceUser = (
+          permStr === 'aef,a,abcdflm,ab,ab,ab,abcd' ||
+          permStr === 'aef,a,abcdflm,ab,ab,ab' ||
+          permStr.indexOf('z') !== -1 ||
+          permStr.includes('полный доступ') ||
+          permStr.includes('full access')
+        );
+      }
+    } catch(_) {}
+    // Disable only for admin/forced, admin group members
+    const inherited = { view: false, edit: false, delete: false };
 
     const groupLabel = (function() {
       let gn = user && (user.groupname || user.group_name || user.group || user.groupName);
@@ -737,42 +796,46 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_view_${
+                        <input class="form-check-input" type="radio" name="cat-u_view_${user.id}" id="cat-u_view_inherit_${user.id}" value="inherit" ${inheritView===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <label class="form-check-label" for="cat-u_view_inherit_${user.id}">Наследовать</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
-                        }" id="user_view_none_${user.id}" value="none" ${
-      viewValue === "none" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value)">
-                        <label class="form-check-label" for="user_view_none_${
+                        }" id="cat-u_view_none_${user.id}" value="none" ${
+      inheritView===1 ? '' : (effView === 'none' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <label class="form-check-label" for="cat-u_view_none_${
                           user.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_view_${
+                        <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
-                        }" id="user_view_own_${user.id}" value="own" ${
-      viewValue === "own" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value)">
-                        <label class="form-check-label" for="user_view_own_${
+                        }" id="cat-u_view_own_${user.id}" value="own" ${
+      inheritView===1 ? '' : (effView === 'own' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <label class="form-check-label" for="cat-u_view_own_${
                           user.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_view_${
+                        <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
-                        }" id="user_view_group_${user.id}" value="group" ${
-      viewValue === "group" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value)">
-                        <label class="form-check-label" for="user_view_group_${
+                        }" id="cat-u_view_group_${user.id}" value="group" ${
+      inheritView===1 ? '' : (effView === 'group' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <label class="form-check-label" for="cat-u_view_group_${
                           user.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_view_${
+                        <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
-                        }" id="user_view_all_${user.id}" value="all" ${
-      viewValue === "all" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value)">
-                        <label class="form-check-label" for="user_view_all_${
+                        }" id="cat-u_view_all_${user.id}" value="all" ${
+      inheritView===1 ? '' : (effView === 'all' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <label class="form-check-label" for="cat-u_view_all_${
                           user.id
                         }">Все</label>
                     </div>
@@ -781,42 +844,46 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_edit_${
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${user.id}" id="cat-u_edit_inherit_${user.id}" value="inherit" ${inheritEdit===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <label class="form-check-label" for="cat-u_edit_inherit_${user.id}">Наследовать</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
-                        }" id="user_edit_none_${user.id}" value="none" ${
-      editValue === "none" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="user_edit_none_${
+                        }" id="cat-u_edit_none_${user.id}" value="none" ${
+      inheritEdit===1 ? '' : (effEdit === 'none' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <label class="form-check-label" for="cat-u_edit_none_${
                           user.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_edit_${
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
-                        }" id="user_edit_own_${user.id}" value="own" ${
-      editValue === "own" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="user_edit_own_${
+                        }" id="cat-u_edit_own_${user.id}" value="own" ${
+      inheritEdit===1 ? '' : (effEdit === 'own' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <label class="form-check-label" for="cat-u_edit_own_${
                           user.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_edit_${
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
-                        }" id="user_edit_group_${user.id}" value="group" ${
-      editValue === "group" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="user_edit_group_${
+                        }" id="cat-u_edit_group_${user.id}" value="group" ${
+      inheritEdit===1 ? '' : (effEdit === 'group' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <label class="form-check-label" for="cat-u_edit_group_${
                           user.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_edit_${
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
-                        }" id="user_edit_all_${user.id}" value="all" ${
-      editValue === "all" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value)">
-                        <label class="form-check-label" for="user_edit_all_${
+                        }" id="cat-u_edit_all_${user.id}" value="all" ${
+      inheritEdit===1 ? '' : (effEdit === 'all' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <label class="form-check-label" for="cat-u_edit_all_${
                           user.id
                         }">Все</label>
                     </div>
@@ -825,42 +892,46 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_delete_${
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${user.id}" id="cat-u_delete_inherit_${user.id}" value="inherit" ${inheritDelete===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <label class="form-check-label" for="cat-u_delete_inherit_${user.id}">Наследовать</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
-                        }" id="user_delete_none_${user.id}" value="none" ${
-      deleteValue === "none" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="user_delete_none_${
+                        }" id="cat-u_delete_none_${user.id}" value="none" ${
+      inheritDelete===1 ? '' : (effDelete === 'none' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <label class="form-check-label" for="cat-u_delete_none_${
                           user.id
                         }">Нет</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_delete_${
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
-                        }" id="user_delete_own_${user.id}" value="own" ${
-      deleteValue === "own" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="user_delete_own_${
+                        }" id="cat-u_delete_own_${user.id}" value="own" ${
+      inheritDelete===1 ? '' : (effDelete === 'own' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <label class="form-check-label" for="cat-u_delete_own_${
                           user.id
                         }">Свои</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_delete_${
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
-                        }" id="user_delete_group_${user.id}" value="group" ${
-      deleteValue === "group" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="user_delete_group_${
+                        }" id="cat-u_delete_group_${user.id}" value="group" ${
+      inheritDelete===1 ? '' : (effDelete === 'group' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <label class="form-check-label" for="cat-u_delete_group_${
                           user.id
                         }">Группы</label>
                     </div>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="user_delete_${
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
-                        }" id="user_delete_all_${user.id}" value="all" ${
-      deleteValue === "all" ? "checked" : ""
-    } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value)">
-                        <label class="form-check-label" for="user_delete_all_${
+                        }" id="cat-u_delete_all_${user.id}" value="all" ${
+      inheritDelete===1 ? '' : (effDelete === 'all' ? 'checked' : '')
+    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <label class="form-check-label" for="cat-u_delete_all_${
                           user.id
                         }">Все</label>
                     </div>
@@ -874,33 +945,118 @@ function loadUsersPermissionsTable(users, permissions) {
 // Update group permission by level (radio)
 function updateGroupPermissionLevel(groupId, action, level) {
   if (!currentSubcategoryId) return;
-  const base = `group_${action}_`;
+  const base = `${action}_`;
   const updated = {
     [`${base}own`]: level === "own",
     [`${base}group`]: level === "group",
     [`${base}all`]: level === "all",
   };
-  Object.entries(updated).forEach(([k, v]) => {
-    const key = k.replace("group_", "");
-    currentPermissionsDraft.group[key] = v;
+  if (!currentPermissionsDraft.group_by_id) currentPermissionsDraft.group_by_id = {};
+  const gid = String(groupId);
+  const existing = currentPermissionsDraft.group_by_id[gid] || {};
+  Object.entries(updated).forEach(([k, v]) => { existing[k] = v ? 1 : 0; });
+  currentPermissionsDraft.group_by_id[gid] = existing;
+  // Update visual inheritance levels
+  try {
+    if (!window.catGroupLevels) window.catGroupLevels = { view: 'none', edit: 'none', delete: 'none' };
+    window.catGroupLevels[action] = level;
+    // Re-render users table to reflect visual inheritance
+    loadUsersPermissionsTable((window.categoriesUsersData || []), currentPermissionsDraft.user || {});
+  } catch(_) {}
+  // Save immediately only the changed group
+  const payload = { permissions: { group_by_id: {} } };
+  payload.permissions.group_by_id[gid] = existing;
+  fetch(`/api/subcategory/${currentSubcategoryId}/permissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  }).then(r=>r.json()).then((data)=>{
+    if (data && (data.success || data.status === 'success')) {
+      try {
+        if (!lastSavedPermissions.group_by_id) lastSavedPermissions.group_by_id = {};
+        lastSavedPermissions.group_by_id[gid] = JSON.parse(JSON.stringify(existing));
+      } catch(_) {}
+    } else {
+      const msg = (data && (data.error || data.message)) || 'Save failed';
+      window.ErrorHandler && window.ErrorHandler.handleError(new Error(msg), 'categories-save-group');
+    }
+  }).catch((e)=>{
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'categories-save-group');
   });
-  markDirty("groups");
 }
 
+// Toggle inherit for a user (default on)
+window.updateUserInherit = function(userId, checked) {
+  try {
+    if (!currentSubcategoryId) return;
+    const uid = String(userId);
+    if (!currentPermissionsDraft.user_by_id) currentPermissionsDraft.user_by_id = {};
+    const perUser = currentPermissionsDraft.user_by_id[uid] || {};
+    perUser.inherit = checked ? 1 : 0;
+    currentPermissionsDraft.user_by_id[uid] = perUser;
+    const payload = { permissions: { user_by_id: {} } };
+    payload.permissions.user_by_id[uid] = { inherit: perUser.inherit };
+    fetch(`/api/subcategory/${currentSubcategoryId}/permissions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    }).then(r=>r.json()).then((data)=>{
+      if (!(data && (data.success || data.status==='success'))) {
+        const msg = (data && (data.error || data.message)) || 'Save failed';
+        window.ErrorHandler && window.ErrorHandler.handleError(new Error(msg), 'categories-save-inherit');
+      }
+      // Rerender to reflect enabled/disabled radios
+      try { loadUsersPermissionsTable((window.categoriesUsersData||[]), currentPermissionsDraft.user||{}); } catch(_) {}
+    }).catch((e)=>{
+      window.ErrorHandler && window.ErrorHandler.handleError(e, 'categories-save-inherit');
+    });
+  } catch(e) {
+    if (window.ErrorHandler) window.ErrorHandler.handleError(e, 'categories-inherit');
+  }
+};
+
 // Update user permission by level (radio)
-function updateUserPermissionLevel(userId, action, level) {
+function updateUserPermissionLevel(userId, action, level, perUserOnly) {
   if (!currentSubcategoryId) return;
-  const base = `user_${action}_`;
-  const updated = {
-    [`${base}own`]: level === "own",
-    [`${base}group`]: level === "group",
-    [`${base}all`]: level === "all",
-  };
-  Object.entries(updated).forEach(([k, v]) => {
-    const key = k.replace("user_", "");
-    currentPermissionsDraft.user[key] = v;
+  if (!currentPermissionsDraft.user_by_id) currentPermissionsDraft.user_by_id = {};
+  const uid = String(userId);
+  const existing = currentPermissionsDraft.user_by_id[uid] || {};
+  const base = `${action}_`;
+  if (level === 'inherit') {
+    // Mark inherit for axis and clear explicit flags
+    existing[`${action}_inherit`] = 1;
+    existing[`${base}own`] = 0;
+    existing[`${base}group`] = 0;
+    existing[`${base}all`] = 0;
+  } else {
+    // Explicit user choice: disable inherit and set chosen flag
+    existing[`${action}_inherit`] = 0;
+    existing[`${base}own`] = (level === 'own') ? 1 : 0;
+    existing[`${base}group`] = (level === 'group') ? 1 : 0;
+    existing[`${base}all`] = (level === 'all') ? 1 : 0;
+    // Explicit 'none'
+    if (level === 'none') {
+      existing[`${base}own`] = 0;
+      existing[`${base}group`] = 0;
+      existing[`${base}all`] = 0;
+    }
+  }
+  currentPermissionsDraft.user_by_id[uid] = existing;
+  // Save immediately only the changed user
+  const payload = { permissions: { user_by_id: {} } };
+  payload.permissions.user_by_id[uid] = existing;
+  fetch(`/api/subcategory/${currentSubcategoryId}/permissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  }).then(r=>r.json()).then((data)=>{
+    if (data && (data.success || data.status === 'success')) {
+      // update last saved snapshot for this user only
+      try {
+        if (!lastSavedPermissions.user_by_id) lastSavedPermissions.user_by_id = {};
+        lastSavedPermissions.user_by_id[uid] = JSON.parse(JSON.stringify(existing));
+      } catch(_) {}
+    } else {
+      const msg = (data && (data.error || data.message)) || 'Save failed';
+      window.ErrorHandler && window.ErrorHandler.handleError(new Error(msg), 'categories-save-user');
+    }
+  }).catch((e)=>{
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'categories-save-user');
   });
-  markDirty("users");
 }
 
 // Mark dirty state
@@ -928,10 +1084,7 @@ function setupSaveCancelButtons() {
   const usersSave = document.getElementById("users-save-btn");
   const usersCancel = document.getElementById("users-cancel-btn");
 
-  if (groupsSave) groupsSave.onclick = () => savePermissions("groups");
-  if (usersSave) usersSave.onclick = () => savePermissions("users");
-  if (groupsCancel) groupsCancel.onclick = () => cancelChanges("groups");
-  if (usersCancel) usersCancel.onclick = () => cancelChanges("users");
+  // Buttons removed; instant apply mode
 
   updateSaveButtonsState();
 }
@@ -962,7 +1115,14 @@ function savePermissions(which) {
   if (!currentSubcategoryId) return;
   updateSaveButtonsState(which);
 
-  const payload = { permissions: currentPermissionsDraft };
+  // Send only the changed part (groups or users)
+  const draft = deepClone(currentPermissionsDraft);
+  if (which === 'groups') {
+    try { delete draft.user; } catch(_) {}
+  } else if (which === 'users') {
+    try { delete draft.group; } catch(_) {}
+  }
+  const payload = { permissions: draft };
   fetch(`/api/subcategory/${currentSubcategoryId}/permissions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -970,7 +1130,7 @@ function savePermissions(which) {
   })
     .then((r) => r.json())
     .then((data) => {
-      if (data && data.success) {
+      if (data && (data.success || data.status === 'success')) {
         lastSavedPermissions = deepClone(currentPermissionsDraft);
         if (which === "groups") {
           isDirtyGroups = false;
@@ -979,6 +1139,14 @@ function savePermissions(which) {
         }
         const term = (getSearchInput(which)?.value || "").trim();
         loadPage(which, 1, term);
+
+        // Soft refresh files list for current subcategory
+        try {
+          if (window.SyncManager && window.SyncManager.getSocket && window.SyncManager.isConnected && window.SyncManager.isConnected()) {
+            const s = window.SyncManager.getSocket();
+            s && s.emit && s.emit('files:changed', { reason: 'subcategory-permissions', subcategory_id: currentSubcategoryId });
+          }
+        } catch(_) {}
 
         try {
           if (window.socket && typeof window.socket.emit === "function") {
@@ -990,7 +1158,8 @@ function savePermissions(which) {
           }
         } catch (_) {}
       } else {
-        window.ErrorHandler && window.ErrorHandler.handleError("Save failed", data && data.error, "app");
+        const msg = (data && (data.error || data.message)) || 'Save failed';
+        window.ErrorHandler && window.ErrorHandler.handleError(new Error(msg), "categories-save");
       }
     })
     .catch((e) => window.ErrorHandler && window.ErrorHandler.handleError("Save error", e, "app"))
@@ -1509,6 +1678,24 @@ function setupSocket() {
           if (fromSelf) return;
         } catch (_) {}
         if (currentCategoryId) loadSubcategories(currentCategoryId);
+      });
+
+      // Soft refresh files on permissions change affecting current subcategory
+      socket.on("files:changed", (data) => {
+        try {
+          if (!data) return;
+          if (String(data.subcategory_id || "") !== String(currentSubcategoryId || "")) return;
+          // Try global soft refresh function if available
+          if (typeof window.softRefreshFiles === "function") {
+            window.softRefreshFiles({ reason: "subcategory-permissions", subcategory_id: currentSubcategoryId });
+            return;
+          }
+          // Fallback: emit a DOM event other modules can listen to
+          try {
+            const evt = new CustomEvent("files:soft-refresh", { detail: { reason: "subcategory-permissions", subcategory_id: currentSubcategoryId } });
+            window.dispatchEvent(evt);
+          } catch(_) {}
+        } catch (_) {}
       });
 
       // Join categories room for force logout events

@@ -11,11 +11,28 @@ async function apiRequest(url, options = {}) {
       ...options,
     });
 
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const isJson = contentType.includes('application/json');
+
     if (!response.ok) {
+      if (isJson) {
+        try {
+          const data = await response.json();
+          const msg = data && (data.message || data.error) ? (data.message || data.error) : `${response.statusText}`;
+          throw new Error(msg || `HTTP ${response.status}`);
+        } catch (_) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return await response.json();
+    if (isJson) {
+      return await response.json();
+    }
+    // Fallback: treat plain text as error-friendly message
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
   } catch (err) {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(

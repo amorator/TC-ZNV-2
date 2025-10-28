@@ -51,7 +51,7 @@ from typing import Any, Dict, List, Optional, Union
 import urllib.request as http
 from bs4 import BeautifulSoup as bs
 
-from flask import render_template, url_for, request, redirect, session, Response, send_from_directory
+from flask import render_template, url_for, request, redirect, session, Response, send_from_directory, jsonify
 from flask_login import login_user, logout_user, current_user
 from flask_socketio import SocketIO
 from socketio import RedisManager as _SioRedisManager
@@ -493,6 +493,21 @@ def too_large(e):
     return f"Слишком большой файл {e}!", 403
 
 
+@app.errorhandler(429)
+def too_many_requests_handler(e):
+    """Return unified message for 429, JSON for XHR/JSON requests."""
+    try:
+        accept = (request.headers.get('Accept') or '').lower()
+        xrw = (request.headers.get('X-Requested-With') or '').lower()
+        wants_json = ('application/json' in accept) or (xrw in ('xmlhttprequest', 'fetch'))
+    except Exception:
+        wants_json = False
+    msg = 'Слишком частые запросы. Попробуйте позже.'
+    if wants_json:
+        return jsonify({'error': 'too_many_requests', 'message': msg}), 429
+    return msg, 429
+
+
 def _render_50x(err, code):
     try:
         now_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -506,9 +521,13 @@ def _render_50x(err, code):
             last = details.rfind(marker)
             if last != -1:
                 details = details[last:]
+        # Friendly message for rate limiting (503)
+        friendly = None
+        if int(code) == 503:
+            friendly = 'Слишком частые запросы. Попробуйте ещё раз через минуту.'
         return render_template(
             'error_pages/50x.j2.html',
-            error_text=str(err),
+            error_text=friendly or str(err),
             error_details=details,
             now_text=now_text,
         ), code

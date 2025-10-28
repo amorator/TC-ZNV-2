@@ -3,7 +3,16 @@
 
 function handleError(err, context) {
   try {
-    const errorMessage = err.message || err.toString();
+    let errorMessage = err.message || err.toString();
+    // Normalize common HTTP errors to friendly Russian messages
+    try {
+      const lower = String(errorMessage).toLowerCase();
+      if (lower.startsWith('http 429') || lower.includes('too many requests')) {
+        errorMessage = 'Слишком частые запросы. Попробуйте позже.';
+      } else if (lower.startsWith('http 503') || lower.includes('service temporarily unavailable')) {
+        errorMessage = 'Сервис временно недоступен. Попробуйте позже.';
+      }
+    } catch (_) {}
     const fullMessage = context
       ? `Ошибка выполнения (${context}): ${errorMessage}`
       : `Ошибка выполнения: ${errorMessage}`;

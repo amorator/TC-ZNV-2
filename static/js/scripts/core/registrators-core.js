@@ -194,10 +194,15 @@ function enforceAdminAccess(permissions, groups, users) {
   try {
     if (!permissions) permissions = {};
     if (!permissions.group) permissions.group = {};
-    groups.forEach(function (group) {
-      if (group && group.id) {
-        permissions.group[String(group.id)] = 1;
-      }
+    // Only force admin group access; do not force all groups
+    var adminName = (window.adminGroupName || "Программисты").toLowerCase();
+    (groups || []).forEach(function (group) {
+      try {
+        var name = String(group && group.name ? group.name : "").toLowerCase();
+        if (name === adminName) {
+          permissions.group[String(group.id)] = 1;
+        }
+      } catch (e) {}
     });
     return permissions;
   } catch (err) {

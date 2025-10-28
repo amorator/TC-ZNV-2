@@ -1065,6 +1065,13 @@
             const form = document.getElementById("perm");
             if (form) {
               window.popupValues(form, rowId);
+              // Prime hidden legacy permission value from row dataset BEFORE syncing UI
+              try {
+                var rowEl0 = document.getElementById(rowId);
+                var permStr0 = rowEl0 ? (rowEl0.getAttribute('data-perm') || '') : '';
+                var hidden0 = document.getElementById('perm-string-perm');
+                if (hidden0) hidden0.value = permStr0;
+              } catch(_) {}
               try {
                 if (window.syncPermFormFromRow) {
                   window.syncPermFormFromRow(form, rowId);
@@ -1072,6 +1079,13 @@
                   setTimeout(function () {
                     try {
                       window.syncPermFormFromRow(form, rowId);
+                      // Ensure hidden legacy permission field stays populated
+                      try {
+                        var rowEl = document.getElementById(rowId);
+                        var permStr = rowEl ? (rowEl.getAttribute('data-perm') || '') : '';
+                        var hiddenInput = document.getElementById('perm-string-perm');
+                        if (hiddenInput && !hiddenInput.value) hiddenInput.value = permStr;
+                      } catch(_) {}
                     } catch (err) {
                       window.ErrorHandler.handleError(err, "unknown");
                     }
@@ -1080,6 +1094,14 @@
                 // Ensure Full Access checkbox reflects hidden value
                 setTimeout(function () {
                   try {
+                    // Immediate refresh too
+                    try {
+                      if (window.refreshPermissionUI) {
+                        window.refreshPermissionUI("perm-string-perm");
+                      } else if (window["refreshPermUI_perm-string-perm"]) {
+                        window["refreshPermUI_perm-string-perm"]();
+                      }
+                    } catch(_) {}
                     if (window.refreshPermissionUI) {
                       window.refreshPermissionUI("perm-string-perm");
                     } else if (window["refreshPermUI_perm-string-perm"]) {

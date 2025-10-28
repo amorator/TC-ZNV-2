@@ -128,15 +128,14 @@ class SQL(Config):
 	PRIMARY KEY(id)
 );""")
 
-		# Create settings table for app-wide key/value storage (e.g., secret_key)
+		# Create unified settings table (web_settings)
 		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_settings (
-	id INTEGER UNIQUE AUTO_INCREMENT,
-	skey VARCHAR(255) NOT NULL UNIQUE,
-	svalue TEXT NOT NULL,
-	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-	PRIMARY KEY(id)
-);""")
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL UNIQUE,
+		value TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		);""")
 		
 		# Insert default admin group and user
 		permission_length = int(self.config['db'].get('permission_length', 5))
@@ -298,7 +297,7 @@ class SQLUtils(SQL):
 		self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
 		self._GROUP_SELECT_FIELDS = "id, name, description"
 		self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
-		self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, user_upload, group_upload"
+		self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled"
 
 		# Ensure push subscriptions table exists with required columns and indexes
 		try:
@@ -363,26 +362,23 @@ class SQLUtils(SQL):
 								pass
 				except Exception:
 					pass
-			# Ensure new subcategory upload flags exist
+			# Explicitly drop legacy subcategory permission columns (including uploads)
 			try:
-				for col, ddl in [
-					('user_upload', f"ALTER TABLE {prefix}_file_subcategory ADD COLUMN IF NOT EXISTS user_upload TINYINT(1) NOT NULL DEFAULT 0"),
-					('group_upload', f"ALTER TABLE {prefix}_file_subcategory ADD COLUMN IF NOT EXISTS group_upload TINYINT(1) NOT NULL DEFAULT 0"),
-				]:
+				legacy_cols = [
+					'user_view_own','user_view_group','user_view_all',
+					'user_edit_own','user_edit_group','user_edit_all',
+					'user_delete_own','user_delete_group','user_delete_all',
+					'group_view_own','group_view_group','group_view_all',
+					'group_edit_own','group_edit_group','group_edit_all',
+					'group_delete_own','group_delete_group','group_delete_all',
+					'user_upload','group_upload',
+				]
+				for col in legacy_cols:
 					try:
-						exists = self.execute_scalar(
-							"""
-							SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
-							WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
-							LIMIT 1;
-							""",
-							[dbname, f"{prefix}_file_subcategory", col]
+						self.execute_non_query(
+							f"ALTER TABLE {prefix}_file_subcategory DROP COLUMN {col};",
+							[]
 						)
-						if not exists or int(exists[0]) == 0:
-							try:
-								self.execute_non_query(ddl)
-							except Exception:
-								self.execute_non_query(ddl.replace(" IF NOT EXISTS", ""))
 					except Exception:
 						pass
 			except Exception:
@@ -406,27 +402,17 @@ class SQLUtils(SQL):
 			str: secret key value
 		"""
 		try:
-			prefix = self.config['db']['prefix']
-			# Ensure settings table exists (idempotent)
-			self.execute_non_query(f"""
-				CREATE TABLE IF NOT EXISTS {prefix}_settings (
-					id INT AUTO_INCREMENT PRIMARY KEY,
-					skey VARCHAR(255) NOT NULL UNIQUE,
-					svalue TEXT NOT NULL,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-			""")
-			row = self.execute_scalar(f"SELECT svalue FROM {prefix}_settings WHERE skey = %s LIMIT 1;", ['secret_key'])
-			if row and row[0]:
-				return str(row[0])
-			# Create a new strong secret key
-			key = secrets.token_urlsafe(48)
-			self.execute_non_query(f"INSERT INTO {prefix}_settings (skey, svalue) VALUES (%s, %s);", ['secret_key', key])
+			# Use unified settings helpers backed by ${prefix}_settings (name/value)
+			val = self.setting_get('flask_secret_key')
+			if isinstance(val, str) and val.strip():
+				return val.strip()
+			# Create and persist a new strong secret key
+			key = secrets.token_urlsafe(64)
+			self.setting_set('flask_secret_key', key)
 			return key
 		except Exception:
 			# As a last resort, generate a volatile key (process lifetime only)
-			return secrets.token_urlsafe(48)
+			return secrets.token_urlsafe(64)
 
 	def group_name_by_id(self, args):
 		"""Get group name by ID.
@@ -909,11 +895,13 @@ class SQLUtils(SQL):
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
 
-			# Create settings table for app-wide key/value settings (e.g., VAPID keys)
+			# Ensure unified settings table exists (web_settings)
 			self.execute_non_query(f"""
-				CREATE TABLE IF NOT EXISTS {prefix}_setting (
-					name VARCHAR(64) PRIMARY KEY,
+				CREATE TABLE IF NOT EXISTS {prefix}_settings (
+					id INT AUTO_INCREMENT PRIMARY KEY,
+					name VARCHAR(255) NOT NULL UNIQUE,
 					value TEXT NOT NULL,
+					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
@@ -942,25 +930,6 @@ class SQLUtils(SQL):
 					folder_name VARCHAR(255) NOT NULL,
 					display_order INT DEFAULT 0,
 					enabled TINYINT DEFAULT 1,
-					-- Permissions: view, edit, delete for users, groups, all
-					user_view_own TINYINT DEFAULT 0,
-					user_view_group TINYINT DEFAULT 0,
-					user_view_all TINYINT DEFAULT 0,
-					user_edit_own TINYINT DEFAULT 0,
-					user_edit_group TINYINT DEFAULT 0,
-					user_edit_all TINYINT DEFAULT 0,
-					user_delete_own TINYINT DEFAULT 0,
-					user_delete_group TINYINT DEFAULT 0,
-					user_delete_all TINYINT DEFAULT 0,
-					group_view_own TINYINT DEFAULT 0,
-					group_view_group TINYINT DEFAULT 0,
-					group_view_all TINYINT DEFAULT 0,
-					group_edit_own TINYINT DEFAULT 0,
-					group_edit_group TINYINT DEFAULT 0,
-					group_edit_all TINYINT DEFAULT 0,
-					group_delete_own TINYINT DEFAULT 0,
-					group_delete_group TINYINT DEFAULT 0,
-					group_delete_all TINYINT DEFAULT 0,
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 					UNIQUE KEY uniq_category_folder (category_id, folder_name),
@@ -1408,14 +1377,14 @@ class SQLUtils(SQL):
 	# --- App settings (VAPID keys storage) ---
 	def setting_get(self, name: str):
 		row = self.execute_scalar(
-			f"SELECT value FROM {self.config['db']['prefix']}_setting WHERE name = %s LIMIT 1;",
+			f"SELECT value FROM {self.config['db']['prefix']}_settings WHERE name = %s LIMIT 1;",
 			[name]
 		)
 		return row[0] if row else None
 
 	def setting_set(self, name: str, value: str):
 		return self.execute_non_query(
-			f"INSERT INTO {self.config['db']['prefix']}_setting (name, value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value);",
+			f"INSERT INTO {self.config['db']['prefix']}_settings (name, value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value);",
 			[name, value]
 		)
 
@@ -1541,9 +1510,9 @@ class SQLUtils(SQL):
 		)
 
 	def subcategory_edit(self, args):
-		"""Edit subcategory. Args: [category_id, display_name, folder_name, display_order, enabled, user_view_own, user_view_group, user_view_all, user_edit_own, user_edit_group, user_edit_all, user_delete_own, user_delete_group, user_delete_all, group_view_own, group_view_group, group_view_all, group_edit_own, group_edit_group, group_edit_all, group_delete_own, group_delete_group, group_delete_all, user_upload, group_upload, id]"""
+		"""Edit subcategory. Args: [category_id, display_name, folder_name, display_order, enabled, id]"""
 		self.execute_non_query(
-			f"UPDATE {self.config['db']['prefix']}_file_subcategory SET category_id = %s, display_name = %s, folder_name = %s, display_order = %s, enabled = %s, user_view_own = %s, user_view_group = %s, user_view_all = %s, user_edit_own = %s, user_edit_group = %s, user_edit_all = %s, user_delete_own = %s, user_delete_group = %s, user_delete_all = %s, group_view_own = %s, group_view_group = %s, group_view_all = %s, group_edit_own = %s, group_edit_group = %s, group_edit_all = %s, group_delete_own = %s, group_delete_group = %s, group_delete_all = %s, user_upload = %s, group_upload = %s WHERE id = %s;",
+			f"UPDATE {self.config['db']['prefix']}_file_subcategory SET category_id = %s, display_name = %s, folder_name = %s, display_order = %s, enabled = %s WHERE id = %s;",
 			args
 		)
 

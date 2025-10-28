@@ -44,12 +44,7 @@ function loadRegPermissions(pageGroups, pageUsers, termGroups, termUsers) {
           ? permissionsData.permissions
           : { user: {}, group: {} };
 
-      // Enforce admin access for all registrators
-      perms = enforceAdminAccess(
-        perms,
-        groupsResp.items || [],
-        usersResp.items || []
-      );
+      // Use backend-enforced permissions as-is
 
       regLastSavedPermissions = JSON.parse(JSON.stringify(perms));
       regCurrentPermissionsDraft = JSON.parse(JSON.stringify(perms));
@@ -141,7 +136,8 @@ function loadGroupsPermissionsTable(groups, permissions) {
     }
     if (!regCurrentPermissionsDraft.group)
       regCurrentPermissionsDraft.group = {};
-    regCurrentPermissionsDraft.group[String(group.id)] = 1;
+    // Reflect actual state: force admin group to 1, otherwise use stored checked value
+    regCurrentPermissionsDraft.group[String(group.id)] = (force ? 1 : (checked ? 1 : 0));
     var html = `
       <td>
         <span title="${group.name || ""}">${group.name || ""}</span>
@@ -182,22 +178,29 @@ function loadUsersPermissionsTable(users, permissions) {
   (users || []).forEach(function (user) {
     var row = document.createElement("tr");
     row.className = "small";
-    var checked =
-      permissions && permissions[user.id] ? !!permissions[user.id] : false;
-    var force = false;
-    var inheritedFromGroup = false;
     var isAdminGroupUser = false;
+    var forceUser = false;
+    var groupAllows = false;
+
+    // Determine group allow state
+    if (user.gid) {
+      var gidStr = String(user.gid);
+      if (window.regGroupStates && window.regGroupStates[gidStr] === true) {
+        groupAllows = true;
+      } else if (regCurrentPermissionsDraft.group && regCurrentPermissionsDraft.group[gidStr] === 1) {
+        groupAllows = true;
+      } else if (regLastSavedPermissions && regLastSavedPermissions.group && regLastSavedPermissions.group[gidStr] === 1) {
+        groupAllows = true;
+      }
+    }
 
     try {
       var permStr = String((user && user.permission) || "").trim();
       var login = String((user && user.login) || "").toLowerCase();
-
-      // Always force for admin user
       if (login === "admin") {
-        force = true;
+        forceUser = true;
       } else {
-        // Check for full access patterns
-        force =
+        forceUser =
           permStr === "aef,a,abcdflm,ab,ab,ab,abcd" ||
           permStr === "aef,a,abcdflm,ab,ab,ab" ||
           permStr.indexOf("z") !== -1 ||
@@ -205,59 +208,38 @@ function loadUsersPermissionsTable(users, permissions) {
           permStr.includes("full access");
       }
 
-      // Determine source of permission: group, individual, or force
-      var hasIndividualPermission = false;
-      var hasGroupPermission = false;
-
-      // Check group permission first (has priority) - use current group states
-      if (user.gid) {
-        if (
-          window.regGroupStates &&
-          window.regGroupStates[String(user.gid)] === true
-        ) {
-          hasGroupPermission = true;
-        } else if (
-          regCurrentPermissionsDraft.group &&
-          regCurrentPermissionsDraft.group[String(user.gid)] === 1
-        ) {
-          hasGroupPermission = true;
-        } else if (
-          regLastSavedPermissions &&
-          regLastSavedPermissions.group &&
-          regLastSavedPermissions.group[String(user.gid)] === 1
-        ) {
-          hasGroupPermission = true;
+      // Determine user selection: 'inherit' (default), 'none', 'all'
+      var uidStr = String(user.id);
+      var sel = 'inherit';
+      var uby = (regCurrentPermissionsDraft.user_by_id && regCurrentPermissionsDraft.user_by_id[uidStr])
+        || (regLastSavedPermissions && regLastSavedPermissions.user_by_id && regLastSavedPermissions.user_by_id[uidStr]) || {};
+      if (uby && typeof uby === 'object') {
+        var hasAnyAxisKey = ('inherit' in uby) || ('view_inherit' in uby) || ('view_all' in uby) || ('view_group' in uby) || ('view_own' in uby);
+        if (!hasAnyAxisKey) {
+          sel = 'inherit';
+        } else {
+          var inh = parseInt(uby.inherit || uby.view_inherit || 0, 10) || 0;
+          if (inh === 1) {
+            sel = 'inherit';
+          } else if (parseInt(uby.view_all || 0, 10) === 1) {
+            sel = 'all';
+          } else if ((parseInt(uby.view_group || 0, 10) === 1) || (parseInt(uby.view_own || 0, 10) === 1)) {
+            // collapse to all/none for registrators view toggle; treat any positive as allow
+            sel = 'all';
+          } else {
+            // legacy allow via map
+            var allowMap = (regCurrentPermissionsDraft.user && regCurrentPermissionsDraft.user[uidStr] === 1) ||
+                           (regLastSavedPermissions && regLastSavedPermissions.user && regLastSavedPermissions.user[uidStr] === 1);
+            sel = allowMap ? 'all' : 'none';
+          }
         }
+      } else {
+        var allowMap2 = (regCurrentPermissionsDraft.user && regCurrentPermissionsDraft.user[uidStr] === 1) ||
+                        (regLastSavedPermissions && regLastSavedPermissions.user && regLastSavedPermissions.user[uidStr] === 1);
+        sel = allowMap2 ? 'all' : 'inherit';
       }
 
-      // Check individual user permission only if no group permission
-      if (!hasGroupPermission) {
-        if (
-          regCurrentPermissionsDraft.user &&
-          regCurrentPermissionsDraft.user[String(user.id)] === 1
-        ) {
-          hasIndividualPermission = true;
-        } else if (
-          regLastSavedPermissions &&
-          regLastSavedPermissions.user &&
-          regLastSavedPermissions.user[String(user.id)] === 1
-        ) {
-          hasIndividualPermission = true;
-        }
-      }
-
-      // Determine final state
-      if (force) {
-        // Force overrides everything: checked and non-editable
-        inheritedFromGroup = false;
-        checked = true;
-      } else if (hasGroupPermission) {
-        inheritedFromGroup = true;
-        checked = true;
-      } else if (hasIndividualPermission) {
-        inheritedFromGroup = false;
-        checked = true;
-      }
+      // Keep actual selection (inherit/none/all) without visual forcing
     } catch (err) {
       if (window.ErrorHandler) {
         window.ErrorHandler.handleError(err, "loadUsersPermissionsTable");
@@ -294,24 +276,22 @@ function loadUsersPermissionsTable(users, permissions) {
             : ""
         }
       </td>
-      <td class="text-end">
-        <label class="form-check form-switch mb-0 d-inline-flex align-items-center justify-content-end">
-          <input class="form-check-input" type="checkbox" name="reg-perm-view" data-entity="user" data-id="${
-            user.id
-          }"
-            ${checked || force ? "checked" : ""}
-            ${force || inheritedFromGroup ? "disabled" : ""}
-            onchange="updateRegistratorUserPermission(${
-              user.id
-            }, this.checked)">
-        </label>
-        ${
-          inheritedFromGroup
-            ? '<small class="text-muted ms-1">(от группы)</small>'
-            : force
-            ? '<small class="text-muted ms-1">(от настроек пользователя)</small>'
-            : ""
-        }
+      <td>
+        <div class="d-flex flex-column align-items-start">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="reg-u_view_${user.id}" id="reg-u_view_inherit_${user.id}" value="inherit" ${ sel==='inherit'?'checked':'' } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateRegistratorUserLevel(${user.id}, this.value)">
+            <label class="form-check-label" for="reg-u_view_inherit_${user.id}">Наследовать</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="reg-u_view_${user.id}" id="reg-u_view_none_${user.id}" value="none" ${ sel==='none'?'checked':'' } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateRegistratorUserLevel(${user.id}, this.value)">
+            <label class="form-check-label" for="reg-u_view_none_${user.id}">Нет</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="reg-u_view_${user.id}" id="reg-u_view_all_${user.id}" value="all" ${ sel==='all'?'checked':'' } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateRegistratorUserLevel(${user.id}, this.value)">
+            <label class="form-check-label" for="reg-u_view_all_${user.id}">Да</label>
+          </div>
+          
+        </div>
       </td>
     `;
     row.innerHTML = html;
@@ -383,9 +363,8 @@ window.updateRegistratorGroupPermission = function (groupId, checked) {
 };
 
 // Update user permission
-window.updateRegistratorUserPermission = function (userId, checked) {
+window.updateRegistratorUserLevel = function (userId, level) {
   try {
-    // Check if this user has force permission (admin or full access)
     var isForceUser = false;
     var userData = window.currentUsersData
       ? window.currentUsersData.find((u) => u.id == userId)
@@ -405,21 +384,50 @@ window.updateRegistratorUserPermission = function (userId, checked) {
       }
     }
     if (isForceUser) {
-      // Re-check the checkbox
       setTimeout(() => {
         var input = document.querySelector(
-          `input[data-entity="user"][data-id="${userId}"]`
+          `input[name="reg-u_view_${userId}"]#reg-u_view_all_${userId}`
         );
         if (input) input.checked = true;
       }, 0);
       return;
     }
+    var uid = String(userId);
+    if (!regCurrentPermissionsDraft.user_by_id) regCurrentPermissionsDraft.user_by_id = {};
     if (!regCurrentPermissionsDraft.user) regCurrentPermissionsDraft.user = {};
-    regCurrentPermissionsDraft.user[String(userId)] = checked ? 1 : 0;
-    saveRegPermissions("users");
+    var base = regCurrentPermissionsDraft.user_by_id[uid] || {};
+    if (level === 'inherit') {
+      base.inherit = 1;
+      regCurrentPermissionsDraft.user[uid] = 0; // no explicit allow
+    } else if (level === 'all') {
+      base.inherit = 0;
+      regCurrentPermissionsDraft.user[uid] = 1; // explicit allow
+    } else if (level === 'none') {
+      base.inherit = 0;
+      regCurrentPermissionsDraft.user[uid] = 0; // explicit deny
+    }
+    regCurrentPermissionsDraft.user_by_id[uid] = base;
+
+    // Save immediately only the changed user
+    var rid = window.currentRegistratorId;
+    if (!rid) return;
+    var payload = { permissions: { user_by_id: {} } };
+    payload.permissions.user_by_id[uid] = base;
+    fetch("/registrators/" + encodeURIComponent(rid) + "/permissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(function(r){ return r.json(); }).then(function(){
+      // refresh saved snapshot
+      try {
+        if (!regLastSavedPermissions) regLastSavedPermissions = {};
+        if (!regLastSavedPermissions.user_by_id) regLastSavedPermissions.user_by_id = {};
+        regLastSavedPermissions.user_by_id[uid] = JSON.parse(JSON.stringify(base));
+      } catch(_){}
+    }).catch(function(err){ if (window.ErrorHandler) window.ErrorHandler.handleError(err, 'updateRegistratorUserLevel'); });
   } catch (err) {
     if (window.ErrorHandler) {
-      window.ErrorHandler.handleError(err, "updateRegistratorUserPermission");
+      window.ErrorHandler.handleError(err, "updateRegistratorUserLevel");
     }
   }
 };
@@ -486,6 +494,18 @@ function saveRegPermissions(which) {
           );
           next.user = prevUsers; // keep existing users as they were in DB
           regLastSavedPermissions = next;
+            // Also reset current draft's user map to DB snapshot to avoid drift
+            if (!regCurrentPermissionsDraft) regCurrentPermissionsDraft = {};
+            regCurrentPermissionsDraft.user = JSON.parse(
+              JSON.stringify(prevUsers)
+            );
+            // Refresh users table to reflect visual changes only
+            try {
+              loadUsersPermissionsTable(
+                window.currentUsersData || [],
+                regCurrentPermissionsDraft.user || {}
+              );
+            } catch (_) {}
         } catch (err) {
           if (window.ErrorHandler) {
             window.ErrorHandler.handleError(err, "saveRegPermissions");
@@ -655,9 +675,12 @@ function bindRegistratorsSearchbars() {
       gx.addEventListener('input', gHandler);
       gx.addEventListener('change', gHandler);
       gx.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); gHandler(); }});
-      // Ensure clear button exists next to input
+      // Ensure clear button exists next to input (inline, no wrap)
       try {
         var wrap = gx.parentElement;
+        if (wrap) {
+          try { wrap.style.display = 'flex'; wrap.style.alignItems = 'center'; wrap.style.flexWrap = 'nowrap'; } catch(_) {}
+        }
         var hasBtn = wrap && wrap.querySelector('button[data-role="clear-search-groups"]');
         if (!hasBtn && wrap) {
           var btn = document.createElement('button');
@@ -692,9 +715,12 @@ function bindRegistratorsSearchbars() {
       ux.addEventListener('input', uHandler);
       ux.addEventListener('change', uHandler);
       ux.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); uHandler(); }});
-      // Ensure clear button exists next to input
+      // Ensure clear button exists next to input (inline, no wrap)
       try {
         var wrap2 = ux.parentElement;
+        if (wrap2) {
+          try { wrap2.style.display = 'flex'; wrap2.style.alignItems = 'center'; wrap2.style.flexWrap = 'nowrap'; } catch(_) {}
+        }
         var hasBtn2 = wrap2 && wrap2.querySelector('button[data-role="clear-search-users"]');
         if (!hasBtn2 && wrap2) {
           var btn2 = document.createElement('button');
