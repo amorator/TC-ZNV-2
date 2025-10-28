@@ -4,8 +4,8 @@
  */
 
 // Debouncing for sync events
-let syncTimeout = null;
-let pendingSync = false;
+let groupsSyncTimeout = null;
+let groupsPendingSync = false;
 
 /**
  * Create new group
@@ -104,16 +104,16 @@ function deleteGroup(groupId) {
  * Debounced sync function to prevent multiple simultaneous refreshes
  */
 function debouncedSync() {
-  if (pendingSync) return;
+  if (groupsPendingSync) return;
 
-  pendingSync = true;
+  groupsPendingSync = true;
 
-  if (syncTimeout) {
-    clearTimeout(syncTimeout);
+  if (groupsSyncTimeout) {
+    clearTimeout(groupsSyncTimeout);
   }
 
-  syncTimeout = setTimeout(() => {
-    pendingSync = false;
+  groupsSyncTimeout = setTimeout(() => {
+    groupsPendingSync = false;
     softRefreshGroupsTable(true);
   }, 100);
 }

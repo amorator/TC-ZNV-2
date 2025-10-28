@@ -578,12 +578,43 @@ function handleLogExport() {
 }
 
 /**
+ * Handle HTTP errors with user-friendly messages
+ */
+function handleHttpError(error, operation) {
+  // Check if it's a fetch response with status 429
+  if (error.status === 429) {
+    // Try to get message from response
+    let message = "Операция уже выполнялась недавно. Пожалуйста, подождите перед повторной попыткой.";
+    
+    if (error.response && error.response.json) {
+      error.response.json().then(data => {
+        if (data.message) {
+          window.showToast(data.message, "warning");
+        } else {
+          window.showToast(message, "warning");
+        }
+      }).catch(() => {
+        window.showToast(message, "warning");
+      });
+    } else {
+      window.showToast(message, "warning");
+    }
+    return;
+  }
+  
+  // Other errors
+  window.ErrorHandler && window.ErrorHandler.handleError(error, operation);
+  window.showToast(
+    `Ошибка при ${operation}: ${error.message || "Неизвестная ошибка"}`,
+    "error"
+  );
+}
+
+/**
  * Handle force logout all sessions
  */
 function handleForceLogoutAll() {
   try {
-      "handleForceLogoutAll called - this should only happen after confirmation"
-    );
 
     // Show loading state
     const btn = document.getElementById("adminForceLogoutBtn");
@@ -600,7 +631,10 @@ function handleForceLogoutAll() {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
         return response.json();
       })
@@ -625,14 +659,7 @@ function handleForceLogoutAll() {
         }
       })
       .catch((error) => {
-        window.ErrorHandler && window.ErrorHandler.handleError("Force logout error:", error, "app");
-        if (window.ErrorHandler) {
-          window.ErrorHandler.handleError(error, "handleForceLogoutAll");
-        }
-        window.showToast(
-          "Ошибка при разрыве сессий: " + error.message,
-          "error"
-        );
+        handleHttpError(error, "разрыве сессий");
       })
       .finally(() => {
         // Restore button state
@@ -661,8 +688,6 @@ function handleForceLogoutAll() {
  */
 function handleForceRefreshAll() {
   try {
-      "handleForceRefreshAll called - this should only happen after confirmation"
-    );
 
     // Show loading state
     const btn = document.getElementById("adminForceRefreshBtn");
@@ -677,7 +702,10 @@ function handleForceRefreshAll() {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
         return response.json();
       })
@@ -708,14 +736,7 @@ function handleForceRefreshAll() {
         }
       })
       .catch((error) => {
-        window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", error, "app");
-        if (window.ErrorHandler) {
-          window.ErrorHandler.handleError(error, "handleForceRefreshAll");
-        }
-        window.showToast(
-          "Ошибка при обновлении страниц: " + error.message,
-          "error"
-        );
+        handleHttpError(error, "обновлении страниц");
       })
       .finally(() => {
         // Restore button state
@@ -759,7 +780,10 @@ function handlePushMaintenance() {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
         return response.json();
       })
@@ -767,9 +791,6 @@ function handlePushMaintenance() {
         if (data.status === "success") {
           // Show success toast after a delay to ensure it appears after confirmation
           setTimeout(() => {
-              "toast-container element:",
-              document.getElementById("toast-container")
-            );
             if (window.showToast) {
               try {
                 window.showToast("Обслуживание подписок запущено", "success");
@@ -788,14 +809,7 @@ function handlePushMaintenance() {
         }
       })
       .catch((error) => {
-        window.ErrorHandler && window.ErrorHandler.handleError("Push maintenance error:", error, "app");
-        if (window.ErrorHandler) {
-          window.ErrorHandler.handleError(error, "handlePushMaintenance");
-        }
-        window.showToast(
-          "Ошибка при запуске обслуживания: " + error.message,
-          "error"
-        );
+        handleHttpError(error, "запуске обслуживания подписок");
       })
       .finally(() => {
         // Restore button state
@@ -840,7 +854,10 @@ function handleFilesMaintenance() {
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
         return response.json();
       })
@@ -848,9 +865,6 @@ function handleFilesMaintenance() {
         if (data.status === "success") {
           // Show success toast after a delay to ensure it appears after confirmation
           setTimeout(() => {
-              "toast-container element:",
-              document.getElementById("toast-container")
-            );
             if (window.showToast) {
               try {
                 window.showToast(
@@ -872,14 +886,7 @@ function handleFilesMaintenance() {
         }
       })
       .catch((error) => {
-        window.ErrorHandler && window.ErrorHandler.handleError("Files maintenance error:", error, "app");
-        if (window.ErrorHandler) {
-          window.ErrorHandler.handleError(error, "handleFilesMaintenance");
-        }
-        window.showToast(
-          "Ошибка при запуске обслуживания файлов: " + error.message,
-          "error"
-        );
+        handleHttpError(error, "запуске обслуживания файлов");
       })
       .finally(() => {
         // Restore button state

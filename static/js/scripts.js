@@ -91,7 +91,7 @@ document.addEventListener(
           try {
             iframe.contentWindow.postMessage({ type: "rec:save" }, "*");
           } catch (error) {
-            console.error("Failed to send save message to recorder:", error);
+            window.ErrorHandler && window.ErrorHandler.handleError(error, "recorder-save");
           }
         }
         return;
@@ -109,7 +109,7 @@ document.addEventListener(
         try {
           submitBtn.click();
         } catch (error) {
-          console.error("Failed to click submit button:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError(error, "submit-click");
         }
         return;
       }
@@ -121,7 +121,7 @@ document.addEventListener(
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
-        console.warn("Error preventing default:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError(error, "prevent-default");
       }
 
       // Защищенное поведение для записи: не закрывать во время записи
@@ -155,14 +155,14 @@ document.addEventListener(
             }
           }
         } catch (error) {
-          console.warn("Error handling recorder close:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError(error, "recorder-close");
         }
       }
 
       try {
         popupClose(popup);
       } catch (error) {
-        console.error("Failed to close popup:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError(error, "popup-close-escape");
       }
     }
   },
@@ -245,7 +245,7 @@ document.addEventListener(
       event.preventDefault();
       event.stopPropagation();
     } catch (error) {
-      console.warn("Error preventing default:", error);
+      window.ErrorHandler && window.ErrorHandler.handleError(error, "prevent-default-escape");
     }
 
     if (audioOpen) {
@@ -255,13 +255,13 @@ document.addEventListener(
           try {
             audio.play();
           } catch (error) {
-            console.warn("Failed to play audio:", error);
+            window.ErrorHandler && window.ErrorHandler.handleError(error, "audio-play");
           }
         } else {
           try {
             audio.pause();
           } catch (error) {
-            console.warn("Failed to pause audio:", error);
+            window.ErrorHandler && window.ErrorHandler.handleError(error, "audio-pause");
           }
         }
       }
@@ -272,13 +272,13 @@ document.addEventListener(
           try {
             video.play();
           } catch (error) {
-            console.warn("Failed to play video:", error);
+            window.ErrorHandler && window.ErrorHandler.handleError(error, "video-play");
           }
         } else {
           try {
             video.pause();
           } catch (error) {
-            console.warn("Failed to pause video:", error);
+            window.ErrorHandler && window.ErrorHandler.handleError(error, "video-pause");
           }
         }
       }
@@ -326,7 +326,7 @@ document.addEventListener(
             return;
           }
         } catch (error) {
-          console.warn("Error handling recorder close:", error);
+          window.ErrorHandler && window.ErrorHandler.handleError(error, "recorder-close");
         }
       }
 
@@ -334,13 +334,13 @@ document.addEventListener(
         popupClose(id);
       } catch (error) {
         overlay.classList.remove("show");
-        console.error("Failed to close popup:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError(error, "popup-close-overlay");
       }
 
       try {
         stopAllMedia();
       } catch (error) {
-        console.warn("Failed to stop media:", error);
+        window.ErrorHandler && window.ErrorHandler.handleError(error, "media-stop");
       }
     }
   },

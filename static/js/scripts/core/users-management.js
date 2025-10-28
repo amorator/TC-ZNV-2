@@ -4,8 +4,8 @@
  */
 
 // Debouncing for sync events
-let syncTimeout = null;
-let pendingSync = false;
+let usersSyncTimeout = null;
+let usersPendingSync = false;
 
 /**
  * Create new user
@@ -113,16 +113,16 @@ function deleteUser(userId) {
  * Debounced sync function to prevent multiple simultaneous refreshes
  */
 function debouncedSync() {
-  if (pendingSync) return;
+  if (usersPendingSync) return;
 
-  pendingSync = true;
+  usersPendingSync = true;
 
-  if (syncTimeout) {
-    clearTimeout(syncTimeout);
+  if (usersSyncTimeout) {
+    clearTimeout(usersSyncTimeout);
   }
 
-  syncTimeout = setTimeout(() => {
-    pendingSync = false;
+  usersSyncTimeout = setTimeout(() => {
+    usersPendingSync = false;
     softRefreshUsersTable(true);
   }, 100);
 }

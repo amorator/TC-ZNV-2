@@ -1349,7 +1349,9 @@ function setupSocket() {
         if (String(data.subcategory_id) !== String(currentSubcategoryId))
           return;
         if (isDirtyGroups || isDirtyUsers) {
-            "Remote update received but local changes are pending; skipping auto-refresh"
+          window.ErrorHandler && window.ErrorHandler.handleError(
+            new Error("Remote update received but local changes are pending; skipping auto-refresh"),
+            "categories-sync"
           );
           return;
         }

@@ -126,8 +126,10 @@ def register(app, socketio=None):
                 try:
                     last_run_str = app.redis_client.get(redis_key)
                     if last_run_str:
-                        last_run = datetime.fromisoformat(
-                            last_run_str.decode('utf-8'))
+                        # Handle both bytes and string responses from Redis
+                        if isinstance(last_run_str, bytes):
+                            last_run_str = last_run_str.decode('utf-8')
+                        last_run = datetime.fromisoformat(last_run_str)
                         if (now - last_run) < timedelta(hours=12):
                             remaining_hours = 12 - (
                                 now - last_run).total_seconds() / 3600
@@ -347,8 +349,10 @@ def register(app, socketio=None):
                 try:
                     last_run_str = app.redis_client.get(redis_key)
                     if last_run_str:
-                        last_run = datetime.fromisoformat(
-                            last_run_str.decode('utf-8'))
+                        # Handle both bytes and string responses from Redis
+                        if isinstance(last_run_str, bytes):
+                            last_run_str = last_run_str.decode('utf-8')
+                        last_run = datetime.fromisoformat(last_run_str)
                         if (now - last_run) < timedelta(minutes=30):
                             remaining_minutes = 30 - (
                                 now - last_run).total_seconds() / 60
