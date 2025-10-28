@@ -484,6 +484,82 @@ function fetchActions() {
   }
 }
 
+function renderLogsFiles(items) {
+  try {
+    const table = document.getElementById("logsTable");
+    if (!table) return;
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      tbody.innerHTML = "<tr><td colspan='2' class='text-center'>Нет файлов логов</td></tr>";
+      return;
+    }
+
+    const rowsHtml = items
+      .map((it) => {
+        const name = it && it.name ? String(it.name) : "";
+        const size = Number((it && it.size) || 0);
+        const sizeText = size < 1024 * 1024
+          ? `${Math.round((size / 1024) * 10) / 10} KB`
+          : `${Math.round((size / 1024 / 1024) * 10) / 10} MB`;
+        const safeName = name
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+        return `
+          <tr class="table__body_row logs-row" data-name="${safeName}">
+            <td class="table__body_item">${safeName}</td>
+            <td class="table__body_item text-end">${sizeText}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    tbody.innerHTML = rowsHtml;
+
+    // Bind row click to open viewer
+    tbody.querySelectorAll("tr.logs-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const name = row.getAttribute("data-name");
+        if (!name) return;
+        const url = `/admin/logs/view?name=${encodeURIComponent(name)}`;
+        window.open(url, "_blank");
+      });
+    });
+  } catch (err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "renderLogsFiles");
+    }
+  }
+}
+
+function fetchLogsFilesList() {
+  try {
+    return fetch("/admin/logs_list", { credentials: "same-origin" })
+      .then((r) => {
+        if (!r.ok) return { status: "error" };
+        return r.json();
+      })
+      .then((j) => {
+        if (j && j.status === "success") {
+          renderLogsFiles(j.items || []);
+        }
+      })
+      .catch((e) => {
+        if (window.ErrorHandler) {
+          window.ErrorHandler.handleError(e, "fetchLogsFilesList");
+        }
+      });
+  } catch (err) {
+    if (window.ErrorHandler) {
+      window.ErrorHandler.handleError(err, "fetchLogsFilesList");
+    }
+  }
+}
+
 // Export functions to global scope
 window.AdminLogs = {
   selectedUser,
@@ -492,7 +568,9 @@ window.AdminLogs = {
   fetchLogs,
   fetchFullLogs,
   fetchActions,
+  fetchLogsFilesList,
   renderLogs,
+  renderLogsFiles,
   setLogFilter,
   clearLogFilter,
   pauseLogRefresh,

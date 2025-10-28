@@ -318,6 +318,9 @@ function setupLogsMonitoring() {
         if (window.AdminLogs && window.AdminLogs.fetchActions) {
           window.AdminLogs.fetchActions();
         }
+        if (window.AdminLogs && window.AdminLogs.fetchLogsFilesList) {
+          window.AdminLogs.fetchLogsFilesList();
+        }
       }, 5000); // Update every 5 seconds for real-time logs
     }
   } catch (err) {
@@ -366,6 +369,11 @@ function loadInitialData() {
     // Load actions log
     if (window.AdminLogs && window.AdminLogs.fetchActions) {
       window.AdminLogs.fetchActions();
+    }
+
+    // Load logs files list
+    if (window.AdminLogs && window.AdminLogs.fetchLogsFilesList) {
+      window.AdminLogs.fetchLogsFilesList();
     }
   } catch (err) {
     if (window.ErrorHandler) {
