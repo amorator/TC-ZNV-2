@@ -158,6 +158,24 @@ class LoggingConfig:
 		file_handler.setFormatter(file_formatter)
 		root_logger.addHandler(file_handler)
 
+		# Also capture all ERROR+ records into a dedicated error.log from root
+		# This ensures regular logger.error(...) goes to error.log without requiring
+		# callers to use a special 'error' logger.
+		root_error_handler = SafeRotatingFileHandler(
+			path.join(self.logs_dir, 'error.log'),
+			maxBytes=self.max_bytes,
+			backupCount=self.backup_count,
+			encoding='utf-8'
+		)
+		# Capture warnings and above in error.log
+		root_error_handler.setLevel(logging.WARNING)
+		root_error_formatter = logging.Formatter(
+			self.file_format,
+			datefmt=self.date_format
+		)
+		root_error_handler.setFormatter(root_error_formatter)
+		root_logger.addHandler(root_error_handler)
+
 		# Reduce verbosity of noisy HTTP/server loggers so they don't spam app.log
 		noisy_loggers = [
 			'geventwebsocket.handler',

@@ -19,7 +19,7 @@ keepalive = 120  # HTTP keep-alive timeout
 capture_output = True
 loglevel = "info"  # Изменено с debug на info для production
 # Используем кастомный логгер с ротацией
-errorlog = "logs/gerror.log"
+errorlog = "-"
 #accesslog = "logs/gaccess.log"  # access log из-за конфигурации gunicorn не пишется, альтернатива - accesslog - настроено в middleware.py
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
