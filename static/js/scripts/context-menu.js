@@ -1070,7 +1070,11 @@
                 var rowEl0 = document.getElementById(rowId);
                 var permStr0 = rowEl0 ? (rowEl0.getAttribute('data-perm') || '') : '';
                 var hidden0 = document.getElementById('perm-string-perm');
-                if (hidden0) hidden0.value = permStr0;
+                if (hidden0) {
+                  hidden0.value = permStr0;
+                  try { hidden0.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+                  try { hidden0.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                }
               } catch(_) {}
               try {
                 if (window.syncPermFormFromRow) {
@@ -1084,7 +1088,11 @@
                         var rowEl = document.getElementById(rowId);
                         var permStr = rowEl ? (rowEl.getAttribute('data-perm') || '') : '';
                         var hiddenInput = document.getElementById('perm-string-perm');
-                        if (hiddenInput && !hiddenInput.value) hiddenInput.value = permStr;
+                        if (hiddenInput && !hiddenInput.value) {
+                          hiddenInput.value = permStr;
+                          try { hiddenInput.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+                          try { hiddenInput.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                        }
                       } catch(_) {}
                     } catch (err) {
                       window.ErrorHandler.handleError(err, "unknown");
@@ -1116,6 +1124,20 @@
               }
             }
             window.popupToggle("popup-perm", rowId);
+            // After modal opens, re-apply hidden permission and refresh UI once more
+            setTimeout(function(){
+              try {
+                var rowEl = document.getElementById(rowId);
+                var permStr = rowEl ? (rowEl.getAttribute('data-perm') || '') : '';
+                var hidden = document.getElementById('perm-string-perm');
+                if (hidden) hidden.value = permStr;
+                if (window.refreshPermissionUI) {
+                  window.refreshPermissionUI('perm-string-perm');
+                } else if (window['refreshPermUI_perm-string-perm']) {
+                  window['refreshPermUI_perm-string-perm']();
+                }
+              } catch(_) {}
+            }, 30);
           }
           break;
 
