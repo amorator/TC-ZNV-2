@@ -29,6 +29,8 @@ window.SyncManager = (function () {
   let refreshCallbacks = {};
   let debugEnabled = false;
   let isConnecting = false; // Защита от множественных соединений
+  let notificationsBound = false; // предотвращает дубль-хэндлеров
+  let queuedNotificationsFetched = false; // один раз на загрузку
 
   /**
    * Инициализация менеджера синхронизации
@@ -44,6 +46,42 @@ window.SyncManager = (function () {
       debugEnabled = !!window.__syncDebug;
     }
     setupSocket();
+
+    // Register default notification handlers so messages reach all pages (bind once)
+    if (!notificationsBound) {
+      notificationsBound = true;
+      try {
+        on('notification', function (data) {
+          try {
+            const t = (data && data.title) || 'Уведомление';
+            const b = (data && data.body) || '';
+            _showGlobalNotification(t, b, data && data.icon);
+          } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'sync:notification'); }
+        });
+        on('admin:notification', function (data) {
+          try {
+            const t = (data && data.title) || 'Сообщение администратора';
+            const b = (data && data.body) || '';
+            _showGlobalNotification(t, b, data && data.icon);
+          } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'sync:admin:notification'); }
+        });
+      } catch (_) {}
+    }
+
+    // Fetch queued notifications once on init (best-effort)
+    if (!queuedNotificationsFetched) {
+      queuedNotificationsFetched = true;
+      try {
+        fetch('/api/notifications', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function(r){ return r.json(); })
+          .then(function(data){
+            try {
+              const list = (data && data.items) || [];
+              list.forEach(function(n){ _showGlobalNotification(n && n.title, n && n.body, n && n.icon); });
+            } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'sync:queued-notifications'); }
+          }).catch(function(){});
+      } catch (_) {}
+    }
   }
 
   /**
@@ -294,6 +332,8 @@ window.SyncManager = (function () {
       "registrator_permissions_updated",
       "subcategory_permissions_updated",
       "admin:changed",
+      "notification",
+      "admin:notification",
     ];
 
     syncEvents.forEach((eventName) => {
@@ -308,6 +348,25 @@ window.SyncManager = (function () {
         handleSyncEvent(eventName, data);
       });
     });
+  }
+
+  // Global Notification helper with graceful fallback
+  function _showGlobalNotification(title, body, icon) {
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const opts = {};
+        if (body) opts.body = String(body);
+        if (icon) opts.icon = String(icon);
+        const n = new Notification(String(title || 'Уведомление'), opts);
+        setTimeout(function(){ try { n && n.close && n.close(); } catch(_){} }, 5000);
+        return; // avoid duplicate toast when system notification is shown
+      }
+      if (window.showToast) {
+        window.showToast(String(title || 'Уведомление') + (body ? (': ' + String(body)) : ''), 'info');
+      }
+    } catch (err) {
+      window.ErrorHandler && window.ErrorHandler.handleError(err, 'sync:showNotification');
+    }
   }
 
   /**

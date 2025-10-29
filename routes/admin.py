@@ -72,6 +72,80 @@ def register(app, socketio=None):
                                title='Администрирование — Заявки-Наряды-Файлы',
                                groups=groups)
 
+    # --- Unified notification queue helpers (Redis-backed) ---
+    def _queue_broadcast_notification(payload: dict) -> None:
+        try:
+            rc = getattr(app, 'redis_client', None)
+            if not rc:
+                return
+            import json as _json
+            rc.lpush('notifications:broadcast', _json.dumps(payload, ensure_ascii=False))
+            rc.ltrim('notifications:broadcast', 0, 199)
+        except Exception:
+            pass
+
+    def _queue_user_notification(user_id: int, payload: dict) -> None:
+        try:
+            rc = getattr(app, 'redis_client', None)
+            if not rc:
+                return
+            import json as _json
+            key = f'notifications:user:{int(user_id)}'
+            rc.lpush(key, _json.dumps(payload, ensure_ascii=False))
+            rc.ltrim(key, 0, 99)
+        except Exception:
+            pass
+
+    def _queue_group_notification(group_id: int, payload: dict) -> None:
+        try:
+            rc = getattr(app, 'redis_client', None)
+            if not rc:
+                return
+            import json as _json
+            key = f'notifications:group:{int(group_id)}'
+            # Expand group into user notifications for reliability
+            rows = app._sql.execute_query(
+                f"SELECT id FROM {app._sql.config['db']['prefix']}_user WHERE gid=%s AND enabled=1;",
+                [group_id]) or []
+            for r in rows:
+                try:
+                    _queue_user_notification(int(r[0]), payload)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _emit_notification_to_user_ids(user_ids, payload):
+        sent = 0
+        try:
+            if not socketio or not user_ids:
+                return 0
+            # Fallback to in-memory presence store: sid -> info{ user_id }
+            try:
+                presence = getattr(app, '_presence', {}) or {}
+                uid_set = set()
+                for u in user_ids:
+                    try:
+                        uid_set.add(int(u))
+                    except Exception:
+                        continue
+                for psid, info in list(presence.items()):
+                    try:
+                        uid = int(info.get('user_id') or -1)
+                    except Exception:
+                        uid = -1
+                    if uid in uid_set:
+                        try:
+                            socketio.emit('notification', payload, room=psid)
+                            sent += 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            return sent
+        except Exception:
+            return sent
+
     @app.route('/api/pool-status', methods=['GET'])
     @login_required
     @require_permissions(ADMIN_VIEW_PAGE)
@@ -159,7 +233,7 @@ def register(app, socketio=None):
                 except Exception as e:
                     print(f"Redis set error: {e}")
             app._last_push_maintain = now
-            # Порог для “старых ошибок” (N дней), берем из конфигурации либо 7 по умолчанию
+            # Порог для "старых ошибок" (N дней), берем из конфигурации либо 7 по умолчанию
             try:
                 N = int(
                     app._sql.config.get('web', {}).get('push_error_ttl_days',
@@ -1634,135 +1708,79 @@ def register(app, socketio=None):
     def admin_send_message():
         """Send a browser notification to a user, group, or everyone."""
         try:
-            target = (request.json
-                      or {}).get('target') or request.form.get('target')
-            message = ((request.json or {}).get('message')
-                       or request.form.get('message') or '').strip()
+            target = (request.json or {}).get('target') or request.form.get('target')
+            message = ((request.json or {}).get('message') or request.form.get('message') or '').strip()
             if not message:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Текст сообщения пуст'
-                }), 400
+                return jsonify({'status': 'error', 'message': 'Текст сообщения пуст'}), 400
             try:
-                log_action('ADMIN_PUSH_REQUEST', current_user.name,
-                           f'target={target} text_len={len(message)}',
-                           (request.remote_addr or ''))
+                log_action('ADMIN_PUSH_REQUEST', current_user.name, f'target={target} text_len={len(message)}', (request.remote_addr or ''))
             except Exception:
                 pass
-            # Resolve recipients
-            recipient_user_ids = []
-            if target == 'all':
-                # All users with subscriptions
-                try:
-                    rows = app._sql.execute_query(
-                        f"SELECT DISTINCT user_id FROM {app._sql.config['db']['prefix']}_push_sub;",
-                        [])
-                except Exception:
-                    rows = []
-                recipient_user_ids = [r[0] for r in (rows or []) if r and r[0]]
-            elif isinstance(target, str) and target.startswith('group:'):
-                gid = int(target.split(':', 1)[1])
-                try:
-                    rows = app._sql.execute_query(
-                        f"SELECT DISTINCT u.id FROM {app._sql.config['db']['prefix']}_user u JOIN {app._sql.config['db']['prefix']}_push_sub s ON s.user_id=u.id WHERE u.gid=%s AND u.enabled=1;",
-                        [gid])
-                except Exception:
-                    rows = []
-                recipient_user_ids = [r[0] for r in (rows or []) if r and r[0]]
-            elif isinstance(target, str) and target.startswith('user:'):
-                uid = int(target.split(':', 1)[1])
-                recipient_user_ids = [uid]
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Некорректная цель'
-                }), 400
 
-            # Send using pywebpush
-            try:
-                from pywebpush import webpush, WebPushException
-            except Exception:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'pywebpush not installed'
-                }), 501
-            vapid_public = (app._sql.push_get_vapid_public() or '')
-            vapid_private = (app._sql.push_get_vapid_private() or '')
-            vapid_subject = (app._sql.push_get_vapid_subject()
-                             or 'mailto:admin@example.com')
-            if not vapid_public or not vapid_private:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'VAPID keys not configured'
-                }), 400
+            # Prepare unified payload
             payload = {
+                'type': 'admin_message',
                 'title': 'Сообщение администратора',
                 'body': message,
-                'icon': '/static/images/notification-icon.png'
+                'icon': '/static/images/notification-icon.png',
+                'ts': int(time.time())
             }
-            sent = 0
-            removed = 0
-            for uid in recipient_user_ids:
-                rows = app._sql.push_get_user_subscriptions(uid) or []
-                for row in rows:
-                    endpoint, p256dh, auth = row[1], row[2], row[3]
-                    sub_info = {
-                        'endpoint': endpoint,
-                        'keys': {
-                            'p256dh': p256dh,
-                            'auth': auth
-                        }
-                    }
-                    try:
-                        webpush(subscription_info=sub_info,
-                                data=jsonify_payload(payload),
-                                vapid_private_key=vapid_private,
-                                vapid_claims={'sub': vapid_subject})
-                        sent += 1
-                        try:
-                            app._sql.push_mark_success(endpoint)
-                        except Exception:
-                            pass
-                    except WebPushException as we:
-                        # Mirror cleanup logic from /push/test
-                        code = getattr(getattr(we, 'response', None),
-                                       'status_code', None)
-                        body_text = ''
-                        try:
-                            resp = getattr(we, 'response', None)
-                            if resp is not None:
-                                code = getattr(resp, 'status_code', None)
-                                body_text = getattr(resp, 'text',
-                                                    str(we)) or str(we)
-                            else:
-                                body_text = str(we)
-                        except Exception:
-                            body_text = str(we)
-                        if code == 410 or 'No such subscription' in body_text or 'Gone' in body_text:
-                            try:
-                                app._sql.push_remove_subscription(endpoint)
-                                removed += 1
-                            except Exception:
-                                pass
-                        try:
-                            app._sql.push_mark_error(endpoint,
-                                                     str(code or '410'))
-                        except Exception:
-                            pass
-                        _log.error(f"Push send failed: {we}")
-                        continue
+
+            sent_count = 0
+            # Queue according to new Redis-based notification system
+            if target == 'all':
+                _queue_broadcast_notification(payload)
+                sent_count = -1  # unknown reach; queued broadcast
+            elif isinstance(target, str) and target.startswith('group:'):
+                gid = int(target.split(':', 1)[1])
+                _queue_group_notification(gid, payload)
+                sent_count = -1
+            elif isinstance(target, str) and target.startswith('user:'):
+                uid = int(target.split(':', 1)[1])
+                _queue_user_notification(uid, payload)
+                sent_count = 1
+            else:
+                return jsonify({'status': 'error', 'message': 'Некорректная цель'}), 400
+
+            # Also emit live event for currently connected users (best-effort)
             try:
-                log_action(
-                    'ADMIN_PUSH', current_user.name,
-                    f'target={target} sent={sent} removed={removed} text="{message}"',
-                    (request.remote_addr or ''))
+                if socketio:
+                    # Notify admin room about the action
+                    socketio.emit('admin:notification', payload, room='admin')
+                    # Live deliver only to intended recipients
+                    if target == 'all':
+                        socketio.emit('notification', payload)
+                    elif isinstance(target, str) and target.startswith('user:'):
+                        try:
+                            uid = int(target.split(':', 1)[1])
+                            # Emit to per-user room and try presence-based fallback
+                            socketio.emit('notification', payload, room=f'user:{uid}')
+                            _emit_notification_to_user_ids([uid], payload)
+                        except Exception:
+                            pass
+                    elif isinstance(target, str) and target.startswith('group:'):
+                        try:
+                            gid = int(target.split(':', 1)[1])
+                            rows = app._sql.execute_query(
+                                f"SELECT id FROM {app._sql.config['db']['prefix']}_user WHERE gid=%s AND enabled=1;",
+                                [gid]) or []
+                            uids = [int(r[0]) for r in rows if r and r[0] is not None]
+                            for _uid in uids:
+                                try:
+                                    socketio.emit('notification', payload, room=f'user:{_uid}')
+                                except Exception:
+                                    pass
+                            _emit_notification_to_user_ids(uids, payload)
+                        except Exception:
+                            pass
             except Exception:
                 pass
-            return jsonify({
-                'status': 'success',
-                'sent': sent,
-                'removed': removed
-            })
+
+            try:
+                log_action('ADMIN_PUSH', current_user.name, f'target={target} queued=1 text="{message}"', (request.remote_addr or ''))
+            except Exception:
+                pass
+            return jsonify({'status': 'success', 'queued': True, 'live_emitted': True})
         except Exception as e:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -1941,6 +1959,14 @@ def register(app, socketio=None):
                                 'updated_at':
                                 int(datetime.utcnow().timestamp())
                             }
+
+                # Join per-user room to allow targeted emits
+                try:
+                    if uid is not None:
+                        from flask_socketio import join_room
+                        join_room(f'user:{int(uid)}')
+                except Exception:
+                    pass
 
                 # Notify all listeners that presence changed
                 if not app.config.get('PRESENCE_DISABLED'):

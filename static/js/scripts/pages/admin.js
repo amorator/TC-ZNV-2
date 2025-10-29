@@ -106,6 +106,23 @@ function setupRealtimeListeners(socket) {
       }
     });
 
+    // Admin notifications (live)
+    socket.on('admin:notification', function(data){
+      try {
+        const t = (data && data.title) || 'Уведомление администратора';
+        const b = (data && data.body) || '';
+        showAdminNotification(t, b);
+      } catch(err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'admin:notification'); }
+    });
+    // Generic notifications (live broadcast)
+    socket.on('notification', function(data){
+      try {
+        const t = (data && data.title) || 'Уведомление';
+        const b = (data && data.body) || '';
+        showAdminNotification(t, b);
+      } catch(err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'notification'); }
+    });
+
     // User session terminated event
     socket.on("admin:session:terminated", (data) => {
       if (
@@ -548,11 +565,166 @@ function setupButtonHandlers() {
         cardHeader.appendChild(refreshBtn);
       }
     }
+
+    // Notifications: open modal
+    const btnOpenNotify = document.getElementById("btnOpenNotifyModal");
+    if (btnOpenNotify) {
+      btnOpenNotify.addEventListener("click", function(){
+        try { openAdminNotifyModal(); } catch(_) {}
+      });
+    }
+
+    // Notifications: quick test
+    const btnNotifyTest = document.getElementById("btnNotifyTest");
+    if (btnNotifyTest) {
+      btnNotifyTest.addEventListener("click", function(){
+        try { showAdminNotification("Тестовое уведомление", "Проверка отображения"); } catch(_) {}
+      });
+    }
   } catch (err) {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "setupButtonHandlers");
     }
   }
+}
+
+// --- Admin Notifications ---
+function openAdminNotifyModal() {
+  try {
+    const modalEl = document.getElementById('adminNotifyModal');
+    if (!modalEl) return;
+    // Reset form
+    const scopeAll = document.getElementById('notifyScopeAllM');
+    const scopeUser = document.getElementById('notifyScopeUserM');
+    const scopeGroup = document.getElementById('notifyScopeGroupM');
+    const comboWrap = document.getElementById('notifyComboWrapM');
+    const combo = document.getElementById('notifyComboM');
+    const text = document.getElementById('notifyTextM');
+    if (scopeAll) scopeAll.checked = true;
+    if (text) text.value = '';
+    if (comboWrap) comboWrap.classList.add('d-none');
+    if (combo) combo.innerHTML = '';
+
+    // Wire radios
+    function onScopeChange() {
+      try {
+        if (!comboWrap || !combo) return;
+        if (scopeUser && scopeUser.checked) {
+          comboWrap.classList.remove('d-none');
+          loadUsersIntoCombo(combo);
+        } else if (scopeGroup && scopeGroup.checked) {
+          comboWrap.classList.remove('d-none');
+          loadGroupsIntoCombo(combo);
+        } else {
+          comboWrap.classList.add('d-none');
+          combo.innerHTML = '';
+        }
+      } catch(_) {}
+    }
+    [scopeAll, scopeUser, scopeGroup].forEach(function(r){ if(r){ r.onchange = onScopeChange; }});
+
+    // Wire send button
+    const btnSend = document.getElementById('btnSendNotifyM');
+    if (btnSend && !btnSend._bound) {
+      btnSend._bound = true;
+      btnSend.addEventListener('click', function(){
+        try { submitAdminNotification(); } catch(_) {}
+      });
+    }
+
+    const bs = bootstrap && bootstrap.Modal ? new bootstrap.Modal(modalEl) : null;
+    bs && bs.show();
+  } catch(err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'openAdminNotifyModal');
+  }
+}
+
+function loadGroupsIntoCombo(selectEl){
+  try {
+    const holder = document.getElementById('server-groups-json');
+    const groups = holder ? JSON.parse(holder.textContent || '[]') : [];
+    selectEl.innerHTML = '';
+    groups.forEach(function(g){
+      const opt = document.createElement('option');
+      opt.value = String(g.id);
+      opt.textContent = String(g.name);
+      selectEl.appendChild(opt);
+    });
+  } catch(err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'loadGroupsIntoCombo');
+  }
+}
+
+function loadUsersIntoCombo(selectEl){
+  try {
+    fetch('/admin/users_list').then(function(r){ return r.json(); }).then(function(data){
+      const items = (data && data.items) || [];
+      selectEl.innerHTML = '';
+      items.forEach(function(u){
+        const opt = document.createElement('option');
+        opt.value = String(u.id);
+        opt.textContent = String(u.name);
+        selectEl.appendChild(opt);
+      });
+    }).catch(function(err){ window.ErrorHandler && window.ErrorHandler.handleError(err, 'loadUsersIntoCombo'); });
+  } catch(err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'loadUsersIntoCombo');
+  }
+}
+
+function submitAdminNotification(){
+  try {
+    const scopeAll = document.getElementById('notifyScopeAllM');
+    const scopeUser = document.getElementById('notifyScopeUserM');
+    const scopeGroup = document.getElementById('notifyScopeGroupM');
+    const combo = document.getElementById('notifyComboM');
+    const text = document.getElementById('notifyTextM');
+    const raw = (text && text.value || '').trim();
+    if (!raw) { window.showToast && window.showToast('Введите текст сообщения', 'warning'); return; }
+    let target = 'all';
+    if (scopeUser && scopeUser.checked) target = 'user:' + String(combo && combo.value || '');
+    if (scopeGroup && scopeGroup.checked) target = 'group:' + String(combo && combo.value || '');
+    fetch('/admin/send_message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: target, message: raw }) })
+      .then(function(r){ if(!r.ok){ const e = new Error('HTTP '+r.status); e.status=r.status; e.response=r; throw e;} return r.json(); })
+      .then(function(data){
+        if (data && data.status === 'success') {
+          window.showToast && window.showToast('Уведомление поставлено в очередь', 'success');
+          try { adminHideModalSafely('adminNotifyModal'); } catch(_) {}
+        } else {
+          window.showToast && window.showToast((data && data.message) || 'Ошибка отправки', 'error');
+        }
+      })
+      .catch(function(err){ handleHttpError(err, 'отправке уведомления'); })
+  } catch(err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'submitAdminNotification');
+  }
+}
+
+function showAdminNotification(title, body){
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification(String(title||'Уведомление'), { body: String(body||'') });
+      setTimeout(function(){ try{ n && n.close && n.close(); }catch(_){ } }, 4000);
+    } else if (window.showToast) {
+      window.showToast(String(title||'Уведомление')+': '+String(body||''), 'info');
+    }
+  } catch(_) {}
+}
+
+// Hide Bootstrap modal safely (blur focused element first to avoid aria-hidden focus warning)
+function adminHideModalSafely(modalId){
+  try {
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+  } catch(_) {}
+  try {
+    const el = document.getElementById(modalId);
+    if (!el) return;
+    const inst = (bootstrap && bootstrap.Modal && bootstrap.Modal.getInstance) ? bootstrap.Modal.getInstance(el) : null;
+    if (inst) inst.hide();
+    else if (bootstrap && bootstrap.Modal) { new bootstrap.Modal(el).hide(); }
+  } catch(_) {}
 }
 
 /**

@@ -33,6 +33,9 @@ function initCategoriesPage() {
   setupSaveCancelButtons();
   setupCategoriesSocket();
 
+  // Initialize Notification API bridge for categories events
+  try { initCategoriesNotifications(); } catch(_) {}
+
   // Wire shared searchbars
   wireSearchbar("groups");
   wireSearchbar("users");
@@ -44,6 +47,62 @@ function initCategoriesPage() {
   if (delSub) delSub.onclick = tryDeleteSubcategory;
 
   initCategoriesContextMenu();
+}
+// Notifications: request permission, show, and fetch queued items from server
+function initCategoriesNotifications() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (!('Notification' in window)) return;
+  try {
+    // Ask permission once per session (guard via cookie just_logged_in or localStorage flag)
+    var flagKey = 'notif:asked';
+    var asked = false;
+    try { asked = localStorage.getItem(flagKey) === '1'; } catch(_) {}
+    if (!asked && Notification && Notification.permission === 'default') {
+      try {
+        Notification.requestPermission().finally(function(){ try { localStorage.setItem(flagKey, '1'); } catch(_) {} });
+      } catch(_) { try { localStorage.setItem(flagKey, '1'); } catch(__) {} }
+    }
+  } catch(_) {}
+
+  // Show queued notifications from backend (Redis-backed)
+  try {
+    fetch('/api/notifications', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        try {
+          var list = (data && data.items) || [];
+          list.forEach(function(n){ showNotificationSafe(n && n.title, n && n.body, n && n.icon); });
+        } catch(_) {}
+      })
+      .catch(function(){});
+  } catch(_) {}
+
+  // Live notifications from SyncManager
+  try {
+    if (window.SyncManager && typeof window.SyncManager.on === 'function') {
+      window.SyncManager.on('subcategory_permissions_updated', function(data){
+        if (!data || String(data.subcategory_id||'') !== String(currentSubcategoryId||currentSubcategoryId)) {
+          // Still notify globally
+        }
+        showNotificationSafe('Права подкатегории изменены', 'Права были обновлены');
+      });
+      window.SyncManager.on('categories:changed', function(){
+        showNotificationSafe('Категории', 'Список категорий обновлён');
+      });
+    }
+  } catch(_) {}
+}
+
+function showNotificationSafe(title, body, icon) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    var options = {};
+    if (body) options.body = String(body);
+    if (icon) options.icon = String(icon);
+    var n = new Notification(String(title || 'Уведомление'), options);
+    setTimeout(function(){ try { n && n.close && n.close(); } catch(_) {} }, 6000);
+  } catch(_) {}
 }
 
 // Setup modal accessibility and focus trapping
