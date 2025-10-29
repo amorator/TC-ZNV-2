@@ -165,6 +165,42 @@ def register(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 400
 
+    # Helper: resolve group field (id or name) to numeric gid
+    def _resolve_gid(raw_group_value: str) -> int:
+        """Resolve group form value (id or name) to an existing numeric gid.
+
+        Fallback strategy:
+        - If input empty or invalid, pick the first existing group id (sorted ascending)
+        - If numeric provided but not present in DB, also fallback to first existing
+        - If name provided, case-insensitive match against existing; if no match, fallback
+        This avoids FK errors when group 2 doesn't exist.
+        """
+        try:
+            group_map = app._sql.group_all() or {}
+            existing_ids = sorted([int(gid) for gid in group_map.keys()]) if group_map else []
+            default_gid = existing_ids[0] if existing_ids else 1
+
+            gv = (raw_group_value or '').strip()
+            if gv == '':
+                return default_gid
+            # Try parse as int id first
+            try:
+                gid_int = int(gv)
+                return gid_int if gid_int in existing_ids else default_gid
+            except Exception:
+                pass
+            # Fallback: lookup by case-insensitive name
+            for gid, gname in group_map.items():
+                try:
+                    if str(gname).strip().lower() == gv.lower():
+                        return int(gid)
+                except Exception:
+                    continue
+            # If not found, fallback to first existing id
+            return default_gid
+        except Exception:
+            return 1
+
     @app.route('/users/add', methods=['POST'])
     @require_permissions(USERS_MANAGE)
     @rate_limit
@@ -182,9 +218,13 @@ def register(app):
         ok = True
         error_message = ''
         try:
-            # Server-side validation with trimming
+            # Server-side validation with trimming (fallback to existing when missing)
             name = (request.form.get('name') or '').strip()
             login = (request.form.get('login') or '').strip()
+            if (not name) and user and getattr(user, 'name', None):
+                name = str(user.name).strip()
+            if (not login) and user and getattr(user, 'login', None):
+                login = str(user.login).strip()
             password = request.form.get('password') or ''
 
             # Validate required fields
@@ -224,9 +264,10 @@ def register(app):
 
             # Use permission string as provided
             perm_value = (request.form.get('permission') or '').strip()
+            gid_value = _resolve_gid(request.form.get('group'))
             app._sql.user_add([
                 login, name,
-                app.hash(password), (request.form.get('group') or '').strip(),
+                app.hash(password), gid_value,
                 int(request.form.get('enabled') != None), perm_value
             ])
             log_action('USER_CREATE', current_user.name,
@@ -301,12 +342,12 @@ def register(app):
                     parts.append('')
                 is_z = any(('z' in (seg or '')) for seg in parts)
                 if is_z:
-                    # Use 7-segment full-access string to include Categories page rights
-                    permission_value = 'aef,a,abcdflm,ab,ab,ab,abcd'
+                    # Use 7-segment full-access string including extended Orders rights
+                    permission_value = 'aef,abcdeflmn,abcdflm,ab,ab,ab,abcd'
             except Exception:
                 pass
 
-            # Validate required fields
+            # Validate required fields (after fallback)
             if not name:
                 raise Exception('Имя не может быть пустым')
             if not login:
@@ -316,8 +357,12 @@ def register(app):
             if app._sql.user_exists(login, name, id):
                 raise Exception('Имя или логин занято другим пользователем!')
 
+            gid_value = _resolve_gid(request.form.get('group'))
+            # Fallback to existing gid if group not provided
+            if request.form.get('group') is None and user and getattr(user, 'gid', None) is not None:
+                gid_value = int(user.gid)
             app._sql.user_edit([
-                login, name, (request.form.get('group') or '').strip(),
+                login, name, gid_value,
                 int(request.form.get('enabled') != None), permission_value, id
             ])
             log_action('USER_EDIT', current_user.name,

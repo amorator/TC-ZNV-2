@@ -9,6 +9,14 @@ from flask_login import current_user
 FILES_VIEW_PAGE = 'files.view'
 REQUESTS_VIEW_PAGE = 'requests.view'
 ORDERS_VIEW_PAGE = 'orders.view'
+ORDERS_CREATE = 'orders.create'
+ORDERS_EDIT_ANY = 'orders.edit_any'
+ORDERS_DELETE_ANY = 'orders.delete_any'
+ORDERS_VIEW_ALL = 'orders.view_all'
+ORDERS_APPROVE = 'orders.approve'
+ORDERS_NOTES = 'orders.notes'
+ORDERS_FILES_VIEW = 'orders.files_view'
+ORDERS_FILES_EDIT = 'orders.files_edit'
 USERS_VIEW_PAGE = 'users.view'
 USERS_MANAGE = 'users.manage'
 GROUPS_VIEW_PAGE = 'groups.view'
@@ -102,6 +110,14 @@ PERMISSION_LABELS = {
 	REQUESTS_ALLOW: 'Заявки: разрешение',
 
 	ORDERS_VIEW_PAGE: 'Наряды: просмотр',
+	ORDERS_CREATE: 'Наряды: создание',
+	ORDERS_EDIT_ANY: 'Наряды: изменение (всех)',
+	ORDERS_DELETE_ANY: 'Наряды: удаление (всех)',
+	ORDERS_VIEW_ALL: 'Наряды: просмотр всех',
+	ORDERS_APPROVE: 'Наряды: согласование',
+	ORDERS_NOTES: 'Наряды: примечания',
+	ORDERS_FILES_VIEW: 'Наряды: просмотр файлов',
+	ORDERS_FILES_EDIT: 'Наряды: изменение файлов',
 
 	USERS_VIEW_PAGE: 'Пользователи: просмотр',
 	USERS_MANAGE: 'Пользователи: управление',

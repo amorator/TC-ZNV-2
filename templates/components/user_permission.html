@@ -50,6 +50,22 @@
             <div class="permissions-group__title">Наряды</div>
             <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="a" name="perms_p2[]"
                     value="a"><span class="form-check-label"> Просмотр</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="b" name="perms_p2[]"
+                    value="b"><span class="form-check-label"> Создание</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="c" name="perms_p2[]"
+                    value="c"><span class="form-check-label"> Изменение</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="d" name="perms_p2[]"
+                    value="d"><span class="form-check-label"> Удаление</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="f" name="perms_p2[]"
+                    value="f"><span class="form-check-label"> Просмотр всех</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="e" name="perms_p2[]"
+                    value="e"><span class="form-check-label"> Согласование</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="l" name="perms_p2[]"
+                    value="l"><span class="form-check-label"> Примечания</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="n" name="perms_p2[]"
+                    value="n"><span class="form-check-label"> Просмотр файлов</span></label>
+            <label class="form-check"><input class="form-check-input" type="checkbox" data-letter="m" name="perms_p2[]"
+                    value="m"><span class="form-check-label"> Изменение файлов</span></label>
         </div>
         <div class="permissions-group" data-page="6">
             <div class="permissions-group__title">Администрирование</div>
@@ -172,8 +188,8 @@
             // When admin is ON: set full access and disable all others
             if (on) {
                 // full access string (7 pages):
-                // p1(Requests): aef; p2(Orders): a; p3(Files): abcdflm; p4(Users): ab; p5(Groups): ab; p6(Admin): ab; p7(Categories): abcd
-                input.value = 'aef,a,abcdflm,ab,ab,ab,abcd';
+                // p1(Requests): aef; p2(Orders): abcdeflmn; p3(Files): abcdflm; p4(Users): ab; p5(Groups): ab; p6(Admin): ab; p7(Categories): abcd
+                input.value = 'aef,abcdeflmn,abcdflm,ab,ab,ab,abcd';
                 // Reflect checkboxes
                 applyBoxesFromLegacy();
                 try {
@@ -231,7 +247,7 @@
                 var parts = raw.split(',');
                 while (parts.length < 7) parts.push('');
                 var hasZ = parts.some(function (seg) { return (seg || '').indexOf('z') !== -1; });
-                var isFull = (raw === 'aef,a,abcdflm,ab,ab,ab,abcd');
+                var isFull = (raw === 'aef,abcdeflmn,abcdflm,ab,ab,ab,abcd');
                 if (hasZ || isFull) setAdminFull(true);
             } catch (_) { }
         };
@@ -249,7 +265,7 @@
         // On first load, reflect input->boxes; if empty, keep unchecked
         applyBoxesFromLegacy();
         // If current legacy string already equals full-admin, enable admin toggle and lock boxes
-        if ((input.value || '') === 'aef,a,abcdflm,ab,ab,ab,abcd') {
+        if ((input.value || '') === 'aef,abcdeflmn,abcdflm,ab,ab,ab,abcd') {
             setAdminFull(true);
         }
     })();

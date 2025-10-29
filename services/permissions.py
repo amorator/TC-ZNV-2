@@ -34,9 +34,22 @@ def dirs_by_permission(app, page_id: int, perm: str):
                 # Skip disabled and system 'registrators'
                 if hasattr(cat, 'enabled') and int(cat.enabled) != 1:
                     continue
-                if (getattr(cat, 'folder_name', '')
-                        or '').strip().lower() == 'registrators':
+                folder = (getattr(cat, 'folder_name', '') or '').strip().lower()
+                if folder == 'registrators':
                     continue
+                # Hide 'orders' except for full-access users or members of admin group
+                if folder == 'orders':
+                    # full access on Files page or any admin flag
+                    is_full = current_user.is_allowed(page_id, 'z') or has_admin_any
+                    # group check: group name contains 'админ' or 'admin'
+                    is_admin_group = False
+                    try:
+                        gn = (group_name or '').strip().lower()
+                        is_admin_group = (gn.startswith('админ') or 'admin' in gn)
+                    except Exception:
+                        pass
+                    if not (is_full or is_admin_group):
+                        continue
                 # Collect enabled subcategories
                 enabled_subs = []
                 subcategories = app._sql.subcategory_by_category([cat.id

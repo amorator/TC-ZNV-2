@@ -114,19 +114,6 @@ class SQL(Config):
 	PRIMARY KEY(id)
 );""")
 		
-		# Create orders table
-		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_order (
-	id INTEGER UNIQUE AUTO_INCREMENT,
-	date VARCHAR(19) NOT NULL,
-	creator VARCHAR(255) DEFAULT '',
-	account VARCHAR(255) NOT NULL,
-	description TEXT NOT NULL,
-	status TEXT DEFAULT '',
-	files TEXT DEFAULT '',
-	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-	PRIMARY KEY(id)
-);""")
 
 		# Create unified settings table (web_settings)
 		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_settings (
@@ -299,92 +286,6 @@ class SQLUtils(SQL):
 		self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
 		self._SUBCATEGORY_SELECT_FIELDS = "id, category_id, display_name, folder_name, display_order, enabled"
 
-		# Ensure push subscriptions table exists with required columns and indexes
-		try:
-			prefix = self.config['db']['prefix']
-			dbname = self.config['db']['name']
-			self.execute_non_query(f"""
-				CREATE TABLE IF NOT EXISTS {prefix}_push_sub (
-	id INTEGER UNIQUE AUTO_INCREMENT,
-					user_id INT NOT NULL,
-					endpoint TEXT NOT NULL,
-					p256dh TEXT NOT NULL,
-					auth TEXT NOT NULL,
-					user_agent TEXT DEFAULT '',
-					last_success_at DATETIME NULL,
-					last_error_at DATETIME NULL,
-					last_checked_at DATETIME NULL,
-					error_code VARCHAR(32) DEFAULT NULL,
-					invalidated_at DATETIME NULL,
-					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-	PRIMARY KEY(id)
-				);
-			""")
-			# Lower lock wait timeouts to avoid startup hangs when DDL locks are present
-			self.execute_non_query("SET SESSION lock_wait_timeout = 3;")
-			self.execute_non_query("SET SESSION innodb_lock_wait_timeout = 3;")
-			# Add indexes and columns if missing (best-effort)
-			try:
-				self.execute_non_query(f"CREATE UNIQUE INDEX ux_{prefix}_push_sub_endpoint ON {prefix}_push_sub (endpoint(255));")
-			except Exception:
-				pass
-			try:
-				self.execute_non_query(f"CREATE INDEX ix_{prefix}_push_sub_user ON {prefix}_push_sub (user_id);")
-			except Exception:
-				pass
-			# Columns that might be missing in older installs (check via INFORMATION_SCHEMA)
-			for col, ddl in [
-				('user_agent', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT ''"),
-				('last_success_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_success_at DATETIME NULL"),
-				('last_error_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_error_at DATETIME NULL"),
-				('last_checked_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS last_checked_at DATETIME NULL"),
-				('error_code', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS error_code VARCHAR(32) NULL"),
-				('invalidated_at', f"ALTER TABLE {prefix}_push_sub ADD COLUMN IF NOT EXISTS invalidated_at DATETIME NULL"),
-			]:
-				try:
-					exists = self.execute_scalar(
-						"""
-						SELECT COUNT(1) FROM INFORMATION_SCHEMA.COLUMNS
-						WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
-						LIMIT 1;
-						""",
-						[dbname, f"{prefix}_push_sub", col]
-					)
-					if not exists or int(exists[0]) == 0:
-						try:
-							self.execute_non_query(ddl)
-						except Exception:
-							# Fallback for servers without IF NOT EXISTS support
-							try:
-								self.execute_non_query(ddl.replace(" IF NOT EXISTS", ""))
-							except Exception:
-								pass
-				except Exception:
-					pass
-			# Explicitly drop legacy subcategory permission columns (including uploads)
-			try:
-				legacy_cols = [
-					'user_view_own','user_view_group','user_view_all',
-					'user_edit_own','user_edit_group','user_edit_all',
-					'user_delete_own','user_delete_group','user_delete_all',
-					'group_view_own','group_view_group','group_view_all',
-					'group_edit_own','group_edit_group','group_edit_all',
-					'group_delete_own','group_delete_group','group_delete_all',
-					'user_upload','group_upload',
-				]
-				for col in legacy_cols:
-					try:
-						self.execute_non_query(
-							f"ALTER TABLE {prefix}_file_subcategory DROP COLUMN {col};",
-							[]
-						)
-					except Exception:
-						pass
-			except Exception:
-				pass
-		except Exception:
-			pass
 
 	def permission_length(self):
 		"""Get the length of permission string from first user.
@@ -777,41 +678,53 @@ class SQLUtils(SQL):
 
 
 	def order_all(self):
-		data = self.execute_query(f"SELECT * FROM {self.config['db']['prefix']}_order;")
-		return [Order(*d) for d in data] if data else None
-	
+		rows = self.execute_query(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order ORDER BY id DESC;")
+		return [Order(*r) for r in (rows or [])]
+
 	def order_by_id(self, args):
-		data = self.execute_scalar(f"SELECT * FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
-		return Order(*data) if data else None
+		row = self.execute_scalar(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
+		return Order(*row) if row else None
+
+	def _ensure_orders_category(self):
+		try:
+			cid = self.category_id_by_folder('orders')
+			if cid:
+				return cid
+			# compute display_order
+			try:
+				row = self.execute_scalar(f"SELECT COALESCE(MAX(display_order),0)+1 FROM {self.config['db']['prefix']}_file_category;", [])
+				do_val = int(row[0]) if row else 1
+			except Exception:
+				do_val = 1
+			return self.category_add(['Наряды', 'orders', do_val, 1])
+		except Exception:
+			return self.category_id_by_folder('orders')
 
 	def order_add(self, args):
-		self.execute_non_query(f"INSERT INTO {self.config['db']['prefix']}_order (state, number, iss_date, start_date, end_date, comp_date, responsible, jobs, department, creator) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);", args)
+		"""Args: [service, status, number, issued, start, end, responsible, work_name, approved]"""
+		order_id = self.execute_insert(
+			f"INSERT INTO {self.config['db']['prefix']}_order (service, status, number, issued, start, end, responsible, work_name, approved) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);",
+			args,
+		)
+		# Ensure system category and create subcategory "id - number"
+		try:
+			cat_id = self._ensure_orders_category()
+			display = f"{order_id} - {args[2]}"
+			folder = f"order-{order_id}"
+			self.subcategory_add([int(cat_id), display, folder, int(order_id), 1])
+		except Exception:
+			pass
+		return order_id
 
 	def order_edit(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET state = %s, number = %s, iss_date = %s, start_date = %s, end_date = %s, comp_date = %s, responsible = %s, jobs = %s, department = %s WHERE id = %s;", args)
-		
-	def order_edit_attachments(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET attachments = %s WHERE id = %s;", args)
-		
+		"""Args: [service, status, number, issued, start, end, responsible, work_name, approved, id]"""
+		self.execute_non_query(
+			f"UPDATE {self.config['db']['prefix']}_order SET service=%s, status=%s, number=%s, issued=%s, start=%s, end=%s, responsible=%s, work_name=%s, approved=%s WHERE id=%s;",
+			args,
+		)
+
 	def order_delete(self, args):
 		self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
-		
-	def order_status(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET state = %s, comp_date = %s WHERE id = %s;", args)
-		
-	def order_approve(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET approved = %s WHERE id = %s;", args)
-		
-	def order_view(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET viewed = %s WHERE id = %s;", args)
-		
-	def order_note(self, args):
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET note = %s WHERE id = %s;", args)
-		
-	def order_active(self, args):
-		date = args[0]
-		data = self.execute_query(f'SELECT * FROM {self.config["db"]["prefix"]}_order WHERE DATE(start_date) <= STR_TO_DATE(%s, "%Y-%m-%d") AND DATE(end_date) >= STR_TO_DATE(%s, "%Y-%m-%d") AND state < 1;', [date, date])
-		return [Order(*d) for d in data] if data else None
 	
 	def _ensure_database_schema(self):
 		"""Initialize database schema and create default admin user if needed."""
@@ -880,18 +793,29 @@ class SQLUtils(SQL):
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
 
-			# Create push subscriptions table (for browser notifications)
+			# (Web Push disabled for offline-only deployments)
+
+			# Create orders table with required fields
 			self.execute_non_query(f"""
-				CREATE TABLE IF NOT EXISTS {prefix}_push_sub (
+				CREATE TABLE IF NOT EXISTS {prefix}_order (
 					id INT AUTO_INCREMENT PRIMARY KEY,
-					user_id INT NOT NULL,
-					endpoint TEXT NOT NULL,
-					p256dh VARCHAR(255) DEFAULT '',
-					auth VARCHAR(255) DEFAULT '',
+					service VARCHAR(255) NOT NULL,
+					status VARCHAR(64) NOT NULL DEFAULT '',
+					number VARCHAR(255) NOT NULL,
+					issued DATETIME NULL,
+					start DATETIME NULL,
+					end DATETIME NULL,
+					responsible VARCHAR(255) NOT NULL DEFAULT '',
+					work_name TEXT NOT NULL,
+					approved TINYINT(1) NOT NULL DEFAULT 0,
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-					UNIQUE KEY uniq_endpoint (endpoint(191)),
-					INDEX idx_user (user_id),
-					FOREIGN KEY (user_id) REFERENCES {prefix}_user(id) ON DELETE CASCADE
+					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+					INDEX idx_number (number),
+					INDEX idx_status (status),
+					INDEX idx_issued (issued),
+					INDEX idx_start (start),
+					INDEX idx_end (end),
+					INDEX idx_approved (approved)
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
 
@@ -985,38 +909,32 @@ class SQLUtils(SQL):
 				if redis_client and redis_client.set('admin_user_exists_logged', '1', nx=True, ex=20):
 					_log.info(f"Admin user {admin_login} already exists, skipping creation")
 				
+			# Ensure system category 'orders' exists (Наряды)
+			try:
+				row = self.execute_scalar(
+					f"SELECT id FROM {prefix}_file_category WHERE LOWER(folder_name) = LOWER(%s) LIMIT 1;",
+					['orders']
+				)
+				if not row:
+					# place it after existing categories
+					try:
+						do_row = self.execute_scalar(f"SELECT COALESCE(MAX(display_order),0)+1 FROM {prefix}_file_category;", [])
+						do_val = int(do_row[0]) if do_row else 1
+					except Exception:
+						do_val = 1
+					self.execute_non_query(
+						f"INSERT INTO {prefix}_file_category (display_name, folder_name, display_order, enabled) VALUES (%s, %s, %s, %s);",
+						['Наряды', 'orders', do_val, 1]
+					)
+			except Exception:
+				pass
+
 			# Only log schema initialization completion once across all workers using Redis
 			redis_client = self._create_redis_client_for_logging()
 			if redis_client and redis_client.set('schema_init_completed_logged', '1', nx=True, ex=20):
 				_log.info("Database schema initialization completed successfully")
 
-			# Ensure VAPID keys exist in settings; generate if missing/empty
-			try:
-				pub = self.push_get_vapid_public()
-				priv = self.push_get_vapid_private()
-				subj = self.push_get_vapid_subject()
-				if not pub or not priv:
-					try:
-						from cryptography.hazmat.primitives.asymmetric import ec
-						from cryptography.hazmat.primitives import serialization
-					except Exception as e:
-						_log.error(f"Cannot generate VAPID keys: cryptography not installed: {e}")
-						raise
-					private_key = ec.generate_private_key(ec.SECP256R1())
-					private_value = private_key.private_numbers().private_value.to_bytes(32, 'big')
-					public_key = private_key.public_key()
-					public_numbers = public_key.public_numbers()
-					x = public_numbers.x.to_bytes(32, 'big')
-					y = public_numbers.y.to_bytes(32, 'big')
-					uncompressed = b"\x04" + x + y
-					def b64u(data: bytes) -> str:
-						return base64.urlsafe_b64encode(data).decode('ascii').rstrip('=')
-					vapid_public = b64u(uncompressed)
-					vapid_private = b64u(private_value)
-					self.push_set_vapid_keys(vapid_public, vapid_private, subj or 'mailto:admin@example.com')
-					_log.info("Generated and stored VAPID keys in DB settings")
-			except Exception as e:
-				_log.error(f"Error ensuring VAPID keys: {e}")
+			# (VAPID keys handling removed for offline-only deployments)
 			
 			# Mark schema as initialized successfully using Redis
 			self._mark_schema_initialized()
@@ -1318,63 +1236,7 @@ class SQLUtils(SQL):
 		data = self.execute_query(f"SELECT {self._GROUP_SELECT_FIELDS}, created_at FROM {self.config['db']['prefix']}_group ORDER BY name;")
 		return [Group(*d) for d in data] if data else []
 
-	# --- Push subscriptions ---
-	def push_add_subscription(self, user_id: int, endpoint: str, p256dh: str, auth: str):
-		"""Store or update a push subscription for a user."""
-		# Try update existing by endpoint; if none, insert
-		existing = self.execute_scalar(
-			f"SELECT id FROM {self.config['db']['prefix']}_push_sub WHERE endpoint = %s;",
-			[endpoint]
-		)
-		# Resolve user-agent string from config safely for type checker
-		try:
-			ua = self.config.get('web', 'user_agent', fallback='')
-		except Exception:
-			ua = ''
-		if existing:
-			return self.execute_non_query(
-				f"UPDATE {self.config['db']['prefix']}_push_sub SET user_id = %s, p256dh = %s, auth = %s, user_agent = %s, last_checked_at = NOW(), last_error_at = NULL, error_code = NULL, invalidated_at = NULL WHERE id = %s;",
-				[user_id, p256dh, auth, ua, existing[0]]
-			)
-		return self.execute_insert(
-			f"INSERT INTO {self.config['db']['prefix']}_push_sub (user_id, endpoint, p256dh, auth, user_agent, last_checked_at) VALUES (%s, %s, %s, %s, %s, NOW());",
-			[user_id, endpoint, p256dh, auth, ua]
-		)
-
-	def push_remove_subscription(self, endpoint: str):
-		"""Remove a push subscription by endpoint."""
-		return self.execute_non_query(
-			f"DELETE FROM {self.config['db']['prefix']}_push_sub WHERE endpoint = %s;",
-			[endpoint]
-		)
-
-	def push_get_user_subscriptions(self, user_id: int):
-		"""Get all push subscriptions for a user."""
-		return self.execute_query(
-			f"SELECT id, endpoint, p256dh, auth, created_at FROM {self.config['db']['prefix']}_push_sub WHERE user_id = %s;",
-			[user_id]
-		)
-
-	def push_mark_success(self, endpoint: str):
-		try:
-			return self.execute_non_query(
-				f"UPDATE {self.config['db']['prefix']}_push_sub SET last_success_at = NOW(), last_checked_at = NOW(), last_error_at = NULL, error_code = NULL WHERE endpoint = %s;",
-				[endpoint]
-			)
-		except Exception:
-			return None
-
-	def push_mark_error(self, endpoint: str, code: Optional[str] = None):
-		try:
-			err = '' if code is None else str(code)
-			return self.execute_non_query(
-				f"UPDATE {self.config['db']['prefix']}_push_sub SET last_error_at = NOW(), last_checked_at = NOW(), error_code = %s WHERE endpoint = %s;",
-				[err, endpoint]
-			)
-		except Exception:
-			return None
-
-	# --- App settings (VAPID keys storage) ---
+	# --- App settings ---
 	def setting_get(self, name: str):
 		row = self.execute_scalar(
 			f"SELECT value FROM {self.config['db']['prefix']}_settings WHERE name = %s LIMIT 1;",
@@ -1388,22 +1250,6 @@ class SQLUtils(SQL):
 			[name, value]
 		)
 
-	def push_get_vapid_public(self):
-		val = self.setting_get('vapid_public')
-		return val.strip() if isinstance(val, str) else None
-
-	def push_get_vapid_private(self):
-		val = self.setting_get('vapid_private')
-		return val.strip() if isinstance(val, str) else None
-
-	def push_get_vapid_subject(self):
-		val = self.setting_get('vapid_subject')
-		return (val.strip() if isinstance(val, str) else None) or 'mailto:admin@example.com'
-
-	def push_set_vapid_keys(self, public_key: str, private_key: str, subject: str = 'mailto:admin@example.com'):
-		self.setting_set('vapid_public', public_key or '')
-		self.setting_set('vapid_private', private_key or '')
-		self.setting_set('vapid_subject', subject or 'mailto:admin@example.com')
 
 	# --- Flask secret key management ---
 	def get_flask_secret_key(self):

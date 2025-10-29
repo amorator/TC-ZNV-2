@@ -236,10 +236,10 @@ def register(app, socketio=None):
     @require_permissions(CATEGORIES_VIEW)
     def categories_admin():
         """Admin panel for managing categories and subcategories."""
-        # Exclude system 'registrators' from visible categories
+        # Exclude system categories from admin list
         categories = [
             c for c in app._sql.category_all()
-            if (getattr(c, 'folder_name', '') or '').lower() != 'registrators'
+            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators', 'orders')
         ]
         subcategories = app._sql.subcategory_all()
 
@@ -899,9 +899,10 @@ def register(app, socketio=None):
     @require_permissions(CATEGORIES_VIEW)
     def api_categories():
         """API: список категорий (JSON)."""
+        # Hide system categories from admin UI consumers
         categories = [
             c for c in app._sql.category_all()
-            if (getattr(c, 'folder_name', '') or '').lower() != 'registrators'
+            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators', 'orders')
         ]
         return jsonify([{
             'id': cat.id,

@@ -2,7 +2,7 @@
 
 
 def register_all(app, tp, media_service, socketio=None):
-	from . import users, files, index, groups, push, admin, categories, registrators, wip
+	from . import users, files, index, groups, push, admin, categories, registrators, wip, orders
 
 	# Ensure Flask secret key is loaded from DB (and generated if missing)
 	try:
@@ -12,9 +12,9 @@ def register_all(app, tp, media_service, socketio=None):
 		app.logger.error(f"Failed to ensure Flask secret key: {e}")
 	index.register(app)
 	users.register(app)
-	# requests and orders temporarily disabled
+	# requests temporarily disabled
 	# requests.register(app)
-	# orders.register(app, tp, media_service)
+	orders.register(app, socketio)
 	files.register(app, media_service, socketio)
 	groups.register(app)
 	push.register(app)
