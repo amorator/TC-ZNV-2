@@ -24,6 +24,21 @@ _log = get_logger(__name__)
 def register(app, socketio=None):
     """Регистрация маршрутов управления категориями/подкатегориями."""
 
+    # Socket.IO: support SyncManager.joinRoom('categories')
+    try:
+        _sock = socketio if socketio else getattr(app, 'socketio', None)
+        if _sock:
+            from flask_socketio import join_room
+
+            @_sock.on('categories:join')
+            def _categories_join(_data=None):
+                try:
+                    join_room('categories')
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     # Get rate limiter from app
     rate_limit = app.rate_limiters.get(
         'categories',

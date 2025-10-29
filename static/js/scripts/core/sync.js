@@ -292,6 +292,7 @@ window.SyncManager = (function () {
       "groups:changed",
       "registrators:changed",
       "registrator_permissions_updated",
+      "subcategory_permissions_updated",
       "admin:changed",
     ];
 

@@ -31,7 +31,7 @@ function initCategoriesPage() {
 
   loadCategories();
   setupSaveCancelButtons();
-  setupSocket();
+  setupCategoriesSocket();
 
   // Wire shared searchbars
   wireSearchbar("groups");
@@ -442,7 +442,6 @@ function loadPermissions(subcategoryId) {
     fetch(`/api/subcategory/${subcategoryId}/permissions`).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
   ])
     .then(([groupsResp, usersResp, permissionsData]) => {
-      try { console.debug && console.debug("[categories] permissions payload", { groupsResp, usersResp, permissionsData }); } catch(_) {}
       // Fallback if permissions API failed
       const perms =
         permissionsData && permissionsData.permissions
@@ -974,6 +973,15 @@ function updateGroupPermissionLevel(groupId, action, level) {
         if (!lastSavedPermissions.group_by_id) lastSavedPermissions.group_by_id = {};
         lastSavedPermissions.group_by_id[gid] = JSON.parse(JSON.stringify(existing));
       } catch(_) {}
+      // Emit sync event analogous to registrators after successful save
+      try {
+        if (window.SyncManager && window.SyncManager.getSocket && window.SyncManager.isConnected && window.SyncManager.isConnected()) {
+          const s = window.SyncManager.getSocket();
+          s && s.emit && s.emit('subcategory_permissions_updated', { subcategory_id: currentSubcategoryId, which: 'groups' });
+        } else if (window.socket && typeof window.socket.emit === 'function') {
+          window.socket.emit('subcategory_permissions_updated', { subcategory_id: currentSubcategoryId, which: 'groups' });
+        }
+      } catch(_) {}
     } else {
       const msg = (data && (data.error || data.message)) || 'Save failed';
       window.ErrorHandler && window.ErrorHandler.handleError(new Error(msg), 'categories-save-group');
@@ -1049,6 +1057,15 @@ function updateUserPermissionLevel(userId, action, level, perUserOnly) {
       try {
         if (!lastSavedPermissions.user_by_id) lastSavedPermissions.user_by_id = {};
         lastSavedPermissions.user_by_id[uid] = JSON.parse(JSON.stringify(existing));
+      } catch(_) {}
+      // Emit sync event analogous to registrators after successful save
+      try {
+        if (window.SyncManager && window.SyncManager.getSocket && window.SyncManager.isConnected && window.SyncManager.isConnected()) {
+          const s = window.SyncManager.getSocket();
+          s && s.emit && s.emit('subcategory_permissions_updated', { subcategory_id: currentSubcategoryId, which: 'users' });
+        } else if (window.socket && typeof window.socket.emit === 'function') {
+          window.socket.emit('subcategory_permissions_updated', { subcategory_id: currentSubcategoryId, which: 'users' });
+        }
       } catch(_) {}
     } else {
       const msg = (data && (data.error || data.message)) || 'Save failed';
@@ -1617,6 +1634,7 @@ function setupSocket() {
         socket.off && socket.off("subcategory_permissions_updated");
         socket.off && socket.off("category_updated");
         socket.off && socket.off("subcategory_updated");
+        socket.off && socket.off("categories:changed");
       } catch (_) {}
 
       socket.on("subcategory_permissions_updated", (data) => {
@@ -1638,15 +1656,8 @@ function setupSocket() {
           );
           return;
         }
-        const which =
-          data.which === "groups" || data.which === "users" ? data.which : null;
-        if (which === "groups") {
-          const qg = (getSearchInput("groups")?.value || "").trim();
-          loadPage("groups", 1, qg);
-        } else if (which === "users") {
-          const qu = (getSearchInput("users")?.value || "").trim();
-          loadPage("users", 1, qu);
-        } else {
+        // Refetch full permissions to sync state precisely
+        try { loadPermissions(currentSubcategoryId); } catch (_) {
           const qg = (getSearchInput("groups")?.value || "").trim();
           const qu = (getSearchInput("users")?.value || "").trim();
           loadPage("groups", 1, qg);
@@ -1678,6 +1689,33 @@ function setupSocket() {
           if (fromSelf) return;
         } catch (_) {}
         if (currentCategoryId) loadSubcategories(currentCategoryId);
+      });
+
+      // Backward-compat: some server paths emit 'categories:changed'
+      socket.on("categories:changed", (data) => {
+        try {
+          const fromSelf = !!(
+            data &&
+            data.originClientId &&
+            window.__categoriesClientId &&
+            data.originClientId === window.__categoriesClientId
+          );
+          if (fromSelf) return;
+        } catch (_) {}
+        try {
+          const kind = (data && data.kind) || (data && data.type) || "";
+          if (kind === "category") {
+            loadCategories();
+            return;
+          }
+          if (kind === "subcategory") {
+            if (currentCategoryId) loadSubcategories(currentCategoryId);
+            return;
+          }
+          // Fallback: refresh both lists
+          loadCategories();
+          if (currentCategoryId) loadSubcategories(currentCategoryId);
+        } catch(_) {}
       });
 
       // Soft refresh files on permissions change affecting current subcategory
@@ -1737,6 +1775,68 @@ function setupSocket() {
     }
   } catch (e) {
   }
+}
+
+// Registrators-like socket setup for categories (SyncManager-first with fallback)
+function setupCategoriesSocket() {
+  try {
+    // Prefer SyncManager
+    if (window.SyncManager && typeof window.SyncManager.on === 'function') {
+      if (!window.__categoriesSyncBound) {
+        window.__categoriesSyncBound = true;
+        // Debouncers
+        if (!window.__categoriesDebounceTimer) window.__categoriesDebounceTimer = null;
+        function debounce(fn, ms){
+          return function(){
+            clearTimeout(window.__categoriesDebounceTimer);
+            var self=this, args=arguments;
+            window.__categoriesDebounceTimer = setTimeout(function(){ fn.apply(self, args); }, ms||300);
+          };
+        }
+        const reloadLists = debounce(function(){
+          loadCategories();
+          if (currentCategoryId) loadSubcategories(currentCategoryId);
+        });
+        const reloadGroups = debounce(function(){
+          const qg = (getSearchInput('groups')?.value || '').trim();
+          loadPage('groups', 1, qg);
+        });
+        const reloadUsers = debounce(function(){
+          const qu = (getSearchInput('users')?.value || '').trim();
+          loadPage('users', 1, qu);
+        });
+
+        window.SyncManager.on('categories:changed', function(){ if (!document.hidden) reloadLists(); });
+        window.SyncManager.on('subcategories:changed', function(){ if (!document.hidden) reloadLists(); });
+        window.SyncManager.on('subcategory_permissions_updated', function(data){
+          if (document.hidden) return;
+          if (!data || String(data.subcategory_id||'') !== String(currentSubcategoryId||'')) return;
+          if (isDirtyGroups || isDirtyUsers) return;
+          // Refetch permissions to get latest state from server, then re-render tables
+          try { loadPermissions(currentSubcategoryId); } catch(_) {
+            reloadGroups();
+            reloadUsers();
+          }
+        });
+        window.SyncManager.on('files:changed', function(data){
+          if (!data) return;
+          if (String(data.subcategory_id || '') !== String(currentSubcategoryId || '')) return;
+          try {
+            if (typeof window.softRefreshFiles === 'function') {
+              window.softRefreshFiles({ reason: 'subcategory-permissions', subcategory_id: currentSubcategoryId });
+            } else {
+              const evt = new CustomEvent('files:soft-refresh', { detail: { reason: 'subcategory-permissions', subcategory_id: currentSubcategoryId } });
+              window.dispatchEvent(evt);
+            }
+          } catch(_) {}
+        });
+        if (window.SyncManager.joinRoom) window.SyncManager.joinRoom('categories');
+      }
+      return;
+    }
+  } catch(_) {}
+  // Fallback to page-local socket
+  setupSocket();
 }
 
 // Context menu initialization
