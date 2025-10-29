@@ -145,3 +145,231 @@
 .search-box {
   background-color: var(--primary-300) !important;
 }
+
+/* ==== Orders page merged styles (from old static/css/orders.css) ==== */
+section[data-testid="orders-section"] {
+  background-color: transparent
+}
+
+/* Status pills */
+.status-pill {
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: #fff;
+  display: inline-block;
+  font-size: 12px
+}
+
+.status-in_progress {
+  background: #198754
+}
+
+.status-stopped {
+  background: #dc3545
+}
+
+.status-done {
+  background: #0dcaf0;
+  color: #00333a
+}
+
+/* Filters card follows theme */
+.filters.card {
+  --bs-card-bg: var(--bs-tertiary-bg);
+  background-color: var(--bs-tertiary-bg);
+  border-color: var(--bs-border-color)
+}
+
+.filters.card .card-header {
+  background-color: var(--bs-tertiary-bg);
+  border-bottom-color: var(--bs-border-color)
+}
+
+/* Filter chips */
+.filters .form-check {
+  margin-right: 12px
+}
+
+.filters .form-check-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 12px;
+  display: inline-block;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid var(--bs-border-color)
+}
+
+.form-check-input+.chip-in_progress {
+  background: transparent;
+  color: var(--bs-body-color)
+}
+
+.form-check-input+.chip-stopped {
+  background: transparent;
+  color: var(--bs-body-color)
+}
+
+.form-check-input+.chip-done {
+  background: transparent;
+  color: var(--bs-body-color)
+}
+
+.form-check-input:checked+.chip-in_progress {
+  background: #198754;
+  color: #fff;
+  border-color: transparent
+}
+
+.form-check-input:checked+.chip-stopped {
+  background: #dc3545;
+  color: #fff;
+  border-color: transparent
+}
+
+.form-check-input:checked+.chip-done {
+  background: #0dcaf0;
+  color: #00333a;
+  border-color: transparent
+}
+
+/* Table font size */
+#orders-table {
+  font-size: 0.6667em
+}
+
+/* Sticky header */
+.orders-thead-sticky th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bs-body-bg)
+}
+
+/* Zebra like Files (skip search row) */
+#orders-table tbody tr:nth-child(even):not(:first-child)>th,
+#orders-table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #f8fafc
+}
+
+.theme-dark #orders-table tbody tr:nth-child(even):not(:first-child)>th,
+.theme-dark #orders-table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #1f1f1f
+}
+
+.theme-dark-hc #orders-table tbody tr:nth-child(even):not(:first-child)>th,
+.theme-dark-hc #orders-table tbody tr:nth-child(even):not(:first-child)>td {
+  background-color: #202020
+}
+
+/* Column widths */
+#orders-table th:nth-child(1),
+#orders-table td:nth-child(1) {
+  width: 14ch
+}
+
+#orders-table th:nth-child(2),
+#orders-table td:nth-child(2) {
+  width: 16ch
+}
+
+#orders-table th:nth-child(3),
+#orders-table td:nth-child(3) {
+  width: 12ch
+}
+
+#orders-table th:nth-child(4),
+#orders-table td:nth-child(4) {
+  width: 14ch
+}
+
+#orders-table th:nth-child(5),
+#orders-table td:nth-child(5) {
+  width: 14ch
+}
+
+#orders-table th:nth-child(6),
+#orders-table td:nth-child(6) {
+  width: 14ch
+}
+
+#orders-table th:nth-child(7),
+#orders-table td:nth-child(7) {
+  width: 18ch
+}
+
+#orders-table th:nth-child(8),
+#orders-table td:nth-child(8) {
+  width: 32ch
+}
+
+#orders-table th:nth-child(9),
+#orders-table td:nth-child(9) {
+  width: 12ch;
+  text-align: center
+}
+
+#orders-table th:nth-child(10),
+#orders-table td:nth-child(10) {
+  width: 18ch
+}
+
+/* Themed modal */
+.orders-modal {
+  background: var(--modal-bg);
+  color: var(--body-text);
+  border: 1px solid var(--modal-border)
+}
+
+.orders-modal .modal-header,
+.orders-modal .modal-footer {
+  background: var(--modal-header-bg);
+  color: var(--modal-header-text);
+  border-color: var(--modal-border)
+}
+
+.orders-modal .form-control,
+.orders-modal .form-select,
+.orders-modal .form-check-input,
+.orders-modal textarea {
+  background-color: var(--control-bg);
+  color: var(--control-text);
+  border-color: var(--control-border);
+  border-radius: var(--control-radius)
+}
+
+.orders-modal .form-control:focus,
+.orders-modal .form-select:focus,
+.orders-modal textarea:focus {
+  outline: 2px solid var(--btn-focus);
+  box-shadow: 0 0 0 2px var(--btn-focus)
+}
+
+.orders-modal .modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg)
+}
+
+.orders-modal .modal-body::-webkit-scrollbar {
+  height: 8px;
+  width: 8px
+}
+
+.orders-modal .modal-body::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 8px;
+  border: 2px solid var(--scrollbar-bg)
+}
+
+.orders-modal .modal-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover)
+}
+
+.orders-modal .modal-body::-webkit-scrollbar-track {
+  background-color: var(--scrollbar-bg)
+}

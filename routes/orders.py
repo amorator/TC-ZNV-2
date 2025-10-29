@@ -1,269 +1,212 @@
-from flask import render_template, url_for, request, send_from_directory, redirect, abort
-from flask_login import current_user
-from datetime import datetime as dt
-from os import path, remove
-from urllib.request import urlretrieve
+from flask import render_template, request, jsonify
+from flask_login import login_required
+from datetime import datetime as dt, timedelta
+from modules.permissions import require_permissions, ORDERS_VIEW_PAGE, ORDERS_CREATE, ORDERS_APPROVE
+from flask import redirect, url_for
 
 
-def register(app, tp, media_service):
-
+def register(app, socketio=None):
 	@app.route('/orders', methods=['GET'])
-	@app.permission_required(2)
+	@login_required
+	@require_permissions(ORDERS_VIEW_PAGE)
 	def orders():
-		orders = app._sql.order_all()
-		return render_template('orders.j2.html',
-							   title='Наряды — Заявки-Наряды-Файлы',
-							   id=2,
-							   orders=orders,
-							   groups=app._sql.group_all())
-
-	@app.route('/orders/add', methods=['POST'])
-	@app.permission_required(2, 'b')
-	def orders_add():
+		# Load groups for service select
+		groups = []
 		try:
-			responsible = (request.form.get('responsible') or '').strip()
-			description = (request.form.get('description') or '').strip()
-			number = (request.form.get('number') or '').strip()
-			department = (request.form.get('department') or '').strip()
-			start_date = (request.form.get('start_date') or '').strip()
-			end_date = (request.form.get('end_date') or '').strip()
-			iss_date = (request.form.get('iss_date') or '').strip()
-			comp_date = request.form.get('comp_date')
-			start_date = dt.strptime(start_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if start_date else None
-			end_date = dt.strptime(end_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if end_date else None
-			comp_date = dt.strptime(comp_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if comp_date else None
-			iss_date = dt.strptime(iss_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if iss_date else None
-			creator = current_user.name
-			state = -1
-			if comp_date:
-				state = 1
-			app._sql.order_add([
-				state, number, iss_date, start_date, end_date, comp_date,
-				responsible, description, department, creator
-			])
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/edit/<int:id>', methods=['POST'])
-	@app.permission_required(2, 'a')
-	def orders_edit(id):
-		ord = app._sql.order_by_id([id])
-		if not (current_user.is_allowed(2, 'c')
-				or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			responsible = (request.form.get('responsible') or '').strip()
-			description = (request.form.get('description') or '').strip()
-			number = (request.form.get('number') or '').strip()
-			department = (request.form.get('department') or '').strip()
-			start_date = (request.form.get('start_date') or '').strip()
-			end_date = (request.form.get('end_date') or '').strip()
-			iss_date = (request.form.get('iss_date') or '').strip()
-			comp_date = request.form.get('comp_date')
-			start_date = dt.strptime(start_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if start_date else None
-			end_date = dt.strptime(end_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if end_date else None
-			comp_date = dt.strptime(comp_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if comp_date else None
-			iss_date = dt.strptime(iss_date, '%Y-%m-%dT%H:%M').strftime(
-				'%y.%m.%d %H:%M') if iss_date else None
-			state = -1
-			if comp_date:
-				state = 1
-			app._sql.order_edit([
-				state, number, iss_date, start_date, end_date, comp_date,
-				responsible, description, department, id
-			])
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/delete/<int:id>', methods=['POST'])
-	@app.permission_required(2, 'a')
-	def orders_delete(id):
-		ord = app._sql.order_by_id([id])
-		if not (current_user.is_allowed(2, 'd')
-				or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			app._sql.order_delete([id])
-			for f in ord.attachments:
+			prefix = app._sql.config['db']['prefix']
+			rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
+			for r in rows:
 				try:
-					remove(
-						path.join(app._sql.config['files']['root'], 'ords', f))
-				except Exception as e:
-					app.flash_error(e)
-				finally:
-					file = path.join(app._sql.config['files']['root'], 'ords',
-									 path.splitext(f)[0] + '.mp4')
-					if path.isfile(file):
-						remove(file)
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
+					gid = int(r[0])
+					gname = str(r[1])
+					groups.append({'id': gid, 'name': gname})
+				except Exception:
+					pass
+		except Exception:
+			groups = []
+		return render_template('orders.j2.html',
+					   title='Наряды — Заявки-Наряды-Файлы',
+					   id=2,
+					   groups=groups)
 
-	@app.route('/orders/appr/<int:id>', methods=['GET'])
-	@app.permission_required(2, 'e')
-	def orders_approve(id):
-		try:
-			app._sql.order_approve([1, id])
-		except Exception as e:
-			app.flash_error(e)
-		finally:
+	@app.route('/api/orders', methods=['GET'])
+	@login_required
+	@require_permissions(ORDERS_VIEW_PAGE)
+	def api_orders():
+		# Accept header guard: redirect HTML direct hits to page
+		accept = (request.headers.get('Accept') or '')
+		is_ajax = (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+		if ('text/html' in accept) and (not is_ajax):
 			return redirect(url_for('orders'))
-
-	@app.route('/orders/dappr/<int:id>', methods=['GET'])
-	@app.permission_required(2, 'e')
-	def orders_disapprove(id):
+		# Defaults for safe fallback in except
+		page = int((request.args.get('page') or '1').strip() or '1')
+		page_size = int((request.args.get('page_size') or '10').strip() or '10')
 		try:
-			app._sql.order_approve([0, id])
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/status/<int:id>', methods=['POST'])
-	@app.permission_required(2, 'a')
-	def orders_status(id):
-		if not (current_user.is_allowed(2, 'c') or current_user.is_allowed(
-				2, 'f') or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			state = int(request.form.get('status'))
-			if state == 1:
-				comp_date = (request.form.get('comp_date') or '').strip()
-				comp_date = dt.strptime(comp_date, '%Y-%m-%dT%H:%M').strftime(
-					'%y.%m.%d %H:%M') if comp_date else None
-			else:
-				comp_date = None
-			app._sql.order_status([state, comp_date, id])
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/view/<int:id>', methods=['GET'])
-	@app.permission_required(2, 'h')
-	def orders_view(id):
-		try:
-			ord = app._sql.order_by_id([id])
-			if ord.viewed:
-				if current_user.name in ord.viewed:
-					viewed = ord.viewed
+			# Filters: status_in (csv of in_progress,stopped,done), date_from, date_to (YYYY-MM-DD)
+			status_in = set([s.strip().lower() for s in (request.args.get('status_in') or 'in_progress,stopped,done').split(',') if s.strip()])
+			date_from = (request.args.get('date_from') or '').strip()
+			date_to = (request.args.get('date_to') or '').strip()
+			q = (request.args.get('q') or '').strip().lower()
+			def parse_date(d):
+				try:
+					return dt.strptime(d, '%Y-%m-%d')
+				except Exception:
+					return None
+			df = parse_date(date_from)
+			dt_to = parse_date(date_to)
+			# default to current month
+			if not df or not dt_to:
+				now = dt.now()
+				first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+				next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+				last = next_month - timedelta(seconds=1)
+				df = df or first
+				dt_to = dt_to or last
+			rows = app._sql.order_all() or []
+			result = []
+			for o in rows:
+				# normalize status
+				st = (getattr(o, 'status', '') or '').strip().lower()
+				if st in ('in_progress', 'process', '0', 'ведутся'):
+					stn = 'in_progress'
+				elif st in ('stopped', '-1', 'не ведутся'):
+					stn = 'stopped'
+				elif st in ('done', '1', 'completed', 'завершены'):
+					stn = 'done'
 				else:
-					viewed = ord.viewed + "<hr>" + current_user.name
-			else:
-				viewed = current_user.name
-			app._sql.order_view([viewed, id])
+					stn = 'in_progress'
+				if stn not in status_in:
+					continue
+				# date filter by overlap within [df, dt_to]
+				def to_dt(x):
+					try:
+						return x if isinstance(x, dt) else dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))
+					except Exception:
+						return None
+				issued = to_dt(getattr(o, 'issued', None))
+				start = to_dt(getattr(o, 'start', None))
+				end = to_dt(getattr(o, 'end', None))
+				created = to_dt(getattr(o, 'created_at', None))
+				# Include if any of issued/start/end within range, or if all three are empty then fallback to created_at
+				in_range = any(d and df <= d <= dt_to for d in (issued, start, end)) or (
+					(not issued and not start and not end) and (created and df <= created <= dt_to)
+				)
+				if not in_range:
+					continue
+				# text search
+				if q:
+					hay = ' '.join([
+						getattr(o, 'service', '') or '',
+						getattr(o, 'number', '') or '',
+						getattr(o, 'responsible', '') or '',
+						getattr(o, 'work_name', '') or '',
+					]).lower()
+					if q not in hay:
+						continue
+				result.append({
+					'id': o.id,
+					'service': getattr(o, 'service', ''),
+					'status': stn,
+					'number': getattr(o, 'number', ''),
+					'issued': (issued.isoformat(sep=' ') if issued else ''),
+					'start': (start.isoformat(sep=' ') if start else ''),
+					'end': (end.isoformat(sep=' ') if end else ''),
+					'responsible': getattr(o, 'responsible', ''),
+					'work_name': getattr(o, 'work_name', ''),
+					'approved': bool(getattr(o, 'approved', False)),
+					'files': 0,
+					'notes': '',
+				})
+			# Paginate
+			total = len(result)
+			total_pages = max(1, (total + page_size - 1) // page_size)
+			page = max(1, min(page, total_pages))
+			start_idx = (page - 1) * page_size
+			end_idx = start_idx + page_size
+			items = result[start_idx:end_idx]
+			return jsonify({
+				'items': items,
+				'total': total,
+				'page': page,
+				'page_size': page_size,
+			})
 		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/file_add/<int:id>', methods=['POST'])
-	@app.permission_required(2, 'b')
-	def orders_file_add(id):
-		ord = app._sql.order_by_id([id])
-		if not (current_user.is_allowed(2, 'c') and current_user.is_allowed(
-				2, 'g') or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			if 'file' not in request.files:
-				app.flash_error('Файл не выбран!')
-			for file in request.files.getlist('file'):
-				name = str(id) + "_" + file.filename
-				fname = path.join(app._sql.config['files']['root'], 'ords',
-								  name)
-				f = path.splitext(fname)
-				if path.isfile(fname) or path.isfile(f[0] + '.mp4'):
-					raise Exception('Указанный файл уже существует!')
-				ord.attachments.append(name)
-				file.save(fname)
-				if f[1].lower() in ('.mp4', '.avi', '.webm', '.mov'):
-					media_service.convert_async(fname, f[0] + '.mp4',
-												('order', id))
-			app._sql.order_edit_attachments(
-				['|'.join(ord.attachments), ord.id])
-		except Exception as e:
-			app.flash_error(str(e))
-		finally:
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/file_add_remote/<int:id>', methods=['POST'])
-	@app.permission_required(2, 'b')
-	def orders_file_add_remote(id):
-		ord = app._sql.order_by_id([id])
-		if not (current_user.is_allowed(2, 'c') and current_user.is_allowed(
-				2, 'g') or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			url = [request.form.get(f's{i}') for i in range(0, 7)]
-			name = str(id) + '_' + url[-1]
-			fname = path.join(app._sql.config['files']['root'], 'ords', name)
-			if path.isfile(fname) or path.isfile(
-					path.splitext(fname)[0] + '.mp4'):
-				raise Exception('Указанный файл уже существует!')
-			tp.add(_orders_file_add_remote, [url, name, fname, ord, id])
-			app.flash_error(
-				f"Загрузка файла {name} начата в фоновом режиме. Время загрузки зависит от размера файла. Подождите и обновите страницу."
-			)
-		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
-
-	def _orders_file_add_remote(args):
-		url, name, fname, ord, id = args
-		urlretrieve('http://' + ''.join(url), fname)
-		ord.attachments.append(name)
-		app._sql.order_edit_attachments(['|'.join(ord.attachments), ord.id])
-		f = path.splitext(fname)
-		ext = f[1].lower()
-		if ext in ('.mp4', '.avi', '.webm', '.mov', '.mkv', '.flv', '.m4v'):
-			media_service.convert_async(fname, f[0] + '.mp4', ('order', id))
-		elif ext in ('.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
-					 '.wma', '.mka', '.opus'):
-			media_service.convert_async(fname, f[0] + '.m4a', ('order', id))
-
-	@app.route('/orders/file/<string:name>', methods=['GET'])
-	@app.permission_required(2, 'a')
-	def order_file_show(name):
-		try:
-			return send_from_directory(
-				path.join(app._sql.config['files']['root'], 'ords'), name)
-		except Exception as e:
-			app.flash_error(e)
-			return redirect(url_for('orders'))
-
-	@app.route('/orders/file_delete/<int:id>/<string:name>', methods=['POST'])
-	@app.permission_required(2, 'b')
-	def order_file_delete(id, name):
-		ord = app._sql.order_by_id([id])
-		if not (current_user.is_allowed(2, 'c') and current_user.is_allowed(
-				2, 'g') or current_user.name == ord.creator) or ord.state == 1:
-			return abort(403)
-		try:
-			ord.attachments.remove(name)
-			app._sql.order_edit_attachments(
-				['|'.join(ord.attachments), ord.id])
 			try:
-				remove(
-					path.join(app._sql.config['files']['root'], 'ords', name))
-			finally:
-				file = path.join(app._sql.config['files']['root'], 'ords',
-								 path.splitext(name)[0] + '.mp4')
-				if path.isfile(file):
-					remove(file)
+				app.logger.error(f"Orders api error: {e}")
+			except Exception:
+				pass
+			return jsonify({ 'items': [], 'total': 0, 'page': page, 'page_size': page_size }), 200
+
+	@app.route('/api/orders', methods=['POST'])
+	@login_required
+	@require_permissions(ORDERS_CREATE)
+	def api_orders_create():
+		try:
+			# Accept JSON body
+			data = request.get_json(silent=True) or {}
+			service = (data.get('service') or '').strip()
+			number = (data.get('number') or '').strip()
+			responsible = (data.get('responsible') or '').strip()
+			work_name = (data.get('work_name') or '').strip()
+			status = (data.get('status') or 'in_progress').strip().lower() or 'in_progress'
+			issued = (data.get('issued') or '').strip() or None
+			start = (data.get('start') or '').strip() or None
+			end = (data.get('end') or '').strip() or None
+			# Backend validation: required fields except 3 date fields
+			missing = []
+			if not service: missing.append('service')
+			if not number: missing.append('number')
+			if not responsible: missing.append('responsible')
+			if not work_name: missing.append('work_name')
+			if missing:
+				return jsonify({ 'ok': False, 'error': 'validation', 'missing': missing }), 400
+			# Normalize empty dates as None; try parse to 'YYYY-MM-DD HH:MM:SS' or keep None
+			def norm_dt(x):
+				if not x: return None
+				try:
+					return dt.fromisoformat(str(x).replace('T', ' '))
+				except Exception:
+					return None
+			issued_dt = norm_dt(issued)
+			start_dt = norm_dt(start)
+			end_dt = norm_dt(end)
+			# Insert
+			new_id = app._sql.order_add([
+				service,
+				status,
+				number,
+				issued_dt,
+				start_dt,
+				end_dt,
+				responsible,
+				work_name,
+				0,  # approved default
+			])
+			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
-			app.flash_error(e)
-		finally:
-			return redirect(url_for('orders'))
+			try:
+				app.logger.error(f"Orders create error: {e}")
+			except Exception:
+				pass
+			return jsonify({ 'ok': False, 'error': 'server' }), 500
+
+	@app.route('/api/orders/<int:order_id>/approved', methods=['POST'])
+	@login_required
+	@require_permissions(ORDERS_APPROVE)
+	def api_orders_toggle_approved(order_id: int):
+		try:
+			data = request.get_json(silent=True) or {}
+			approved = data.get('approved')
+			# normalize to 0/1
+			val = 1 if (str(approved).lower() in ('1','true','yes','on')) else 0
+			app._sql.execute_non_query(
+				f"UPDATE {app._sql.config['db']['prefix']}_order SET approved = %s WHERE id = %s;",
+				[val, order_id]
+			)
+			return jsonify({ 'ok': True, 'approved': bool(val) })
+		except Exception as e:
+			try:
+				app.logger.error(f"Orders approve toggle error: {e}")
+			except Exception:
+				pass
+			return jsonify({ 'ok': False, 'error': 'server' }), 500

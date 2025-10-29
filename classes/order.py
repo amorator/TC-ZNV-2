@@ -1,27 +1,24 @@
-from datetime import datetime as dt
-from re import sub
-
-class Order():
-	def __init__(self, id, state, attachment, number, iss_date, start_date, end_date, comp_date, responsible, jobs, approved, department, viewed, creator, note):
-		self.id = id
-		self.state = state
-		self.attachments = attachment.split('|') if attachment else []
-		self.number = note.count("\n") if note else number
-		self.iss_date = iss_date
-		self.start_date = start_date
-		self.end_date = end_date
-		self.comp_date = comp_date
-		self.responsible = responsible
-		self.jobs = jobs
-		self.approved = approved 
-		self.department = department
-		self.viewed = viewed
-		self.creator = creator
-		self.note = note
-		if state == 0:
-			self.state_name = "Работы ведутся"
-		elif state == -1:
-			self.state_name = "Работы не ведутся"
+class Order:
+	def __init__(self, id, service, status, number, issued, start, end, responsible, work_name, approved, created_at=None, updated_at=None):
+		self.id = int(id)
+		self.service = service or ""
+		self.status = status or ""
+		self.number = number or ""
+		self.issued = issued
+		self.start = start
+		self.end = end
+		self.responsible = responsible or ""
+		self.work_name = work_name or ""
+		self.approved = bool(approved)
+		self.created_at = created_at
+		self.updated_at = updated_at
+		# Derived human-readable status
+		st = (self.status or "").strip().lower()
+		if st in ("in_progress", "process", "0"):
+			self.status_name = "Работы ведутся"
+		elif st in ("stopped", "-1"):
+			self.status_name = "Работы не ведутся"
+		elif st in ("done", "1", "completed"):
+			self.status_name = "Работы завершены"
 		else:
-			self.state_name = "Работы завершены"
-		
+			self.status_name = self.status or ""
