@@ -14,6 +14,7 @@ ORDERS_EDIT_ANY = 'orders.edit_any'
 ORDERS_DELETE_ANY = 'orders.delete_any'
 ORDERS_VIEW_ALL = 'orders.view_all'
 ORDERS_APPROVE = 'orders.approve'
+ORDERS_STATUS_CHANGE = 'orders.status_change'
 ORDERS_NOTES = 'orders.notes'
 ORDERS_FILES_VIEW = 'orders.files_view'
 ORDERS_FILES_EDIT = 'orders.files_edit'
@@ -115,6 +116,7 @@ PERMISSION_LABELS = {
 	ORDERS_DELETE_ANY: 'Наряды: удаление (всех)',
 	ORDERS_VIEW_ALL: 'Наряды: просмотр всех',
 	ORDERS_APPROVE: 'Наряды: согласование',
+	ORDERS_STATUS_CHANGE: 'Наряды: изменение статуса',
 	ORDERS_NOTES: 'Наряды: примечания',
 	ORDERS_FILES_VIEW: 'Наряды: просмотр файлов',
 	ORDERS_FILES_EDIT: 'Наряды: изменение файлов',

@@ -678,11 +678,11 @@ class SQLUtils(SQL):
 
 
 	def order_all(self):
-		rows = self.execute_query(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order ORDER BY id DESC;")
+		rows = self.execute_query(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order ORDER BY id DESC;")
 		return [Order(*r) for r in (rows or [])]
 
 	def order_by_id(self, args):
-		row = self.execute_scalar(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
+		row = self.execute_scalar(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
 		return Order(*row) if row else None
 
 	def _ensure_orders_category(self):
@@ -722,6 +722,10 @@ class SQLUtils(SQL):
 			f"UPDATE {self.config['db']['prefix']}_order SET service=%s, status=%s, number=%s, issued=%s, start=%s, end=%s, responsible=%s, work_name=%s, approved=%s WHERE id=%s;",
 			args,
 		)
+
+	def order_note(self, args):
+		"""Update order note. Args: [note, id]"""
+		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_order SET note = %s WHERE id = %s;", args)
 
 	def order_delete(self, args):
 		self.execute_non_query(f"DELETE FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
@@ -807,6 +811,7 @@ class SQLUtils(SQL):
 					end DATETIME NULL,
 					responsible VARCHAR(255) NOT NULL DEFAULT '',
 					work_name TEXT NOT NULL,
+					note TEXT DEFAULT '',
 					approved TINYINT(1) NOT NULL DEFAULT 0,
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -818,6 +823,15 @@ class SQLUtils(SQL):
 					INDEX idx_approved (approved)
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
+
+			# Ensure column 'note' exists for older schemas
+			try:
+				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS note TEXT DEFAULT '';")
+			except Exception:
+				try:
+					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN note TEXT DEFAULT '';")
+				except Exception:
+					pass
 
 			# Ensure unified settings table exists (web_settings)
 			self.execute_non_query(f"""
