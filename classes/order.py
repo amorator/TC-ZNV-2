@@ -1,5 +1,5 @@
 class Order:
-	def __init__(self, id, service, status, number, issued, start, end, responsible, work_name, approved, created_at=None, updated_at=None):
+	def __init__(self, id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at=None, updated_at=None):
 		self.id = int(id)
 		self.service = service or ""
 		self.status = status or ""
@@ -9,6 +9,7 @@ class Order:
 		self.end = end
 		self.responsible = responsible or ""
 		self.work_name = work_name or ""
+		self.note = note or ""
 		self.approved = bool(approved)
 		self.created_at = created_at
 		self.updated_at = updated_at

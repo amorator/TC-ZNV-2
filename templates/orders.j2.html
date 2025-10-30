@@ -6,7 +6,7 @@
 {% block main %}
 <section class="container-fluid py-3" data-testid="orders-section">
   <div class="filters card p-3 mb-3">
-    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2 filters-row">
       <div class="form-check">
         <input class="form-check-input" type="checkbox" id="flt-st-inp" checked>
         <label class="form-check-label chip chip-in_progress" for="flt-st-inp">Работы ведутся</label>
@@ -25,37 +25,44 @@
       <div class="col-auto">
         <input type="date" class="form-control" id="flt-to">
       </div>
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="flt-service">
+          <option value="">— Все службы —</option>
+          {% for g in (groups or []) %}
+            <option value="{{ g.name }}">{{ g.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
   </div>
   <div class="d-none"></div>
 
   <div class="table-responsive">
-    <table class="table table-striped table-hover table-sm align-middle table-colored" id="orders-table">
+    <table class="orders-page__table files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable">
       <thead class="orders-thead-sticky">
         <tr>
-          <th>Служба</th>
-          <th>Состояние</th>
-          <th>Номер</th>
-          <th>Выдан</th>
-          <th>Начало</th>
-          <th>Окончание</th>
-          <th>Ответственный</th>
-          <th>Наименование работ</th>
-          <th>Согласовано</th>
-          <th>Примечание</th>
+          <th class="table__head_item">Служба</th>
+          <th class="table__head_item">Состояние</th>
+          <th class="table__head_item">Номер</th>
+          <th class="table__head_item">Выдан</th>
+          <th class="table__head_item">Начало</th>
+          <th class="table__head_item">Окончание</th>
+          <th class="table__head_item">Ответственный</th>
+          <th class="table__head_item">Наименование работ</th>
+          <th class="table__head_item">Согласовано</th>
+          <th class="table__head_item">Примечание</th>
         </tr>
       </thead>
       <tbody id="orders-tbody">
-        <tr id="search">
-          <td colspan="10">
+        <tr id="search" class="table__body_row">
+          <td colspan="10" class="table__body_item">
             <div class="d-flex gap-2 align-items-center justify-content-between">
               <div class="d-flex align-items-center gap-2">
-                <input id="orders-search" class="form-control form-control-sm" type="text" placeholder="Поиск..." autocomplete="off" style="max-width:360px">
-                <button type="button" class="btn btn-link p-0 d-inline-flex align-items-center search-clear" title="Очистить" aria-label="Очистить"><i class="bi bi-x-lg"></i></button>
-                </div>
+                {% include 'components/searchbar.html' %}
+              </div>
               <div class="d-flex gap-2">
                 {% if current_user.has('orders.create') or current_user.has('admin.any') %}
                   <button id="orders-create" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#orderCreateModal">Создать</button>
-              {% endif %}
+                {% endif %}
               </div>
             </div>
           </td>
@@ -135,8 +142,9 @@
     create: {{ 'true' if (current_user.has('orders.create') or current_user.has('admin.any')) else 'false' }},
     approve: {{ 'true' if (current_user.has('orders.approve') or current_user.has('admin.any')) else 'false' }}
   };
+  window.ordersDoFilter = function(q, page) { if (typeof load === 'function') return load(page || 1); };
   // Optional: expose more later (edit_any, delete_any, etc.)
 </script>
-<script src="{{ url_for('static', filename='js/scripts/core/sync.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/orders-search.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/orders.js') }}"></script>
 {% endblock %}

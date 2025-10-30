@@ -27,7 +27,29 @@
     return { from: d2(from), to: d2(to) };
   }
 
-  async function load(page) {
+  // --- localStorage keys for orders page ---
+  const ORDERS_SEARCH_KEY = 'orders:search';
+  const ORDERS_LASTPAGE_KEY = 'orders:lastPage';
+
+  // --- Save/load search and page state ---
+  function saveOrdersSearch(val) {
+    try { if (val) localStorage.setItem(ORDERS_SEARCH_KEY, val); else localStorage.removeItem(ORDERS_SEARCH_KEY); } catch(_) {}
+  }
+  function getOrdersSearch() {
+    try { return localStorage.getItem(ORDERS_SEARCH_KEY) || ''; } catch(_) { return ''; }
+  }
+  function saveOrdersLastPage(page) {
+    try { if (page > 0) localStorage.setItem(ORDERS_LASTPAGE_KEY, String(page)); } catch(_) {}
+  }
+  function getOrdersLastPage() {
+    try { const pg = parseInt(localStorage.getItem(ORDERS_LASTPAGE_KEY) || '1', 10); return (+pg > 0 ? +pg : 1); } catch(_) { return 1; }
+  }
+  function resetOrdersPage() {
+    try { localStorage.removeItem(ORDERS_LASTPAGE_KEY); } catch(_) {}
+  }
+
+  // --- Improved load function: uses search API if q, otherwise normal list ---
+  async function load(page, opts = {}) {
     try {
       const st = [];
       if (document.getElementById('flt-st-inp').checked) st.push('in_progress');
@@ -35,15 +57,26 @@
       if (document.getElementById('flt-st-done').checked) st.push('done');
       const df = document.getElementById('flt-from').value;
       const dt = document.getElementById('flt-to').value;
-      const q = (document.getElementById('orders-search')?.value || '').trim();
+      const service = (document.getElementById('flt-service')?.value || '').trim();
+      const q = (document.getElementById('searchinp')?.value || '').trim();
+      // Save search to storage
+      saveOrdersSearch(q);
+      // page persistence (restore if not set and not search)
+      let usePage = (typeof page === 'number' && page > 0) ? page : 1;
+      if (!q && !opts.manualPage) usePage = getOrdersLastPage();
+      if (!usePage) usePage = 1;
+      // Params
       const params = new URLSearchParams();
       params.set('status_in', st.join(','));
       if (df) params.set('date_from', df);
       if (dt) params.set('date_to', dt);
+      if (service) params.set('service', service); // всегда ключ 'service' (а не service_in)
       if (q) params.set('q', q);
-      params.set('page', String(page || 1));
+      params.set('page', String(usePage));
       params.set('page_size', '10');
-      const resp = await fetch(`/api/orders?${params.toString()}`, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+      // Route: use /api/orders/search if q, else /api/orders
+      const apiUrl = q ? `/api/orders/search?${params.toString()}` : `/api/orders?${params.toString()}`;
+      const resp = await fetch(apiUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
       const ct = (resp.headers && resp.headers.get && resp.headers.get('content-type')) || '';
       if (!resp.ok || ct.indexOf('application/json') === -1) {
         const txt = await resp.text().catch(() => '');
@@ -57,11 +90,15 @@
         renderOrdersPaginationControls(pager, data.total, data.page || 1, data.page_size || 10);
         setupOrdersPaginationClickHandler();
       }
+      // Save lastPage if not searching
+      if (!q) saveOrdersLastPage(data.page || 1);
+      if (q && !items.length) resetOrdersPage();
     } catch (e) {
       window.ErrorHandler && window.ErrorHandler.handleError(e, 'orders.load');
       render([]);
     }
   }
+  window.load = load;
 
   function render(rows) {
     const tb = document.getElementById('orders-tbody');
@@ -69,47 +106,56 @@
     // Preserve search row at top
     const existingSearch = tb.querySelector('#search');
     const searchHTML = existingSearch ? existingSearch.outerHTML : '';
+    const oldInput = document.getElementById('searchinp');
+    const wasFocused = document.activeElement === oldInput;
+    const oldVal = oldInput ? oldInput.value : '';
     if (!rows.length) {
       tb.innerHTML = `${searchHTML}<tr><td colspan="10" class="text-muted py-3">Нет данных за выбранный период</td></tr>`;
-      bindSearch();
+      // fix: восстановление значения и фокуса поиска при отсутствии результатов
+      const newInput = document.getElementById('searchinp');
+      if (newInput) {
+          newInput.value = oldVal;
+          if (wasFocused) {
+              try { newInput.focus(); const len = newInput.value.length; newInput.setSelectionRange(len, len); } catch(_) {}
+          }
+      }
       bindCreateButton();
       return;
     }
     var canApprove = !!(window.OrdersPerms && window.OrdersPerms.approve);
     tb.innerHTML = searchHTML + rows.map((r) => `
-      <tr data-id="${r.id}">
-        <td>${(r.service || '').replace(/</g, '&lt;')}</td>
-        <td>${statusPill(r.status)}</td>
-        <td>${(r.number || '').replace(/</g, '&lt;')}</td>
-        <td>${fmtDate(r.issued)}</td>
-        <td>${fmtDate(r.start)}</td>
-        <td>${fmtDate(r.end)}</td>
-        <td>${(r.responsible || '').replace(/</g, '&lt;')}</td>
-        <td>${(r.work_name || '').replace(/</g, '&lt;')}</td>
-        <td>${canApprove ? (`<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`) : (r.approved ? 'Да' : 'Нет')}</td>
-        <td>${(r.notes || '').replace(/</g, '&lt;')}</td>
+      <tr class="table__body_row" data-id="${r.id}">
+        <td class="table__body_item">${(r.service || '').replace(/</g, '&lt;')}</td>
+        <td class="table__body_item">${statusPill(r.status)}</td>
+        <td class="table__body_item">${(r.number || '').replace(/</g, '&lt;')}</td>
+        <td class="table__body_item">${fmtDate(r.issued)}</td>
+        <td class="table__body_item">${fmtDate(r.start)}</td>
+        <td class="table__body_item">${fmtDate(r.end)}</td>
+        <td class="table__body_item">${(r.responsible || '').replace(/</g, '&lt;')}</td>
+        <td class="table__body_item">${(r.work_name || '').replace(/</g, '&lt;')}</td>
+        <td class="table__body_item">${canApprove ? (`<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`) : (r.approved ? 'Да' : 'Нет')}</td>
+        <td class="table__body_item">${(r.notes || '').replace(/</g, '&lt;')}</td>
       </tr>
     `).join('');
-    bindSearch();
+    const newInput = document.getElementById('searchinp');
+    if (newInput) {
+      newInput.value = oldVal;
+      if (wasFocused) {
+        try { newInput.focus(); const len = newInput.value.length; newInput.setSelectionRange(len, len); } catch(_) {}
+      }
+    }
     bindCreateButton();
     bindApprovedToggles();
-  }
-
-  function bindSearch() {
-    const search = document.getElementById('orders-search');
-    if (!search) return;
-    if (search.dataset.bound === '1') return; // avoid double-binding
-    search.dataset.bound = '1';
-    const debounce = (fn, ms) => { let t; return function() { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; };
-    search.addEventListener('input', debounce(() => load(1), 250));
-    search.addEventListener('keydown', function(e){ if (e.key === 'Escape') { this.value=''; load(1); } });
-    // clear button next to input
-    const clearBtn = search.parentElement && search.parentElement.querySelector('.search-clear');
-    if (clearBtn && !clearBtn.dataset.bound) {
-      clearBtn.dataset.bound = '1';
-      clearBtn.addEventListener('click', function(){ try { search.value=''; } catch(_){} load(1); });
+    if (window.OrdersSearch && typeof window.OrdersSearch.setupOrdersSearch === 'function') {
+      window.OrdersSearch.setupOrdersSearch();
     }
   }
+
+  // --- search input persistence and clear button ---
+  // --- убираем bindOrdersSearch полностью ---
+
+  // Заменяем на интеграцию с files-search.js
+  window.ordersDoFilter = function(q, page) { load(page || 1); };
 
   function init() {
     const rng = currentMonthRange();
@@ -119,15 +165,15 @@
     if (dt && !dt.value) dt.value = rng.to;
     const applyBtn = document.getElementById('flt-apply');
     if (applyBtn) applyBtn.addEventListener('click', function () { load(1); });
-    ['flt-st-inp', 'flt-st-stp', 'flt-st-done', 'flt-from', 'flt-to'].forEach((id) => {
+    ['flt-st-inp', 'flt-st-stp', 'flt-st-done', 'flt-from', 'flt-to', 'flt-service'].forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => load(1));
+      if (el) el.addEventListener('change', () => { resetOrdersPage(); load(1); });
     });
-    bindSearch();
-    bindCreateButton();
-    attachOrderModalA11yHandlers();
-    bindOrderCreateSubmitHandlers();
-    load(1);
+    // restore search & page
+    let pg = getOrdersLastPage();
+    let q = getOrdersSearch();
+    if (q) load(1);
+    else load(pg);
   }
 
   function bindCreateButton(){
@@ -361,6 +407,7 @@
     }
   }
 
+  // --- pagination: click handler saves page ---
   function setupOrdersPaginationClickHandler() {
     try {
       const pager = document.getElementById('orders-pagination');
@@ -369,7 +416,7 @@
         a.addEventListener('click', function (e) {
           e.preventDefault();
           const p = parseInt(this.getAttribute('data-page') || '1', 10) || 1;
-          load(p);
+          load(p, {manualPage:true});
         });
       });
     } catch (e) {
@@ -412,6 +459,9 @@
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
+  }
+  if (window.OrdersSearch && typeof window.OrdersSearch.setupFilesSearch === 'function') {
+    window.OrdersSearch.setupFilesSearch();
   }
 })();
 

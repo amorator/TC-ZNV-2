@@ -7,7 +7,8 @@
 /* Sticky headers for main tables (users, groups, files) */
 .files-page__table thead th,
 .users-page__table thead th,
-.groups-page__table thead th {
+.groups-page__table thead th,
+.orders-page__table thead th {
     position: sticky;
     top: 0;
     z-index: 5;
@@ -17,7 +18,8 @@
 /* Prevent column width shifts during updates */
 .files-page__table,
 .users-page__table,
-.groups-page__table {
+.groups-page__table,
+.orders-page__table {
     table-layout: fixed;
 }
 
@@ -27,7 +29,8 @@
 .users-page__table th,
 .users-page__table td,
 .groups-page__table th,
-.groups-page__table td {
+.groups-page__table td,
+.orders-page__table th {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -74,20 +77,30 @@
     border-left: none;
 }
 
-.table__body_row:nth-child(even) {
-    background: inherit;
+/* Zebra striping (как в files/users/groups, применяется для всех таблиц через BEM) */
+.table__body_row:nth-child(even)>.table__body_item,
+.table__body_row:nth-child(even)>th {
+    background-color: #f8fafc;
 }
 
-.table__body_row:last-child .table__body_item {
-    border-bottom: none;
+.theme-dark .table__body_row:nth-child(even)>.table__body_item,
+.theme-dark .table__body_row:nth-child(even)>th {
+    background-color: #1f1f1f;
 }
 
-.table__body_row:last-child .table__body_item:last-child {
-    border-radius: 0;
+.theme-dark-hc .table__body_row:nth-child(even)>.table__body_item,
+.theme-dark-hc .table__body_row:nth-child(even)>th {
+    background-color: #202020;
 }
 
-.table__body_row:last-child .table__body_item:first-child {
-    border-radius: 0;
+.table__body_row:hover>.table__body_item {
+    background: #eff6ff;
+    transition: background .12s;
+}
+
+.theme-dark .table__body_row:hover>.table__body_item {
+    background: #203040;
+    transition: background .12s;
 }
 
 /* Hover styles are handled in themes.css to unify across all tables */
@@ -181,22 +194,6 @@
     font-size: 0.8em;
 }
 
-/* Zebra striping from the second row (keep first row as-is) */
-.files-page__table tbody tr:nth-child(even):not(:first-child)>th,
-.files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-    background-color: #f8fafc;
-}
-
-.theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
-.theme-dark .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-    background-color: #1f1f1f;
-}
-
-.theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>th,
-.theme-dark-hc .files-page__table tbody tr:nth-child(even):not(:first-child)>td {
-    background-color: #202020;
-}
-
 /* Colored table head and first row (shared) */
 .table-colored thead {
     background: #ffe08a;
@@ -233,4 +230,74 @@
 .theme-dark .table-colored tbody tr:first-child>th,
 .theme-dark .table-colored tbody tr:first-child>td {
     background: rgba(255, 255, 255, .08);
+}
+
+.orders-page__table tbody td {
+    white-space: normal;
+    word-break: break-word;
+}
+
+.orders-page__table thead th:nth-child(1),
+.orders-page__table tbody td:nth-child(1) {
+    width: 13% !important;
+}
+
+.orders-page__table thead th:nth-child(2),
+.orders-page__table tbody td:nth-child(2) {
+    width: 7% !important;
+}
+
+.orders-page__table thead th:nth-child(3),
+.orders-page__table tbody td:nth-child(3) {
+    width: 4% !important;
+}
+
+.orders-page__table thead th:nth-child(4),
+.orders-page__table tbody td:nth-child(4) {
+    width: 8% !important;
+}
+
+.orders-page__table thead th:nth-child(5),
+.orders-page__table tbody td:nth-child(5) {
+    width: 8% !important;
+}
+
+.orders-page__table thead th:nth-child(6),
+.orders-page__table tbody td:nth-child(6) {
+    width: 8% !important;
+}
+
+.orders-page__table thead th:nth-child(7),
+.orders-page__table tbody td:nth-child(7) {
+    width: 12% !important;
+}
+
+.orders-page__table thead th:nth-child(8),
+.orders-page__table tbody td:nth-child(8) {
+    width: 30% !important;
+}
+
+.orders-page__table thead th:nth-child(9),
+.orders-page__table tbody td:nth-child(9) {
+    width: 4% !important;
+    text-align: center;
+}
+
+.orders-page__table thead th:nth-child(10),
+.orders-page__table tbody td:nth-child(10) {
+    width: 10% !important;
+}
+
+.orders-page__table tbody td:nth-child(2) button,
+.orders-page__table tbody td:nth-child(9) button,
+.orders-page__table tbody td:nth-child(2),
+.orders-page__table tbody td:nth-child(9) {
+    font-size: 0.6em;
+    text-align: center;
+    word-break: keep-all;
+}
+
+.orders-page .table-responsive {
+    max-height: 70vh;
+    overflow-y: auto;
 }

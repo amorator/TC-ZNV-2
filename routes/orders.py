@@ -47,6 +47,7 @@ def register(app, socketio=None):
 			date_from = (request.args.get('date_from') or '').strip()
 			date_to = (request.args.get('date_to') or '').strip()
 			q = (request.args.get('q') or '').strip().lower()
+			service = (request.args.get('service') or '').strip().lower()
 			def parse_date(d):
 				try:
 					return dt.strptime(d, '%Y-%m-%d')
@@ -77,6 +78,10 @@ def register(app, socketio=None):
 					stn = 'in_progress'
 				if stn not in status_in:
 					continue
+				if service:
+					srv_field = (getattr(o, 'service', '') or '').strip().lower()
+					if srv_field != service:
+						continue
 				# date filter by overlap within [df, dt_to]
 				def to_dt(x):
 					try:
@@ -210,3 +215,106 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			return jsonify({ 'ok': False, 'error': 'server' }), 500
+
+	@app.route('/api/orders/search', methods=['GET'])
+	@login_required
+	@require_permissions(ORDERS_VIEW_PAGE)
+	def api_orders_search():
+		"""Search orders with filters and pagination. Аналог users_search/groups_search"""
+		try:
+			page = int((request.args.get('page') or '1').strip() or '1')
+			page_size = int((request.args.get('page_size') or '10').strip() or '10')
+			q = (request.args.get('q') or '').strip().lower()
+			status_in = set([s.strip().lower() for s in (request.args.get('status_in') or 'in_progress,stopped,done').split(',') if s.strip()])
+			date_from = (request.args.get('date_from') or '').strip()
+			date_to = (request.args.get('date_to') or '').strip()
+			service = (request.args.get('service') or '').strip().lower()
+			def parse_date(d):
+				try:
+					return dt.strptime(d, '%Y-%m-%d')
+				except Exception:
+					return None
+			df = parse_date(date_from)
+			dt_to = parse_date(date_to)
+			if not df or not dt_to:
+				now = dt.now()
+				first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+				next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+				last = next_month - timedelta(seconds=1)
+				df = df or first
+				dt_to = dt_to or last
+			rows = app._sql.order_all() or []
+			result = []
+			for o in rows:
+				# status/фильтр
+				st = (getattr(o, 'status', '') or '').strip().lower()
+				if st in ('in_progress', 'process', '0', 'ведутся'):
+					stn = 'in_progress'
+				elif st in ('stopped', '-1', 'не ведутся'):
+					stn = 'stopped'
+				elif st in ('done', '1', 'completed', 'завершены'):
+					stn = 'done'
+				else:
+					stn = 'in_progress'
+				if stn not in status_in:
+					continue
+				if service:
+					srv_field = (getattr(o, 'service', '') or '').strip().lower()
+					if srv_field != service:
+						continue
+				# Даты -- issued/start/end/created пересечение с df...dt_to
+				def to_dt(x):
+					try:
+						return x if isinstance(x, dt) else dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))
+					except Exception:
+						return None
+				issued = to_dt(getattr(o, 'issued', None))
+				start = to_dt(getattr(o, 'start', None))
+				end = to_dt(getattr(o, 'end', None))
+				created = to_dt(getattr(o, 'created_at', None))
+				in_range = any(d and df <= d <= dt_to for d in (issued, start, end)) or (
+					(not issued and not start and not end) and (created and df <= created <= dt_to)
+				)
+				if not in_range:
+					continue
+				# Поиск. Достаточно service, number, responsible, work_name (как в /api/orders)
+				hay = ' '.join([
+					getattr(o, 'service', '') or '',
+					getattr(o, 'number', '') or '',
+					getattr(o, 'responsible', '') or '',
+					getattr(o, 'work_name', '') or '',
+				]).lower()
+				if q and q not in hay:
+					continue
+				result.append({
+					'id': o.id,
+					'service': getattr(o, 'service', ''),
+					'status': stn,
+					'number': getattr(o, 'number', ''),
+					'issued': (issued.isoformat(sep=' ') if issued else ''),
+					'start': (start.isoformat(sep=' ') if start else ''),
+					'end': (end.isoformat(sep=' ') if end else ''),
+					'responsible': getattr(o, 'responsible', ''),
+					'work_name': getattr(o, 'work_name', ''),
+					'approved': bool(getattr(o, 'approved', False)),
+					'files': 0,
+					'notes': '',
+				})
+			total = len(result)
+			pages = max(1, (total + page_size - 1) // page_size)
+			page = max(1, min(page, pages))
+			start_idx = (page - 1) * page_size
+			end_idx = start_idx + page_size
+			items = result[start_idx:end_idx]
+			return jsonify({
+				'items': items,
+				'total': total,
+				'page': page,
+				'page_size': page_size,
+			})
+		except Exception as e:
+			try:
+				app.logger.error(f"Orders search error: {e}")
+			except Exception:
+				pass
+			return jsonify({ 'items': [], 'total': 0, 'page': 1, 'page_size': page_size }), 200
