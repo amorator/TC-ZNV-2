@@ -592,6 +592,64 @@ def register(app, socketio=None):
 				pass
 			return jsonify({ 'items': [], 'total': 0, 'page': 1, 'page_size': page_size }), 200
 
+	@app.route('/orders/print', methods=['GET', 'POST'], endpoint='orders_print')
+	def orders_print():
+		"""Render print table: orders active for selected date, excluding completed."""
+		from datetime import datetime as _dt
+		getter = (request.args if request.method == 'GET' else request.form)
+		date_str = (getter.get('date') or '').strip()
+		resp = (getter.get('responsible') or '').strip()
+		job1 = (getter.get('job1') or '').strip()
+		job2 = (getter.get('job2') or '').strip()
+		# Basic validation
+		missing = []
+		if not date_str: missing.append('date')
+		if not resp: missing.append('responsible')
+		if not job1: missing.append('job1')
+		if missing:
+			return render_template('orders_table_print.j2.html', date=(date_str or ''), resp=resp, job=[job1, job2], data=[[], {}])
+		try:
+			day = _dt.strptime(date_str, '%Y-%m-%d').date()
+		except Exception:
+			return jsonify({ 'ok': False, 'error': 'validation', 'missing': ['date'] }), 400
+		# Load all orders and filter: start <= day <= end, status != 'done'
+		rows = app._sql.order_all() or []
+		def to_dt(x):
+			try:
+				return x if isinstance(x, _dt) else _dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))
+			except Exception:
+				return None
+		orders = []
+		for o in rows:
+			st = (getattr(o, 'status', '') or '').strip().lower()
+			if st in ('done', '1', 'completed', 'завершены'):
+				continue
+			start = to_dt(getattr(o, 'start', None))
+			end = to_dt(getattr(o, 'end', None))
+			if not start or not end:
+				continue
+			if not (start.date() <= day <= end.date()):
+				continue
+			def fmt(v):
+				try:
+					return v.strftime('%Y-%m-%d %H:%M') if isinstance(v, _dt) else str(v)
+				except Exception:
+					return str(v)
+			orders.append({
+				'department': (getattr(o, 'service', '') or ''),
+				'number': (getattr(o, 'number', '') or ''),
+				'start_date': fmt(start),
+				'end_date': fmt(end),
+				'responsible': (getattr(o, 'responsible', '') or ''),
+				'jobs': (getattr(o, 'work_name', '') or ''),
+			})
+		deps = {}
+		for o in orders:
+			name = (o.get('department') or '').strip()
+			if name and name not in deps:
+				deps[name] = name
+		return render_template('orders_table_print.j2.html', date=date_str, resp=resp, job=[job1, job2], data=[orders, deps])
+
 	@app.route('/orders/note/<int:order_id>', methods=['POST'])
 	@login_required
 	def orders_note(order_id):

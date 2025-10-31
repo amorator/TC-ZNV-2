@@ -24,23 +24,20 @@
   }
 
   function toastFromError(res, fallback) {
-    try {
-      var body = res && res.body ? res.body : {};
-      var reason = body.reason || body.error || '';
-      var map = {
-        approved_locked: 'Действие запрещено: наряд согласован',
-        delete_permission_required: 'Недостаточно прав для удаления',
-        edit_permission_required: 'Недостаточно прав для изменения',
-        status_change_permission_required: 'Недостаточно прав для изменения статуса/сроков',
-        not_approved: 'Действие доступно только для согласованных нарядов',
-        done_with_all_dates_locked: 'Заблокировано: статус "завершены" и все сроки заполнены',
-        validation: 'Заполните обязательные поля',
-        forbidden: 'Недостаточно прав'
-      };
-      var msg = map[String(reason)] || fallback || 'Операция отклонена';
-      var level = (String(reason) === 'validation') ? 'warning' : 'warning';
-      return { msg: msg, level: level };
-    } catch(_) { return { msg: fallback || 'Операция отклонена', level: 'warning' }; }
+    var body = res && res.body ? res.body : {};
+    var reason = body.reason || body.error || '';
+    var map = {
+      approved_locked: 'Действие запрещено: наряд согласован',
+      delete_permission_required: 'Недостаточно прав для удаления',
+      edit_permission_required: 'Недостаточно прав для изменения',
+      status_change_permission_required: 'Недостаточно прав для изменения статуса/сроков',
+      not_approved: 'Действие доступно только для согласованных нарядов',
+      done_with_all_dates_locked: 'Заблокировано: статус "завершены" и все сроки заполнены',
+      validation: 'Заполните обязательные поля',
+      forbidden: 'Недостаточно прав'
+    };
+    var msg = map[String(reason)] || fallback || 'Операция отклонена';
+    return { msg: msg, level: (String(reason) === 'validation') ? 'warning' : 'warning' };
   }
 
   function currentMonthRange() {
@@ -57,21 +54,11 @@
   const ORDERS_LASTPAGE_KEY = 'orders:lastPage';
 
   // --- Save/load search and page state ---
-  function saveOrdersSearch(val) {
-    try { if (val) localStorage.setItem(ORDERS_SEARCH_KEY, val); else localStorage.removeItem(ORDERS_SEARCH_KEY); } catch(_) {}
-  }
-  function getOrdersSearch() {
-    try { return localStorage.getItem(ORDERS_SEARCH_KEY) || ''; } catch(_) { return ''; }
-  }
-  function saveOrdersLastPage(page) {
-    try { if (page > 0) localStorage.setItem(ORDERS_LASTPAGE_KEY, String(page)); } catch(_) {}
-  }
-  function getOrdersLastPage() {
-    try { const pg = parseInt(localStorage.getItem(ORDERS_LASTPAGE_KEY) || '1', 10); return (+pg > 0 ? +pg : 1); } catch(_) { return 1; }
-  }
-  function resetOrdersPage() {
-    try { localStorage.removeItem(ORDERS_LASTPAGE_KEY); } catch(_) {}
-  }
+  function saveOrdersSearch(val) { if (val) localStorage.setItem(ORDERS_SEARCH_KEY, val); else localStorage.removeItem(ORDERS_SEARCH_KEY); }
+  function getOrdersSearch() { return localStorage.getItem(ORDERS_SEARCH_KEY) || ''; }
+  function saveOrdersLastPage(page) { if (page > 0) localStorage.setItem(ORDERS_LASTPAGE_KEY, String(page)); }
+  function getOrdersLastPage() { const pg = parseInt(localStorage.getItem(ORDERS_LASTPAGE_KEY) || '1', 10); return (+pg > 0 ? +pg : 1); }
+  function resetOrdersPage() { localStorage.removeItem(ORDERS_LASTPAGE_KEY); }
 
   // --- Improved load function: uses search API if q, otherwise normal list ---
   async function load(page, opts = {}) {
@@ -149,18 +136,17 @@
     }
     var canApprove = !!(window.OrdersPerms && window.OrdersPerms.approve);
     function canLeaveNote(){
-      try { var p = window.OrdersPerms || {}; return !!(p.admin || p.notes); } catch(_) { return false; }
+      var p = window.OrdersPerms || {};
+      return !!(p.admin || p.notes);
     }
     function canSeeNoteFor(serviceName){
-      try {
-        var perms = window.OrdersPerms || {};
-        if (perms.admin || perms.notes) return true;
-        var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-        var map = window.OrdersGroups || {};
-        var srv = String(serviceName || '').trim();
-        var gid = map[srv];
-        return !!(gid && userGid && gid === userGid);
-      } catch(_) { return false; }
+      var perms = window.OrdersPerms || {};
+      if (perms.admin || perms.notes) return true;
+      var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+      var map = window.OrdersGroups || {};
+      var srv = String(serviceName || '').trim();
+      var gid = map[srv];
+      return !!(gid && userGid && gid === userGid);
     }
     tb.innerHTML = searchHTML + rows.map((r) => `
       <tr class="table__body_row" id="order-${r.id}"
@@ -251,56 +237,45 @@
 
   // ===== Header tooltips for truncated content =====
   function setupOrdersHeaderTooltips(){
-    try {
-      var table = document.getElementById('maintable');
-      if (!table) return;
-      var ths = table.querySelectorAll('thead th');
-      function apply(){
-        ths.forEach(function(th){
-          try {
-            var txt = (th.textContent || '').trim();
-            if (!txt) { th.removeAttribute('title'); return; }
-            var overflowing = th.scrollWidth > th.clientWidth;
-            if (overflowing) th.setAttribute('title', txt);
-            else th.removeAttribute('title');
-          } catch(_){}
-        });
-      }
-      apply();
-      if (!table._headerTooltipBound) {
-        table._headerTooltipBound = true;
-        var to = null;
-        window.addEventListener('resize', function(){
-          if (to) clearTimeout(to);
-          to = setTimeout(apply, 120);
-        }, true);
-      }
-    } catch(_) {}
+    var table = document.getElementById('maintable');
+    if (!table) return;
+    var ths = table.querySelectorAll('thead th');
+    function apply(){
+      ths.forEach(function(th){
+        var txt = (th.textContent || '').trim();
+        if (!txt) { th.removeAttribute('title'); return; }
+        var overflowing = th.scrollWidth > th.clientWidth;
+        if (overflowing) th.setAttribute('title', txt);
+        else th.removeAttribute('title');
+      });
+    }
+    apply();
+    if (!table._headerTooltipBound) {
+      table._headerTooltipBound = true;
+      var to = null;
+      window.addEventListener('resize', function(){
+        if (to) clearTimeout(to);
+        to = setTimeout(apply, 120);
+      }, true);
+    }
   }
 
   function bindCreateButton(){
-    // Permissions-aware Create button handling; rebind after table re-render
-    try {
-      var perms = (window.OrdersPerms || null);
-      var canCreate = perms && typeof perms.create !== 'undefined' ? !!perms.create : null;
-      var createBtn = document.getElementById('orders-create');
-      if (!createBtn) return;
-      if (canCreate === false) {
-        createBtn.classList.add('d-none');
-        createBtn.disabled = true;
-        return;
-      }
-      if (createBtn.dataset.bound === '1') return;
-      createBtn.dataset.bound = '1';
-      createBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        try {
-          if (window.openModal) window.openModal('orderCreateModal');
-        } catch(err) {
-          window.ErrorHandler && window.ErrorHandler.handleError(err, 'orders.openCreateModal');
-        }
-      });
-    } catch (_) {}
+    var perms = (window.OrdersPerms || null);
+    var canCreate = perms && typeof perms.create !== 'undefined' ? !!perms.create : null;
+    var createBtn = document.getElementById('orders-create');
+    if (!createBtn) return;
+    if (canCreate === false) {
+      createBtn.classList.add('d-none');
+      createBtn.disabled = true;
+      return;
+    }
+    if (createBtn.dataset.bound === '1') return;
+    createBtn.dataset.bound = '1';
+    createBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (window.openModal) window.openModal('orderCreateModal');
+    });
   }
 
   function attachOrderModalA11yHandlers(){
@@ -736,35 +711,29 @@
   }
 
   function canEditStatusFor(serviceName){
-    try {
-      var perms = window.OrdersPerms || {};
-      // Only admin or explicit status_change permission may change timeline/status
-      return !!(perms.admin || perms.status_change);
-    } catch(_) { return false; }
+    var perms = window.OrdersPerms || {};
+    // Only admin or explicit status_change permission may change timeline/status
+    return !!(perms.admin || perms.status_change);
   }
 
   function canEditOrderFor(serviceName){
-    try {
-      var perms = window.OrdersPerms || {};
-      if (perms.admin || perms.edit_any) return true;
-      var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-      var map = window.OrdersGroups || {};
-      var srv = String(serviceName || '').trim();
-      var gid = map[srv];
-      return !!(gid && userGid && gid === userGid);
-    } catch(_) { return false; }
+    var perms = window.OrdersPerms || {};
+    if (perms.admin || perms.edit_any) return true;
+    var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+    var map = window.OrdersGroups || {};
+    var srv = String(serviceName || '').trim();
+    var gid = map[srv];
+    return !!(gid && userGid && gid === userGid);
   }
 
   function canDeleteOrderFor(serviceName){
-    try {
-      var perms = window.OrdersPerms || {};
-      if (perms.admin || perms.delete_any) return true;
-      var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-      var map = window.OrdersGroups || {};
-      var srv = String(serviceName || '').trim();
-      var gid = map[srv];
-      return !!(gid && userGid && gid === userGid);
-    } catch(_) { return false; }
+    var perms = window.OrdersPerms || {};
+    if (perms.admin || perms.delete_any) return true;
+    var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+    var map = window.OrdersGroups || {};
+    var srv = String(serviceName || '').trim();
+    var gid = map[srv];
+    return !!(gid && userGid && gid === userGid);
   }
 
   function bindEditButtons(){
@@ -825,19 +794,16 @@
   }
 
   window.openOrderEditModal = function(orderId){
-    try {
-      fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
-        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
-        .then(function(res){
-          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
-          var order = res.body.order || {};
-          fillEditForm(order);
-          // store id on form
-          var form = document.getElementById('order-edit-form');
-          if (form) form.setAttribute('data-id', String(orderId));
-          if (window.openModal) window.openModal('orderEditModal');
-        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
-    } catch(_) {}
+    fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
+        var order = res.body.order || {};
+        fillEditForm(order);
+        var form = document.getElementById('order-edit-form');
+        if (form) form.setAttribute('data-id', String(orderId));
+        if (window.openModal) window.openModal('orderEditModal');
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
   }
 
   function toInputDt(v){
@@ -851,121 +817,113 @@
   }
 
   function openOrderTimelineModal(orderId){
-    try {
-      fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
-        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
-        .then(function(res){
-          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
-          var o = res.body.order || {};
-          document.getElementById('ot-issued').value = toInputDt(o.issued);
-          document.getElementById('ot-start').value = toInputDt(o.start);
-          document.getElementById('ot-end').value = toInputDt(o.end);
-          var st = (o.status || 'stopped');
-          var idMap = { stopped: 'ot-stopped', in_progress: 'ot-inp', done: 'ot-done' };
-          var rid = idMap[st] || 'ot-stopped';
-          var radio = document.getElementById(rid);
-          if (radio) radio.checked = true;
-          var form = document.getElementById('order-timeline-form');
-          if (form) form.setAttribute('data-id', String(orderId));
-          if (window.openModal) window.openModal('orderTimelineModal');
-        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
-    } catch(_) {}
+    fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
+        var o = res.body.order || {};
+        document.getElementById('ot-issued').value = toInputDt(o.issued);
+        document.getElementById('ot-start').value = toInputDt(o.start);
+        document.getElementById('ot-end').value = toInputDt(o.end);
+        var st = (o.status || 'stopped');
+        var idMap = { stopped: 'ot-stopped', in_progress: 'ot-inp', done: 'ot-done' };
+        var rid = idMap[st] || 'ot-stopped';
+        var radio = document.getElementById(rid);
+        if (radio) radio.checked = true;
+        var form = document.getElementById('order-timeline-form');
+        if (form) form.setAttribute('data-id', String(orderId));
+        if (window.openModal) window.openModal('orderTimelineModal');
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
   }
 
   function handleOrderTimelineSubmit(){
-    try {
-      var form = document.getElementById('order-timeline-form');
-      if (!form) return;
-      var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
-      var st = (document.querySelector('input[name="ot-status"]:checked')?.value || '').trim();
-      // Validate date sequence
-      (function validateTimelineDates(){
-        var ids = { issued: 'ot-issued', start: 'ot-start', end: 'ot-end' };
-        Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
-        function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
-        var vi = document.getElementById(ids.issued)?.value || '';
-        var vs = document.getElementById(ids.start)?.value || '';
-        var ve = document.getElementById(ids.end)?.value || '';
-        var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
-        function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
-        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
-        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-      })();
-      var payload = {
-        issued: document.getElementById('ot-issued')?.value || '',
-        start: document.getElementById('ot-start')?.value || '',
-        end: document.getElementById('ot-end')?.value || '',
-        status: st
-      };
-      fetch('/api/orders/' + id + '/timeline', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify(payload)
-      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
-        .then(function(res){
-          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Ошибка сохранения', 'danger'); return; }
-          if (window.closeModal) window.closeModal('orderTimelineModal');
-          if (window.showToast) window.showToast('Сроки и статус обновлены', 'success');
-          load(1);
-        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
-    } catch(_) {}
+    var form = document.getElementById('order-timeline-form');
+    if (!form) return;
+    var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
+    var st = (document.querySelector('input[name="ot-status"]:checked')?.value || '').trim();
+    // Validate date sequence
+    (function validateTimelineDates(){
+      var ids = { issued: 'ot-issued', start: 'ot-start', end: 'ot-end' };
+      Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+      function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
+      var vi = document.getElementById(ids.issued)?.value || '';
+      var vs = document.getElementById(ids.start)?.value || '';
+      var ve = document.getElementById(ids.end)?.value || '';
+      var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
+      function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+      if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+      if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+    })();
+    var payload = {
+      issued: document.getElementById('ot-issued')?.value || '',
+      start: document.getElementById('ot-start')?.value || '',
+      end: document.getElementById('ot-end')?.value || '',
+      status: st
+    };
+    fetch('/api/orders/' + id + '/timeline', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload)
+    }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Ошибка сохранения', 'danger'); return; }
+        if (window.closeModal) window.closeModal('orderTimelineModal');
+        if (window.showToast) window.showToast('Сроки и статус обновлены', 'success');
+        load(1);
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
   }
 
   function handleOrderEditSubmit(){
-    try {
-      var form = document.getElementById('order-edit-form');
-      if (!form) return;
-      var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
-      var payload = {
-        number: document.getElementById('oe-number')?.value || '',
-        responsible: document.getElementById('oe-responsible')?.value || '',
-        service: document.getElementById('oe-service')?.value || '',
-        work_name: document.getElementById('oe-work')?.value || '',
-        issued: document.getElementById('oe-issued')?.value || '',
-        start: document.getElementById('oe-start')?.value || '',
-        end: document.getElementById('oe-end')?.value || ''
-      };
-      // basic validation
-      var missing = ['number','responsible','service','work_name'].filter(function(k){ return !String(payload[k]).trim(); });
-      ['oe-number','oe-responsible','oe-service','oe-work'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
-      if (missing.length){
-        missing.forEach(function(k){ var el = document.getElementById('oe-' + (k === 'work_name' ? 'work' : k)); if (el) el.classList.add('is-invalid'); });
-        if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
-        return;
-      }
-      // Validate date sequence
-      (function validateEditDates(){
-        var ids = { issued: 'oe-issued', start: 'oe-start', end: 'oe-end' };
-        Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
-        function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
-        var vi = document.getElementById(ids.issued)?.value || '';
-        var vs = document.getElementById(ids.start)?.value || '';
-        var ve = document.getElementById(ids.end)?.value || '';
-        var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
-        function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
-        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
-        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-      })();
-      fetch('/api/orders/' + id, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify(payload)
-      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
-        .then(function(res){
-          if (!res.ok || !res.body || res.body.ok === false){
-            if (res.body && res.body.error === 'validation') { if (window.showToast) window.showToast('Заполните обязательные поля', 'warning'); return; }
-            if (window.showToast) window.showToast('Ошибка сохранения', 'danger');
-            return;
-          }
-          if (window.closeModal) window.closeModal('orderEditModal');
-          if (window.showToast) window.showToast('Наряд обновлён', 'success');
-          load(1);
-        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
-    } catch(_) {}
+    var form = document.getElementById('order-edit-form');
+    if (!form) return;
+    var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
+    var payload = {
+      number: document.getElementById('oe-number')?.value || '',
+      responsible: document.getElementById('oe-responsible')?.value || '',
+      service: document.getElementById('oe-service')?.value || '',
+      work_name: document.getElementById('oe-work')?.value || '',
+      issued: document.getElementById('oe-issued')?.value || '',
+      start: document.getElementById('oe-start')?.value || '',
+      end: document.getElementById('oe-end')?.value || ''
+    };
+    var missing = ['number','responsible','service','work_name'].filter(function(k){ return !String(payload[k]).trim(); });
+    ['oe-number','oe-responsible','oe-service','oe-work'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+    if (missing.length){
+      missing.forEach(function(k){ var el = document.getElementById('oe-' + (k === 'work_name' ? 'work' : k)); if (el) el.classList.add('is-invalid'); });
+      if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
+      return;
+    }
+    (function validateEditDates(){
+      var ids = { issued: 'oe-issued', start: 'oe-start', end: 'oe-end' };
+      Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+      function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
+      var vi = document.getElementById(ids.issued)?.value || '';
+      var vs = document.getElementById(ids.start)?.value || '';
+      var ve = document.getElementById(ids.end)?.value || '';
+      var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
+      function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+      if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+      if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+    })();
+    fetch('/api/orders/' + id, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload)
+    }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false){
+          if (res.body && res.body.error === 'validation') { if (window.showToast) window.showToast('Заполните обязательные поля', 'warning'); return; }
+          if (window.showToast) window.showToast('Ошибка сохранения', 'danger');
+          return;
+        }
+        if (window.closeModal) window.closeModal('orderEditModal');
+        if (window.showToast) window.showToast('Наряд обновлён', 'success');
+        load(1);
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
   }
 
   function bindStatusToggles(){
@@ -1170,9 +1128,10 @@
       setupAriaHiddenFocusWatcher('orderEditModal');
       setupAriaHiddenFocusWatcher('orderDeleteModal');
       setupAriaHiddenFocusWatcher('orderTimelineModal');
-      try { document.getElementById('order-timeline-submit')?.addEventListener('click', handleOrderTimelineSubmit); } catch(_) {}
-      // bind edit submit
-      try { document.getElementById('order-edit-submit')?.addEventListener('click', handleOrderEditSubmit); } catch(_) {}
+      var tlBtn = document.getElementById('order-timeline-submit');
+      if (tlBtn) tlBtn.addEventListener('click', handleOrderTimelineSubmit);
+      var editBtn = document.getElementById('order-edit-submit');
+      if (editBtn) editBtn.addEventListener('click', handleOrderEditSubmit);
     });
   } else {
     init();
@@ -1188,8 +1147,10 @@
     setupAriaHiddenFocusWatcher('orderEditModal');
     setupAriaHiddenFocusWatcher('orderDeleteModal');
     setupAriaHiddenFocusWatcher('orderTimelineModal');
-    try { document.getElementById('order-timeline-submit')?.addEventListener('click', handleOrderTimelineSubmit); } catch(_) {}
-    try { document.getElementById('order-edit-submit')?.addEventListener('click', handleOrderEditSubmit); } catch(_) {}
+    var tlBtn2 = document.getElementById('order-timeline-submit');
+    if (tlBtn2) tlBtn2.addEventListener('click', handleOrderTimelineSubmit);
+    var editBtn2 = document.getElementById('order-edit-submit');
+    if (editBtn2) editBtn2.addEventListener('click', handleOrderEditSubmit);
   }
   if (window.OrdersSearch && typeof window.OrdersSearch.setupFilesSearch === 'function') {
     window.OrdersSearch.setupFilesSearch();

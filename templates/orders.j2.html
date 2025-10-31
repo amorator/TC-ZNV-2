@@ -33,6 +33,9 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-auto ms-auto">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="(function(){try{var d=new Date();d.setDate(d.getDate()+1);var pad=function(n){return String(n).padStart(2,'0')};var v=d.getFullYear()+ '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());var el=document.getElementById('op-date');if(el) el.value=v;}catch(_){} if(window.openModal) window.openModal('ordersPrintModal');})()">Наряды на завтра</button>
+      </div>
   </div>
   <div class="d-none"></div>
 
@@ -107,6 +110,46 @@
             </div>
             <div>
               <button type="button" class="btn btn-primary" data-testid="orders-note-save" id="order-note-save" onclick="validateForm(this);">Сохранить</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Print Orders Modal -->
+<div class="modal fade" id="ordersPrintModal" tabindex="-1" aria-labelledby="ordersPrintModalTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="ordersPrintModalTitle">Наряды на завтра</h5>
+        <button type="button" class="btn-close" onclick="closeModal('ordersPrintModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="orders-print-form" action="{{ url_for('orders_print') }}" method="get" target="_blank" autocomplete="off">
+          <div class="mb-3">
+            <label for="op-date" class="form-label">Дата</label>
+            <input type="date" class="form-control" id="op-date" name="date" required>
+          </div>
+          <div class="mb-3">
+            <label for="op-resp" class="form-label">ФИО ответственного</label>
+            <input type="text" class="form-control" id="op-resp" name="responsible" placeholder="ФИО" required>
+          </div>
+          <div class="mb-3">
+            <label for="op-job1" class="form-label">Должность (строка 1)</label>
+            <input type="text" class="form-control" id="op-job1" name="job1" required>
+          </div>
+          <div class="mb-3">
+            <label for="op-job2" class="form-label">Должность (строка 2)</label>
+            <input type="text" class="form-control" id="op-job2" name="job2">
+          </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <div>
+              <button type="button" class="btn btn-outline-secondary" onclick="closeModal('ordersPrintModal')">Отмена</button>
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary">Открыть</button>
             </div>
           </div>
         </form>
@@ -352,29 +395,12 @@
 <script src="{{ url_for('static', filename='js/scripts/core/orders-search.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/orders.js') }}"></script>
 <script>
-// Debug presence of handler and elements
-try {
-  console.debug('[orders] scripts loaded', {
-    hasValidate: (typeof window.validateForm === 'function'),
-    hasPopupUtils: (typeof window.popupValues === 'function'),
-  });
-  const btn = document.getElementById('order-note-save');
-  const form = document.getElementById('note');
-  console.debug('[orders] elements', { btn: !!btn, form: !!form, action: form && form.action });
-  if (btn && !btn.dataset.debugBound) {
-    btn.dataset.debugBound = '1';
-    btn.addEventListener('click', function(e){
-      console.debug('[orders] note-save clicked', { hasValidate: (typeof window.validateForm === 'function'), action: (form && form.action) });
-    }, true);
-  }
-} catch(_) {}
-document.addEventListener('modal-closed', function(ev){
+document.addEventListener('modal-closed', function(){
   setTimeout(function() {
     if (document.activeElement && document.activeElement.closest('.modal')) {
       document.activeElement.blur();
       document.body.focus();
     }
-    // Удалить зависшие bootstrap modal-backdrop (после любого закрытия модалки)
     document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
   }, 50);
 }, true);
