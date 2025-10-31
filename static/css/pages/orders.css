@@ -303,3 +303,37 @@ section[data-testid="orders-section"] {
 .orders-modal .modal-body::-webkit-scrollbar-track {
   background-color: var(--scrollbar-bg)
 }
+
+.orders-page__table.table-colored tr#search>td.table__body_action {
+  background: #fff3bf;
+}
+
+.theme-dark .orders-page__table.table-colored tr#search>td.table__body_action {
+  background: rgba(255, 255, 255, .08);
+}
+
+/* ===== Timeline modal status radios: match filter colors ===== */
+#orderTimelineModal .btn-check#ot-inp:checked+label {
+  background-color: #198754;
+  border-color: #198754;
+  color: #fff;
+}
+
+#orderTimelineModal .btn-check#ot-stopped:checked+label {
+  background-color: #dc3545;
+  border-color: #dc3545;
+  color: #fff;
+}
+
+/* done -> blue like filter chip (#0dcaf0) */
+#orderTimelineModal .btn-check#ot-done:checked+label {
+  background-color: #0dcaf0;
+  border-color: #0dcaf0;
+  color: #00333a;
+}
+
+.col-auto select {
+  height: 36px;
+  width: 115%;
+  margin-top: 14px;
+}

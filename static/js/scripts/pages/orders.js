@@ -12,10 +12,35 @@
     }
   }
 
-  function statusPill(st) {
-    const cls = st === 'in_progress' ? 'status-in_progress' : st === 'stopped' ? 'status-stopped' : 'status-done';
-    const text = st === 'in_progress' ? 'Работы ведутся' : st === 'stopped' ? 'Работы не ведутся' : 'Работы завершены';
-    return `<span class="status-pill ${cls}">${text}</span>`;
+  function statusText(st) {
+    return st === 'in_progress' ? 'Работы ведутся' : st === 'stopped' ? 'Работы не ведутся' : 'Работы завершены';
+  }
+  function statusBtnClass(st) {
+    // Map to Bootstrap button colors, matching filter chips
+    if (st === 'in_progress') return 'btn-success';
+    if (st === 'stopped') return 'btn-danger';
+    if (st === 'done') return 'btn-info'; // голубой как в фильтре (#0dcaf0)
+    return 'btn-secondary';
+  }
+
+  function toastFromError(res, fallback) {
+    try {
+      var body = res && res.body ? res.body : {};
+      var reason = body.reason || body.error || '';
+      var map = {
+        approved_locked: 'Действие запрещено: наряд согласован',
+        delete_permission_required: 'Недостаточно прав для удаления',
+        edit_permission_required: 'Недостаточно прав для изменения',
+        status_change_permission_required: 'Недостаточно прав для изменения статуса/сроков',
+        not_approved: 'Действие доступно только для согласованных нарядов',
+        done_with_all_dates_locked: 'Заблокировано: статус "завершены" и все сроки заполнены',
+        validation: 'Заполните обязательные поля',
+        forbidden: 'Недостаточно прав'
+      };
+      var msg = map[String(reason)] || fallback || 'Операция отклонена';
+      var level = (String(reason) === 'validation') ? 'warning' : 'warning';
+      return { msg: msg, level: level };
+    } catch(_) { return { msg: fallback || 'Операция отклонена', level: 'warning' }; }
   }
 
   function currentMonthRange() {
@@ -123,18 +148,60 @@
       return;
     }
     var canApprove = !!(window.OrdersPerms && window.OrdersPerms.approve);
+    function canLeaveNote(){
+      try { var p = window.OrdersPerms || {}; return !!(p.admin || p.notes); } catch(_) { return false; }
+    }
+    function canSeeNoteFor(serviceName){
+      try {
+        var perms = window.OrdersPerms || {};
+        if (perms.admin || perms.notes) return true;
+        var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+        var map = window.OrdersGroups || {};
+        var srv = String(serviceName || '').trim();
+        var gid = map[srv];
+        return !!(gid && userGid && gid === userGid);
+      } catch(_) { return false; }
+    }
     tb.innerHTML = searchHTML + rows.map((r) => `
-      <tr class="table__body_row" data-id="${r.id}">
+      <tr class="table__body_row" id="order-${r.id}"
+          data-service="${(r.service||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"
+          data-note="${ (r.note || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;') }"
+          data-status="${(r.status||'').replace(/"/g,'&quot;')}"
+          data-issued="${(r.issued||'').replace(/"/g,'&quot;')}"
+          data-start="${(r.start||'').replace(/"/g,'&quot;')}"
+          data-end="${(r.end||'').replace(/"/g,'&quot;')}">
         <td class="table__body_item">${(r.service || '').replace(/</g, '&lt;')}</td>
-        <td class="table__body_item">${statusPill(r.status)}</td>
+        <td class="table__body_item">${ (function(){
+            // Render as button with color and data attributes
+            var st = (r.status || 'stopped');
+            var text = statusText(st);
+            var cls = statusBtnClass(st);
+            return `<button type="button" class="btn btn-sm ${cls}" data-action="toggle-status" data-id="${r.id}" data-status="${st}">${text}</button>`;
+          })() }</td>
         <td class="table__body_item">${(r.number || '').replace(/</g, '&lt;')}</td>
         <td class="table__body_item">${fmtDate(r.issued)}</td>
         <td class="table__body_item">${fmtDate(r.start)}</td>
         <td class="table__body_item">${fmtDate(r.end)}</td>
-        <td class="table__body_item">${(r.responsible || '').replace(/</g, '&lt;')}</td>
-        <td class="table__body_item">${(r.work_name || '').replace(/</g, '&lt;')}</td>
-        <td class="table__body_item">${canApprove ? (`<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`) : (r.approved ? 'Да' : 'Нет')}</td>
-        <td class="table__body_item">${(r.notes || '').replace(/</g, '&lt;')}</td>
+        <td class="table__body_item">${(r.responsible || '')}</td>
+        <td class="table__body_item">${(r.work_name || '')}</td>
+        <td class="table__body_item">${(function(){
+            if (canApprove) {
+              return `<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`;
+            }
+            return (r.approved ? 'Да' : 'Нет');
+          })()}</td>
+        <td class="table__body_item">${ (function(){
+            var note = (r.note || '').replace(/</g, '&lt;');
+            var canLeave = canLeaveNote();
+            var canSee = canSeeNoteFor(r.service);
+            if (canLeave) {
+              return `<span class="note-badge${ note ? ' note-badge--has' : '' }" data-order-id="${r.id}">${ note ? note : '&lt;оставить примечание&gt;' }</span>`;
+            }
+            if (canSee) {
+              return note ? note : '—';
+            }
+            return '—';
+          })() }</td>
       </tr>
     `).join('');
     const newInput = document.getElementById('searchinp');
@@ -146,9 +213,14 @@
     }
     bindCreateButton();
     bindApprovedToggles();
+    bindStatusToggles();
+    // edit/delete кнопки не отображаются в UI по требованию
     if (window.OrdersSearch && typeof window.OrdersSearch.setupOrdersSearch === 'function') {
       window.OrdersSearch.setupOrdersSearch();
     }
+    bindNoteBadges(); // Обеспечить bind, даже если не через renderWithNoteBind
+    bindOrdersContextMenu();
+    setupOrdersHeaderTooltips();
   }
 
   // --- search input persistence and clear button ---
@@ -174,6 +246,36 @@
     let q = getOrdersSearch();
     if (q) load(1);
     else load(pg);
+    setupOrdersHeaderTooltips();
+  }
+
+  // ===== Header tooltips for truncated content =====
+  function setupOrdersHeaderTooltips(){
+    try {
+      var table = document.getElementById('maintable');
+      if (!table) return;
+      var ths = table.querySelectorAll('thead th');
+      function apply(){
+        ths.forEach(function(th){
+          try {
+            var txt = (th.textContent || '').trim();
+            if (!txt) { th.removeAttribute('title'); return; }
+            var overflowing = th.scrollWidth > th.clientWidth;
+            if (overflowing) th.setAttribute('title', txt);
+            else th.removeAttribute('title');
+          } catch(_){}
+        });
+      }
+      apply();
+      if (!table._headerTooltipBound) {
+        table._headerTooltipBound = true;
+        var to = null;
+        window.addEventListener('resize', function(){
+          if (to) clearTimeout(to);
+          to = setTimeout(apply, 120);
+        }, true);
+      }
+    } catch(_) {}
   }
 
   function bindCreateButton(){
@@ -193,10 +295,7 @@
       createBtn.addEventListener('click', function (e) {
         e.preventDefault();
         try {
-          var el = document.getElementById('orderCreateModal');
-          if (!el) { if (window.showToast) window.showToast('Модалка создания недоступна', 'warning'); return; }
-          var m = (window.bootstrap && window.bootstrap.Modal) ? new window.bootstrap.Modal(el) : null;
-          if (m) m.show();
+          if (window.openModal) window.openModal('orderCreateModal');
         } catch(err) {
           window.ErrorHandler && window.ErrorHandler.handleError(err, 'orders.openCreateModal');
         }
@@ -252,7 +351,7 @@
               return;
             }
             if (isEsc) {
-              try { var el = document.getElementById('orderCreateModal'); var m = (window.bootstrap && window.bootstrap.Modal) ? bootstrap.Modal.getInstance(el) : null; if (m) m.hide(); } catch(_) {}
+              try { if (window.closeModal) window.closeModal('orderCreateModal'); } catch(_) {}
             }
           } catch(_) {}
         });
@@ -280,12 +379,26 @@
         if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
         return;
       }
+      // Validate date sequence: issued < start < end (each may be empty)
+      (function validateCreateDates(){
+        var ids = { issued: 'oc-issued', start: 'oc-start', end: 'oc-end' };
+        Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+        function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
+        var vi = document.getElementById(ids.issued)?.value || '';
+        var vs = document.getElementById(ids.start)?.value || '';
+        var ve = document.getElementById(ids.end)?.value || '';
+        var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
+        function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      })();
       var payload = {
         number: fields.number.trim(),
         responsible: fields.responsible.trim(),
         service: fields.service.trim(),
         work_name: fields.work_name.trim(),
-        status: 'in_progress',
+        status: 'stopped',
         issued: document.getElementById('oc-issued')?.value || '',
         start: document.getElementById('oc-start')?.value || '',
         end: document.getElementById('oc-end')?.value || ''
@@ -298,13 +411,12 @@
       }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
         .then(function(res){
           if (!res.ok || !res.body || res.body.ok === false) {
-            var msg = 'Ошибка сохранения';
-            if (res.body && res.body.error === 'validation') msg = 'Заполните обязательные поля';
-            if (window.showToast) window.showToast(msg, 'danger');
+            var t = toastFromError(res, 'Ошибка сохранения');
+            if (window.showToast) window.showToast(t.msg, t.level);
             return;
           }
           var modalEl = document.getElementById('orderCreateModal');
-          try { var m = (window.bootstrap && window.bootstrap.Modal) ? bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl) : null; if (m) m.hide(); } catch(_) {}
+          try { if (window.closeModal) window.closeModal('orderCreateModal'); } catch(_) {}
           if (window.showToast) window.showToast('Наряд создан', 'success');
           load(1);
         }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
@@ -345,7 +457,7 @@
               responsible: fields.responsible.trim(),
               service: fields.service.trim(),
               work_name: fields.work_name.trim(),
-              status: 'in_progress',
+              status: 'stopped',
               issued: document.getElementById('oc-issued')?.value || '',
               start: document.getElementById('oc-start')?.value || '',
               end: document.getElementById('oc-end')?.value || ''
@@ -358,14 +470,13 @@
             }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
               .then(function(res){
                 if (!res.ok || !res.body || res.body.ok === false) {
-                  var msg = 'Ошибка сохранения';
-                  if (res.body && res.body.error === 'validation') msg = 'Заполните обязательные поля';
-                  if (window.showToast) window.showToast(msg, 'danger');
+                  var t = toastFromError(res, 'Ошибка сохранения');
+                  if (window.showToast) window.showToast(t.msg, t.level);
                   return;
                 }
                 // success
                 var modalEl = document.getElementById('orderCreateModal');
-                try { var m = (window.bootstrap && window.bootstrap.Modal) ? bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl) : null; if (m) m.hide(); } catch(_) {}
+                try { if (window.closeModal) window.closeModal('orderCreateModal'); } catch(_) {}
                 if (window.showToast) window.showToast('Наряд создан', 'success');
                 load(1);
               }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
@@ -424,6 +535,175 @@
     }
   }
 
+  // ===== Context menu for orders =====
+  function bindOrdersContextMenu(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      var menu = document.getElementById('orders-context-menu');
+      var targetInput = document.getElementById('orders-context-target-id');
+      if (!tb || !menu || !targetInput) return;
+      function hide(){ menu.classList.add('d-none'); }
+      function showAt(x,y){ menu.style.left = x+'px'; menu.style.top = y+'px'; menu.classList.remove('d-none'); }
+      document.addEventListener('click', hide, true);
+      window.addEventListener('scroll', hide, true);
+      window.addEventListener('resize', hide, true);
+      tb.querySelectorAll('tr.table__body_row').forEach(function(tr){
+        if (tr.dataset.cmBound === '1') return;
+        tr.dataset.cmBound = '1';
+        tr.addEventListener('contextmenu', function(e){
+          try {
+            e.preventDefault();
+            var id = String(this.id||'').replace('order-','');
+            if (!id) return;
+            targetInput.value = id;
+            // Permissions-based show/hide
+            var svc = this.getAttribute('data-service') || '';
+            var canEdit = canEditOrderFor(svc);
+            var canTimeline = canEditStatusFor(svc);
+            var canDelete = canDeleteOrderFor(svc);
+            var canApproveUI = !!(window.OrdersPerms && window.OrdersPerms.approve);
+            var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
+            var canFilesUI = !!(window.OrdersPerms && window.OrdersPerms.files_view);
+            function setVis(action, visible){ var el = menu.querySelector('[data-action="'+action+'"]'); if (el) el.classList.toggle('d-none', !visible); }
+            setVis('files', canFilesUI);
+            setVis('edit', canEdit);
+            setVis('timeline', canTimeline);
+            setVis('delete', canDelete);
+            setVis('create', canCreateUI);
+            setVis('note', !!(window.OrdersPerms && (window.OrdersPerms.notes || window.OrdersPerms.admin)));
+            setVis('approve', canApproveUI);
+            setVis('unapprove', canApproveUI);
+            var approveItem = menu.querySelector('[data-action="approve"]');
+            var unapproveItem = menu.querySelector('[data-action="unapprove"]');
+            var btn = this.querySelector('button[data-action="toggle-approved"]');
+            var isApproved = btn ? (btn.getAttribute('data-approved') === '1') : false;
+            if (approveItem && unapproveItem) {
+              approveItem.classList.toggle('d-none', isApproved);
+              unapproveItem.classList.toggle('d-none', !isApproved);
+            }
+            // Business rules:
+            // - Timeline/status change available only if approved and user has status_change/admin
+            // - When approved == yes: edit/delete are not available
+            if (!isApproved) {
+              setVis('timeline', false);
+            } else {
+              // ensure edit/delete hidden when approved
+              setVis('edit', false);
+              setVis('delete', false);
+            }
+            // Additional lock: if status == done and issued/start/end are all filled -> disable timeline, status, and UNAPPROVE
+            var st = (this.getAttribute('data-status') || '').trim();
+            var issued = (this.getAttribute('data-issued') || '').trim();
+            var start = (this.getAttribute('data-start') || '').trim();
+            var end = (this.getAttribute('data-end') || '').trim();
+            var lockComplete = (st === 'done' && issued && start && end);
+            if (lockComplete) {
+              setVis('timeline', false);
+              // hide unapprove option when locked complete
+              setVis('unapprove', false);
+            }
+            showAt(e.pageX, e.pageY);
+          } catch(_) {}
+        });
+      });
+      if (!menu.dataset.bound) {
+        menu.dataset.bound = '1';
+        menu.addEventListener('click', function(e){
+          var li = e.target.closest('.context-menu__item');
+          if (!li) return;
+          var action = li.getAttribute('data-action');
+          var id = parseInt(targetInput.value || '0', 10) || 0;
+          hide();
+          if (!action) return;
+          switch(action){
+            case 'files':
+              // not wired yet per requirement
+              break;
+            case 'edit':
+              if (id) openOrderEditModal(id);
+              break;
+            case 'timeline':
+              if (id) openOrderTimelineModal(id);
+              break;
+            case 'delete':
+              if (id) {
+                var form = document.getElementById('delete');
+                if (form) form.action = '/orders/delete/' + id;
+                var row = document.getElementById('order-' + id);
+                var numCell = row && row.children && row.children[2];
+                var num = (numCell && numCell.textContent) || String(id);
+                var nameEl = document.getElementById('order-delete-name');
+                if (nameEl) nameEl.textContent = num.trim();
+                if (window.openModal) window.openModal('orderDeleteModal');
+              }
+              break;
+            case 'note':
+              if (id) { if (window.openOrderNoteModal) window.openOrderNoteModal(id); }
+              break;
+            case 'approve':
+            case 'unapprove':
+              if (id) {
+                var btn = document.querySelector('#order-' + id + ' button[data-action="toggle-approved"]');
+                if (btn) btn.click();
+              }
+              break;
+            case 'create':
+              if (window.openModal) window.openModal('orderCreateModal');
+              break;
+          }
+        });
+      }
+
+      // Global context menu: anywhere on the orders page (outside rows) show only "Создать" if permitted
+      var section = document.querySelector('section[data-testid="orders-section"]') || document.body;
+      if (section && !section._cmGlobalBound) {
+        section._cmGlobalBound = true;
+        section.addEventListener('contextmenu', function(e){
+          try {
+            // Ignore if right-click originates within a table body row (row handler will manage it)
+            var tr = e.target && (e.target.closest && e.target.closest('tr.table__body_row'));
+            if (tr) return;
+            e.preventDefault();
+            e.stopPropagation();
+            // Permissions: only show if can create
+            var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
+            if (!canCreateUI) return;
+            targetInput.value = '0';
+            // Hide all items except create
+            ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
+            var createEl = menu.querySelector('[data-action="create"]');
+            if (createEl) createEl.classList.remove('d-none');
+            showAt(e.pageX, e.pageY);
+          } catch(_) {}
+        }, true);
+      }
+
+      // Document-wide fallback within orders section scope
+      if (!document._ordersBodyContextBound) {
+        document._ordersBodyContextBound = true;
+        document.addEventListener('contextmenu', function(e){
+          try {
+            // Only on orders section
+            var inOrders = !!(e.target && e.target.closest && e.target.closest('section[data-testid="orders-section"]'));
+            if (!inOrders) return;
+            // Skip table rows (handled already) and open modals
+            if (e.target.closest('tr.table__body_row')) return;
+            if (e.target.closest('.modal.show')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
+            if (!canCreateUI) return;
+            targetInput.value = '0';
+            ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
+            var createEl = menu.querySelector('[data-action="create"]');
+            if (createEl) createEl.classList.remove('d-none');
+            showAt(e.pageX, e.pageY);
+          } catch(_) {}
+        }, true);
+      }
+    } catch(_) {}
+  }
+
   function bindApprovedToggles(){
     try {
       if (!(window.OrdersPerms && window.OrdersPerms.approve)) return;
@@ -443,7 +723,7 @@
             body: JSON.stringify({ approved: next })
           }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
             .then(function(res){
-              if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось изменить статус', 'danger'); return; }
+              if (!res.ok || !res.body || res.body.ok === false) { var t = toastFromError(res, 'Не удалось изменить статус'); if (window.showToast) window.showToast(t.msg, t.level); return; }
               var val = !!res.body.approved;
               btn.setAttribute('data-approved', val ? '1' : '0');
               btn.classList.toggle('btn-success', val);
@@ -455,10 +735,461 @@
     } catch(_) {}
   }
 
+  function canEditStatusFor(serviceName){
+    try {
+      var perms = window.OrdersPerms || {};
+      // Only admin or explicit status_change permission may change timeline/status
+      return !!(perms.admin || perms.status_change);
+    } catch(_) { return false; }
+  }
+
+  function canEditOrderFor(serviceName){
+    try {
+      var perms = window.OrdersPerms || {};
+      if (perms.admin || perms.edit_any) return true;
+      var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+      var map = window.OrdersGroups || {};
+      var srv = String(serviceName || '').trim();
+      var gid = map[srv];
+      return !!(gid && userGid && gid === userGid);
+    } catch(_) { return false; }
+  }
+
+  function canDeleteOrderFor(serviceName){
+    try {
+      var perms = window.OrdersPerms || {};
+      if (perms.admin || perms.delete_any) return true;
+      var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+      var map = window.OrdersGroups || {};
+      var srv = String(serviceName || '').trim();
+      var gid = map[srv];
+      return !!(gid && userGid && gid === userGid);
+    } catch(_) { return false; }
+  }
+
+  function bindEditButtons(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return;
+      tb.querySelectorAll('button[data-action="edit-order"]').forEach(function(btn){
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function(){
+          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
+          if (id) openOrderEditModal(id);
+        });
+      });
+    } catch(_) {}
+  }
+
+  function bindDeleteButtons(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return;
+      tb.querySelectorAll('button[data-action="delete-order"]').forEach(function(btn){
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function(){
+          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
+          var num = this.getAttribute('data-number') || '';
+          var form = document.getElementById('delete');
+          if (form) form.action = '/orders/delete/' + id;
+          var nameEl = document.getElementById('order-delete-name');
+          if (nameEl) nameEl.textContent = num || String(id);
+          if (window.openModal) window.openModal('orderDeleteModal');
+        });
+      });
+    } catch(_) {}
+  }
+
+  function fillEditForm(order){
+    try {
+      document.getElementById('oe-number').value = order.number || '';
+      document.getElementById('oe-responsible').value = order.responsible || '';
+      var sel = document.getElementById('oe-service');
+      if (sel) sel.value = order.service || '';
+      document.getElementById('oe-work').value = order.work_name || '';
+      function toInputDt(v){
+        if (!v) return '';
+        try {
+          var d = new Date((v||'').replace(' ', 'T'));
+          if (isNaN(d.getTime())) return '';
+          var pad = function(n){return String(n).padStart(2,'0')};
+          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        } catch(_) { return ''; }
+      }
+      document.getElementById('oe-issued').value = toInputDt(order.issued);
+      document.getElementById('oe-start').value = toInputDt(order.start);
+      document.getElementById('oe-end').value = toInputDt(order.end);
+    } catch(_) {}
+  }
+
+  window.openOrderEditModal = function(orderId){
+    try {
+      fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
+        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+        .then(function(res){
+          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
+          var order = res.body.order || {};
+          fillEditForm(order);
+          // store id on form
+          var form = document.getElementById('order-edit-form');
+          if (form) form.setAttribute('data-id', String(orderId));
+          if (window.openModal) window.openModal('orderEditModal');
+        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+    } catch(_) {}
+  }
+
+  function toInputDt(v){
+    if (!v) return '';
+    try {
+      var d = new Date((v||'').replace(' ', 'T'));
+      if (isNaN(d.getTime())) return '';
+      var pad = function(n){return String(n).padStart(2,'0')};
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch(_) { return ''; }
+  }
+
+  function openOrderTimelineModal(orderId){
+    try {
+      fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
+        .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+        .then(function(res){
+          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
+          var o = res.body.order || {};
+          document.getElementById('ot-issued').value = toInputDt(o.issued);
+          document.getElementById('ot-start').value = toInputDt(o.start);
+          document.getElementById('ot-end').value = toInputDt(o.end);
+          var st = (o.status || 'stopped');
+          var idMap = { stopped: 'ot-stopped', in_progress: 'ot-inp', done: 'ot-done' };
+          var rid = idMap[st] || 'ot-stopped';
+          var radio = document.getElementById(rid);
+          if (radio) radio.checked = true;
+          var form = document.getElementById('order-timeline-form');
+          if (form) form.setAttribute('data-id', String(orderId));
+          if (window.openModal) window.openModal('orderTimelineModal');
+        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+    } catch(_) {}
+  }
+
+  function handleOrderTimelineSubmit(){
+    try {
+      var form = document.getElementById('order-timeline-form');
+      if (!form) return;
+      var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
+      var st = (document.querySelector('input[name="ot-status"]:checked')?.value || '').trim();
+      // Validate date sequence
+      (function validateTimelineDates(){
+        var ids = { issued: 'ot-issued', start: 'ot-start', end: 'ot-end' };
+        Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+        function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
+        var vi = document.getElementById(ids.issued)?.value || '';
+        var vs = document.getElementById(ids.start)?.value || '';
+        var ve = document.getElementById(ids.end)?.value || '';
+        var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
+        function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      })();
+      var payload = {
+        issued: document.getElementById('ot-issued')?.value || '',
+        start: document.getElementById('ot-start')?.value || '',
+        end: document.getElementById('ot-end')?.value || '',
+        status: st
+      };
+      fetch('/api/orders/' + id + '/timeline', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(payload)
+      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+        .then(function(res){
+          if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Ошибка сохранения', 'danger'); return; }
+          if (window.closeModal) window.closeModal('orderTimelineModal');
+          if (window.showToast) window.showToast('Сроки и статус обновлены', 'success');
+          load(1);
+        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
+    } catch(_) {}
+  }
+
+  function handleOrderEditSubmit(){
+    try {
+      var form = document.getElementById('order-edit-form');
+      if (!form) return;
+      var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
+      var payload = {
+        number: document.getElementById('oe-number')?.value || '',
+        responsible: document.getElementById('oe-responsible')?.value || '',
+        service: document.getElementById('oe-service')?.value || '',
+        work_name: document.getElementById('oe-work')?.value || '',
+        issued: document.getElementById('oe-issued')?.value || '',
+        start: document.getElementById('oe-start')?.value || '',
+        end: document.getElementById('oe-end')?.value || ''
+      };
+      // basic validation
+      var missing = ['number','responsible','service','work_name'].filter(function(k){ return !String(payload[k]).trim(); });
+      ['oe-number','oe-responsible','oe-service','oe-work'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+      if (missing.length){
+        missing.forEach(function(k){ var el = document.getElementById('oe-' + (k === 'work_name' ? 'work' : k)); if (el) el.classList.add('is-invalid'); });
+        if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
+        return;
+      }
+      // Validate date sequence
+      (function validateEditDates(){
+        var ids = { issued: 'oe-issued', start: 'oe-start', end: 'oe-end' };
+        Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+        function toDate(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; }
+        var vi = document.getElementById(ids.issued)?.value || '';
+        var vs = document.getElementById(ids.start)?.value || '';
+        var ve = document.getElementById(ids.end)?.value || '';
+        var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
+        function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      })();
+      fetch('/api/orders/' + id, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(payload)
+      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
+        .then(function(res){
+          if (!res.ok || !res.body || res.body.ok === false){
+            if (res.body && res.body.error === 'validation') { if (window.showToast) window.showToast('Заполните обязательные поля', 'warning'); return; }
+            if (window.showToast) window.showToast('Ошибка сохранения', 'danger');
+            return;
+          }
+          if (window.closeModal) window.closeModal('orderEditModal');
+          if (window.showToast) window.showToast('Наряд обновлён', 'success');
+          load(1);
+        }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
+    } catch(_) {}
+  }
+
+  function bindStatusToggles(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return;
+      tb.querySelectorAll('button[data-action="toggle-status"]').forEach(function(btn){
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function(){
+          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
+          // Enforce client-side rules: only if approved == yes and user has status_change/admin
+          var row = this.closest('tr');
+          var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
+          var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+          var svc = row ? (row.getAttribute('data-service') || '') : '';
+          // Additional complete lock: status=done and all three dates set
+          var st = row ? (row.getAttribute('data-status') || '') : '';
+          var issued = row ? (row.getAttribute('data-issued') || '') : '';
+          var start = row ? (row.getAttribute('data-start') || '') : '';
+          var end = row ? (row.getAttribute('data-end') || '') : '';
+          var lockComplete = (st === 'done' && issued && start && end);
+          if (lockComplete) {
+            if (window.showToast) window.showToast('Изменение статуса запрещено: завершено и сроки заполнены', 'warning');
+            return;
+          }
+          if (!isApproved || !canEditStatusFor(svc)) {
+            if (window.showToast) window.showToast('Недостаточно прав или не согласовано', 'warning');
+            return;
+          }
+          // Cycle on server; we just POST without payload
+          fetch('/api/orders/' + id + '/status', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({})
+          }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+            .then(function(res){
+              if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось изменить состояние', 'danger'); return; }
+              var st = res.body.status || 'stopped';
+              // Update button text/class optimistically
+              btn.setAttribute('data-status', st);
+              btn.textContent = statusText(st);
+              btn.classList.remove('btn-danger','btn-warning','btn-success','btn-secondary','btn-info');
+              btn.classList.add(statusBtnClass(st));
+            })
+            .catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+        });
+      });
+    } catch(_) {}
+  }
+
+  // ===== MODAL: Примечание к наряду, полностью синхронизирован как в files =====
+
+  // [1] Функция открытия popup и заполнения textarea, используем одну popup #note и textarea #note-text, строка таблицы с id "order-<orderId>"
+  // Функция, снимающая фокус с элементов внутри данного modalElement
+  function blurIfActiveInside(modalEl) {
+    try {
+      if (!modalEl) return;
+      if (modalEl.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+    } catch(_){}
+  }
+  window.openOrderNoteModal = function(orderId) {
+    if (!orderId) return;
+    var form = document.getElementById('note');
+    if (!form) return;
+    // Проставить корректный action на серверный endpoint (ожидает form-data)
+    try { form.action = '/orders/note/' + String(orderId); } catch(_) {}
+    // Заполнить textarea текущим значением примечания из строки таблицы
+    try {
+      var row = document.getElementById('order-' + orderId);
+      var noteVal = (row && row.getAttribute('data-note')) || '';
+      var noteArea = document.getElementById('note-text');
+      if (noteArea) { noteArea.value = noteVal; }
+    } catch(_) {}
+    // Страховка: ещё раз принудительно action
+    try { form.action = '/orders/note/' + String(orderId); } catch(_) {}
+    window.openModal && window.openModal('orderNoteModal');
+    setTimeout(function(){
+      const noteArea = document.getElementById('note-text');
+      if (noteArea) noteArea.focus();
+    }, 250);
+  };
+
+  // [2] Биндим открытие примечания из таблицы
+  function bindNoteBadges() {
+    try {
+      document.querySelectorAll('span.note-badge[data-order-id]').forEach(function(el) {
+        if (el.dataset.bound === '1') return;
+        el.dataset.bound = '1';
+        el.addEventListener('click', function(e){
+          var oid = this.dataset.orderId;
+          window.openOrderNoteModal && window.openOrderNoteModal(oid);
+        });
+      });
+    } catch(_){}
+  }
+
+  // [3] Сохранение примечания — унифицируем с Files через validateForm(this) на кнопке
+
+  // [5] Рендер таблицы: после отрисовки — снова биндить badge
+  const origRender = typeof render === 'function' ? render : null;
+  function renderWithNoteBind(rows) {
+    if (origRender) origRender(rows);
+    bindNoteBadges();
+  }
+  window.render = renderWithNoteBind;
+
+  function ensureFocusLeavesModal(modalEl) {
+    if (!modalEl) return;
+    if (modalEl.contains(document.activeElement) || document.activeElement === modalEl) {
+      document.body.focus();
+    }
+  }
+
+  function setupAccessibilityModalBlurFix() {
+    var modals = [
+      document.getElementById('orderNoteModal'),
+      document.getElementById('orderCreateModal')
+    ];
+    modals.forEach(function(modalEl) {
+      if (!modalEl) return;
+      modalEl.addEventListener('hidden.bs.modal', function() {
+        ensureFocusLeavesModal(modalEl);
+      });
+    });
+  }
+
+  function fixBootstrapFocusLeak() {
+    var modals = [
+      document.getElementById('orderNoteModal'),
+      document.getElementById('orderCreateModal')
+    ];
+    modals.forEach(function(modalEl) {
+      if (!modalEl) return;
+      modalEl.addEventListener('hide.bs.modal', function(){
+        if (this.contains(document.activeElement)) {
+          document.body.focus();
+        }
+      });
+    });
+  }
+
+  function setupModalOverlayClose(modalId) {
+    var modal = document.getElementById(modalId);
+    if (!modal || modal._overlayBound) return;
+    modal._overlayBound = true;
+    function onOverlay(e){
+      if (e.target === modal) {
+        if (typeof window.closeModal === 'function') window.closeModal(modalId);
+      }
+    }
+    modal.addEventListener('mousedown', onOverlay);
+    modal.addEventListener('click', onOverlay);
+  }
+
+  function setupAriaHiddenFocusWatcher(modalId) {
+    var modal = document.getElementById(modalId);
+    if (!modal || modal._ariaWatcherBound) return;
+    modal._ariaWatcherBound = true;
+    try {
+      var mo = new MutationObserver(function(list){
+        for (var i=0; i<list.length; i++) {
+          var m = list[i];
+          if (m.type === 'attributes' && m.attributeName === 'aria-hidden') {
+            var hidden = modal.getAttribute('aria-hidden') === 'true';
+            if (hidden) {
+              // Если фокус внутри скрытой модалки — убрать
+              if (modal.contains(document.activeElement)) {
+                try { document.activeElement.blur(); } catch(_) {}
+                try { document.body.focus(); } catch(_) {}
+              }
+              // Подстраховка таймером (асинхронные гонки Bootstrap)
+              setTimeout(function(){
+                if (modal.contains(document.activeElement)) {
+                  try { document.activeElement.blur(); } catch(_) {}
+                  try { document.body.focus(); } catch(_) {}
+                }
+              }, 30);
+            }
+          }
+        }
+      });
+      mo.observe(modal, { attributes: true, attributeFilter: ['aria-hidden'] });
+    } catch(_) {}
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function(){
+      init();
+      fixBootstrapFocusLeak();
+      setupAccessibilityModalBlurFix();
+      setupModalOverlayClose('orderNoteModal');
+      setupModalOverlayClose('orderCreateModal');
+      setupModalOverlayClose('orderEditModal');
+      setupModalOverlayClose('orderDeleteModal');
+      setupModalOverlayClose('orderTimelineModal');
+      setupAriaHiddenFocusWatcher('orderNoteModal');
+      setupAriaHiddenFocusWatcher('orderCreateModal');
+      setupAriaHiddenFocusWatcher('orderEditModal');
+      setupAriaHiddenFocusWatcher('orderDeleteModal');
+      setupAriaHiddenFocusWatcher('orderTimelineModal');
+      try { document.getElementById('order-timeline-submit')?.addEventListener('click', handleOrderTimelineSubmit); } catch(_) {}
+      // bind edit submit
+      try { document.getElementById('order-edit-submit')?.addEventListener('click', handleOrderEditSubmit); } catch(_) {}
+    });
   } else {
     init();
+    fixBootstrapFocusLeak();
+    setupAccessibilityModalBlurFix();
+    setupModalOverlayClose('orderNoteModal');
+    setupModalOverlayClose('orderCreateModal');
+    setupModalOverlayClose('orderEditModal');
+    setupModalOverlayClose('orderDeleteModal');
+    setupModalOverlayClose('orderTimelineModal');
+    setupAriaHiddenFocusWatcher('orderNoteModal');
+    setupAriaHiddenFocusWatcher('orderCreateModal');
+    setupAriaHiddenFocusWatcher('orderEditModal');
+    setupAriaHiddenFocusWatcher('orderDeleteModal');
+    setupAriaHiddenFocusWatcher('orderTimelineModal');
+    try { document.getElementById('order-timeline-submit')?.addEventListener('click', handleOrderTimelineSubmit); } catch(_) {}
+    try { document.getElementById('order-edit-submit')?.addEventListener('click', handleOrderEditSubmit); } catch(_) {}
   }
   if (window.OrdersSearch && typeof window.OrdersSearch.setupFilesSearch === 'function') {
     window.OrdersSearch.setupFilesSearch();

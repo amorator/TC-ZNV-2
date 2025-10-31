@@ -53,15 +53,15 @@
         </tr>
       </thead>
       <tbody id="orders-tbody">
-        <tr id="search" class="table__body_row">
-          <td colspan="10" class="table__body_item">
+        <tr id="search" class="table__body_actions">
+          <td colspan="10" class="table__body_action">
             <div class="d-flex gap-2 align-items-center justify-content-between">
               <div class="d-flex align-items-center gap-2">
                 {% include 'components/searchbar.html' %}
               </div>
               <div class="d-flex gap-2">
                 {% if current_user.has('orders.create') or current_user.has('admin.any') %}
-                  <button id="orders-create" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#orderCreateModal">Создать</button>
+                  <button type="button" id="orders-create" class="btn btn-primary btn-sm" onclick="openModal('orderCreateModal')">Создать</button>
                 {% endif %}
               </div>
             </div>
@@ -72,16 +72,58 @@
   </div>
   <div id="orders-pagination" class="files-pagination d-flex justify-content-center py-2"></div>
 </section>
+<!-- Context menu for orders table rows -->
+<div id="orders-context-menu" class="context-menu d-none" data-testid="orders-context-menu">
+  <ul class="context-menu__list">
+    <li class="context-menu__item" data-action="files" data-testid="orders-cm-files">Файлы</li>
+    <li class="context-menu__item" data-action="edit" data-testid="orders-cm-edit">Изменить</li>
+    <li class="context-menu__item" data-action="timeline" data-testid="orders-cm-timeline">Изменить сроки</li>
+    <li class="context-menu__item" data-action="delete" data-testid="orders-cm-delete">Удалить</li>
+    <li class="context-menu__item" data-action="approve" data-testid="orders-cm-approve">Согласовать</li>
+    <li class="context-menu__item" data-action="unapprove" data-testid="orders-cm-unapprove">Отменить согласование</li>
+    <li class="context-menu__separator"></li>
+    <li class="context-menu__item" data-action="note" data-testid="orders-cm-note">Оставить примечание</li>
+    <li class="context-menu__item" data-action="create" data-testid="orders-cm-create">Создать</li>
+  </ul>
+  <input type="hidden" id="orders-context-target-id" value="0" />
+</div>
+<!-- Примечание к наряду (bootstrap modal, стиль как orderCreateModal) -->
+<div class="modal fade" id="orderNoteModal" tabindex="-1" aria-labelledby="orderNoteModalTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderNoteModalTitle">Примечание к наряду</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderNoteModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="note" action="/orders/note/0" method="post" autocomplete="off" onsubmit="return false;">
+          <div class="mb-3">
+            <label for="note-text" class="form-label">Примечание:</label>
+            <textarea class="form-control" id="note-text" name="note" rows="4" placeholder="Введите примечание..." autocomplete="off"></textarea>
+          </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <div>
+              <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderNoteModal')">Отмена</button>
+            </div>
+            <div>
+              <button type="button" class="btn btn-primary" data-testid="orders-note-save" id="order-note-save" onclick="validateForm(this);">Сохранить</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- Create Order Modal -->
-<div class="modal fade" id="orderCreateModal" tabindex="-1" aria-labelledby="orderCreateModalTitle" aria-hidden="true">
+<div class="modal fade" id="orderCreateModal" tabindex="-1" aria-labelledby="orderCreateModalTitle" aria-hidden="true" data-bs-backdrop="static">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content orders-modal">
       <div class="modal-header">
         <h5 class="modal-title" id="orderCreateModalTitle">Новый наряд-допуск</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        <button type="button" class="btn-close" onclick="closeModal('orderCreateModal')"></button>
       </div>
       <div class="modal-body">
-        <form id="order-create-form" autocomplete="off">
+        <form id="order-create-form" action="/orders/create" method="post" autocomplete="off" onsubmit="return false;">
           <div class="row g-3 mb-2">
             <div class="col-12 col-md-3">
               <label for="oc-number" class="form-label">№ наряда</label>
@@ -126,25 +168,215 @@
               <input type="datetime-local" class="form-control" id="oc-end" name="end">
             </div>
           </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <div>
+              <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderCreateModal')">Отмена</button>
+            </div>
+            <div>
+              <button type="button" id="order-create-submit" class="btn btn-primary" onclick="validateForm(this);">Создать</button>
+            </div>
+          </div>
         </form>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" id="order-create-submit" class="btn btn-primary">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Order Modal -->
+<div class="modal fade" id="orderEditModal" tabindex="-1" aria-labelledby="orderEditModalTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderEditModalTitle">Изменение наряда-допуска</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderEditModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="order-edit-form" autocomplete="off">
+          <div class="row g-3 mb-2">
+            <div class="col-12 col-md-3">
+              <label for="oe-number" class="form-label">№ наряда</label>
+              <input type="text" class="form-control" id="oe-number" name="number" placeholder="Номер">
+            </div>
+            <div class="col-12 col-md-9">
+              <label for="oe-responsible" class="form-label">Ответственный руководитель</label>
+              <input type="text" class="form-control" id="oe-responsible" name="responsible" placeholder="ФИО">
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-12">
+              <label for="oe-service" class="form-label">Служба</label>
+              <select class="form-select" id="oe-service" name="service">
+                <option value="">— Выберите службу —</option>
+                {% for g in (groups or []) %}
+                  <option value="{{ g.name }}" data-id="{{ g.id }}">{{ g.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-12">
+              <label for="oe-work" class="form-label">Наименование работ</label>
+              <textarea class="form-control" id="oe-work" name="work_name" rows="4" placeholder="Опишите выполняемые работы"></textarea>
+            </div>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-12">
+              <div class="form-text mb-1">Сроки работ</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="oe-issued" class="form-label">Дата/время выдачи наряда допуска</label>
+              <input type="datetime-local" class="form-control" id="oe-issued" name="issued">
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="oe-start" class="form-label">Начало работ</label>
+              <input type="datetime-local" class="form-control" id="oe-start" name="start">
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="oe-end" class="form-label">Окончание работ</label>
+              <input type="datetime-local" class="form-control" id="oe-end" name="end">
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <div>
+          <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderEditModal')">Отмена</button>
+        </div>
+        <div>
+          <button type="button" id="order-edit-submit" class="btn btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Order Modal -->
+<div class="modal fade" id="orderDeleteModal" tabindex="-1" aria-labelledby="orderDeleteModalTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderDeleteModalTitle">Удалить наряд</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderDeleteModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="delete" action="/orders/delete/0" method="post" autocomplete="off" onsubmit="return false;">
+          <p>Вы действительно хотите удалить наряд <b id="order-delete-name">?</b>?</p>
+          <div class="modal-footer d-flex justify-content-between">
+            <div>
+              <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderDeleteModal')">Отмена</button>
+            </div>
+            <div>
+              <button type="button" class="btn btn-danger" id="order-delete-submit" onclick="validateForm(this);">Удалить</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Timeline (Dates + Status) Modal -->
+<div class="modal fade" id="orderTimelineModal" tabindex="-1" aria-labelledby="orderTimelineModalTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderTimelineModalTitle">Изменение сроков и статуса</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderTimelineModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="order-timeline-form" autocomplete="off">
+          <div class="mb-3">
+            <label for="ot-issued" class="form-label">Дата/время выдачи</label>
+            <input type="datetime-local" class="form-control" id="ot-issued" name="issued">
+          </div>
+          <div class="mb-3">
+            <label for="ot-start" class="form-label">Начало работ</label>
+            <input type="datetime-local" class="form-control" id="ot-start" name="start">
+          </div>
+          <div class="mb-3">
+            <label for="ot-end" class="form-label">Окончание работ</label>
+            <input type="datetime-local" class="form-control" id="ot-end" name="end">
+          </div>
+          <div class="mb-2">
+            <div class="form-text mb-1">Статус работ</div>
+            <div class="btn-group" role="group" aria-label="Статус работ">
+              <input type="radio" class="btn-check" name="ot-status" id="ot-stopped" autocomplete="off" value="stopped">
+              <label class="btn btn-outline-danger" for="ot-stopped">Не ведутся</label>
+              <input type="radio" class="btn-check" name="ot-status" id="ot-inp" autocomplete="off" value="in_progress">
+              <label class="btn btn-outline-success" for="ot-inp">Ведутся</label>
+              <input type="radio" class="btn-check" name="ot-status" id="ot-done" autocomplete="off" value="done">
+              <label class="btn btn-outline-secondary" for="ot-done">Завершены</label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <div>
+          <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderTimelineModal')">Отмена</button>
+        </div>
+        <div>
+          <button type="button" id="order-timeline-submit" class="btn btn-primary">Сохранить</button>
+        </div>
       </div>
     </div>
   </div>
 </div>
 {% endblock %}
 {% block js %}
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/popup-utils.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/files-form-validation.js') }}"></script>
 <script>
   window.OrdersPerms = {
     create: {{ 'true' if (current_user.has('orders.create') or current_user.has('admin.any')) else 'false' }},
-    approve: {{ 'true' if (current_user.has('orders.approve') or current_user.has('admin.any')) else 'false' }}
+    approve: {{ 'true' if (current_user.has('orders.approve') or current_user.has('admin.any')) else 'false' }},
+    notes: {{ 'true' if (current_user.has('orders.notes') or current_user.has('admin.any')) else 'false' }},
+    edit_any: {{ 'true' if (current_user.has('orders.edit_any') or current_user.has('admin.any')) else 'false' }},
+    delete_any: {{ 'true' if (current_user.has('orders.delete_any') or current_user.has('admin.any')) else 'false' }},
+    status_change: {{ 'true' if (current_user.has('orders.status_change') or current_user.has('admin.any')) else 'false' }},
+    files_view: {{ 'true' if (current_user.has('orders.files_view') or current_user.has('admin.any')) else 'false' }},
+    admin: {{ 'true' if current_user.has('admin.any') else 'false' }}
   };
+  // current user gid for group matching (service -> group)
+  window.CurrentUser = { gid: {{ current_user.gid|int }} };
+  // map of service name -> group id
+  (function(){ try {
+    window.OrdersGroups = {
+      {% for g in (groups or []) %}
+        '{{ g.name|replace("'","\'") }}': {{ g.id|int }}{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    };
+  } catch(_) { window.OrdersGroups = {}; } })();
   window.ordersDoFilter = function(q, page) { if (typeof load === 'function') return load(page || 1); };
-  // Optional: expose more later (edit_any, delete_any, etc.)
 </script>
 <script src="{{ url_for('static', filename='js/scripts/core/orders-search.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts/pages/orders.js') }}"></script>
+<script>
+// Debug presence of handler and elements
+try {
+  console.debug('[orders] scripts loaded', {
+    hasValidate: (typeof window.validateForm === 'function'),
+    hasPopupUtils: (typeof window.popupValues === 'function'),
+  });
+  const btn = document.getElementById('order-note-save');
+  const form = document.getElementById('note');
+  console.debug('[orders] elements', { btn: !!btn, form: !!form, action: form && form.action });
+  if (btn && !btn.dataset.debugBound) {
+    btn.dataset.debugBound = '1';
+    btn.addEventListener('click', function(e){
+      console.debug('[orders] note-save clicked', { hasValidate: (typeof window.validateForm === 'function'), action: (form && form.action) });
+    }, true);
+  }
+} catch(_) {}
+document.addEventListener('modal-closed', function(ev){
+  setTimeout(function() {
+    if (document.activeElement && document.activeElement.closest('.modal')) {
+      document.activeElement.blur();
+      document.body.focus();
+    }
+    // Удалить зависшие bootstrap modal-backdrop (после любого закрытия модалки)
+    document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+  }, 50);
+}, true);
+</script>
 {% endblock %}

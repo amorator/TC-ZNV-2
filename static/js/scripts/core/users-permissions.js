@@ -15,26 +15,19 @@ function isFullAccessLegacy(legacy) {
   if (s.indexOf("z") !== -1) return true;
   if (/полныйдоступ/i.test(sRaw) || /fullaccess/i.test(sRaw)) return true;
 
-  // Accept known full strings and minor variants with empty segments
-  const fullPattern = /^aef,a,[a-z]*abcdflm[a-z]*,ab,ab,(ab|),abcd?$/i;
-  if (fullPattern.test(s)) return true;
+  // Accept known full strings
+  const fullExact = /^aef,abcdefglmn,abcdflm,ab,ab,ab,abcd$/i;
+  if (fullExact.test(s)) return true;
 
   // Fallback: heuristic across 7 segments
   const parts = s.split(",");
   if (parts.length >= 6) {
-    const p1 = parts[0] || "";
-    const p2 = parts[1] || "";
-    const p3 = parts[2] || "";
+    const p1 = parts[0] || ""; // requests
+    const p2 = parts[1] || ""; // orders
+    const p3 = parts[2] || ""; // files
     const ok1 = /a/.test(p1) && /e/.test(p1) && /f/.test(p1);
-    const ok2 = p2 === "a";
-    const ok3 =
-      /a/.test(p3) &&
-      /b/.test(p3) &&
-      /c/.test(p3) &&
-      /d/.test(p3) &&
-      /f/.test(p3) &&
-      /l/.test(p3) &&
-      /m/.test(p3);
+    const ok2 = /a/.test(p2) && /b/.test(p2) && /c/.test(p2) && /d/.test(p2) && /e/.test(p2) && /f/.test(p2) && /g/.test(p2) && /l/.test(p2) && /m/.test(p2) && /n/.test(p2);
+    const ok3 = /a/.test(p3) && /b/.test(p3) && /c/.test(p3) && /d/.test(p3) && /f/.test(p3) && /l/.test(p3) && /m/.test(p3);
     if (ok1 && ok2 && ok3) return true;
   }
   return false;
