@@ -20,9 +20,50 @@ function setupMoveModal() {
       updateSubcategoriesForMove(this);
     });
 
-    // Initialize subcategories when modal opens
-    if (moveCategorySelect.selectedIndex >= 0) {
-      updateSubcategoriesForMove(moveCategorySelect);
+    // If no usable categories rendered, fetch via API and populate
+    var hasUsable = false;
+    try {
+      var opts = moveCategorySelect.options;
+      if (opts && opts.length) {
+        for (var i=0;i<opts.length;i++) {
+          var o = opts[i];
+          if (o.disabled) continue;
+          if (!o.value) continue;
+          hasUsable = true; break;
+        }
+      }
+    } catch(_) {}
+    if (!hasUsable) {
+      try {
+        fetch('/api/files/categories', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (j && j.status === 'success' && Array.isArray(j.items)) {
+              moveCategorySelect.innerHTML = '';
+              j.items.forEach(function(cat){
+                var opt = document.createElement('option');
+                opt.value = String(cat.id);
+                opt.textContent = String(cat.name || '');
+                try {
+                  var subsMap = {};
+                  (cat.subs || []).forEach(function(s){ subsMap[String(s.id)] = s.name; });
+                  opt.setAttribute('data-subs', JSON.stringify(subsMap));
+                } catch(_) {}
+                moveCategorySelect.appendChild(opt);
+              });
+              if (moveCategorySelect.options.length > 0) {
+                moveCategorySelect.selectedIndex = 0;
+                updateSubcategoriesForMove(moveCategorySelect);
+              }
+            }
+          })
+          .catch(function(){});
+      } catch(_) {}
+    } else {
+      // Initialize subcategories when modal opens
+      if (moveCategorySelect.selectedIndex >= 0) {
+        updateSubcategoriesForMove(moveCategorySelect);
+      }
     }
   } catch (err) {
     window.ErrorHandler && window.ErrorHandler.handleError(err, 'setupMoveModal');
@@ -54,26 +95,18 @@ function updateSubcategoriesForMove(categorySelect) {
     const currentSubId = window.current_subcategory_id || 0;
     const selectedCatId = parseInt(selectedOption.value) || 0;
 
-    // Clear existing options
-    subSelect.innerHTML = '';
-
-    // Add subcategory options
-    if (Object.keys(subs).length > 0) {
-      for (const [subId, subName] of Object.entries(subs)) {
+    // Populate function
+    function populate(subMap) {
+      subSelect.innerHTML = '';
+      const entries = Object.entries(subMap || {});
+      entries.forEach(function([subId, subName]){
         const subIdNum = parseInt(subId) || 0;
-        
-        // Skip current subcategory
-        if (selectedCatId === currentCatId && subIdNum === currentSubId) {
-          continue;
-        }
-        
+        if (selectedCatId === currentCatId && subIdNum === currentSubId) return;
         const option = document.createElement('option');
-        option.value = subId;
-        option.textContent = subName;
+        option.value = String(subIdNum);
+        option.textContent = String(subName || '');
         subSelect.appendChild(option);
-      }
-      
-      // If no subcategories available, show message
+      });
       if (subSelect.options.length === 0) {
         const option = document.createElement('option');
         option.value = '';
@@ -81,12 +114,28 @@ function updateSubcategoriesForMove(categorySelect) {
         option.textContent = 'Нет доступных подкатегорий';
         subSelect.appendChild(option);
       }
+    }
+
+    // If inline data is empty, fetch from API
+    if (!subs || Object.keys(subs).length === 0) {
+      try {
+        fetch('/api/files/subcategories?category_id=' + encodeURIComponent(selectedCatId), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (j && j.status === 'success' && Array.isArray(j.items)) {
+              var map = {};
+              j.items.forEach(function(it){ map[String(it.id)] = it.name; });
+              populate(map);
+            } else {
+              populate(subs || {});
+            }
+          })
+          .catch(function(){ populate(subs || {}); });
+      } catch(_) {
+        populate(subs || {});
+      }
     } else {
-      const option = document.createElement('option');
-      option.value = '';
-      option.disabled = true;
-      option.textContent = 'Нет подкатегорий';
-      subSelect.appendChild(option);
+      populate(subs);
     }
   } catch (err) {
     window.ErrorHandler && window.ErrorHandler.handleError(err, 'updateSubcategoriesForMove');
@@ -104,30 +153,29 @@ function setupMovePopupValues() {
     const currentCatId = window.current_category_id || 0;
     const currentSubId = window.current_subcategory_id || 0;
 
-    // Hide current category if it has only one subcategory
-    if (moveCategorySelect.options.length > 0) {
-      for (let i = 0; i < moveCategorySelect.options.length; i++) {
-        const option = moveCategorySelect.options[i];
-        const catId = parseInt(option.value) || 0;
-        
-        if (catId === currentCatId) {
-          try {
-            const subs = JSON.parse(option.getAttribute('data-subs') || '{}');
-            // If this is current category and it has only one subcategory, hide it
-            if (Object.keys(subs).length === 1 && parseInt(Object.keys(subs)[0]) === currentSubId) {
-              option.style.display = 'none';
-            }
-          } catch (e) {
-            // Continue if parsing fails
-          }
-        }
+    // Do not hide categories; we only exclude the current subcategory from choices
+
+    // Pick first category that has at least one available subcategory (excluding current)
+    let picked = false;
+    for (let i = 0; i < moveCategorySelect.options.length; i++) {
+      const opt = moveCategorySelect.options[i];
+      if (opt.style.display === 'none') continue;
+      let subs = {};
+      try { subs = JSON.parse(opt.getAttribute('data-subs') || '{}'); } catch(_) { subs = {}; }
+      // Count subs excluding current when same category
+      const catId = parseInt(opt.value) || 0;
+      const avail = Object.keys(subs).filter(function(k){
+        const sid = parseInt(k)||0;
+        return !(catId === currentCatId && sid === currentSubId);
+      });
+      if (avail.length > 0) {
+        moveCategorySelect.selectedIndex = i;
+        picked = true;
+        break;
       }
     }
-
-    // Initialize subcategories for first visible category
-    if (moveCategorySelect.selectedIndex >= 0) {
-      updateSubcategoriesForMove(moveCategorySelect);
-    }
+    // If nothing suitable found, keep current selection
+    updateSubcategoriesForMove(moveCategorySelect);
   } catch (err) {
     window.ErrorHandler && window.ErrorHandler.handleError(err, 'setupMovePopupValues');
   }

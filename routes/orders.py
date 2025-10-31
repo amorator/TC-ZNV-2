@@ -1,9 +1,18 @@
 from flask import render_template, request, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from datetime import datetime as dt, timedelta
-from modules.permissions import require_permissions, ORDERS_VIEW_PAGE, ORDERS_CREATE, ORDERS_APPROVE, ORDERS_DELETE_ANY, ORDERS_STATUS_CHANGE
+from modules.permissions import (
+    require_permissions,
+    ORDERS_VIEW_PAGE,
+    ORDERS_CREATE,
+    ORDERS_APPROVE,
+    ORDERS_DELETE_ANY,
+    ORDERS_STATUS_CHANGE,
+    ADMIN_ANY,
+    ORDERS_FILES_EDIT,
+    ORDERS_FILES_VIEW,
+)
 from flask import redirect, url_for
-from flask_login import current_user
 
 
 def register(app, socketio=None):
@@ -11,20 +20,10 @@ def register(app, socketio=None):
 	@login_required
 	@require_permissions(ORDERS_VIEW_PAGE)
 	def orders():
-		# Load groups for service select
-		groups = []
-		try:
-			prefix = app._sql.config['db']['prefix']
-			rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
-			for r in rows:
-				try:
-					gid = int(r[0])
-					gname = str(r[1])
-					groups.append({'id': gid, 'name': gname})
-				except Exception:
-					pass
-		except Exception:
-			groups = []
+		# Load groups for service select (no redundant try/except)
+		prefix = app._sql.config['db']['prefix']
+		rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
+		groups = [{'id': int(r[0]), 'name': str(r[1])} for r in rows]
 		return render_template('orders.j2.html',
 							   title='Наряды — Заявки-Наряды-Файлы',
 							   id=2,
@@ -264,7 +263,7 @@ def register(app, socketio=None):
 			row = rows[0]
 			def to_iso(x):
 				try:
-					from datetime import datetime as _dt
+
 					return (x if isinstance(x, _dt) else _dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))).isoformat(sep=' ')
 				except Exception:
 					return ''
@@ -318,7 +317,7 @@ def register(app, socketio=None):
 			def norm_dt(x):
 				if not x: return None
 				try:
-					from datetime import datetime as _dt
+
 					return _dt.fromisoformat(str(x).replace('T', ' '))
 				except Exception:
 					return None
@@ -329,6 +328,25 @@ def register(app, socketio=None):
 				f"UPDATE {prefix}_order SET service=%s, number=%s, responsible=%s, work_name=%s, issued=%s, start=%s, end=%s WHERE id=%s;",
 				[service, number, responsible, work_name, issued_dt, start_dt, end_dt, order_id]
 			)
+			# Ensure/refresh files subcategory for this order (keep folder, update display to reflect number)
+			try:
+				cat_id = app._sql.category_id_by_folder('orders') or app._sql._ensure_orders_category()
+				folder = f'order-{order_id}'
+				sub_id = app._sql.subcategory_id_by_folder(int(cat_id), folder)
+				if not sub_id:
+					# Create if missing
+					display = f"{order_id} - {number}".strip()
+					app._sql.subcategory_add([int(cat_id), display, folder, int(order_id), 1])
+				else:
+					# Update display name to keep in sync with order number
+					existing = app._sql.subcategory_by_id([int(sub_id)])
+					if existing:
+						disp_order = int(getattr(existing, 'display_order', order_id) or order_id)
+						enabled = int(getattr(existing, 'enabled', 1) or 1)
+						display = f"{order_id} - {number}".strip()
+						app._sql.subcategory_edit([int(cat_id), display, folder, disp_order, enabled, int(sub_id)])
+			except Exception:
+				pass
 			return jsonify({ 'ok': True })
 		except Exception as e:
 			try:
@@ -458,7 +476,7 @@ def register(app, socketio=None):
 			def norm_dt(x):
 				if not x: return None
 				try:
-					from datetime import datetime as _dt
+
 					return _dt.fromisoformat(str(x).replace('T', ' '))
 				except Exception:
 					return None
@@ -586,16 +604,13 @@ def register(app, socketio=None):
 				'page_size': page_size,
 			})
 		except Exception as e:
-			try:
-				app.logger.error(f"Orders search error: {e}")
-			except Exception:
-				pass
-			return jsonify({ 'items': [], 'total': 0, 'page': 1, 'page_size': page_size }), 200
+			app.logger.error(f"Orders search error: {e}")
+			return jsonify({'items': [], 'total': 0, 'page': 1, 'page_size': page_size}), 200
 
 	@app.route('/orders/print', methods=['GET', 'POST'], endpoint='orders_print')
 	def orders_print():
 		"""Render print table: orders active for selected date, excluding completed."""
-		from datetime import datetime as _dt
+
 		getter = (request.args if request.method == 'GET' else request.form)
 		date_str = (getter.get('date') or '').strip()
 		resp = (getter.get('responsible') or '').strip()
@@ -649,6 +664,60 @@ def register(app, socketio=None):
 			if name and name not in deps:
 				deps[name] = name
 		return render_template('orders_table_print.j2.html', date=date_str, resp=resp, job=[job1, job2], data=[orders, deps])
+
+	@app.route('/orders/<int:order_id>/files', methods=['GET'])
+	@login_required
+	def orders_files_embed(order_id: int):
+		"""Open files UI for this order in embed mode: ensure system category 'orders' and subcategory 'order-<id>'.
+		Redirect to /files with cat_id/sub_id and embed flags.
+		"""
+		# Ensure system category and subcategory for this order
+		cat_id = app._sql.category_id_by_folder('orders')
+		if not cat_id:
+			cat_id = app._sql._ensure_orders_category()
+		folder = f'order-{order_id}'
+		sub_id = app._sql.subcategory_id_by_folder(int(cat_id), folder)
+		if not sub_id:
+			# Try to create with display "<id> - <number>"
+			ord = app._sql.order_by_id([order_id])
+			display = f"{order_id} - {getattr(ord, 'number', '')}".strip()
+			try:
+				app._sql.subcategory_add([int(cat_id), display, folder, int(order_id), 1])
+			except Exception:
+				pass
+			sub_id = app._sql.subcategory_id_by_folder(int(cat_id), folder)
+
+		# Compute permission overrides for embed
+		force_can_manage = 0
+		force_can_add = 0
+		force_can_notes = 0
+		perms = getattr(current_user, 'permissions', set()) or set()
+		if ADMIN_ANY in perms or ORDERS_FILES_EDIT in perms:
+			force_can_manage = 1
+			force_can_add = 1
+			force_can_notes = 1
+		elif ORDERS_FILES_VIEW in perms:
+			force_can_manage = 0
+			force_can_add = 0
+			force_can_notes = 0
+		else:
+			# Group-based: full access if user's gid matches order's service group
+			prefix = app._sql.config['db']['prefix']
+			row = app._sql.execute_query(f'SELECT service FROM {prefix}_order WHERE id=%s', [order_id])
+			service = row[0][0] if row else ''
+			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+			service_gid = None
+			for gid, name in groups:
+				if name == service:
+					service_gid = int(gid)
+					break
+			if service_gid and current_user.gid == service_gid:
+				force_can_manage = 1
+				force_can_add = 1
+				force_can_notes = 1
+
+		# Build redirect to files with embed flags
+		return redirect(url_for('files', embed=1, cat_id=cat_id, sub_id=sub_id, force_can_manage=force_can_manage, force_can_add=force_can_add, force_can_notes=force_can_notes))
 
 	@app.route('/orders/note/<int:order_id>', methods=['POST'])
 	@login_required
@@ -710,6 +779,30 @@ def register(app, socketio=None):
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'approved_locked'}), 403
 			# Delete order
 			app._sql.execute_non_query(f'DELETE FROM {prefix}_order WHERE id=%s', [order_id])
+			# Cleanup files subcategory and files for this order
+			try:
+				cat_id = app._sql.category_id_by_folder('orders')
+				folder = f'order-{order_id}'
+				if cat_id:
+					sub_id = app._sql.subcategory_id_by_folder(int(cat_id), folder)
+					if sub_id:
+						# Remove files in this subcategory (DB and FS)
+						files = app._sql.file_by_category_and_subcategory([int(cat_id), int(sub_id)])
+
+						for f in files or []:
+							# Compute path and remove file from filesystem; always remove DB record
+							dir_path = app._sql.get_file_storage_path(int(cat_id), int(sub_id))
+							file_path = os.path.join(dir_path, getattr(f, 'real_name', '') or getattr(f, 'file_name', ''))
+							try:
+								if file_path and os.path.exists(file_path):
+									os.remove(file_path)
+							except Exception:
+								pass
+							app._sql.file_delete([int(f.id)])
+						# Delete subcategory itself
+						app._sql.subcategory_delete([int(sub_id)])
+			except Exception:
+				pass
 			return jsonify({'ok': True}), 200
 		except Exception as e:
 			try:

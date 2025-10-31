@@ -45,7 +45,8 @@ def register(app, socketio=None):
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
 
     def _emit_categories_changed(payload: dict) -> None:
-        _log.info(f"[categories] emit categories:changed: {payload}")
+        if _log.isEnabledFor(logging.DEBUG):
+            _log.debug(f"[categories] emit categories:changed: {payload}")
         _sock = socketio if socketio else getattr(app, 'socketio', None)
         if not _sock:
             _log.error("[categories] emit failed: socketio missing")

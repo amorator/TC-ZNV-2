@@ -149,6 +149,17 @@ function popupToggle(popupId, rowId) {
       backdrop.id = `${popupId}-backdrop`;
       document.body.appendChild(backdrop);
     }
+    // After opening, run any popup-specific initializers
+    try {
+      if (popupId === 'popup-move' && window.FilesMoveHandler) {
+        if (typeof window.FilesMoveHandler.setupMoveModal === 'function') {
+          window.FilesMoveHandler.setupMoveModal();
+        }
+        if (typeof window.FilesMoveHandler.setupMovePopupValues === 'function') {
+          window.FilesMoveHandler.setupMovePopupValues();
+        }
+      }
+    } catch(_) {}
   } catch (error) {
     window.ErrorHandler && window.ErrorHandler.handleError("Error in popupToggle:", error, "app");
   }

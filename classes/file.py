@@ -20,7 +20,6 @@ class File:
         note: str = '',
         length_seconds: int = 0,
         size_mb: float = 0.0,
-        order_id: Optional[int] = None,
         category_id: Optional[int] = None,
         subcategory_id: Optional[int] = None,
         file_exists: bool = True,
@@ -37,7 +36,6 @@ class File:
 			ready: 1 if converted and ready, 0 if in processing.
 			viewed: Comma or pipe-delimited string of viewers (backend format).
 			note: Optional note.
-			order_id: Optional ID of associated order (foreign key).
 			category_id: Category ID for file organization.
 			subcategory_id: Subcategory ID for file organization.
 			file_exists: Whether the file exists on disk.
@@ -45,15 +43,14 @@ class File:
         self.display_name: str = display_name
         self.file_name: str = file_name
         self.description: str = description if description else 'Нет описания...'
-        self.created_at: str = created_at if created_at else dt.now().strftime(
-            '%Y-%m-%d %H:%M')
+        # Preserve DB-provided created_at; do not override with current time if missing
+        self.created_at: str = created_at if created_at not in (None, '') else ''
         self.id: int = id
         self.ready: int = ready
         self.viewed: Optional[str] = viewed
         self.note: str = note if note else ''
         self.length_seconds: int = int(length_seconds or 0)
         self.size_mb: float = float(size_mb or 0)
-        self.order_id: Optional[int] = order_id
         self.category_id: Optional[int] = category_id
         self.subcategory_id: Optional[int] = subcategory_id
         self.exists: bool = bool(file_exists)

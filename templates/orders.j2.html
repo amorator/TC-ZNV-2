@@ -2,6 +2,7 @@
 {% block css %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders-files-modal.css') }}"/>
 {% endblock %}
 {% block main %}
 <section class="container-fluid py-3" data-testid="orders-section">
@@ -404,5 +405,68 @@ document.addEventListener('modal-closed', function(){
     document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
   }, 50);
 }, true);
+</script>
+<!-- Files Modal (iframe) -->
+<div class="modal fade" id="orderFilesModal" tabindex="-1" aria-labelledby="orderFilesModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderFilesModalTitle">Файлы наряда</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderFilesModal')"></button>
+      </div>
+      <div class="modal-body p-0">
+        <iframe id="order-files-iframe" class="orders-files-iframe" src="about:blank" loading="lazy"></iframe>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.openOrderFilesModal = function(orderId){
+      var url = '/orders/' + String(orderId) + '/files';
+      // Append theme param from document or localStorage so iframe renders same theme
+      try {
+        var theme = document.documentElement.getAttribute('data-theme') || document.body.getAttribute('data-theme');
+        if (!theme) {
+          try { theme = localStorage.getItem('selectedTheme') || localStorage.getItem('theme') || ''; } catch(_) {}
+        }
+        if (theme) {
+          var u = new URL(url, window.location.origin);
+          u.searchParams.set('theme', theme);
+          url = u.pathname + u.search;
+        }
+      } catch(_) {}
+      var ifr = document.getElementById('order-files-iframe');
+      if (ifr) ifr.src = url;
+      if (window.openModal) window.openModal('orderFilesModal');
+    };
+  </script>
+</div>
+<script>
+  // Close files modal when iframe requests ESC close
+  (function setupFilesIframeEscClose(){
+    try {
+      window.addEventListener('message', function(ev){
+        try {
+          var d = ev && ev.data;
+          if (d && typeof d === 'object' && d.type === 'files:esc') {
+            if (typeof window.closeModal === 'function') {
+              window.closeModal('orderFilesModal');
+            } else {
+              // Fallback to Bootstrap API
+              try {
+                var el = document.getElementById('orderFilesModal');
+                if (el && window.bootstrap) {
+                  var inst = bootstrap.Modal.getInstance(el) || bootstrap.Modal.getOrCreateInstance(el);
+                  inst.hide();
+                } else if (el) {
+                  el.classList.remove('show');
+                  el.style.display = 'none';
+                }
+              } catch(_) {}
+            }
+          }
+        } catch(_) {}
+      }, false);
+    } catch(_) {}
+  })();
 </script>
 {% endblock %}

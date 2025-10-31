@@ -1,0 +1,29 @@
+/* Orders page: Files modal iframe sizing and layout */
+
+/* Remove extra padding inside modal body when showing iframe */
+#orderFilesModal .modal-body {
+    padding: 0 !important;
+}
+
+/* Make iframe occupy available width and a reasonable height */
+.orders-files-iframe {
+    width: 100% !important;
+    height: 75vh !important;
+    min-height: 480px;
+    border: 0;
+    display: block;
+    background-color: var(--body-bg, #fff597);
+}
+
+/* Ensure modal dialog can grow wide enough */
+#orderFilesModal .modal-dialog {
+    max-width: 95vw;
+}
+
+/* On very small screens, reduce height a bit */
+@media (max-width: 576px) {
+    .orders-files-iframe {
+        height: 65vh !important;
+        min-height: 360px;
+    }
+}

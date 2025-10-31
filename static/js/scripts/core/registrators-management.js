@@ -116,7 +116,7 @@ function deleteRegistrator(registratorId) {
     if (confirm("Вы уверены, что хотите удалить этого регистратора?")) {
       if (window.ApiClient) {
         return window.ApiClient.apiDelete(
-          `/api/registrators/${registratorId}`
+          `/registrators/${registratorId}`
         ).then((data) => {
           if (data.success) {
             if (window.showToast) {
@@ -138,7 +138,7 @@ function deleteRegistrator(registratorId) {
         });
       } else {
         // Fallback to direct fetch
-        return fetch(`/api/registrators/${registratorId}`, {
+        return fetch(`/registrators/${registratorId}`, {
           method: "DELETE",
         })
           .then((response) => response.json())

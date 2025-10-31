@@ -122,8 +122,20 @@
      * @param {MouseEvent} e - Mouse event
      */
     handleContextMenuEvent(e) {
-      if (!document.getElementById("maintable")) {
-        return; // not on correct page
+      // Page scoping to avoid interfering with other pages
+      const withinFiles = !!(e.target && e.target.closest && e.target.closest("section.files-page, .files-page"));
+      const withinUsers = !!(e.target && e.target.closest && e.target.closest("section[data-testid='users-section']"));
+      const withinGroups = !!(e.target && e.target.closest && e.target.closest("section[data-testid='groups-section']"));
+
+      if (this.options && this.options.page === "files") {
+        if (!withinFiles) return;
+      } else if (this.options && this.options.page === "users") {
+        if (!withinUsers) return;
+      } else if (this.options && this.options.page === "groups") {
+        if (!withinGroups) return;
+      } else {
+        // Unknown page -> do not handle
+        return;
       }
 
       e.preventDefault();

@@ -3,11 +3,15 @@
 {% block css %}
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/table.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/search.css')}}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/files.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/popup.css')}}" />
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
 <link rel="stylesheet" href="{{url_for('static',filename='css/components/progress.css')}}"/>
+{% if embed %}
+<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files-embed.css')}}">
+{% endif %}
 {% endblock %}
 
 {% block js %}
@@ -15,6 +19,46 @@
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/popup-utils.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/context-menu.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script>
+  // Sync theme from query parameter if provided (for iframe embed) and ensure CSS variables are set
+  (function syncThemeFromQuery(){
+    try {
+      var usp = new URLSearchParams(window.location.search);
+      var theme = (usp.get('theme') || '').trim();
+      if (!theme) {
+        try { theme = localStorage.getItem('selectedTheme') || localStorage.getItem('theme') || ''; } catch(_) {}
+      }
+      if (!theme) return;
+      // Normalize values
+      var t = theme.toLowerCase();
+      if (t.startsWith('theme-')) t = t.slice(6);
+      if (t === 'hc') t = 'dark-hc';
+      var cls = (t === 'dark') ? 'theme-dark' : (t === 'dark-hc' ? 'theme-dark-hc' : 'theme-light');
+      // Apply classes
+      document.documentElement.classList.remove('theme-light','theme-dark','theme-dark-hc');
+      document.body && document.body.classList && document.body.classList.remove('theme-light','theme-dark','theme-dark-hc');
+      document.documentElement.classList.add(cls);
+      if (document.body && document.body.classList) document.body.classList.add(cls);
+      document.documentElement.setAttribute('data-theme', t);
+      document.body && document.body.setAttribute && document.body.setAttribute('data-theme', t);
+      // Ensure critical CSS variables are present even if base styles load later
+      var varsLight = {
+        '--body-bg': '#fff597', '--body-text': '#0f1724', '--modal-bg': '#fff9c0', '--modal-border': '#000000', '--modal-header-bg': '#fff06d'
+      };
+      var varsDark = {
+        '--body-bg': '#121212', '--body-text': '#ffffff', '--modal-bg': '#121212', '--modal-border': '#000000', '--modal-header-bg': '#000000'
+      };
+      var varsHC = {
+        '--body-bg': '#000000', '--body-text': '#00ff00', '--modal-bg': '#000000', '--modal-border': '#00ff00', '--modal-header-bg': '#000000'
+      };
+      var map = (t === 'dark') ? varsDark : (t === 'dark-hc' ? varsHC : varsLight);
+      var rootStyle = document.documentElement && document.documentElement.style;
+      if (rootStyle) {
+        Object.keys(map).forEach(function(k){ try { if (!getComputedStyle(document.documentElement).getPropertyValue(k)) rootStyle.setProperty(k, map[k]); } catch(_) { rootStyle.setProperty(k, map[k]); } });
+      }
+    } catch(_) {}
+  })();
+</script>
 <script>
   // Make dirs data available before files.js executes
   try { window.dirsData = {{ dirs | tojson }}; } catch(_) { window.dirsData = []; }
@@ -68,16 +112,16 @@
         </div>
       </div>
 
-      <table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица файлов" data-testid="files-table" data-can-manage="{{ 1 if current_user.has('files.manage') else 0 }}" data-can-add="{{ 1 if current_user.has('files.upload') else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if current_user.has('files.notes') else 0 }}" data-current-user="{{ current_user.name }}">
+<table class="files-page__table table table-striped table-hover table-sm align-middle table-colored" id="maintable" role="table" aria-label="Таблица файлов" data-testid="files-table" data-can-manage="{{ 1 if (force_can_manage or current_user.has('files.manage')) else 0 }}" data-can-add="{{ 1 if (force_can_add or current_user.has('files.upload')) else 0 }}" data-can-mark-view="{{ 1 if current_user.has('files.mark_viewed') else 0 }}" data-can-notes="{{ 1 if (force_can_notes or current_user.has('files.notes')) else 0 }}" data-current-user="{{ current_user.name }}">
         <thead class="table__head">
           <tr class="table__head_row" role="row">
-            <th class="table__head_item" scope="col">Название</th>
-            <th class="table__head_item" scope="col">Описание</th>
-            <th class="table__head_item" scope="col">Создатель</th>
-            <th class="table__head_item" scope="col">Дата создания</th>
-            <th class="table__head_item" scope="col">Длина</th>
-            <th class="table__head_item" scope="col">Размер</th>
-            <th class="table__head_item" scope="col">Примечания</th>
+            <th class="table__head_item" scope="col" title="Название">Название</th>
+            <th class="table__head_item" scope="col" title="Описание">Описание</th>
+            <th class="table__head_item" scope="col" title="Создатель">Создатель</th>
+            <th class="table__head_item" scope="col" title="Дата создания">Дата создания</th>
+            <th class="table__head_item" scope="col" title="Длина">Длина</th>
+            <th class="table__head_item" scope="col" title="Размер">Размер</th>
+            <th class="table__head_item" scope="col" title="Примечания">Примечания</th>
           </tr>
         </thead>
         <tbody class="table__body" role="rowgroup">
@@ -238,13 +282,6 @@
                   <td class="table__body_item" role="cell">{{ file.size_human }}</td>
                   <td class="table__body_item" role="cell">
                     Обрабатывается...
-                    <div class="d-inline-flex gap-2 ms-2 align-items-center">
-                      <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig_by_id", file_id=file.id) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
-                      {% if current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id) %}
-                        <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
-                <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
-                      {% endif %}
-                    </div>
                   </td>
                 </tr>
               {% endif %}
@@ -269,9 +306,6 @@
           <li class="context-menu__separator"></li>
           <li class="context-menu__item" data-action="add" data-testid="files-cm-add">Загрузить</li>
           <li class="context-menu__item" data-action="record" data-testid="files-cm-record">Записать</li>
-          {% if can_reg_import %}
-          <li class="context-menu__item" data-action="import-registrator" data-testid="files-cm-import-registrator">Загрузить с регистратора</li>
-          {% endif %}
           {% if can_reg_import %}
           <li class="context-menu__item" data-action="import-registrator" data-testid="files-cm-import-registrator">Загрузить с регистратора</li>
           {% endif %}
@@ -332,7 +366,7 @@
   <div id="popup-import-registrator" class="overlay-container" data-testid="files-modal-import-registrator">
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-import-registrator-title">
       <h1 class="popup__title mb-4" id="popup-import-registrator-title">Загрузка с регистратора</h1>
-      <div class="popup__body" style="max-height: 60vh; overflow-y: auto;">
+      <div class="popup__body popup__body--scroll">
         <div class="mb-3">
           <label class="form-control__label" for="reg-picker">Регистратор:</label>
           <select id="reg-picker" class="select form-control__control"></select>
@@ -445,10 +479,10 @@
       <div class="popup__body" style="padding: 0; overflow: hidden;">
         <iframe
           id="rec-iframe"
+          class="files-rec-iframe"
           src="about:blank"
           data-src="{{ url_for('record') }}?embed=1&cat_id={{ current_category_id|int }}&sub_id={{ current_subcategory_id|int }}"
           allow="camera; microphone; display-capture"
-          style="width: 100%; height: 70vh; border: 0; display:  block;"
         ></iframe>
         <script>
           (function syncIframeThemeImmediately(){
@@ -555,18 +589,7 @@
           <div class="popup__form-control form-control">
             <label class="form-control__label" for="move-target-sub">Выберите подкатегорию:</label>
             <select class="form-control__control input" name="target_subcategory_id" id="move-target-sub">
-              {% if move_categories and (move_categories | length) > 0 and did is not none and did < (move_categories | length) %}
-                {% set current_cat = move_categories[did] %}
-                {% if current_cat.subs %}
-                  {% for sub_id, sub_name in current_cat.subs.items() %}
-                    <option value="{{ sub_id }}">{{ sub_name }}</option>
-                  {% endfor %}
-                {% else %}
-                  <option value="" disabled>Нет подкатегорий</option>
-                {% endif %}
-              {% else %}
-                <option value="" disabled>Нет подкатегорий</option>
-              {% endif %}
+              <option value="" disabled>Выберите подкатегорию</option>
             </select>
           </div>
           <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
@@ -635,4 +658,189 @@ try {
     });
   } catch(_) {}
 })();
+</script>
+<script>
+  // Apply tooltips to overflowed table head/body cells (files page + embed)
+  (function setupFilesOverflowTooltips(){
+    function isOverflowing(el){ try { return el && el.scrollWidth > el.clientWidth + 1; } catch(_) { return false; } }
+    function getText(target){
+      var txt = '';
+      try {
+        // Prefer marked elements, else cell text
+        var pref = target.querySelector && target.querySelector('.files-page__link, .files-page__description');
+        txt = ((pref && pref.textContent) || target.textContent || '').trim();
+      } catch(_) { txt = (target && target.textContent || '').trim(); }
+      return txt;
+    }
+    function setTitleIfOverflow(cell){
+      if (!cell) return;
+      var target = cell.querySelector && cell.querySelector('.files-page__link, .files-page__description') || cell;
+      var text = getText(cell);
+      if (!text) { cell.removeAttribute('title'); return; }
+      if (isOverflowing(target)) {
+        cell.setAttribute('title', text);
+      } else {
+        if (cell.getAttribute('title') === text) cell.removeAttribute('title');
+      }
+    }
+    function apply(){
+      try {
+        var table = document.getElementById('maintable'); if (!table) return;
+        table.querySelectorAll('thead th.table__head_item, tbody td.table__body_item').forEach(setTitleIfOverflow);
+      } catch(_) {}
+    }
+    // Expose for external refresh hooks
+    try { window.applyFilesOverflowTooltips = apply; } catch(_) {}
+    // Initial and on resize
+    try {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function(){ setTimeout(apply, 50); }, { once: true });
+      } else { setTimeout(apply, 10); }
+    } catch(_) {}
+    try { window.addEventListener('resize', function(){ apply(); }); } catch(_) {}
+    // Re-apply on table content mutations (pagination/search)
+    try {
+      var table = document.getElementById('maintable');
+      if (table && window.MutationObserver) {
+        var mo = new MutationObserver(function(){ setTimeout(apply, 0); });
+        mo.observe(table, { childList: true, subtree: true });
+      }
+    } catch(_) {}
+    // Event delegation: ensure title assigned on first hover
+    try {
+      document.addEventListener('mouseover', function(e){
+        try {
+          var cell = e.target && e.target.closest && e.target.closest('th.table__head_item, td.table__body_item');
+          if (!cell) return;
+          var table = document.getElementById('maintable');
+          if (!table || !cell.closest('#maintable')) return;
+          setTitleIfOverflow(cell);
+        } catch(_) {}
+      }, true);
+    } catch(_) {}
+  })();
+</script>
+<script>
+  // Robust header tooltips: set title on all header cells (like orders, but tolerant)
+  (function ensureFilesHeaderTooltips(){
+    function apply(){
+      try {
+        var ths = document.querySelectorAll('#maintable thead .table__head_item');
+        if (!ths || ths.length === 0) return;
+        ths.forEach(function(th){
+          var txt = (th && th.textContent ? th.textContent.trim() : '');
+          if (txt) th.setAttribute('title', txt);
+        });
+      } catch(_) {}
+    }
+    // Run after DOM, and after a short delay to allow dynamic render
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function(){ setTimeout(apply, 30); }, { once: true });
+    } else {
+      setTimeout(apply, 10);
+    }
+    // On resize and on table mutations
+    try { window.addEventListener('resize', function(){ apply(); }, true); } catch(_) {}
+    try {
+      var table = document.getElementById('maintable');
+      if (table && window.MutationObserver) {
+        var mo = new MutationObserver(function(){ apply(); });
+        mo.observe(table.tHead || table, { childList: true, subtree: true });
+      }
+    } catch(_) {}
+    // Expose
+    try { window.ensureFilesHeaderTooltips = apply; } catch(_) {}
+  })();
+</script>
+<script>
+  // Match orders: header tooltips for truncated thead th
+  (function setupFilesHeaderTooltips(){
+    function apply(){
+      try {
+        var table = document.getElementById('maintable');
+        if (!table) return;
+        var ths = table.querySelectorAll('thead th');
+        ths.forEach(function(th){
+          var txt = (th.textContent || '').trim();
+          if (!txt) { th.removeAttribute('title'); return; }
+          var overflowing = th.scrollWidth > th.clientWidth;
+          if (overflowing) th.setAttribute('title', txt); else th.removeAttribute('title');
+        });
+      } catch(_) {}
+    }
+    try {
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, { once: true });
+      else apply();
+      var to = null;
+      window.addEventListener('resize', function(){ if (to) clearTimeout(to); to = setTimeout(apply, 120); }, true);
+      // expose
+      window.applyFilesHeaderTooltips = apply;
+    } catch(_) {}
+  })();
+  // Optional: body cells tooltips using same rule
+  (function setupFilesBodyTooltips(){
+    function apply(){
+      try {
+        var table = document.getElementById('maintable');
+        if (!table) return;
+        var tds = table.querySelectorAll('tbody td');
+        tds.forEach(function(td){
+          var txt = (td.textContent || '').trim();
+          if (!txt) { if (td.title) td.removeAttribute('title'); return; }
+          var overflowing = td.scrollWidth > td.clientWidth;
+          if (overflowing) td.setAttribute('title', txt); else if (td.title === txt) td.removeAttribute('title');
+        });
+      } catch(_) {}
+    }
+    try {
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply, { once: true });
+      else apply();
+      var to = null;
+      window.addEventListener('resize', function(){ if (to) clearTimeout(to); to = setTimeout(apply, 120); }, true);
+      // Re-apply on pagination/search mutations
+      var table = document.getElementById('maintable');
+      if (table && window.MutationObserver) {
+        var mo = new MutationObserver(function(){ apply(); });
+        mo.observe(table.tBodies[0] || table, { childList: true, subtree: true });
+      }
+      window.applyFilesBodyTooltips = apply;
+    } catch(_) {}
+  })();
+</script>
+<script>
+  // Force simple tooltips: set title on hover for head/body cells (works for both full page and embed)
+  (function forceSimpleCellTooltips(){
+    function getCellText(el){ try { return (el.textContent || '').trim(); } catch(_) { return ''; } }
+    try {
+      document.addEventListener('mouseenter', function(e){
+        try {
+          var cell = e.target && e.target.closest && e.target.closest('#maintable thead th');
+          if (!cell) return;
+          var txt = getCellText(cell);
+          if (txt) cell.setAttribute('title', txt);
+        } catch(_) {}
+      }, true);
+      // Clear any titles from tbody cells set earlier
+      try {
+        var tds = document.querySelectorAll('#maintable tbody td[title]');
+        tds.forEach(function(td){ td.removeAttribute('title'); });
+      } catch(_) {}
+    } catch(_) {}
+  })();
+</script>
+<script>
+  // Notify parent on ESC to close container modal (when embedded in iframe)
+  (function setupEmbedEscRelay(){
+    try {
+      if (window.top && window.top !== window) {
+        document.addEventListener('keydown', function(e){
+          try {
+            if (e.key === 'Escape') {
+              window.top.postMessage({ type: 'files:esc' }, '*');
+            }
+          } catch(_) {}
+        }, true);
+      }
+    } catch(_) {}
+  })();
 </script>

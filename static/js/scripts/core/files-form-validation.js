@@ -164,6 +164,23 @@ async function validateForm(element) {
     await window.Config.loadConfig();
     const maxSize = window.Config.getMaxFileSizeBytes();
     const allowedTypes = window.Config.getAllowedFileTypes();
+    function isTypeAllowed(mime){
+      try {
+        if (!mime) return true; // be permissive if browser doesn't provide type
+        if (Array.isArray(allowedTypes)) {
+          for (var i=0;i<allowedTypes.length;i++){
+            var t = String(allowedTypes[i]||'').trim();
+            if (!t) continue;
+            if (t === mime) return true;
+            if (t.endsWith('/*')) {
+              var pref = t.slice(0, t.length-1); // keep slash
+              if (mime.startsWith(pref)) return true;
+            }
+          }
+        }
+      } catch(_) {}
+      return false;
+    }
 
     // Validate required fields
     const requiredFields = form.querySelectorAll("[required]");
@@ -196,7 +213,7 @@ async function validateForm(element) {
           field.classList.remove("is-invalid");
         }
 
-        if (!allowedTypes.includes(file.type)) {
+        if (!isTypeAllowed(file.type)) {
           errors.push(`Тип файла "${file.name}" не поддерживается`);
           field.classList.add("is-invalid");
         } else {
@@ -309,6 +326,23 @@ async function validateFileUpload(form) {
     await window.Config.loadConfig();
     const maxSize = window.Config.getMaxFileSizeBytes();
     const allowedTypes = window.Config.getAllowedFileTypes();
+    function isTypeAllowed2(mime){
+      try {
+        if (!mime) return true;
+        if (Array.isArray(allowedTypes)) {
+          for (var i=0;i<allowedTypes.length;i++){
+            var t = String(allowedTypes[i]||'').trim();
+            if (!t) continue;
+            if (t === mime) return true;
+            if (t.endsWith('/*')) {
+              var pref = t.slice(0, t.length-1);
+              if (mime.startsWith(pref)) return true;
+            }
+          }
+        }
+      } catch(_) {}
+      return false;
+    }
 
     const file = fileInput.files[0];
 
@@ -321,7 +355,7 @@ async function validateFileUpload(form) {
       return false;
     }
 
-    if (!allowedTypes.includes(file.type)) {
+    if (!isTypeAllowed2(file.type)) {
       window.ErrorHandler.handleError(
         new Error(`Тип файла не поддерживается`),
         "validateFileUpload"

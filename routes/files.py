@@ -18,6 +18,10 @@ import urllib3
 import signal
 import sys
 import os
+import redis
+import re
+import tempfile
+from flask import current_app
 
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -78,7 +82,7 @@ _log = get_logger(__name__)
 def clear_all_uploads_on_startup():
     """Clear all upload jobs from Redis on server startup."""
     try:
-        import redis
+        # moved imports to top
         redis_client = redis.Redis(
             unix_socket_path='/var/run/redis/redis.sock',
             password='znf25!',
@@ -334,7 +338,84 @@ def register(app, media_service, socketio=None) -> None:
             resp.headers['Expires'] = '0'
             return resp
 
-        did, sdid = validate_directory_params(did, sdid, _dirs)
+        # Optional: deep link by explicit cat_id/sub_id – build direct view limited to one subcategory
+        direct_view = False
+        direct_view_is_orders = False
+        computed_can_manage = False
+        computed_can_add = False
+        computed_can_notes = False
+        try:
+            cat_id_arg = request.args.get('cat_id', type=int)
+            sub_id_arg = request.args.get('sub_id', type=int)
+            if cat_id_arg and sub_id_arg:
+                cat_folder = app._sql._get_category_folder_by_id(int(cat_id_arg))
+                sub_folder = app._sql._get_subcategory_folder_by_id(int(sub_id_arg))
+                if cat_folder and sub_folder:
+                    # Enforce: only allow orders system category and order-<id> subfolders
+                    try:
+                        orders_cat_id = app._sql.category_id_by_folder('orders')
+                    except Exception:
+                        orders_cat_id = None
+                    if orders_cat_id and int(cat_id_arg) == int(orders_cat_id) and str(sub_folder or '').startswith('order-'):
+                        # Replace dirs with a minimal structure limited to requested cat/sub
+                        _dirs = [{cat_folder: cat_folder, sub_folder: sub_folder}]
+                        did, sdid = 0, 1
+                        direct_view = True
+                        direct_view_is_orders = True
+                        # Compute permissions server-side; ignore any force_* in query
+                        # Admin or orders.files_edit -> full
+                        try:
+                            is_admin = current_user.has('admin.any')
+                        except Exception:
+                            is_admin = False
+                        try:
+                            can_orders_edit = current_user.has('orders.files_edit')
+                        except Exception:
+                            can_orders_edit = False
+                        try:
+                            can_orders_view = current_user.has('orders.files_view')
+                        except Exception:
+                            can_orders_view = False
+                        # Derive order id from sub_folder
+                        order_id_str = str(sub_folder)[len('order-'):] if str(sub_folder).startswith('order-') else ''
+                        try:
+                            order_id_val = int(order_id_str)
+                        except Exception:
+                            order_id_val = None
+                        # Group ownership: creators' group full access
+                        has_group_full = False
+                        try:
+                            if order_id_val:
+                                prefix = app._sql.config['db']['prefix']
+                                row = app._sql.execute_query(f'SELECT service FROM {prefix}_order WHERE id=%s', [order_id_val])
+                                service = row[0][0] if row else ''
+                                groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                service_gid = None
+                                for gid, name in groups:
+                                    if name == service:
+                                        service_gid = int(gid)
+                                        break
+                                if service_gid and getattr(current_user, 'gid', None) and int(current_user.gid) == int(service_gid):
+                                    has_group_full = True
+                        except Exception:
+                            has_group_full = False
+                        # Final permissions
+                        if is_admin or can_orders_edit or has_group_full:
+                            computed_can_manage = True
+                            computed_can_add = True
+                            computed_can_notes = True
+                        elif can_orders_view:
+                            computed_can_manage = False
+                            computed_can_add = False
+                            computed_can_notes = False
+                        else:
+                            # Not authorized to view this order's files
+                            return abort(403)
+        except Exception:
+            direct_view = False
+
+        if not direct_view:
+            did, sdid = validate_directory_params(did, sdid, _dirs)
         dirs = list(_dirs[did].keys()) if (did is not None
                                            and did < len(_dirs)) else []
 
@@ -421,7 +502,13 @@ def register(app, media_service, socketio=None) -> None:
         files = None
         current_category_id = None
         current_subcategory_id = None
-        if 1 <= sdid < len(dirs):
+        if direct_view:
+            # Fetch strictly by provided IDs
+            current_category_id = request.args.get('cat_id', type=int)
+            current_subcategory_id = request.args.get('sub_id', type=int)
+            if current_category_id and current_subcategory_id:
+                files = app._sql.file_by_category_and_subcategory([int(current_category_id), int(current_subcategory_id)])
+        elif 1 <= sdid < len(dirs):
             # Prefer new schema when available
             try:
                 cat_id = app._sql.category_id_by_folder(dirs[0]) if hasattr(
@@ -470,17 +557,33 @@ def register(app, media_service, socketio=None) -> None:
                     file.update_exists_status()
                     # Update the database with the new exists status
                     app._sql.file_update_exists_status(file.id, file.exists)
-                # Sort files by created_at, handling both string and datetime types
-                def get_sort_key(f):
-                    if isinstance(f.created_at, str):
+                # Sort files by robust timestamp (float) to avoid mixed-type comparisons
+                def ts_of(f):
+                    try:
+                        v = getattr(f, 'created_at', None) or getattr(f, 'date', None) or getattr(f, 'created', None)
+                        if v is None:
+                            return 0.0
+                        if isinstance(v, (int, float)):
+                            return float(v)
                         try:
-                            from datetime import datetime
-                            return datetime.fromisoformat(f.created_at.replace('Z', '+00:00'))
-                        except:
-                            return f.created_at
-                    return f.created_at
-                
-                files.sort(key=get_sort_key, reverse=True)
+                            return float(v.timestamp())
+                        except Exception:
+                            pass
+                        s = str(v)
+                        from datetime import datetime
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d.%m.%Y %H:%M:%S', '%d.%m.%Y'):
+                            try:
+                                return datetime.strptime(s, fmt).timestamp()
+                            except Exception:
+                                pass
+                        try:
+                            return datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+                        except Exception:
+                            return 0.0
+                    except Exception:
+                        return 0.0
+
+                files.sort(key=ts_of, reverse=True)
         # Determine whether to show "Загрузить с регистратора" controls
         can_reg_import = False
         try:
@@ -491,54 +594,81 @@ def register(app, media_service, socketio=None) -> None:
         except Exception:
             can_reg_import = False
         # Pre-compute category/subcategory ID mappings for move modal
-        # Exclude current category/subcategory from list
+        # Build from DB to avoid omissions; do not filter by permissions here
         move_categories = []
         try:
-            for i, dir_entry in enumerate(_dirs):
+            # Fetch all categories
+            rows_cats = app._sql.execute_query(
+                f"SELECT id, display_name FROM {app._sql.config['db']['prefix']}_file_category ORDER BY display_name;",
+                []) or []
+            if not rows_cats:
+                # Fallback to permission-derived structure
                 try:
-                    keys = list(dir_entry.keys())
-                    vals = list(dir_entry.values())
-                    if not keys or not vals:
-                        continue
-                    root_key = keys[0]
-                    root_name = vals[0]
-                    cat_id = app._sql.category_id_by_folder(root_key)
-
-                    # Build subcategory mapping, excluding current subcategory
+                    move_dirs = dirs_by_permission(app, 3, 'f') or []
+                    for dir_entry in move_dirs:
+                        keys = list(dir_entry.keys()); vals = list(dir_entry.values())
+                        if not keys or not vals:
+                            continue
+                        cat_id = app._sql.category_id_by_folder(keys[0])
+                        if cat_id is None:
+                            continue
+                        rows_cats.append((int(cat_id), vals[0]))
+                except Exception:
+                    pass
+            for cid, cname in rows_cats:
+                try:
+                    cid_int = int(cid)
+                    # Load subs
                     subs = {}
-                    for j in range(1, len(keys)):
+                    rows_subs = app._sql.execute_query(
+                        f"SELECT id, display_name FROM {app._sql.config['db']['prefix']}_file_subcategory WHERE category_id=%s ORDER BY display_name;",
+                        [cid_int]) or []
+                    for sid, sname in rows_subs:
                         try:
-                            sub_key = keys[j]
-                            sub_name = vals[j]
-                            sub_id = app._sql.subcategory_id_by_folder(
-                                cat_id, sub_key) if cat_id else None
-                            # Only include valid subcategory IDs (not None)
-                            if sub_id is not None:
-                                # Exclude current category/subcategory
-                                if cat_id == current_category_id and sub_id == current_subcategory_id:
-                                    continue
-                                subs[sub_id] = sub_name
+                            sid_int = int(sid)
+                            if cid_int == (current_category_id or 0) and sid_int == (current_subcategory_id or 0):
+                                continue
+                            subs[sid_int] = sname
                         except Exception:
                             continue
-
-                    # Only add categories with valid IDs
-                    # Skip current category if it has only one subcategory and it's the current one
-                    if cat_id is not None:
-                        # Check if this is current category
-                        if cat_id == current_category_id:
-                            # If it has only one subcategory (the current one), skip it
-                            if len(subs) == 0:
-                                continue
-                        move_categories.append({
-                            'id': cat_id,
-                            'name': root_name,
-                            'key': root_key,
-                            'subs': subs
-                        })
+                    move_categories.append({
+                        'id': cid_int,
+                        'name': cname,
+                        'key': '',
+                        'subs': subs
+                    })
                 except Exception:
                     continue
         except Exception:
             move_categories = []
+
+        # Flags for embedded minimal UI; ignore any force_* from query. Compute server-side.
+        embed = bool(request.args.get('embed'))
+        if embed and direct_view and direct_view_is_orders:
+            force_can_manage = computed_can_manage
+            force_can_add = computed_can_add
+            force_can_notes = computed_can_notes
+        else:
+            # Non-embed or non-direct view: do not elevate; derive from user global permissions
+            try:
+                is_admin = current_user.has('admin.any')
+            except Exception:
+                is_admin = False
+            try:
+                can_files_manage = current_user.has('files.manage') or current_user.has('files.edit_any') or current_user.has('files.delete_any')
+            except Exception:
+                can_files_manage = False
+            try:
+                can_files_upload = current_user.has('files.upload')
+            except Exception:
+                can_files_upload = False
+            try:
+                can_files_notes = current_user.has('files.notes')
+            except Exception:
+                can_files_notes = False
+            force_can_manage = bool(is_admin or can_files_manage)
+            force_can_add = bool(is_admin or can_files_upload)
+            force_can_notes = bool(is_admin or can_files_notes)
 
         resp = make_response(
             render_template('files.j2.html',
@@ -553,12 +683,54 @@ def register(app, media_service, socketio=None) -> None:
                             can_reg_import=can_reg_import,
                             current_category_id=current_category_id or 0,
                             current_subcategory_id=current_subcategory_id or 0,
-                            move_categories=move_categories))
+                            move_categories=move_categories,
+                            embed=embed,
+                            force_can_manage=force_can_manage,
+                            force_can_add=force_can_add,
+                            force_can_notes=force_can_notes))
         resp.headers[
             'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         resp.headers['Pragma'] = 'no-cache'
         resp.headers['Expires'] = '0'
         return resp
+    @app.route('/api/files/subcategories', methods=['GET'])
+    @require_permissions(FILES_VIEW_PAGE)
+    def api_files_subcategories():
+        try:
+            cat_id = request.args.get('category_id', type=int)
+            if not cat_id:
+                return jsonify({'status': 'error', 'message': 'category_id required'}), 400
+            rows = app._sql.execute_query(
+                f"SELECT id, name FROM {app._sql.config['db']['prefix']}_file_subcategory WHERE category_id=%s ORDER BY name;",
+                [cat_id]) or []
+            items = [{'id': int(r[0]), 'name': r[1]} for r in rows]
+            return jsonify({'status': 'success', 'items': items})
+        except Exception as e:
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    @app.route('/api/files/categories', methods=['GET'])
+    @require_permissions(FILES_VIEW_PAGE)
+    def api_files_categories():
+        try:
+            cats = app._sql.execute_query(
+                f"SELECT id, display_name FROM {app._sql.config['db']['prefix']}_file_category ORDER BY display_name;",
+                []) or []
+            items = []
+            for cid, cname in cats:
+                try:
+                    rows_subs = app._sql.execute_query(
+                        f"SELECT id, display_name FROM {app._sql.config['db']['prefix']}_file_subcategory WHERE category_id=%s ORDER BY display_name;",
+                        [cid]) or []
+                    subs = [{'id': int(sid), 'name': sname} for sid, sname in rows_subs]
+                    items.append({'id': int(cid), 'name': cname, 'subs': subs})
+                except Exception:
+                    items.append({'id': int(cid), 'name': cname, 'subs': []})
+            return jsonify({'status': 'success', 'items': items})
+        except Exception as e:
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
     @app.route('/files/add', methods=['POST'])
     @require_permissions(FILES_UPLOAD)
@@ -628,7 +800,7 @@ def register(app, media_service, socketio=None) -> None:
                 current_user.id,  # owner_id should be user ID, not the owner string
                 desc,
                 None,  # Let MySQL set created_at automatically with CURRENT_TIMESTAMP
-                0, 0, size_mb, None
+                0, 0, size_mb
             ])
             # Probe duration from saved .webm using ffprobe
             length_seconds = 0
@@ -1947,15 +2119,39 @@ def register(app, media_service, socketio=None) -> None:
                 for file in fs:
                     try:
                         file.update_exists_status()
-                        # Update the database with the new exists status
                         try:
                             app._sql.file_update_exists_status(file.id, file.exists)
                         except Exception:
                             pass
                     except Exception:
                         pass
+                # Robust timestamp extractor to ensure proper ordering
+                def ts_of(file):
+                    try:
+                        v = getattr(file, 'created_at', None) or getattr(file, 'date', None) or getattr(file, 'created', None)
+                        if v is None:
+                            return 0.0
+                        if isinstance(v, (int, float)):
+                            return float(v)
+                        try:
+                            return float(v.timestamp())
+                        except Exception:
+                            pass
+                        s = str(v)
+                        from datetime import datetime
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d.%m.%Y %H:%M:%S', '%d.%m.%Y'):
+                            try:
+                                return datetime.strptime(s, fmt).timestamp()
+                            except Exception:
+                                pass
+                        try:
+                            return datetime.fromisoformat(s).timestamp()
+                        except Exception:
+                            return 0.0
+                    except Exception:
+                        return 0.0
                 try:
-                    fs.sort(key=lambda f: f.created_at, reverse=True)
+                    fs.sort(key=ts_of, reverse=True)
                 except Exception:
                     pass
             total = len(fs or [])
@@ -3190,9 +3386,7 @@ def start_background_upload(upload_job):
                 upload_job['ip'])
 
             _log.info(f"Completed background upload {upload_id}")
-            _log.info(f"Performance Summary - Total time: {total_time:.2f}s for {upload_job['total_files']} files")
-            _log.info(f"Performance Summary - Average time per file: {total_time/upload_job['total_files']:.2f}s")
-            _log.info(f"Performance Summary - Registrator: {upload_job['registrator_name']}")
+            # Removed verbose performance summary logging
 
         except Exception as e:
             _log.error(f"Background upload error: {e}")

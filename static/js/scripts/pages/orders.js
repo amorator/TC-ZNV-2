@@ -577,7 +577,7 @@
               // hide unapprove option when locked complete
               setVis('unapprove', false);
             }
-            showAt(e.pageX, e.pageY);
+            showAt(e.clientX, e.clientY);
           } catch(_) {}
         });
       });
@@ -592,7 +592,7 @@
           if (!action) return;
           switch(action){
             case 'files':
-              // not wired yet per requirement
+              if (id && window.openOrderFilesModal) window.openOrderFilesModal(id);
               break;
             case 'edit':
               if (id) openOrderEditModal(id);
@@ -648,7 +648,7 @@
             ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
             var createEl = menu.querySelector('[data-action="create"]');
             if (createEl) createEl.classList.remove('d-none');
-            showAt(e.pageX, e.pageY);
+            showAt(e.clientX, e.clientY);
           } catch(_) {}
         }, true);
       }
@@ -672,7 +672,7 @@
             ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
             var createEl = menu.querySelector('[data-action="create"]');
             if (createEl) createEl.classList.remove('d-none');
-            showAt(e.pageX, e.pageY);
+            showAt(e.clientX, e.clientY);
           } catch(_) {}
         }, true);
       }

@@ -3,7 +3,7 @@ from flask_login import current_user
 from modules.permissions import require_permissions, CATEGORIES_VIEW, CATEGORIES_MANAGE, ADMIN_ANY, FILES_UPLOAD
 from modules.logging import get_logger, log_action
 from modules.registrators import Registrator, parse_directory_listing
-from modules.sync_manager import emit_registrators_changed
+from modules.sync_manager import emit_registrators_changed, SyncManager
 from datetime import datetime
 from json import loads, dumps
 from os import makedirs, path as ospath
@@ -14,6 +14,7 @@ import time
 from functools import wraps
 from flask_socketio import join_room
 import re
+import requests
 
 _log = get_logger(__name__)
 
@@ -276,7 +277,7 @@ def register(app, socketio=None):
             incoming_folder = (j.get('local_folder') or '').strip()
             enabled = 1 if j.get('enabled') in (1, '1', True, 'true',
                                                 'on') else 0
-            _log.info(
+            _log.debug(
                 f"[registrators] PUT update id={rid} name='{name}' enabled={enabled}"
             )
             # optional display_order update
@@ -336,7 +337,7 @@ def register(app, socketio=None):
                 request.remote_addr, True)
             # Emit change event for real-time sync
             emit_registrators_changed(socketio, 'updated', id=rid)
-            _log.info(f"[registrators] PUT success id={rid}")
+            _log.debug(f"[registrators] PUT success id={rid}")
             return jsonify({'status': 'success'})
         except Exception as e:
             _log.error(f"[registrators] PUT error id={rid}: {e}")
@@ -752,7 +753,7 @@ def register(app, socketio=None):
                         current_user.id,  # owner_id should be user ID, not the owner string
                         desc,
                         datetime.utcnow().strftime('%Y-%m-%d %H:%M'), 0, 0,
-                        size_mb, None
+                        size_mb
                     ])
                     # Update probed metadata if available
                     try:
@@ -787,7 +788,7 @@ def register(app, socketio=None):
             # Soft refresh for clients (emit to files room and broadcast registrators change)
             try:
                 if socketio:
-                    from modules.sync_manager import SyncManager, emit_registrators_changed
+                    # moved imports to top
                     sm = SyncManager(socketio)
                     sm.emit_to_room('files:changed', {
                         'reason': 'registrators-import',
@@ -871,7 +872,7 @@ def register(app, socketio=None):
                 }), 500
 
             # Download file from registrator
-            import requests
+            # moved imports to top
             _log.info(f"Attempting to download from registrator: {url}")
 
             # Try different approaches

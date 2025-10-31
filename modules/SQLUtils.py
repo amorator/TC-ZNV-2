@@ -78,23 +78,22 @@ class SQL(Config):
 		
 		# Create files table
 		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_file (
-	id INT AUTO_INCREMENT PRIMARY KEY,
-	display_name VARCHAR(255) NOT NULL,
-	file_name VARCHAR(255) NOT NULL,
-	owner VARCHAR(255) NOT NULL,
-	description TEXT DEFAULT '',
-	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	ready TINYINT(1) DEFAULT 0,
-	viewed TEXT DEFAULT '',
-	note TEXT DEFAULT '',
-	length_seconds INT DEFAULT 0,
-	size_mb DECIMAL(10,2) DEFAULT 0.00,
-	order_id INT NULL,
-	category_id INT NULL,
-	subcategory_id INT NULL,
-	file_exists TINYINT(1) DEFAULT 1,
-	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);""")
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		display_name VARCHAR(255) NOT NULL,
+		file_name VARCHAR(255) NOT NULL,
+		owner VARCHAR(255) NOT NULL,
+		description TEXT DEFAULT '',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		ready TINYINT(1) DEFAULT 0,
+		viewed TEXT DEFAULT '',
+		note TEXT DEFAULT '',
+		length_seconds INT DEFAULT 0,
+		size_mb DECIMAL(10,2) DEFAULT 0.00,
+		category_id INT NULL,
+		subcategory_id INT NULL,
+		file_exists TINYINT(1) DEFAULT 1,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+	);""")
 		
 		# Create requests table
 		self.execute_non_query(f"""CREATE TABLE IF NOT EXISTS {self.config['db']['prefix']}_request (
@@ -280,7 +279,7 @@ class SQLUtils(SQL):
 		
 		# Common SQL query fragments for optimization
 		# Note: path is deprecated in DB; use category_id/subcategory_id/file_name. Keep legacy path for fallback.
-		self._FILE_SELECT_FIELDS_CORE = "id, display_name, file_name as real_name, owner_id, description, created_at as date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists"
+		self._FILE_SELECT_FIELDS_CORE = "id, display_name, file_name as real_name, owner_id, description, created_at as date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists"
 		self._USER_SELECT_FIELDS = "id, login, name, password, gid, enabled, permission"
 		self._GROUP_SELECT_FIELDS = "id, name, description"
 		self._CATEGORY_SELECT_FIELDS = "id, display_name, folder_name, display_order, enabled"
@@ -462,9 +461,9 @@ class SQLUtils(SQL):
 		if not row:
 			return None
 		(
-			fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists
+			fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists
 		) = row
-		return File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists)
+		return File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists)
 
 	def file_by_path(self, args):
 		"""Backward-compatible: resolve by absolute directory path, then fetch by category/subcategory.
@@ -488,8 +487,8 @@ class SQLUtils(SQL):
 			from classes.file import File
 			files = []
 			for r in rows or []:
-				(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-				files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+				(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists) = r
+				files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists))
 			return files
 		except Exception:
 			return []
@@ -511,8 +510,8 @@ class SQLUtils(SQL):
 		from classes.file import File
 		files = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-			files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists) = r
+			files.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists))
 		return files
 
 	def file_all(self):
@@ -526,13 +525,13 @@ class SQLUtils(SQL):
 		from classes.file import File
 		result = []
 		for r in rows or []:
-			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) = r
-			result.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists))
+			(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists) = r
+			result.append(File(fid, display_name, file_name, owner_id, description, date, ready, viewed, note, length_seconds, size_mb, category_id, subcategory_id, file_exists))
 		return result
 
 	def file_add(self, args):
 		"""Deprecated signature - use file_add2 instead.
-		Args: [display_name, file_name, category_id, subcategory_id, owner_id, description, date, ready, length_seconds, size_mb, order_id]
+		Args: [display_name, file_name, category_id, subcategory_id, owner_id, description, date, ready, length_seconds, size_mb]
 		"""
 		return self.file_add2(args)
 
@@ -540,7 +539,7 @@ class SQLUtils(SQL):
 		"""Add new file (new schema).
 		Incoming args:
 		  [display_name, file_name, category_id, subcategory_id, owner_id, description,
-		   date, ready, length_seconds, size_mb, order_id]
+		   date, ready, length_seconds, size_mb]
 		"""
 		self._ensure_files_new_columns()
 		display_name = args[0]
@@ -553,7 +552,7 @@ class SQLUtils(SQL):
 		ready = args[7]
 		length_seconds = args[8]
 		size_mb = args[9]
-		order_id = args[10] if len(args) > 10 else None
+		# order_id removed
 		
 		if date_s is None:
 			# Use MySQL's DEFAULT CURRENT_TIMESTAMP
@@ -565,13 +564,12 @@ class SQLUtils(SQL):
 				ready,
 				length_seconds,
 				size_mb,
-				order_id,
 				category_id,
 				subcategory_id,
 				1,  # file_exists = True for new files
 			]
 			return self.execute_insert(
-				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, ready, length_seconds, size_mb, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
 				values,
 			)
 		else:
@@ -584,13 +582,12 @@ class SQLUtils(SQL):
 				ready,
 				length_seconds,
 				size_mb,
-				order_id,
 				category_id,
 				subcategory_id,
 				1,  # file_exists = True for new files
 			]
 			return self.execute_insert(
-				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, created_at, ready, length_seconds, size_mb, order_id, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
+				f"INSERT INTO {self.config['db']['prefix']}_file (display_name, file_name, owner_id, description, created_at, ready, length_seconds, size_mb, category_id, subcategory_id, file_exists) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);",
 				values,
 			)
 
@@ -598,9 +595,7 @@ class SQLUtils(SQL):
 		"""Edit file. Args: [display_name, description, id]"""
 		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET display_name = %s, description = %s WHERE id = %s;", args)
 
-	def file_set_order_id(self, args):
-		"""Set order_id for file. Args: [order_id, file_id]"""
-		self.execute_non_query(f"UPDATE {self.config['db']['prefix']}_file SET order_id = %s WHERE id = %s;", args)
+	# order_id removed; no setter
 
 	def file_delete(self, args):
 		"""Delete file by ID."""
@@ -781,7 +776,6 @@ class SQLUtils(SQL):
 					note TEXT DEFAULT '',
 					length_seconds INT DEFAULT 0,
 					size_mb DECIMAL(10,2) DEFAULT 0.00,
-					order_id INT NULL DEFAULT NULL,
 					category_id INT NULL,
 					subcategory_id INT NULL,
 					file_exists TINYINT(1) DEFAULT 1,
@@ -792,7 +786,6 @@ class SQLUtils(SQL):
 					INDEX idx_category_id (category_id),
 					INDEX idx_subcategory_id (subcategory_id),
 					INDEX idx_file_exists (file_exists),
-					INDEX idx_order_id (order_id),
 					FOREIGN KEY (owner_id) REFERENCES {prefix}_user(id) ON DELETE RESTRICT
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
@@ -1014,8 +1007,6 @@ class SQLUtils(SQL):
 	def _create_redis_client_for_logging_static():
 		"""Create a temporary Redis client for logging synchronization using config settings (static method)."""
 		try:
-			# Import here to avoid circular imports
-			from modules.core import Config
 			temp_config = Config()
 			redis_config = {}
 			

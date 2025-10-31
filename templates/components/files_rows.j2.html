@@ -13,6 +13,9 @@
         data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
         data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
         data-note="{{ file.note if file.note else '' }}"
+        data-name="{{ file.display_name }}"
+        data-file-name="{{ file.real_name if file.real_name else file.file_name }}"
+        data-description="{{ file.description if file.description else '' }}"
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
@@ -53,6 +56,9 @@
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
         data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
         data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
+        data-name="{{ file.display_name }}"
+        data-file-name="{{ file.real_name if file.real_name else file.file_name }}"
+        data-description="{{ file.description if file.description else '' }}"
         data-is-ready="0"
         data-exists="{{ 1 if file.exists else 0 }}"
       >

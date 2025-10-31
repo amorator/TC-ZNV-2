@@ -43,54 +43,15 @@ function initCategoriesPage() {
   // Wire header save buttons
   const delCat = document.getElementById("delete-category-btn");
   const delSub = document.getElementById("delete-subcategory-btn");
-  if (delCat) delCat.onclick = tryDeleteCategory;
-  if (delSub) delSub.onclick = tryDeleteSubcategory;
+  if (delCat) delCat.onclick = function(){ openConfirmDeleteCategory(); };
+  if (delSub) delSub.onclick = function(){ openConfirmDeleteSubcategory(); };
 
   initCategoriesContextMenu();
 }
 // Notifications: request permission, show, and fetch queued items from server
 function initCategoriesNotifications() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  if (!('Notification' in window)) return;
-  try {
-    // Ask permission once per session (guard via cookie just_logged_in or localStorage flag)
-    var flagKey = 'notif:asked';
-    var asked = false;
-    try { asked = localStorage.getItem(flagKey) === '1'; } catch(_) {}
-    if (!asked && Notification && Notification.permission === 'default') {
-      try {
-        Notification.requestPermission().finally(function(){ try { localStorage.setItem(flagKey, '1'); } catch(_) {} });
-      } catch(_) { try { localStorage.setItem(flagKey, '1'); } catch(__) {} }
-    }
-  } catch(_) {}
-
-  // Show queued notifications from backend (Redis-backed)
-  try {
-    fetch('/api/notifications', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        try {
-          var list = (data && data.items) || [];
-          list.forEach(function(n){ showNotificationSafe(n && n.title, n && n.body, n && n.icon); });
-        } catch(_) {}
-      })
-      .catch(function(){});
-  } catch(_) {}
-
-  // Live notifications from SyncManager
-  try {
-    if (window.SyncManager && typeof window.SyncManager.on === 'function') {
-      window.SyncManager.on('subcategory_permissions_updated', function(data){
-        if (!data || String(data.subcategory_id||'') !== String(currentSubcategoryId||currentSubcategoryId)) {
-          // Still notify globally
-        }
-        showNotificationSafe('Права подкатегории изменены', 'Права были обновлены');
-      });
-      window.SyncManager.on('categories:changed', function(){
-        showNotificationSafe('Категории', 'Список категорий обновлён');
-      });
-    }
-  } catch(_) {}
+  // Disabled browser notifications by request
+  return;
 }
 
 function showNotificationSafe(title, body, icon) {
@@ -361,6 +322,8 @@ function selectCategory(categoryId) {
 
   // Load subcategories
   loadSubcategories(categoryId);
+  // Sync empty-state toggle button text
+  try { updateEmptyStateToggleTexts(); } catch(_) {}
 
   // Update header category name
   const cat = (categoriesCache || []).find(
@@ -402,12 +365,16 @@ function loadSubcategories(categoryId) {
 
 // Show empty subcategories state
 function showEmptySubcategories() {
+  // Reset current subcategory so context menu does not think a sub is selected
+  try { currentSubcategoryId = null; } catch(_) {}
   showSubcategoryTabs([]);
   const emptySubcategories = document.getElementById("empty-subcategories");
   const permissionsContent = document.getElementById("permissions-content");
 
   if (emptySubcategories) emptySubcategories.style.display = "block";
   if (permissionsContent) permissionsContent.style.display = "none";
+  // Ensure toggle button text reflects current category state
+  try { updateEmptyStateToggleTexts(); } catch(_) {}
 }
 
 // Show subcategory tabs
@@ -420,6 +387,8 @@ function showSubcategoryTabs(subcategories) {
   subcategoryNav.innerHTML = "";
 
   if (subcategories.length === 0) {
+    // Ensure no stale subcategory selection remains
+    try { currentSubcategoryId = null; } catch(_) {}
     // Show "Add subcategory" button when no subcategories exist
     const addBtn = document.createElement("button");
     addBtn.className = "topbtn";
@@ -454,6 +423,22 @@ function showSubcategoryTabs(subcategories) {
   if (emptySubcategories) {
     emptySubcategories.style.display = "none";
   }
+  // Keep empty-state action texts in sync whenever tabs render
+  try { updateEmptyStateToggleTexts(); } catch(_) {}
+}
+
+// Update texts for empty-subcategories action buttons depending on current category state
+function updateEmptyStateToggleTexts() {
+  try {
+    const cont = document.getElementById('empty-subcategories-actions');
+    if (!cont) return;
+    const btnToggle = Array.from(cont.querySelectorAll('button'))
+      .find((b) => (b.getAttribute('onclick') || '').includes('openConfirmToggleCategory'));
+    if (!btnToggle) return;
+    const cat = (categoriesCache || []).find((c)=> String(c.id) === String(currentCategoryId));
+    const enabled = !!(cat && cat.enabled);
+    btnToggle.textContent = enabled ? 'Отключить категорию' : 'Включить категорию';
+  } catch(_) {}
 }
 
 // Select subcategory
@@ -1810,23 +1795,24 @@ function setupSocket() {
         }
       });
 
-      // Handle force refresh
-      socket.on("force-refresh", function (data) {
+      // Handle force refresh (AJAX soft reload instead of hard refresh)
+      socket.on("force-refresh", function () {
         try {
-          // Show notification before refresh
           if (window.showToast) {
-            window.showToast(
-              "Страница будет обновлена администратором",
-              "warning"
-            );
+            window.showToast("Обновление данных…", "info");
           }
-          // Hard refresh the page
-          setTimeout(() => {
-            // Force refresh all pages - use hard refresh for complete reset
-            const url = new URL(window.location);
-            url.searchParams.set("_refresh", Date.now());
-            window.location.href = url.toString();
-          }, 1000);
+          const savedCat = currentCategoryId;
+          const savedSub = currentSubcategoryId;
+          loadCategories();
+          if (savedCat) {
+            setTimeout(() => { try { selectCategory(savedCat); } catch(_) {} }, 50);
+          }
+          if (savedCat) {
+            setTimeout(() => { try { loadSubcategories(savedCat); } catch(_) {} }, 100);
+          }
+          if (savedSub) {
+            setTimeout(() => { try { selectSubcategory(savedSub); } catch(_) {} }, 150);
+          }
         } catch (err) {
           window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
         }
@@ -1937,13 +1923,75 @@ function initCategoriesContextMenu() {
     }
   }
 
+  function setItemVisible(action, visible) {
+    const el = menu.querySelector(
+      '.context-menu__item[data-action="' + action + '"]'
+    );
+    if (!el) return;
+    try { el.style.display = visible ? "" : "none"; } catch(_) {}
+    try {
+      if (visible) el.classList.remove('d-none'); else el.classList.add('d-none');
+    } catch(_) {}
+    try { el.setAttribute('aria-hidden', visible ? 'false' : 'true'); } catch(_) {}
+  }
+
+  // Hard remove/restore helpers for subcategory items to avoid CSS overrides
+  function ensureSubItemsPresent() {
+    try {
+      const list = menu.querySelector('.context-menu__list');
+      // Ensure separator
+      let sep = menu.querySelector('.context-menu__separator');
+      if (!sep) {
+        sep = document.createElement('li');
+        sep.className = 'context-menu__separator';
+        list.appendChild(sep);
+      }
+      // Ensure each sub-item exists
+      const defs = [
+        ['edit-subcategory', 'Изменить подкатегорию'],
+        ['delete-subcategory', 'Удалить подкатегорию'],
+        ['toggle-subcategory', 'Отключить подкатегорию']
+      ];
+      defs.forEach(([action, label]) => {
+        let el = menu.querySelector('.context-menu__item[data-action="' + action + '"]');
+        if (!el) {
+          el = document.createElement('li');
+          el.className = 'context-menu__item';
+          el.setAttribute('data-action', action);
+          el.textContent = label;
+          list.appendChild(el);
+        }
+      });
+    } catch(_) {}
+  }
+
+  function hardHideSubItems() {
+    try {
+      const list = menu.querySelector('.context-menu__list');
+      ['edit-subcategory','delete-subcategory','toggle-subcategory'].forEach((a)=>{
+        const el = menu.querySelector('.context-menu__item[data-action="' + a + '"]');
+        if (el && el.parentNode === list) list.removeChild(el);
+      });
+      const sep = menu.querySelector('.context-menu__separator');
+      if (sep && sep.parentNode === list) list.removeChild(sep);
+    } catch(_) {}
+  }
+
   function configureForCategory(catId) {
     ctx.targetType = "category";
     ctx.targetId = catId;
-    const subsOfCat = (subcategoriesCache || []).filter(
+    const subsOfCat = catId ? (subcategoriesCache || []).filter(
       (s) => String(s.category_id) === String(catId)
-    );
-    const canDelete = subsOfCat.length === 0;
+    ) : [];
+    // More reliable: derive presence of subcategories from DOM too
+    let hasAnySubs = !!catId && subsOfCat.length > 0;
+    try {
+      const domSubs = document.querySelectorAll('#subcategory-nav .topbtn[data-subcategory-id]');
+      if (domSubs && domSubs.length >= 0 && catId) {
+        hasAnySubs = hasAnySubs || domSubs.length > 0;
+      }
+    } catch(_) {}
+    const canDelete = !hasAnySubs;
     setItemEnabled("add-category", true);
     setItemEnabled("edit-category", !!catId);
     setItemEnabled("delete-category", !!catId && canDelete);
@@ -1961,9 +2009,16 @@ function initCategoriesContextMenu() {
         cat && cat.enabled ? "Отключить категорию" : "Включить категорию";
 
     setItemEnabled("add-subcategory", !!catId);
-    setItemEnabled("edit-subcategory", false);
-    setItemEnabled("delete-subcategory", false);
-    setItemEnabled("toggle-subcategory", false);
+    // When no subcategories for this category, remove subcategory actions entirely
+    if (!hasAnySubs) {
+      hardHideSubItems();
+    } else {
+      // Ensure items exist but keep them disabled until a specific sub is targeted
+      ensureSubItemsPresent();
+      setItemEnabled("edit-subcategory", false);
+      setItemEnabled("delete-subcategory", false);
+      setItemEnabled("toggle-subcategory", false);
+    }
   }
 
   function configureForSubcategory(subId) {
@@ -1984,6 +2039,8 @@ function initCategoriesContextMenu() {
     setItemEnabled("toggle-category", !!catId && !hasEnabledSub);
 
     setItemEnabled("add-subcategory", !!catId);
+    // Subcategory is targeted: ensure sub-actions exist and are enabled
+    ensureSubItemsPresent();
     setItemEnabled("edit-subcategory", !!subId);
     setItemEnabled("delete-subcategory", !!subId);
     setItemEnabled("toggle-subcategory", !!subId);
@@ -2054,6 +2111,28 @@ function initCategoriesContextMenu() {
       showMenu(e.clientX, e.clientY);
     });
 
+  // Fallback: open context menu over any other part of the page body not covered above
+  try {
+    document.body.addEventListener("contextmenu", function (e) {
+      try { if (!menu || menu.contains(e.target)) return; } catch(_) {}
+      // Ignore if right-click on form fields to keep native menu behavior
+      const isEditable = e.target && (e.target.closest('input, textarea, select, [contenteditable="true"]'));
+      if (isEditable) return;
+      // If event already handled by more specific handlers, skip
+      if (e.target.closest('#category-nav, #subcategory-nav, #content-area')) return;
+      e.preventDefault();
+      hideMenu();
+      if (currentSubcategoryId) {
+        configureForSubcategory(currentSubcategoryId);
+      } else if (currentCategoryId) {
+        configureForCategory(currentCategoryId);
+      } else {
+        configureForCategory(null);
+      }
+      showMenu(e.clientX, e.clientY);
+    }, false);
+  } catch(_) {}
+
   document.addEventListener("click", hideMenu);
   window.addEventListener("resize", hideMenu);
 
@@ -2120,35 +2199,289 @@ function initCategoriesContextMenu() {
 
 // Placeholder functions for modal operations
 function showEditCategoryModal() {
-  // Implementation needed
+  try {
+    const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
+    if (!catId) return;
+    const cat = (categoriesCache || []).find((c) => String(c.id) === String(catId));
+    if (!cat) return;
+
+    // Set form action
+    const form = document.getElementById('category-edit-form');
+    if (form) {
+      form.setAttribute('action', `/categories/edit/${catId}`);
+      form.setAttribute('method', 'POST');
+    }
+
+    // Populate fields
+    const nameInput = document.getElementById('edit_category_display_name');
+    if (nameInput) nameInput.value = String(cat.display_name || '');
+    const enabledInput = document.getElementById('edit_category_enabled');
+    if (enabledInput) enabledInput.checked = !!cat.enabled;
+
+    // Populate order options based on number of categories
+    const orderSelect = document.getElementById('edit_category_display_order');
+    if (orderSelect) {
+      const count = (categoriesCache || []).length;
+      orderSelect.innerHTML = '';
+      for (let i = 1; i <= Math.max(1, count); i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = i;
+        if (Number(cat.display_order || 0) === i) opt.selected = true;
+        orderSelect.appendChild(opt);
+      }
+    }
+
+    // Show modal
+    const modalEl = document.getElementById('editCategoryModal');
+    if (modalEl && window.bootstrap && bootstrap.Modal) {
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.show();
+    }
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-edit-open');
+  }
 }
 
 function showEditSubcategoryModal() {
-  // Implementation needed
+  try {
+    const subId = arguments && arguments[0] ? arguments[0] : currentSubcategoryId;
+    if (!subId) return;
+    const sub = (subcategoriesCache || []).find((s) => String(s.id) === String(subId));
+    if (!sub) return;
+
+    // Set form action
+    const form = document.getElementById('subcategory-edit-form');
+    if (form) {
+      form.setAttribute('action', `/subcategories/edit/${subId}`);
+      form.setAttribute('method', 'POST');
+    }
+
+    // Populate fields
+    const nameInput = document.getElementById('edit_subcategory_display_name');
+    if (nameInput) nameInput.value = String(sub.display_name || '');
+    const enabledInput = document.getElementById('edit_subcategory_enabled');
+    if (enabledInput) enabledInput.checked = !!sub.enabled;
+
+    // Populate order options based on number of subcategories in the same category
+    const orderSelect = document.getElementById('edit_subcategory_display_order');
+    if (orderSelect) {
+      const inCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(sub.category_id));
+      const count = inCat.length;
+      orderSelect.innerHTML = '';
+      for (let i = 1; i <= Math.max(1, count); i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = i;
+        if (Number(sub.display_order || 0) === i) opt.selected = true;
+        orderSelect.appendChild(opt);
+      }
+    }
+
+    // Show modal
+    const modalEl = document.getElementById('editSubcategoryModal');
+    if (modalEl && window.bootstrap && bootstrap.Modal) {
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.show();
+    }
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-edit-open');
+  }
 }
 
 function openConfirmDeleteCategory() {
-  // Implementation needed
+  try {
+    const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
+    if (!catId) return;
+    // Disallow when there are subcategories
+    try {
+      const subsOfCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(catId));
+      if (subsOfCat.length > 0) {
+        notify("Нельзя удалить категорию с подкатегориями", "warning");
+        return;
+      }
+    } catch (_) {}
+    const modalEl = document.getElementById("confirmDeleteCategoryModal");
+    if (modalEl && window.bootstrap && bootstrap.Modal) {
+      modalEl.dataset.targetId = String(catId);
+      // Wire one-time confirm handler
+      const bindConfirm = () => {
+        const btn = document.getElementById('confirmDeleteCategoryBtn') || modalEl.querySelector('[data-action="confirm"], .btn-primary, .btn-danger');
+        if (!btn) return;
+        const handler = function(ev) {
+          try { ev && ev.preventDefault && ev.preventDefault(); } catch(_) {}
+          try { btn.removeEventListener('click', handler); } catch(_) {}
+          try { const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl); inst.hide(); } catch(_) {}
+          tryDeleteCategory(modalEl.dataset.targetId);
+        };
+        btn.addEventListener('click', handler, { once: true });
+      };
+      // Ensure rebind each time it's shown
+      modalEl.addEventListener('shown.bs.modal', bindConfirm, { once: true });
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.show();
+      return;
+    }
+    // Fallback: native confirm
+    if (!confirm("Удалить категорию?")) return;
+    tryDeleteCategory(catId);
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, "category-delete-confirm");
+  }
 }
 
 function openConfirmDeleteSubcategory() {
-  // Implementation needed
+  try {
+    const subId = arguments && arguments[0] ? arguments[0] : currentSubcategoryId;
+    if (!subId) return;
+    const modalEl = document.getElementById("confirmDeleteSubcategoryModal");
+    if (modalEl && window.bootstrap && bootstrap.Modal) {
+      modalEl.dataset.targetId = String(subId);
+      const bindConfirm = () => {
+        const btn = document.getElementById('confirmDeleteSubcategoryBtn') || modalEl.querySelector('[data-action="confirm"], .btn-primary, .btn-danger');
+        if (!btn) return;
+        const handler = function(ev) {
+          try { ev && ev.preventDefault && ev.preventDefault(); } catch(_) {}
+          try { btn.removeEventListener('click', handler); } catch(_) {}
+          try { const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl); inst.hide(); } catch(_) {}
+          tryDeleteSubcategory(modalEl.dataset.targetId);
+        };
+        btn.addEventListener('click', handler, { once: true });
+      };
+      modalEl.addEventListener('shown.bs.modal', bindConfirm, { once: true });
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.show();
+      return;
+    }
+    // Fallback: native confirm
+    if (!confirm("Удалить подкатегорию? Файлы будут недоступны из этой подкатегории.")) return;
+    tryDeleteSubcategory(subId);
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, "subcategory-delete-confirm");
+  }
 }
 
 function openConfirmToggleCategory() {
-  // Implementation needed
+  try {
+    const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
+    if (!catId) return;
+    const cat = (categoriesCache || []).find((c)=> String(c.id)===String(catId));
+    const desired = !(cat && (cat.enabled ? true : false));
+    const fd = new FormData();
+    // Always include 'enabled' key so backend lightweight toggle path is used
+    fd.append('enabled', desired ? '1' : '');
+    fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
+      .then((res)=>{
+        if (!res.ok || (res.body && res.body.error)) {
+          const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить категорию';
+          notify(msg, 'danger');
+          return;
+        }
+        try {
+          const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
+          if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
+        } catch(_) {}
+        showCategoryTabs(categoriesCache||[]);
+        selectCategory(catId);
+        try { updateEmptyStateToggleTexts(); } catch(_) {}
+        notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
+      })
+      .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
+  } catch(e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle');
+  }
 }
 
 function openConfirmToggleSubcategory() {
-  // Implementation needed
+  try {
+    const subId = arguments && arguments[0] ? arguments[0] : currentSubcategoryId;
+    if (!subId) return;
+    const sub = (subcategoriesCache || []).find((s)=> String(s.id)===String(subId));
+    const desired = !(sub && (sub.enabled ? true : false));
+    const fd = new FormData();
+    // Always include 'enabled' key so backend lightweight toggle path is used
+    fd.append('enabled', desired ? '1' : '');
+    fetch(`/subcategories/edit/${subId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
+      .then((res)=>{
+        if (!res.ok || (res.body && res.body.error)) {
+          const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить подкатегорию';
+          notify(msg, 'danger');
+          return;
+        }
+        try {
+          const idx = (subcategoriesCache||[]).findIndex((s)=> String(s.id)===String(subId));
+          if (idx>=0) subcategoriesCache[idx].enabled = desired ? 1 : 0;
+        } catch(_) {}
+        showSubcategoryTabs(subcategoriesCache||[]);
+        selectSubcategory(subId);
+        notify(desired ? 'Подкатегория включена' : 'Подкатегория отключена', 'success');
+      })
+      .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-toggle'); });
+  } catch(e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-toggle');
+  }
 }
 
 function tryDeleteCategory() {
-  // Implementation needed
+  try {
+    const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
+    if (!catId) return;
+    fetch(`/categories/delete/${catId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, body: j })))
+      .then((res) => {
+        if (!res.ok || (res.body && res.body.error)) {
+          const msg = (res.body && (res.body.error || res.body.message)) || 'Не удалось удалить категорию';
+          notify(msg, 'danger');
+          return;
+        }
+        // Remove from cache and refresh UI
+        try {
+          categoriesCache = (categoriesCache || []).filter((c) => String(c.id) !== String(catId));
+        } catch (_) {}
+        showCategoryTabs(categoriesCache || []);
+        // Reset selection
+        const next = (categoriesCache && categoriesCache[0]) ? categoriesCache[0].id : null;
+        if (next) selectCategory(next); else showEmptyCategories();
+        notify('Категория удалена', 'success');
+      })
+      .catch((e) => {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-delete');
+      });
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-delete');
+  }
 }
 
 function tryDeleteSubcategory() {
-  // Implementation needed
+  try {
+    const subId = arguments && arguments[0] ? arguments[0] : currentSubcategoryId;
+    if (!subId) return;
+    fetch(`/subcategories/delete/${subId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, body: j })))
+      .then((res) => {
+        if (!res.ok || (res.body && res.body.error)) {
+          const msg = (res.body && (res.body.error || res.body.message)) || 'Не удалось удалить подкатегорию';
+          notify(msg, 'danger');
+          return;
+        }
+        // Remove from cache and refresh UI
+        try {
+          subcategoriesCache = (subcategoriesCache || []).filter((s) => String(s.id) !== String(subId));
+        } catch (_) {}
+        showSubcategoryTabs(subcategoriesCache || []);
+        // Reset selection
+        const next = (subcategoriesCache && subcategoriesCache[0]) ? subcategoriesCache[0].id : null;
+        if (next) selectSubcategory(next); else showEmptySubcategories();
+        notify('Подкатегория удалена', 'success');
+      })
+      .catch((e) => {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-delete');
+      });
+  } catch (e) {
+    window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-delete');
+  }
 }
 
 // Export for global access
