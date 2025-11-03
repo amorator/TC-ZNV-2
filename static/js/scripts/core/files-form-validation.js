@@ -6,7 +6,6 @@
 
 async function validateForm(element) {
   try {
-    try { console.debug('[validateForm] called with', element); } catch(_) {}
     const form = element.closest("form");
     if (!form) return false;
     
@@ -37,7 +36,6 @@ async function validateForm(element) {
       const match = formAction.match(/\/orders\/delete\/(\d+)/);
       if (match) {
         const orderId = match[1];
-        try { console.debug('[validateForm] orders delete branch', { action: formAction, orderId }); } catch(_) {}
         submitOrdersDeleteForm(form, orderId);
         return false;
       }
@@ -47,7 +45,6 @@ async function validateForm(element) {
     // Special handling for note form (Files)
     if (form.id === "note" && form.action.includes('/files/note/') && element) {
       const formAction = form.action;
-      try { console.debug('[validateForm] files note branch', formAction); } catch(_) {}
       
       // Extract ID from URL like /files/note/123
       const match = formAction.match(/\/files\/note\/(\d+)/);
@@ -67,7 +64,6 @@ async function validateForm(element) {
       const match = formAction.match(/\/orders\/note\/(\d+)/);
       if (match) {
         const orderId = match[1];
-        try { console.debug('[validateForm] orders note branch', { action: formAction, orderId }); } catch(_) {}
         submitOrdersNoteForm(form, orderId);
         return false;
       }
@@ -462,7 +458,6 @@ async function submitNoteForm(form, fileId) {
 async function submitOrdersNoteForm(form, orderId) {
   try {
     const formData = new FormData(form);
-    try { console.debug('[submitOrdersNoteForm] about to POST', { action: form.action, orderId, note: formData.get('note') }); } catch(_) {}
     const response = await fetch(form.action, {
       method: 'POST',
       body: formData,
@@ -470,9 +465,7 @@ async function submitOrdersNoteForm(form, orderId) {
         'X-Requested-With': 'XMLHttpRequest'
       }
     });
-    try { console.debug('[submitOrdersNoteForm] response status', response.status); } catch(_) {}
     const data = await response.json();
-    try { console.debug('[submitOrdersNoteForm] response json', data); } catch(_) {}
     if (!response.ok || !(data && (data.ok === true))) {
       throw new Error((data && data.error) || `HTTP ${response.status}: ${response.statusText}`);
     }
@@ -494,7 +487,6 @@ async function submitOrdersNoteForm(form, orderId) {
 async function submitOrdersDeleteForm(form, orderId) {
   try {
     const formData = new FormData(form);
-    try { console.debug('[submitOrdersDeleteForm] about to POST', { action: form.action, orderId }); } catch(_) {}
     const response = await fetch(form.action, {
       method: 'POST',
       body: formData,

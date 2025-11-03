@@ -54,7 +54,7 @@ function loadRegistrators(page = 1) {
         var foundActive = false;
         items.forEach(function (item) {
           const btn = document.createElement("button");
-          btn.className = "topbtn";
+          btn.className = "topbtn" + (!item.enabled ? " is-disabled" : "");
           btn.setAttribute("data-registrator-id", item.id);
           btn.innerHTML = item.name || "Unnamed";
           btn.title = item.name || "Unnamed";
@@ -121,7 +121,7 @@ function loadRegistrators(page = 1) {
         var foundActive = false;
         items.forEach(function (item) {
           const btn = document.createElement("button");
-          btn.className = "topbtn";
+          btn.className = "topbtn" + (!item.enabled ? " is-disabled" : "");
           btn.setAttribute("data-registrator-id", item.id);
           btn.innerHTML = item.name || "Unnamed";
           btn.title = item.name || "Unnamed";

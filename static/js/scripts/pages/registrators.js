@@ -152,9 +152,11 @@ function setupRegistratorsContextMenu() {
       toggle('add', true);
       toggle('edit', !!id);
       toggle('delete', !!id);
-      toggle('toggle', false); // no toggle action for registrators page now
+      toggle('toggle', !!id);
       // Store target id
       if (id) menu.dataset.targetId = String(id); else delete menu.dataset.targetId;
+    // Update toggle text to reflect current enabled state
+    if (id) updateToggleMenuText(id);
     }
 
     function configureGeneral() {
@@ -164,9 +166,29 @@ function setupRegistratorsContextMenu() {
       try { curId = window.currentRegistratorId ? String(window.currentRegistratorId) : null; } catch(_) { curId = null; }
       toggle('edit', !!curId);
       toggle('delete', !!curId);
-      toggle('toggle', false);
+      toggle('toggle', !!curId);
       if (curId) { menu.dataset.targetId = curId; } else { delete menu.dataset.targetId; }
+    if (curId) updateToggleMenuText(curId);
     }
+
+  function updateToggleMenuText(id){
+    try {
+      const item = menu.querySelector('.context-menu__item[data-action="toggle"]');
+      if (!item) return;
+      item.textContent = 'Переключить';
+      fetch('/api/registrators/' + encodeURIComponent(id), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          var rec = j && (j.item || j.registrator || j.data);
+          if (!rec) return;
+          item.textContent = rec.enabled ? 'Отключить' : 'Включить';
+          // Optional: add muted style when disabled
+          if (rec.enabled) { item.classList.remove('text-muted'); }
+          else { item.classList.add('text-muted'); }
+        })
+        .catch(function(_){});
+    } catch(_) {}
+  }
 
     function toggle(action, show) {
       const el = menu.querySelector('.context-menu__item[data-action="' + action + '"]');
@@ -247,6 +269,36 @@ function setupRegistratorsContextMenu() {
             // Fallback to old flow
             window.deleteRegistrator(id);
           }
+          break;
+        }
+        case 'toggle': {
+          if (!id) break;
+          // Load current state first
+          fetch('/api/registrators/' + encodeURIComponent(id), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+              var item = j && (j.item || j.registrator || j.data);
+              if (!item) { if (window.showToast) window.showToast('Не удалось получить данные регистратора', 'error'); return; }
+              var desired = item.enabled ? 0 : 1;
+              var payload = { name: item.name, url_template: item.url_template, enabled: desired };
+              return fetch('/registrators/' + encodeURIComponent(id), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(payload)
+              })
+              .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(body){ return { ok: r.ok, status: r.status, body: body }; }); })
+              .then(function(res){
+                if (!res.ok || (res.body && res.body.status !== 'success')) {
+                  var msg = (res.body && (res.body.message || res.body.error)) || ('Ошибка переключения (HTTP ' + (res.status||'-') + ')');
+                  if (window.showToast) window.showToast(msg, 'error');
+                  return;
+                }
+                if (window.showToast) window.showToast(desired ? 'Регистратор включен' : 'Регистратор отключен', 'success');
+                if (window.loadRegistrators) window.loadRegistrators();
+              });
+            })
+            .catch(function(err){ if (window.ErrorHandler) window.ErrorHandler.handleError(err, 'registrators-toggle'); });
           break;
         }
       }

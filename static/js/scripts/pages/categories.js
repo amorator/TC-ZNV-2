@@ -143,9 +143,7 @@ function notify(message, variant) {
     }
 
     const wrapper = document.createElement("div");
-    wrapper.className = `toast align-items-center text-bg-${
-      variant || "primary"
-    } border-0`;
+    wrapper.className = `toast align-items-center text-bg-${variant || "primary"} border-0`;
     wrapper.setAttribute("role", "alert");
     wrapper.setAttribute("aria-live", "assertive");
     wrapper.setAttribute("aria-atomic", "true");
@@ -155,17 +153,21 @@ function notify(message, variant) {
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
             </div>`;
     container.appendChild(wrapper);
-    const t = new bootstrap.Toast(wrapper, { delay: 3000 });
-    t.show();
-    wrapper.addEventListener("hidden.bs.toast", () => {
-      try {
-        wrapper.remove();
-      } catch (_) {}
-    });
-  } catch (_) {
     try {
+      if (window.bootstrap && bootstrap.Toast) {
+        const t = new bootstrap.Toast(wrapper, { delay: 3000 });
+        t.show();
+        wrapper.addEventListener("hidden.bs.toast", () => { try { wrapper.remove(); } catch (_) {} });
+      } else {
+        // Fallback: just show and auto-remove
+        wrapper.classList.add('show');
+        setTimeout(()=>{ try { wrapper.remove(); } catch(_) {} }, 3000);
+      }
+    } catch (e) {
       alert(message);
-    } catch (__) {}
+    }
+  } catch (e) {
+    try { alert(message); } catch (__) {}
   }
 }
 
@@ -1038,7 +1040,7 @@ function updateGroupPermissionLevel(groupId, action, level) {
 // Toggle inherit for a user (default on)
 window.updateUserInherit = function(userId, checked) {
   try {
-    if (!currentSubcategoryId) return;
+  if (!currentSubcategoryId) return;
     const uid = String(userId);
     if (!currentPermissionsDraft.user_by_id) currentPermissionsDraft.user_by_id = {};
     const perUser = currentPermissionsDraft.user_by_id[uid] || {};
@@ -1991,12 +1993,11 @@ function initCategoriesContextMenu() {
         hasAnySubs = hasAnySubs || domSubs.length > 0;
       }
     } catch(_) {}
-    const canDelete = !hasAnySubs;
+    // Do not disable actions: allow click to show blocking toast in handlers
     setItemEnabled("add-category", true);
     setItemEnabled("edit-category", !!catId);
-    setItemEnabled("delete-category", !!catId && canDelete);
-    const hasEnabledSub = subsOfCat.some((s) => !!s.enabled);
-    setItemEnabled("toggle-category", !!catId && !hasEnabledSub);
+    setItemEnabled("delete-category", !!catId);
+    setItemEnabled("toggle-category", !!catId);
 
     const cat = (categoriesCache || []).find(
       (c) => String(c.id) === String(catId)
@@ -2015,9 +2016,9 @@ function initCategoriesContextMenu() {
     } else {
       // Ensure items exist but keep them disabled until a specific sub is targeted
       ensureSubItemsPresent();
-      setItemEnabled("edit-subcategory", false);
-      setItemEnabled("delete-subcategory", false);
-      setItemEnabled("toggle-subcategory", false);
+    setItemEnabled("edit-subcategory", false);
+    setItemEnabled("delete-subcategory", false);
+    setItemEnabled("toggle-subcategory", false);
     }
   }
 
@@ -2030,13 +2031,9 @@ function initCategoriesContextMenu() {
     const catId = sub ? sub.category_id : currentCategoryId;
     setItemEnabled("add-category", true);
     setItemEnabled("edit-category", !!catId);
-    const subsOfCat = (subcategoriesCache || []).filter(
-      (s) => String(s.category_id) === String(catId)
-    );
-    const canDeleteCat = subsOfCat.length === 0;
-    setItemEnabled("delete-category", !!catId && canDeleteCat);
-    const hasEnabledSub = subsOfCat.some((s) => !!s.enabled);
-    setItemEnabled("toggle-category", !!catId && !hasEnabledSub);
+    // Keep category actions enabled; handlers enforce blocking with toasts
+    setItemEnabled("delete-category", !!catId);
+    setItemEnabled("toggle-category", !!catId);
 
     setItemEnabled("add-subcategory", !!catId);
     // Subcategory is targeted: ensure sub-actions exist and are enabled
@@ -2292,8 +2289,8 @@ function showEditSubcategoryModal() {
 function openConfirmDeleteCategory() {
   try {
     const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
-    if (!catId) return;
-    // Disallow when there are subcategories
+    if (!catId) { return; }
+    // Disallow when there are subcategories (verify via cache, fallback to API)
     try {
       const subsOfCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(catId));
       if (subsOfCat.length > 0) {
@@ -2301,6 +2298,42 @@ function openConfirmDeleteCategory() {
         return;
       }
     } catch (_) {}
+    // If cache is empty or unknown, check server
+    if (!Array.isArray(subcategoriesCache) || (subcategoriesCache.filter((s)=> String(s.category_id)===String(catId)).length===0)) {
+      fetch(`/api/subcategories/${catId}`, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(r=> r.json().catch(()=>({ items: [] })))
+        .then((data)=>{
+          const list = (data && (data.items || data)) || [];
+          if (Array.isArray(list) && list.length > 0) {
+            notify("Нельзя удалить категорию с подкатегориями", "warning");
+            return;
+          }
+          // No subcategories: proceed with modal/native confirm flow again
+          const modalEl = document.getElementById("confirmDeleteCategoryModal");
+          if (modalEl && window.bootstrap && bootstrap.Modal) {
+            modalEl.dataset.targetId = String(catId);
+            const bindConfirm = () => {
+              const btn = document.getElementById('confirmDeleteCategoryBtn') || modalEl.querySelector('[data-action="confirm"], .btn-primary, .btn-danger');
+              if (!btn) return;
+              const handler = function(ev) {
+                try { ev && ev.preventDefault && ev.preventDefault(); } catch(_) {}
+                try { btn.removeEventListener('click', handler); } catch(_) {}
+                try { const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl); inst.hide(); } catch(_) {}
+                tryDeleteCategory(modalEl.dataset.targetId);
+              };
+              btn.addEventListener('click', handler, { once: true });
+            };
+            modalEl.addEventListener('shown.bs.modal', bindConfirm, { once: true });
+            const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+            inst.show();
+            return;
+          }
+          if (!confirm("Удалить категорию?")) return;
+          tryDeleteCategory(catId);
+        })
+        .catch(()=>{ notify('Не удалось проверить подкатегории категории', 'danger'); });
+      return;
+    }
     const modalEl = document.getElementById("confirmDeleteCategoryModal");
     if (modalEl && window.bootstrap && bootstrap.Modal) {
       modalEl.dataset.targetId = String(catId);
@@ -2364,13 +2397,63 @@ function openConfirmDeleteSubcategory() {
 function openConfirmToggleCategory() {
   try {
     const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
-    if (!catId) return;
+    if (!catId) { return; }
     const cat = (categoriesCache || []).find((c)=> String(c.id)===String(catId));
     const desired = !(cat && (cat.enabled ? true : false));
+    // If we are disabling a category, ensure there are no enabled subcategories
+    if (!desired) {
+      const proceed = () => {
+        const fd = new FormData();
+        fd.append('enabled', desired ? '1' : '');
+        fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, status: r.status, body: j })))
+          .then((res)=>{
+            if (!res.ok || (res.body && res.body.error)) {
+              const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить категорию';
+              notify(msg, 'danger');
+              return;
+            }
+            try {
+              const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
+              if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
+            } catch(_) {}
+            showCategoryTabs(categoriesCache||[]);
+            selectCategory(catId);
+            try { updateEmptyStateToggleTexts(); } catch(_) {}
+            notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
+          })
+          .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
+      };
+
+      try {
+        const subsOfCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(catId));
+        if (subsOfCat.length > 0) {
+          const anyEnabled = subsOfCat.some((s)=> s && (s.enabled ? true : false));
+          if (anyEnabled) { notify('Сначала отключите или удалите все подкатегории', 'warning'); return; }
+        } else {
+          // Cache empty or not loaded: verify via API
+          fetch(`/api/subcategories/${catId}`, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+            .then(r=> r.json().catch(()=>({ items: [] })))
+            .then((data)=>{
+              const list = (data && (data.items || data)) || [];
+              if (Array.isArray(list) && list.some((s)=> s && (s.enabled ? true : false))) {
+                notify('Сначала отключите или удалите все подкатегории', 'warning');
+                return;
+              }
+              proceed();
+            })
+            .catch(()=>{ notify('Не удалось проверить подкатегории категории', 'danger'); });
+          return;
+        }
+      } catch(_) {}
+      // If reached here, either there are no subs or all disabled: proceed
+      proceed();
+      return;
+    }
     const fd = new FormData();
     // Always include 'enabled' key so backend lightweight toggle path is used
     fd.append('enabled', desired ? '1' : '');
-    fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+    fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
       .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
       .then((res)=>{
         if (!res.ok || (res.body && res.body.error)) {
@@ -2402,7 +2485,7 @@ function openConfirmToggleSubcategory() {
     const fd = new FormData();
     // Always include 'enabled' key so backend lightweight toggle path is used
     fd.append('enabled', desired ? '1' : '');
-    fetch(`/subcategories/edit/${subId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+    fetch(`/subcategories/edit/${subId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
       .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
       .then((res)=>{
         if (!res.ok || (res.body && res.body.error)) {
@@ -2427,12 +2510,12 @@ function openConfirmToggleSubcategory() {
 function tryDeleteCategory() {
   try {
     const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
-    if (!catId) return;
-    fetch(`/categories/delete/${catId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
-      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, body: j })))
+    if (!catId) { notify('Сначала выберите категорию', 'warning'); return; }
+    fetch(`/categories/delete/${catId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, status: r.status, body: j })))
       .then((res) => {
-        if (!res.ok || (res.body && res.body.error)) {
-          const msg = (res.body && (res.body.error || res.body.message)) || 'Не удалось удалить категорию';
+        if (!res.ok || (res.body && (res.body.error || res.body.status === 'error'))) {
+          const msg = (res.body && (res.body.error || res.body.message)) || `Не удалось удалить категорию (HTTP ${res.status || '-'})`;
           notify(msg, 'danger');
           return;
         }
@@ -2448,21 +2531,23 @@ function tryDeleteCategory() {
       })
       .catch((e) => {
         window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-delete');
+        notify('Ошибка сети при удалении категории', 'danger');
       });
   } catch (e) {
     window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-delete');
+    notify('Внутренняя ошибка при удалении категории', 'danger');
   }
 }
 
 function tryDeleteSubcategory() {
   try {
     const subId = arguments && arguments[0] ? arguments[0] : currentSubcategoryId;
-    if (!subId) return;
-    fetch(`/subcategories/delete/${subId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
-      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, body: j })))
+    if (!subId) { notify('Сначала выберите подкатегорию', 'warning'); return; }
+    fetch(`/subcategories/delete/${subId}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, status: r.status, body: j })))
       .then((res) => {
-        if (!res.ok || (res.body && res.body.error)) {
-          const msg = (res.body && (res.body.error || res.body.message)) || 'Не удалось удалить подкатегорию';
+        if (!res.ok || (res.body && (res.body.error || res.body.status === 'error'))) {
+          const msg = (res.body && (res.body.error || res.body.message)) || `Не удалось удалить подкатегорию (HTTP ${res.status || '-'})`;
           notify(msg, 'danger');
           return;
         }
@@ -2478,9 +2563,11 @@ function tryDeleteSubcategory() {
       })
       .catch((e) => {
         window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-delete');
+        notify('Ошибка сети при удалении подкатегории', 'danger');
       });
   } catch (e) {
     window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-delete');
+    notify('Внутренняя ошибка при удалении подкатегории', 'danger');
   }
 }
 
@@ -2494,4 +2581,14 @@ window.CategoriesPage = {
   updateUserPermissionLevel,
   showAddCategoryModal,
   showAddSubcategoryModal,
+  openConfirmToggleCategory,
+  openConfirmToggleSubcategory,
+  openConfirmDeleteCategory,
+  openConfirmDeleteSubcategory,
 };
+
+// Backward-compatible global functions used by inline onclick handlers
+try { window.openConfirmToggleCategory = openConfirmToggleCategory; } catch(_) {}
+try { window.openConfirmToggleSubcategory = openConfirmToggleSubcategory; } catch(_) {}
+try { window.openConfirmDeleteCategory = openConfirmDeleteCategory; } catch(_) {}
+try { window.openConfirmDeleteSubcategory = openConfirmDeleteSubcategory; } catch(_) {}
