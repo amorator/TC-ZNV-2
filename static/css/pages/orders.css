@@ -308,6 +308,11 @@ section[data-testid="orders-section"] {
   background: #fff3bf;
 }
 
+/* Gray theme: neutral search row */
+.theme-gray .orders-page__table.table-colored tr#search>td.table__body_action {
+  background: #e5e7eb;
+}
+
 .theme-dark .orders-page__table.table-colored tr#search>td.table__body_action {
   background: rgba(255, 255, 255, .08);
 }

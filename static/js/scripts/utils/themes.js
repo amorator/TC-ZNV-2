@@ -1,16 +1,18 @@
 /** Persisted key in localStorage for selected theme */
 const THEME_KEY = "selectedTheme";
 /** Order of available themes for the toggle button */
-const themeOrder = ["light", "dark", "dark-hc"];
+const themeOrder = ["light", "gray", "dark", "dark-hc"];
 /** Mapping from theme id to applied CSS class on <html> */
 const themeMap = {
   light: "theme-light",
+  gray: "theme-gray",
   dark: "theme-dark",
   "dark-hc": "theme-dark-hc",
 };
 /** Icon mapping for the navbar theme button */
 const themeIcons = {
   light: "bi-sun",
+  gray: "bi-circle",
   dark: "bi-moon-fill",
   "dark-hc": "bi-memory",
 };
@@ -76,7 +78,7 @@ const themeIcons = {
 /**
  * Apply theme by id: toggles class on <html> and updates the theme icon.
  * Also notifies same-origin iframes via postMessage for embedded UIs.
- * @param {"light"|"dark"|"dark-hc"} theme Theme identifier
+ * @param {"light"|"gray"|"dark"|"dark-hc"} theme Theme identifier
  */
 function applyTheme(theme) {
   var cls = themeMap[theme] || themeMap.light;

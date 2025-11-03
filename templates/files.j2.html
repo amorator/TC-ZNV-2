@@ -33,10 +33,10 @@
       var t = theme.toLowerCase();
       if (t.startsWith('theme-')) t = t.slice(6);
       if (t === 'hc') t = 'dark-hc';
-      var cls = (t === 'dark') ? 'theme-dark' : (t === 'dark-hc' ? 'theme-dark-hc' : 'theme-light');
+      var cls = (t === 'dark') ? 'theme-dark' : (t === 'dark-hc' ? 'theme-dark-hc' : (t === 'gray' ? 'theme-gray' : 'theme-light'));
       // Apply classes
-      document.documentElement.classList.remove('theme-light','theme-dark','theme-dark-hc');
-      document.body && document.body.classList && document.body.classList.remove('theme-light','theme-dark','theme-dark-hc');
+      document.documentElement.classList.remove('theme-light','theme-gray','theme-dark','theme-dark-hc');
+      document.body && document.body.classList && document.body.classList.remove('theme-light','theme-gray','theme-dark','theme-dark-hc');
       document.documentElement.classList.add(cls);
       if (document.body && document.body.classList) document.body.classList.add(cls);
       document.documentElement.setAttribute('data-theme', t);

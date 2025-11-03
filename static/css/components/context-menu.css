@@ -35,6 +35,21 @@
     background: var(--sidebar-bg);
 }
 
+/* Gray theme adjustments */
+.theme-gray .context-menu {
+    background: #e5e7eb;
+    color: #111827;
+    border-color: #9ca3af;
+}
+
+.theme-gray .context-menu__item:hover {
+    background: #d1d5db;
+}
+
+.theme-gray .context-menu__separator {
+    background: #cbd5e1;
+}
+
 /* Dark theme adjustments */
 .theme-dark .context-menu {
     background: #1a1a1a;
@@ -63,5 +78,3 @@
     background: var(--brand-green, #00ff00);
     opacity: .5;
 }
-
-

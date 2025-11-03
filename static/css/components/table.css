@@ -91,6 +91,12 @@
     background-color: #f8fafc;
 }
 
+/* Gray theme zebra striping a bit darker than body for contrast */
+.theme-gray .table__body_row:nth-child(even)>.table__body_item,
+.theme-gray .table__body_row:nth-child(even)>th {
+    background-color: #e9ecef;
+}
+
 .theme-dark .table__body_row:nth-child(even)>.table__body_item,
 .theme-dark .table__body_row:nth-child(even)>th {
     background-color: #1f1f1f;
@@ -104,6 +110,11 @@
 .table__body_row:hover>.table__body_item {
     background: #eff6ff;
     transition: background .12s;
+}
+
+/* Gray theme hover: soft slate */
+.theme-gray .table__body_row:hover>.table__body_item {
+    background: #e2e8f0;
 }
 
 .theme-dark .table__body_row:hover>.table__body_item {
@@ -212,9 +223,18 @@
     background: #ffe08a;
 }
 
+/* Gray theme: neutral head */
+.theme-gray .table-colored thead {
+    background: #e5e7eb;
+}
+
 /* Ensure sticky header cells keep visible background when stuck */
 .table-colored thead th {
     background: #ffe08a;
+}
+
+.theme-gray .table-colored thead th {
+    background: #e5e7eb;
 }
 
 .theme-dark .table-colored thead {
@@ -238,6 +258,11 @@
 .table-colored tbody tr:first-child>th,
 .table-colored tbody tr:first-child>td {
     background: #fff3bf;
+}
+
+.theme-gray .table-colored tbody tr:first-child>th,
+.theme-gray .table-colored tbody tr:first-child>td {
+    background: #f3f4f6;
 }
 
 .theme-dark .table-colored tbody tr:first-child>th,

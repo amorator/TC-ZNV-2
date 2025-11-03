@@ -31,6 +31,12 @@
     /* чуть больше вниз */
 }
 
+/* Gray theme overrides for topbar */
+.theme-gray .app-topbar {
+    background: #d1d5db;
+    /* gray-300 */
+}
+
 .app-topbar__row {
     display: flex;
     align-items: center;
@@ -81,6 +87,32 @@
     transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
     margin: 0 6px;
     /* небольшой промежуток между кнопками */
+}
+
+/* Gray theme top buttons */
+.theme-gray .app-topbar .topbtn,
+.theme-gray .subbar .topbtn,
+.theme-gray .subbar a.topbtn {
+    color: #111827;
+    background: rgba(0, 0, 0, .05);
+    border-color: #cbd5e1;
+    /* slate-300 */
+}
+
+.theme-gray .app-topbar .topbtn:hover,
+.theme-gray .subbar .topbtn:hover,
+.theme-gray .subbar a.topbtn:hover {
+    background: rgba(0, 0, 0, .08);
+}
+
+.theme-gray .app-topbar .topbtn.active,
+.theme-gray .subbar .topbtn.active,
+.theme-gray .subbar a.topbtn.active {
+    background: rgba(0, 0, 0, .10);
+    box-shadow: 0 0 0 2px #cbd5e1 inset;
+    border-color: #cbd5e1;
+    color: #111827;
+    font-weight: 600;
 }
 
 .app-topbar .topbtn.active {
@@ -413,6 +445,17 @@
     background: #fff3bf;
 }
 
+/* Gray theme subbars */
+.theme-gray .subbar.cat {
+    background: #cbd5e1;
+    /* slate-300 */
+}
+
+.theme-gray .subbar.subcat {
+    background: #d1d5db;
+    /* gray-300 */
+}
+
 /* add spacing only below the second submenu (between submenus and table) */
 .subbar.subcat {
     margin-bottom: 12px;
@@ -573,6 +616,11 @@
     background: #ffe08a;
 }
 
+/* Gray theme table head */
+.theme-gray .table-colored thead {
+    background: #cbd5e1;
+}
+
 .theme-dark .table-colored thead {
     background: rgba(255, 255, 255, .08);
 }
@@ -587,6 +635,11 @@
     background: #fff3bf;
     padding: 6px 8px;
     border-radius: 6px;
+}
+
+/* Gray theme search bar */
+.theme-gray .searchbar {
+    background: #d1d5db;
 }
 
 .theme-dark .searchbar {
@@ -607,6 +660,11 @@
 .table-colored tbody tr:first-child>th,
 .table-colored tbody tr:first-child>td {
     background: #fff3bf;
+}
+
+.theme-gray .table-colored tbody tr:first-child>th,
+.theme-gray .table-colored tbody tr:first-child>td {
+    background: #e5e7eb;
 }
 
 .theme-dark .table-colored tbody tr:first-child>th,
@@ -653,6 +711,14 @@
     color: var(--table-td-text) !important;
 }
 
+/* Gray theme: search/action row must be gray, not yellow */
+.theme-gray .files-page__table tbody>tr.table__body_actions,
+.theme-gray .files-page__table tbody>tr.table__body_actions>* {
+    background-color: #d1d5db !important;
+    --bs-table-accent-bg: #d1d5db !important;
+    color: var(--table-td-text) !important;
+}
+
 /* Dark themes: make search/action row dark, not yellow */
 .theme-dark .files-page__table tbody>tr.table__body_actions,
 .theme-dark .files-page__table tbody>tr.table__body_actions>* {
@@ -675,6 +741,13 @@
     color: var(--table-td-text) !important;
 }
 
+.theme-gray .files-page__table.table-hover tbody>tr.table__body_actions:hover,
+.theme-gray .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
+    background-color: #cbd5e1 !important;
+    --bs-table-accent-bg: #cbd5e1 !important;
+    color: var(--table-td-text) !important;
+}
+
 .theme-dark .files-page__table.table-hover tbody>tr.table__body_actions:hover,
 .theme-dark .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
     background-color: #1f1f1f !important;
@@ -692,6 +765,36 @@
 /* Light theme zebra specifically for data rows, skip the first data row */
 .files-page__table.table-striped>tbody>tr.table__body_row:nth-of-type(odd):not(:first-of-type)>* {
     background-color: #fff3bf !important;
+}
+
+/* Gray theme: clear, darker zebra for data rows */
+.theme-gray .table-colored.table-striped {
+    --bs-table-striped-bg: #e9edf1;
+}
+
+.theme-gray .table-colored.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-gray .table-colored.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #e2e8f0 !important;
+    color: var(--table-td-text) !important;
+}
+
+/* Gray theme zebra for data rows */
+.theme-gray .files-page__table.table-striped {
+    --bs-table-striped-bg: #e9edf1;
+}
+
+.theme-gray .files-page__table.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-gray .files-page__table.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #e2e8f0 !important;
+    color: var(--table-td-text) !important;
 }
 
 .theme-dark .files-page__table.table-striped {
