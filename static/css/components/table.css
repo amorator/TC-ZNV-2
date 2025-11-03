@@ -346,3 +346,19 @@
     max-height: 70vh;
     overflow-y: auto;
 }
+
+/* Admin page: truncate overflowing text in cells only here */
+.admin-page__table {
+    table-layout: fixed !important;
+}
+
+.admin-page__table th,
+.admin-page__table td,
+.admin-page__table thead th,
+.admin-page__table tbody td {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    word-break: normal !important;
+}
