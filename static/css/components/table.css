@@ -228,6 +228,11 @@
     background: #e5e7eb;
 }
 
+/* Pink theme: pink head */
+.theme-pink .table-colored thead {
+    background: #ffcfe2;
+}
+
 /* Ensure sticky header cells keep visible background when stuck */
 .table-colored thead th {
     background: #ffe08a;
@@ -235,6 +240,10 @@
 
 .theme-gray .table-colored thead th {
     background: #e5e7eb;
+}
+
+.theme-pink .table-colored thead th {
+    background: #ffcfe2;
 }
 
 .theme-dark .table-colored thead {
@@ -263,6 +272,12 @@
 .theme-gray .table-colored tbody tr:first-child>th,
 .theme-gray .table-colored tbody tr:first-child>td {
     background: #f3f4f6;
+}
+
+/* Pink theme first tbody row */
+.theme-pink .table-colored tbody tr:first-child>th,
+.theme-pink .table-colored tbody tr:first-child>td {
+    background: #ffd9e9;
 }
 
 .theme-dark .table-colored tbody tr:first-child>th,

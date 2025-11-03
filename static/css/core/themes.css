@@ -116,6 +116,56 @@
     --info-color: #6b7280;
 }
 
+/* Pink theme: analogous to yellow/light but using pink accents */
+.theme-pink {
+    --sidebar-bg: #ffe4ec;
+    /* light pink sidebar */
+    --sidebar-text: #3b0a2a;
+    /* deep rose text */
+    --table-td-bg: #fff7fb;
+    /* near-white with pink tint */
+    --table-td-text: #361323;
+    --topbar-bg: #ffd1e1;
+    /* topbar pink */
+    --topbar-text: #361323;
+    --btn-focus: #ec4899;
+    /* pink-500 */
+    --body-bg: #fff0f6;
+    /* page bg */
+    --body-text: #2d0f1f;
+    --modal-bg: #ffeaf2;
+    --modal-border: #8d2957;
+    --control-bg: #ffffff;
+    --control-text: #2d0f1f;
+    --control-border: #8d2957;
+    --control-radius: 10px;
+    --button-bg: #ffffff;
+    --button-text: #2d0f1f;
+    --button-border: #8d2957;
+    --btn-primary-bg: var(--btn-focus);
+    --btn-primary-fg: #ffffff;
+    --btn-secondary-bg: #f9a8d4;
+    /* pink-300 */
+    --btn-secondary-fg: #2d0f1f;
+    --modal-header-bg: #ffcfe2;
+    /* slightly stronger header */
+    --modal-header-text: #2d0f1f;
+    --overlay-text: #2d0f1f;
+    --overlay-opacity: .8;
+    --video-border-color: rgba(141, 41, 87, 0.25);
+    --tr-focus: #ffe0ee;
+    /* row hover */
+    --scrollbar-bg: #ffe4ec;
+    --scrollbar-thumb: #f9a8d4;
+    --scrollbar-thumb-hover: #ec4899;
+    --cam-size-bg: linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
+    --cam-size-text: #ffffff;
+    --player-ctrl-bg: #ffe6ef;
+    --player-ctrl-text: #2d0f1f;
+    --warning-color: #f472b6;
+    --info-color: #db2777;
+}
+
 /* Darker gray accents for all tables in gray theme */
 .theme-gray table,
 .theme-gray .table {
@@ -477,6 +527,21 @@ table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(even)
 .theme-gray table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(even):hover>* {
     --bs-table-accent-bg: #e2e8f0 !important;
     background-color: #e2e8f0 !important;
+    color: inherit !important;
+}
+
+/* Pink theme hover for colored tables */
+.theme-pink table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(odd):hover,
+.theme-pink table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(odd):hover>* {
+    --bs-table-accent-bg: #ffcfe2 !important;
+    background-color: #ffcfe2 !important;
+    color: inherit !important;
+}
+
+.theme-pink table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(even):hover,
+.theme-pink table.table.table-hover.table-colored tbody tr.table__body_row:nth-of-type(even):hover>* {
+    --bs-table-accent-bg: #ffd9e9 !important;
+    background-color: #ffd9e9 !important;
     color: inherit !important;
 }
 

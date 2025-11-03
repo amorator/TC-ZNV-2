@@ -37,6 +37,12 @@
     /* gray-300 */
 }
 
+/* Pink theme overrides for topbar */
+.theme-pink .app-topbar {
+    background: #ffd1e1;
+    /* soft pink */
+}
+
 .app-topbar__row {
     display: flex;
     align-items: center;
@@ -97,6 +103,31 @@
     background: rgba(0, 0, 0, .05);
     border-color: #cbd5e1;
     /* slate-300 */
+}
+
+/* Pink theme top buttons */
+.theme-pink .app-topbar .topbtn,
+.theme-pink .subbar .topbtn,
+.theme-pink .subbar a.topbtn {
+    color: #2d0f1f;
+    background: rgba(236, 72, 153, .12);
+    border-color: #f9a8d4;
+}
+
+.theme-pink .app-topbar .topbtn:hover,
+.theme-pink .subbar .topbtn:hover,
+.theme-pink .subbar a.topbtn:hover {
+    background: rgba(236, 72, 153, .18);
+}
+
+.theme-pink .app-topbar .topbtn.active,
+.theme-pink .subbar .topbtn.active,
+.theme-pink .subbar a.topbtn.active {
+    background: rgba(236, 72, 153, .22);
+    box-shadow: 0 0 0 2px #f9a8d4 inset;
+    border-color: #f9a8d4;
+    color: #2d0f1f;
+    font-weight: 600;
 }
 
 .theme-gray .app-topbar .topbtn:hover,
@@ -456,6 +487,15 @@
     /* gray-300 */
 }
 
+/* Pink theme subbars */
+.theme-pink .subbar.cat {
+    background: #ffcfe2;
+}
+
+.theme-pink .subbar.subcat {
+    background: #ffe0ee;
+}
+
 /* add spacing only below the second submenu (between submenus and table) */
 .subbar.subcat {
     margin-bottom: 12px;
@@ -621,6 +661,11 @@
     background: #cbd5e1;
 }
 
+/* Pink theme table head */
+.theme-pink .table-colored thead {
+    background: #ffcfe2;
+}
+
 .theme-dark .table-colored thead {
     background: rgba(255, 255, 255, .08);
 }
@@ -640,6 +685,11 @@
 /* Gray theme search bar */
 .theme-gray .searchbar {
     background: #d1d5db;
+}
+
+/* Pink theme search bar */
+.theme-pink .searchbar {
+    background: #ffd9e9;
 }
 
 .theme-dark .searchbar {
@@ -665,6 +715,12 @@
 .theme-gray .table-colored tbody tr:first-child>th,
 .theme-gray .table-colored tbody tr:first-child>td {
     background: #e5e7eb;
+}
+
+/* Pink theme first body row */
+.theme-pink .table-colored tbody tr:first-child>th,
+.theme-pink .table-colored tbody tr:first-child>td {
+    background: #ffd9e9;
 }
 
 .theme-dark .table-colored tbody tr:first-child>th,
@@ -719,6 +775,14 @@
     color: var(--table-td-text) !important;
 }
 
+/* Pink theme: search/action row */
+.theme-pink .files-page__table tbody>tr.table__body_actions,
+.theme-pink .files-page__table tbody>tr.table__body_actions>* {
+    background-color: #ffd9e9 !important;
+    --bs-table-accent-bg: #ffd9e9 !important;
+    color: var(--table-td-text) !important;
+}
+
 /* Dark themes: make search/action row dark, not yellow */
 .theme-dark .files-page__table tbody>tr.table__body_actions,
 .theme-dark .files-page__table tbody>tr.table__body_actions>* {
@@ -745,6 +809,13 @@
 .theme-gray .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
     background-color: #cbd5e1 !important;
     --bs-table-accent-bg: #cbd5e1 !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-pink .files-page__table.table-hover tbody>tr.table__body_actions:hover,
+.theme-pink .files-page__table.table-hover tbody>tr.table__body_actions:hover>* {
+    background-color: #ffcfe2 !important;
+    --bs-table-accent-bg: #ffcfe2 !important;
     color: var(--table-td-text) !important;
 }
 
@@ -779,6 +850,21 @@
 
 .theme-gray .table-colored.table-striped>tbody>tr:nth-child(2n)>* {
     background-color: #e2e8f0 !important;
+    color: var(--table-td-text) !important;
+}
+
+/* Pink theme zebra */
+.theme-pink .table-colored.table-striped {
+    --bs-table-striped-bg: #ffe6f1;
+}
+
+.theme-pink .table-colored.table-striped>tbody>tr:nth-of-type(odd):not(:first-child)>* {
+    background-color: var(--bs-table-striped-bg) !important;
+    color: var(--table-td-text) !important;
+}
+
+.theme-pink .table-colored.table-striped>tbody>tr:nth-child(2n)>* {
+    background-color: #ffdff0 !important;
     color: var(--table-td-text) !important;
 }
 
