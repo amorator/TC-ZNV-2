@@ -1132,6 +1132,35 @@ function setupFilesSocketSync() {
         }
       });
 
+      // Keep top menus (categories/subcategories) in sync with Categories page
+      const refreshTopMenus = function(){
+        try {
+          const url = new URL(window.location.href);
+          // Force-bust cache
+          url.searchParams.set('_t', String(Date.now()));
+          fetch(url.toString(), {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'text/html' },
+            credentials: 'include',
+          }).then(function(r){ if (!r.ok) return null; return r.text(); })
+          .then(function(html){
+            if (!html) return;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newCat = doc.querySelector('.subbar.cat .subbar__group');
+            const newSub = doc.querySelector('.subbar.subcat .subbar__group');
+            const curCat = document.querySelector('.subbar.cat .subbar__group');
+            const curSub = document.querySelector('.subbar.subcat .subbar__group');
+            if (newCat && curCat) curCat.innerHTML = newCat.innerHTML;
+            if (newSub && curSub) curSub.innerHTML = newSub.innerHTML;
+          }).catch(function(_){ });
+        } catch(_) {}
+      };
+
+      // React to categories/subcategories changes from Categories page
+      window.SyncManager.on('categories:changed', function(){ refreshTopMenus(); });
+      window.SyncManager.on('subcategories:changed', function(){ refreshTopMenus(); });
+
       // Handle files:maintenance_completed event for maintenance completion
       window.SyncManager.on("files:maintenance_completed", (data) => {
         try {
