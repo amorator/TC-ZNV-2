@@ -479,17 +479,7 @@ async function startUploadWithProgress(form) {
       throw new Error("Не удалось определить категорию или подкатегорию");
     }
     
-    // Debug: log the values we're going to send
-    try {
-      console.log('[startUploadWithProgress] Resolved category IDs:', {
-        did: did,
-        sdid: sdid,
-        didType: typeof did,
-        sdidType: typeof sdid,
-        pathname: window.location.pathname,
-        search: window.location.search
-      });
-    } catch (e) {}
+    // (no console output)
 
     // Show progress bar
     const progressContainer = document.getElementById("upload-progress");
@@ -601,10 +591,7 @@ async function startUploadWithProgress(form) {
         throw new Error(`Не удалось определить категорию: ${err.message}`);
       }
     }
-    // Debug logging
-    try {
-      console.log('[startUploadWithProgress] Resolved IDs (final):', { did, sdid, catId, subId });
-    } catch(_) {}
+    // (no console output)
 
         // Build URL with query parameters (cat_id and sub_id must be in URL, not FormData)
         const urlParams = new URLSearchParams();
@@ -613,17 +600,7 @@ async function startUploadWithProgress(form) {
         
         const initUrl = "/files/add/init?" + urlParams.toString();
         
-        // Debug logging
-        try {
-          console.log('[startUploadWithProgress] Upload parameters:', {
-            did: did,
-            sdid: sdid,
-            catId: catId,
-            subId: subId,
-            url: initUrl,
-            fileName: fileName
-          });
-        } catch (e) {}
+        // (no console output)
 
         // Phase 1: Initialize upload
         const initResponse = await fetch(initUrl, {

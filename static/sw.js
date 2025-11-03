@@ -36,12 +36,8 @@ self.addEventListener("activate", (event) => {
       try {
         await self.clients.claim();
       } catch (err) {
-      if (window.showToast) {
-      window.showToast("Ошибка выполнения", "error");
-    } else {
-      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
-    }
-    }
+        // silent
+      }
     })()
   );
 });
@@ -89,7 +85,6 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch((error) => {
-          console.error("Fetch failed:", error);
           // Return a fallback response if available
           return caches.match("/static/js/record.js");
         });
@@ -128,30 +123,15 @@ self.addEventListener("push", (event) => {
     event.waitUntil(
       (async () => {
         try {
-          // Debug trace to detect whether SW receives the push
-          if (typeof console !== "undefined" && console.debug) {
-            console.debug("[sw] push received", { title, data });
-          }
-        } catch (err) {
-      if (window.showToast) {
-      window.showToast("Ошибка выполнения", "error");
-    } else {
-      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
-    }
-    }
+          // (no console output)
+        } catch (err) {}
         try {
           await self.registration.showNotification(title, options);
         } catch (e) {
           // Fallback minimal notification
           try {
             await self.registration.showNotification(title, { body });
-          } catch (err) {
-      if (window.showToast) {
-      window.showToast("Ошибка выполнения", "error");
-    } else {
-      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
-    }
-    }
+          } catch (err) {}
         }
         // Report delivery for diagnostics (best-effort)
         try {
@@ -161,13 +141,7 @@ self.addEventListener("push", (event) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title, body }),
           });
-        } catch (err) {
-      if (window.showToast) {
-      window.showToast("Ошибка выполнения", "error");
-    } else {
-      console.error("Ошибка выполнения" + (context ? " - " + context : ""));
-    }
-    }
+        } catch (err) {}
       })()
     );
   } catch (e) {

@@ -13,6 +13,7 @@ from modules.permissions import (
     ORDERS_FILES_VIEW,
 )
 from flask import redirect, url_for
+from modules.logging import log_action
 
 
 def register(app, socketio=None):
@@ -207,6 +208,10 @@ def register(app, socketio=None):
 					f"UPDATE {app._sql.config['db']['prefix']}_order SET created_by = %s, creator_gid = %s WHERE id = %s;",
 					[current_user.id, current_user.gid, int(new_id)]
 				)
+			except Exception:
+				pass
+			try:
+				log_action('ORDER_CREATE', current_user.name, f'id={int(new_id)} number={number} service={service}', (request.remote_addr or ''))
 			except Exception:
 				pass
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
@@ -421,6 +426,10 @@ def register(app, socketio=None):
 				f"UPDATE {app._sql.config['db']['prefix']}_order SET approved = %s WHERE id = %s;",
 				[val, order_id]
 			)
+			try:
+				log_action('ORDER_APPROVE', current_user.name, f'id={order_id} approved={bool(val)}', (request.remote_addr or ''))
+			except Exception:
+				pass
 			return jsonify({ 'ok': True, 'approved': bool(val) })
 		except Exception as e:
 			try:
@@ -492,6 +501,10 @@ def register(app, socketio=None):
 				f"UPDATE {prefix}_order SET status=%s WHERE id=%s;",
 				[next_status, order_id]
 			)
+			try:
+				log_action('ORDER_STATUS', current_user.name, f'id={order_id} status={next_status}', (request.remote_addr or ''))
+			except Exception:
+				pass
 			return jsonify({ 'ok': True, 'status': next_status })
 		except Exception as e:
 			try:
@@ -576,6 +589,10 @@ def register(app, socketio=None):
 					f"UPDATE {prefix}_order SET end=%s, status=%s WHERE id=%s",
 					[end, 'done', order_id]
 				)
+				try:
+					log_action('ORDER_COMPLETE', current_user.name, f'id={order_id} end={end}', (request.remote_addr or ''))
+				except Exception:
+					pass
 				return jsonify({ 'ok': True })
 			# Not approved: update any provided fields
 			fields = ['issued = %s', 'start = %s', 'end = %s']
@@ -588,6 +605,10 @@ def register(app, socketio=None):
 				f"UPDATE {prefix}_order SET " + ', '.join(fields) + " WHERE id=%s",
 				values
 			)
+			try:
+				log_action('ORDER_TIMELINE', current_user.name, f'id={order_id} issued={issued} start={start} end={end} status={status or "(nochange)"}', (request.remote_addr or ''))
+			except Exception:
+				pass
 			return jsonify({ 'ok': True })
 		except Exception as e:
 			try:
@@ -665,6 +686,10 @@ def register(app, socketio=None):
 				f"UPDATE {prefix}_order SET start=%s, end=%s, status=%s, extended=1 WHERE id=%s",
 				[start, end, set_status, order_id]
 			)
+			try:
+				log_action('ORDER_EXTEND', current_user.name, f'id={order_id} start={start} end={end} status={set_status}', (request.remote_addr or ''))
+			except Exception:
+				pass
 			return jsonify({ 'ok': True })
 		except Exception as e:
 			try:
@@ -918,6 +943,10 @@ def register(app, socketio=None):
 				return jsonify({'ok': False, 'error': 'forbidden'}), 403
 			# Обновить note
 			app._sql.execute_non_query(f'UPDATE {prefix}_order SET note=%s WHERE id=%s', [note, order_id])
+			try:
+				log_action('ORDER_NOTE', current_user.name, f'id={order_id} note_len={len(note)}', (request.remote_addr or ''))
+			except Exception:
+				pass
 			return jsonify({'ok': True}), 200
 		except Exception as e:
 			return jsonify({'ok': False, 'error': str(e)}), 500
@@ -976,6 +1005,10 @@ def register(app, socketio=None):
 							app._sql.file_delete([int(f.id)])
 						# Delete subcategory itself
 						app._sql.subcategory_delete([int(sub_id)])
+			except Exception:
+				pass
+			try:
+				log_action('ORDER_DELETE', current_user.name, f'id={order_id} service={service}', (request.remote_addr or ''))
 			except Exception:
 				pass
 			return jsonify({'ok': True}), 200
