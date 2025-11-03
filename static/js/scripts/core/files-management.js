@@ -566,42 +566,45 @@ async function startUploadWithProgress(form) {
           formData.append("description", descriptionInput.value.trim());
         }
 
-        // Resolve did/sdid indices to real category_id/subcategory_id via API
-        let catId, subId;
-        try {
-          const resolveUrl = `/api/files/resolve-ids?did=${did}&sdid=${sdid}`;
-          const resolveResponse = await fetch(resolveUrl, {
-            headers: {
-              "X-Requested-With": "XMLHttpRequest",
-              "X-Client-Id": window.__filesClientId || "unknown",
-            },
-          });
-          
-          if (!resolveResponse.ok) {
-            throw new Error(`Ошибка получения ID категории: HTTP ${resolveResponse.status}`);
-          }
-          
-          const resolveData = await resolveResponse.json();
-          if (resolveData.status !== 'success' || !resolveData.category_id || !resolveData.subcategory_id) {
-            throw new Error(resolveData.message || "Не удалось получить ID категории");
-          }
-          
-          catId = resolveData.category_id;
-          subId = resolveData.subcategory_id;
-          
-          // Debug logging
-          try {
-            console.log('[startUploadWithProgress] Resolved IDs:', {
-              did: did,
-              sdid: sdid,
-              catId: catId,
-              subId: subId
-            });
-          } catch (e) {}
-        } catch (err) {
-          window.ErrorHandler.handleError(err, "startUploadWithProgress:resolveIds");
-          throw new Error(`Не удалось определить категорию: ${err.message}`);
+    // Prefer explicit cat_id/sub_id from URL (embed in orders) over did/sdid resolution
+    let catId, subId;
+    try {
+      const urlParamsAll = new URLSearchParams(window.location.search);
+      const qCatId = urlParamsAll.get('cat_id');
+      const qSubId = urlParamsAll.get('sub_id');
+      if (qCatId && qSubId) {
+        catId = parseInt(String(qCatId), 10);
+        subId = parseInt(String(qSubId), 10);
+      }
+    } catch(_) {}
+    if (!(catId && subId)) {
+      // Resolve did/sdid indices to real category_id/subcategory_id via API
+      try {
+        const resolveUrl = `/api/files/resolve-ids?did=${did}&sdid=${sdid}`;
+        const resolveResponse = await fetch(resolveUrl, {
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Client-Id": window.__filesClientId || "unknown",
+          },
+        });
+        if (!resolveResponse.ok) {
+          throw new Error(`Ошибка получения ID категории: HTTP ${resolveResponse.status}`);
         }
+        const resolveData = await resolveResponse.json();
+        if (resolveData.status !== 'success' || !resolveData.category_id || !resolveData.subcategory_id) {
+          throw new Error(resolveData.message || "Не удалось получить ID категории");
+        }
+        catId = resolveData.category_id;
+        subId = resolveData.subcategory_id;
+      } catch (err) {
+        window.ErrorHandler.handleError(err, "startUploadWithProgress:resolveIds");
+        throw new Error(`Не удалось определить категорию: ${err.message}`);
+      }
+    }
+    // Debug logging
+    try {
+      console.log('[startUploadWithProgress] Resolved IDs (final):', { did, sdid, catId, subId });
+    } catch(_) {}
 
         // Build URL with query parameters (cat_id and sub_id must be in URL, not FormData)
         const urlParams = new URLSearchParams();

@@ -673,12 +673,37 @@ class SQLUtils(SQL):
 
 
 	def order_all(self):
-		rows = self.execute_query(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order ORDER BY id DESC;")
-		return [Order(*r) for r in (rows or [])]
+		# Include extended flag but keep Order ctor arity intact; set attribute afterwards
+		rows = self.execute_query(
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended FROM {self.config['db']['prefix']}_order ORDER BY id DESC;"
+		)
+		result = []
+		for r in (rows or []):
+			base = r[:13]
+			ext = r[13] if len(r) > 13 else 0
+			obj = Order(*base)
+			try:
+				setattr(obj, 'extended', int(ext) if ext is not None else 0)
+			except Exception:
+				pass
+			result.append(obj)
+		return result
 
 	def order_by_id(self, args):
-		row = self.execute_scalar(f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at FROM {self.config['db']['prefix']}_order WHERE id = %s;", args)
-		return Order(*row) if row else None
+		row = self.execute_scalar(
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended FROM {self.config['db']['prefix']}_order WHERE id = %s;",
+			args
+		)
+		if not row:
+			return None
+		base = row[:13]
+		ext = row[13] if len(row) > 13 else 0
+		obj = Order(*base)
+		try:
+			setattr(obj, 'extended', int(ext) if ext is not None else 0)
+		except Exception:
+			pass
+		return obj
 
 	def _ensure_orders_category(self):
 		try:
@@ -806,6 +831,9 @@ class SQLUtils(SQL):
 					work_name TEXT NOT NULL,
 					note TEXT DEFAULT '',
 					approved TINYINT(1) NOT NULL DEFAULT 0,
+					extended TINYINT(1) NOT NULL DEFAULT 0,
+					created_by INT NULL,
+					creator_gid INT NULL,
 					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 					INDEX idx_number (number),
@@ -823,6 +851,29 @@ class SQLUtils(SQL):
 			except Exception:
 				try:
 					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN note TEXT DEFAULT '';")
+				except Exception:
+					pass
+
+			# Ensure new columns exist for older schemas (order.created_by, order.creator_gid, order.extended)
+			try:
+				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS created_by INT NULL;")
+			except Exception:
+				try:
+					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN created_by INT NULL;")
+				except Exception:
+					pass
+			try:
+				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS creator_gid INT NULL;")
+			except Exception:
+				try:
+					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN creator_gid INT NULL;")
+				except Exception:
+					pass
+			try:
+				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS extended TINYINT(1) NOT NULL DEFAULT 0;")
+			except Exception:
+				try:
+					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN extended TINYINT(1) NOT NULL DEFAULT 0;")
 				except Exception:
 					pass
 

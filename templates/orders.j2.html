@@ -82,6 +82,7 @@
     <li class="context-menu__item" data-action="files" data-testid="orders-cm-files">Файлы</li>
     <li class="context-menu__item" data-action="edit" data-testid="orders-cm-edit">Изменить</li>
     <li class="context-menu__item" data-action="timeline" data-testid="orders-cm-timeline">Изменить сроки</li>
+    <li class="context-menu__item" data-action="extend" data-testid="orders-cm-extend">Продлить</li>
     <li class="context-menu__item" data-action="delete" data-testid="orders-cm-delete">Удалить</li>
     <li class="context-menu__item" data-action="approve" data-testid="orders-cm-approve">Согласовать</li>
     <li class="context-menu__item" data-action="unapprove" data-testid="orders-cm-unapprove">Отменить согласование</li>
@@ -120,7 +121,7 @@
 </div>
 
 <!-- Print Orders Modal -->
-<div class="modal fade" id="ordersPrintModal" tabindex="-1" aria-labelledby="ordersPrintModalTitle" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="ordersPrintModal" tabindex="-1" aria-labelledby="ordersPrintModalTitle" aria-hidden="true" data-bs-keyboard="true">
   <div class="modal-dialog">
     <div class="modal-content orders-modal">
       <div class="modal-header">
@@ -365,6 +366,49 @@
     </div>
   </div>
 </div>
+
+<!-- Extend Order Modal -->
+<div class="modal fade" id="orderExtendModal" tabindex="-1" aria-labelledby="orderExtendModalTitle" aria-hidden="true" data-bs-keyboard="true">
+  <div class="modal-dialog">
+    <div class="modal-content orders-modal">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderExtendModalTitle">Продлить наряд</h5>
+        <button type="button" class="btn-close" onclick="closeModal('orderExtendModal')"></button>
+      </div>
+      <div class="modal-body">
+        <form id="order-extend-form" autocomplete="off">
+          <div class="mb-3">
+            <label for="oe2-start" class="form-label">Начало работ</label>
+            <input type="datetime-local" class="form-control" id="oe2-start" name="start">
+          </div>
+          <div class="mb-3">
+            <label for="oe2-end" class="form-label">Окончание работ</label>
+            <input type="datetime-local" class="form-control" id="oe2-end" name="end">
+          </div>
+          <div class="mb-2">
+            <div class="form-text mb-1">Статус работ</div>
+            <div class="btn-group" role="group" aria-label="Статус работ">
+              <input type="radio" class="btn-check" name="oe2-status" id="oe2-stopped" autocomplete="off" value="stopped">
+              <label class="btn btn-outline-danger" for="oe2-stopped">Не ведутся</label>
+              <input type="radio" class="btn-check" name="oe2-status" id="oe2-inp" autocomplete="off" value="in_progress">
+              <label class="btn btn-outline-success" for="oe2-inp">Ведутся</label>
+              <input type="radio" class="btn-check" name="oe2-status" id="oe2-done" autocomplete="off" value="done">
+              <label class="btn btn-outline-secondary" for="oe2-done">Завершены</label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <div>
+          <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderExtendModal')">Отмена</button>
+        </div>
+        <div>
+          <button type="button" id="order-extend-submit" class="btn btn-primary">Продлить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block js %}
 <script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
@@ -432,6 +476,16 @@ document.addEventListener('modal-closed', function(){
           var u = new URL(url, window.location.origin);
           u.searchParams.set('theme', theme);
           url = u.pathname + u.search;
+        }
+      } catch(_) {}
+      // Set modal title with order number if available from the table row
+      try {
+        var row = document.getElementById('order-' + String(orderId));
+        var numCell = row && row.children && row.children[2];
+        var num = (numCell && (numCell.textContent || '').trim()) || '';
+        var titleEl = document.getElementById('orderFilesModalTitle');
+        if (titleEl) {
+          titleEl.textContent = num ? ('Файлы наряда №' + num) : 'Файлы наряда';
         }
       } catch(_) {}
       var ifr = document.getElementById('order-files-iframe');

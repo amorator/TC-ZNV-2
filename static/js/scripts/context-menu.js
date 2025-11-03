@@ -265,7 +265,9 @@
         this.toggleItem("open", isReady);
         this.toggleItem("download", hasDownload || isReady);
         this.toggleItem("edit", canEdit);
-        this.toggleItem("move", isReady && canEdit);
+        // Disable move when requested by options (embed orders)
+        const allowMove = !this.options.disableMove && isReady && canEdit;
+        this.toggleItem("move", allowMove);
         this.toggleItem("delete", canDelete);
         this.toggleItem(
           "mark-viewed",

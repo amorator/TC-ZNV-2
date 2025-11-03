@@ -12,6 +12,9 @@ function initFilesContextMenu() {
     const canAdd = table.getAttribute("data-can-add") === "1";
     const canMarkView = table.getAttribute("data-can-mark-view") === "1";
     const canNotes = table.getAttribute("data-can-notes") === "1";
+    // Orders embed: disable move action
+    const qs = new URLSearchParams(location.search || "");
+    const disableMove = qs.get('no_move') === '1' || qs.get('embed') === '1';
 
     // Initialize unified context menu
     if (window.contextMenu && window.contextMenu.init) {
@@ -21,6 +24,7 @@ function initFilesContextMenu() {
         canAdd: canAdd,
         canMarkView: canMarkView,
         canNotes: canNotes,
+        disableMove: disableMove,
       });
     }
   } catch (err) {

@@ -1,5 +1,28 @@
 // Orders page client logic: filters + table render
 (function () {
+  function applyOverdueHighlight(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return;
+      var now = new Date();
+      tb.querySelectorAll('tr.table__body_row').forEach(function(tr){
+        var endStr = (tr.getAttribute('data-end') || '').trim();
+        if (!endStr) {
+          // fallback to visible cell text (6th column)
+          try {
+            var tds = tr.querySelectorAll('td');
+            endStr = (tds[5] && (tds[5].textContent || '').trim()) || '';
+          } catch(_) {}
+        }
+        if (!endStr) { tr.classList.remove('order-overdue'); return; }
+        var parsed = new Date(String(endStr).replace(' ', 'T'));
+        if (isNaN(parsed.getTime())) { tr.classList.remove('order-overdue'); return; }
+        var isOverdue = parsed.getTime() < now.getTime();
+        if (isOverdue) tr.classList.add('order-overdue');
+        else tr.classList.remove('order-overdue');
+      });
+    } catch(_) {}
+  }
   function fmtDate(s) {
     if (!s) return '';
     try {
@@ -34,6 +57,10 @@
       not_approved: 'Действие доступно только для согласованных нарядов',
       done_with_all_dates_locked: 'Заблокировано: статус "завершены" и все сроки заполнены',
       validation: 'Заполните обязательные поля',
+      dates_required: 'Заполните все три поля сроков: Выдан, Начало, Окончание',
+      dates_order: 'Неверная последовательность дат: Окончание > Начало > Выдан',
+      issued_too_early: 'Дата "Выдан" не может быть раньше сегодняшнего дня',
+      already_extended: 'Продление уже выполнено ранее',
       forbidden: 'Недостаточно прав'
     };
     var msg = map[String(reason)] || fallback || 'Операция отклонена';
@@ -155,7 +182,8 @@
           data-status="${(r.status||'').replace(/"/g,'&quot;')}"
           data-issued="${(r.issued||'').replace(/"/g,'&quot;')}"
           data-start="${(r.start||'').replace(/"/g,'&quot;')}"
-          data-end="${(r.end||'').replace(/"/g,'&quot;')}">
+          data-end="${(r.end||'').replace(/"/g,'&quot;')}"
+          data-extended="${r.extended ? '1' : '0'}">
         <td class="table__body_item">${(r.service || '').replace(/</g, '&lt;')}</td>
         <td class="table__body_item">${ (function(){
             // Render as button with color and data attributes
@@ -169,7 +197,11 @@
         <td class="table__body_item">${fmtDate(r.start)}</td>
         <td class="table__body_item">${fmtDate(r.end)}</td>
         <td class="table__body_item">${(r.responsible || '')}</td>
-        <td class="table__body_item">${(r.work_name || '')}</td>
+        <td class="table__body_item">${(function(){
+            var wn = (r.work_name || '');
+            var badge = r.extended ? '<div class="mb-1"><span class="badge bg-warning text-dark">продлён</span></div>' : '';
+            return badge + '<div>' + wn + '</div>';
+          })()}</td>
         <td class="table__body_item">${(function(){
             if (canApprove) {
               return `<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`;
@@ -190,6 +222,7 @@
           })() }</td>
       </tr>
     `).join('');
+    applyOverdueHighlight();
     const newInput = document.getElementById('searchinp');
     if (newInput) {
       newInput.value = oldVal;
@@ -200,6 +233,7 @@
     bindCreateButton();
     bindApprovedToggles();
     bindStatusToggles();
+    bindRowDoubleClickForFiles();
     // edit/delete кнопки не отображаются в UI по требованию
     if (window.OrdersSearch && typeof window.OrdersSearch.setupOrdersSearch === 'function') {
       window.OrdersSearch.setupOrdersSearch();
@@ -207,6 +241,28 @@
     bindNoteBadges(); // Обеспечить bind, даже если не через renderWithNoteBind
     bindOrdersContextMenu();
     setupOrdersHeaderTooltips();
+  }
+  function bindRowDoubleClickForFiles(){
+    try {
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return;
+      tb.querySelectorAll('tr.table__body_row').forEach(function(tr){
+        if (tr.dataset.dblBound === '1') return;
+        tr.dataset.dblBound = '1';
+        tr.addEventListener('dblclick', function(e){
+          try {
+            // Ignore if dblclick happens on interactive elements (buttons, inputs)
+            var t = e.target;
+            if (t && (t.closest('button') || t.closest('a') || t.closest('input') || t.closest('textarea') || t.closest('select'))) return;
+            var idStr = String(this.id || '').replace('order-','');
+            var oid = parseInt(idStr || '0', 10) || 0;
+            if (oid && typeof window.openOrderFilesModal === 'function') {
+              window.openOrderFilesModal(oid);
+            }
+          } catch(_) {}
+        });
+      });
+    } catch(_) {}
   }
 
   // --- search input persistence and clear button ---
@@ -354,7 +410,7 @@
         if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
         return;
       }
-      // Validate date sequence: issued < start < end (each may be empty)
+      // Validate dates: all required; end > start > issued; issued >= today (date-only)
       (function validateCreateDates(){
         var ids = { issued: 'oc-issued', start: 'oc-start', end: 'oc-end' };
         Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
@@ -364,9 +420,19 @@
         var ve = document.getElementById(ids.end)?.value || '';
         var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
         function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
+        // Required all three
+        if (!di || !ds || !de) {
+          if (!di) mark(ids.issued); if (!ds) mark(ids.start); if (!de) mark(ids.end);
+          if (window.showToast) window.showToast('Заполните все три поля сроков: Выдан, Начало, Окончание', 'warning');
+          throw new Error('dates-required');
+        }
         if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
         if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
         if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+        // Issued not earlier than today (ignore time)
+        var today = new Date(); today.setHours(0,0,0,0);
+        var diDate = new Date(di.getFullYear(), di.getMonth(), di.getDate());
+        if (diDate < today) { mark(ids.issued); if (window.showToast) window.showToast('Дата "Выдан" не может быть раньше сегодняшнего дня', 'warning'); throw new Error('date-issued'); }
       })();
       var payload = {
         number: fields.number.trim(),
@@ -543,6 +609,7 @@
             setVis('files', canFilesUI);
             setVis('edit', canEdit);
             setVis('timeline', canTimeline);
+            setVis('extend', canTimeline);
             setVis('delete', canDelete);
             setVis('create', canCreateUI);
             setVis('note', !!(window.OrdersPerms && (window.OrdersPerms.notes || window.OrdersPerms.admin)));
@@ -552,30 +619,40 @@
             var unapproveItem = menu.querySelector('[data-action="unapprove"]');
             var btn = this.querySelector('button[data-action="toggle-approved"]');
             var isApproved = btn ? (btn.getAttribute('data-approved') === '1') : false;
+            var isExtended = (this.getAttribute('data-extended') === '1');
             if (approveItem && unapproveItem) {
               approveItem.classList.toggle('d-none', isApproved);
               unapproveItem.classList.toggle('d-none', !isApproved);
             }
             // Business rules:
-            // - Timeline/status change available only if approved and user has status_change/admin
-            // - When approved == yes: edit/delete are not available
-            if (!isApproved) {
-              setVis('timeline', false);
-            } else {
-              // ensure edit/delete hidden when approved
-              setVis('edit', false);
-              setVis('delete', false);
-            }
-            // Additional lock: if status == done and issued/start/end are all filled -> disable timeline, status, and UNAPPROVE
+            // - Completion UI: when approved, rename to "Завершить наряд" and allow only timeline action
+            // - After completion (status == done): show only files and note; hide edit/delete/timeline/approve
             var st = (this.getAttribute('data-status') || '').trim();
             var issued = (this.getAttribute('data-issued') || '').trim();
             var start = (this.getAttribute('data-start') || '').trim();
             var end = (this.getAttribute('data-end') || '').trim();
-            var lockComplete = (st === 'done' && issued && start && end);
-            if (lockComplete) {
+            if (st === 'done') {
+              setVis('edit', false);
+              setVis('delete', false);
               setVis('timeline', false);
-              // hide unapprove option when locked complete
+              setVis('extend', false);
+              setVis('approve', false);
               setVis('unapprove', false);
+              // Keep only files and note visible (already set earlier)
+            } else {
+              if (!isApproved) {
+                setVis('timeline', false);
+                setVis('extend', false);
+              } else {
+                // ensure edit/delete hidden when approved
+                setVis('edit', false);
+                setVis('delete', false);
+                // Rename timeline action to "Завершить наряд" when approved
+                var tl = menu.querySelector('[data-action="timeline"]');
+                if (tl) tl.textContent = 'Завершить наряд';
+                // Hide extend after first extension
+                setVis('extend', !isExtended);
+              }
             }
             showAt(e.clientX, e.clientY);
           } catch(_) {}
@@ -599,6 +676,9 @@
               break;
             case 'timeline':
               if (id) openOrderTimelineModal(id);
+              break;
+            case 'extend':
+              if (id) openOrderExtendModal(id);
               break;
             case 'delete':
               if (id) {
@@ -832,8 +912,162 @@
         if (radio) radio.checked = true;
         var form = document.getElementById('order-timeline-form');
         if (form) form.setAttribute('data-id', String(orderId));
+        // If approved: allow only completion -> enable only end, lock issued/start and status to done
+        try {
+          var row = document.getElementById('order-' + orderId);
+          var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
+          var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+          var titleEl = document.getElementById('orderTimelineModalTitle');
+          var submitBtn = document.getElementById('order-timeline-submit');
+          var issuedEl = document.getElementById('ot-issued');
+          var startEl = document.getElementById('ot-start');
+          var endEl = document.getElementById('ot-end');
+          var stStopped = document.getElementById('ot-stopped');
+          var stInp = document.getElementById('ot-inp');
+          var stDone = document.getElementById('ot-done');
+          if (isApproved) {
+            if (titleEl) titleEl.textContent = 'Завершить наряд';
+            if (submitBtn) submitBtn.textContent = 'Завершить';
+            if (issuedEl) { issuedEl.disabled = true; }
+            if (startEl) { startEl.disabled = true; }
+            if (stStopped) stStopped.disabled = true;
+            if (stInp) stInp.disabled = true;
+            if (stDone) { stDone.checked = true; stDone.disabled = true; }
+            if (endEl) { endEl.disabled = false; }
+          } else {
+            if (titleEl) titleEl.textContent = 'Изменение сроков и статуса';
+            if (submitBtn) submitBtn.textContent = 'Сохранить';
+            if (issuedEl) issuedEl.disabled = false;
+            if (startEl) startEl.disabled = false;
+            if (stStopped) stStopped.disabled = false;
+            if (stInp) stInp.disabled = false;
+            if (stDone) stDone.disabled = false;
+          }
+        } catch(_) {}
         if (window.openModal) window.openModal('orderTimelineModal');
       }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+  }
+
+  function openOrderExtendModal(orderId){
+    try {
+      // Immediate prefill from the current table row (UI is already up-to-date)
+      var row = document.getElementById('order-' + orderId);
+      if (row) {
+        var s = (row.getAttribute('data-start') || '').trim();
+        var e = (row.getAttribute('data-end') || '').trim();
+        // Fallback: read from visible cells if dataset empty
+        if (!s || !e) {
+          try {
+            var tds = row.querySelectorAll('td');
+            // indexes: 0 service,1 status,2 number,3 issued,4 start,5 end
+            var sTxt = (tds[4] && (tds[4].textContent || '').trim()) || '';
+            var eTxt = (tds[5] && (tds[5].textContent || '').trim()) || '';
+            // Convert like "YYYY-MM-DD HH:MM" to input format; Date can parse
+            if (!s && sTxt) s = sTxt.replace(' ', 'T');
+            if (!e && eTxt) e = eTxt.replace(' ', 'T');
+          } catch(_){}
+        }
+        var st = (row.getAttribute('data-status') || 'stopped').trim();
+        var set = function(id, v){ var el = document.getElementById(id); if (el) el.value = v; };
+        set('oe2-start', toInputDt(s));
+        set('oe2-end', toInputDt(e));
+        var idMap0 = { stopped: 'oe2-stopped', in_progress: 'oe2-inp', done: 'oe2-done' };
+        var rid0 = idMap0[st] || 'oe2-stopped';
+        var radio0 = document.getElementById(rid0);
+        if (radio0) radio0.checked = true;
+      }
+      var form = document.getElementById('order-extend-form');
+      if (form) form.setAttribute('data-id', String(orderId));
+      if (window.openModal) window.openModal('orderExtendModal');
+      // Reinforce after open (timing with Bootstrap transitions)
+      setTimeout(function(){
+        try {
+          var set = function(id, v){ var el = document.getElementById(id); if (el && v) el.value = v; };
+          set('oe2-start', toInputDt(s));
+          set('oe2-end', toInputDt(e));
+          var idMap1 = { stopped: 'oe2-stopped', in_progress: 'oe2-inp', done: 'oe2-done' };
+          var rid1 = idMap1[st] || 'oe2-stopped';
+          var radio1 = document.getElementById(rid1);
+          if (radio1) radio1.checked = true;
+        } catch(_) {}
+      }, 50);
+    } catch(_) {}
+
+    fetch('/api/orders/' + orderId, { headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось загрузить наряд', 'danger'); return; }
+        var o = res.body.order || {};
+        var set = function(id, v){ var el = document.getElementById(id); if (el) el.value = v; };
+        set('oe2-start', toInputDt(o.start));
+        set('oe2-end', toInputDt(o.end));
+        // status
+        var idMap = { stopped: 'oe2-stopped', in_progress: 'oe2-inp', done: 'oe2-done' };
+        var rid = idMap[(o.status||'stopped')] || 'oe2-stopped';
+        var radio = document.getElementById(rid);
+        if (radio) radio.checked = true;
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+  }
+
+  function handleOrderExtendSubmit(){
+    var form = document.getElementById('order-extend-form');
+    if (!form) return;
+    var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
+    var inpStart = document.getElementById('oe2-start');
+    var inpEnd = document.getElementById('oe2-end');
+    var rawStart = (inpStart && inpStart.value) || '';
+    var rawEnd = (inpEnd && inpEnd.value) || '';
+    // If inputs are empty, fallback to row dataset / cells
+    if ((!rawStart || !rawEnd) && id) {
+      try {
+        var row = document.getElementById('order-' + id);
+        if (row) {
+          var ds = (row.getAttribute('data-start') || '').trim();
+          var de = (row.getAttribute('data-end') || '').trim();
+          if ((!ds || !de)) {
+            var tds = row.querySelectorAll('td');
+            ds = ds || ((tds[4] && (tds[4].textContent || '').trim()) || '');
+            de = de || ((tds[5] && (tds[5].textContent || '').trim()) || '');
+          }
+          if (!rawStart && ds) rawStart = ds.replace(' ', 'T');
+          if (!rawEnd && de) rawEnd = de.replace(' ', 'T');
+        }
+      } catch(_) {}
+    }
+    // Normalize to server-expected format 'YYYY-MM-DD HH:MM'
+    function toServerDt(v){ if (!v) return ''; return String(v).replace('T', ' ').slice(0,16); }
+    var statusVal = (document.querySelector('input[name="oe2-status"]:checked')?.value || '').trim();
+    var payload = {
+      start: toServerDt(rawStart),
+      end: toServerDt(rawEnd),
+      status: statusVal
+    };
+    // simple client validation: require start/end and end > start
+    var toDate = function(v){ if (!v) return null; var d = new Date(String(v)); return isNaN(d.getTime()) ? null : d; };
+    var ds = toDate(payload.start.replace(' ', 'T')), de = toDate(payload.end.replace(' ', 'T'));
+    ['oe2-start','oe2-end'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+    if (!ds || !de || (ds && de && ds > de)){
+      if (!ds) { var es = document.getElementById('oe2-start'); if (es) es.classList.add('is-invalid'); }
+      if (!de) { var ee = document.getElementById('oe2-end'); if (ee) ee.classList.add('is-invalid'); }
+      if (window.showToast) window.showToast('Проверьте даты начала/окончания', 'warning');
+      return;
+    }
+    fetch('/api/orders/' + id + '/extend', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload)
+    }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) {
+          var t = (function(){ return { msg: 'Ошибка продления', level: 'danger' }; })();
+          if (window.showToast) window.showToast(t.msg, t.level);
+          return;
+        }
+        if (window.closeModal) window.closeModal('orderExtendModal');
+        if (window.showToast) window.showToast('Наряд продлён', 'success');
+        load(1);
+      }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при продлении', 'danger'); });
   }
 
   function handleOrderTimelineSubmit(){
@@ -841,7 +1075,9 @@
     if (!form) return;
     var id = parseInt(form.getAttribute('data-id') || '0', 10) || 0;
     var st = (document.querySelector('input[name="ot-status"]:checked')?.value || '').trim();
-    // Validate date sequence
+    // Normalize inputs to server format 'YYYY-MM-DD HH:MM'
+    function toServerDt(v){ if (!v) return ''; return String(v).replace('T', ' ').slice(0,16); }
+    // Validate according to mode (approved -> only completion)
     (function validateTimelineDates(){
       var ids = { issued: 'ot-issued', start: 'ot-start', end: 'ot-end' };
       Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
@@ -851,14 +1087,38 @@
       var ve = document.getElementById(ids.end)?.value || '';
       var di = toDate(vi), ds = toDate(vs), de = toDate(ve);
       function mark(id){ var el = document.getElementById(id); if (el) el.classList.add('is-invalid'); }
-      if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
-      if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-      if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      var row = document.getElementById('order-' + id);
+      var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
+      var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+      if (isApproved) {
+        if (!de) { mark(ids.end); if (window.showToast) window.showToast('Укажите "Окончание работ"', 'warning'); throw new Error('date-end-required'); }
+        if (di && de && di > de) { mark(ids.end); if (window.showToast) window.showToast('"Окончание" должно быть позже даты выдачи', 'warning'); throw new Error('date-seq'); }
+        if (ds && de && ds > de) { mark(ids.end); if (window.showToast) window.showToast('"Окончание" должно быть позже начала работ', 'warning'); throw new Error('date-seq'); }
+        st = 'done';
+      } else {
+        if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
+        if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+        if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
+      }
     })();
+    var rawIssued = document.getElementById('ot-issued')?.value || '';
+    var rawStart = document.getElementById('ot-start')?.value || '';
+    var rawEnd = document.getElementById('ot-end')?.value || '';
+    // If approved and end empty, fallback to row cell text to avoid empty payload
+    try {
+      var row = document.getElementById('order-' + id);
+      var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
+      var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+      if (isApproved && !rawEnd && row) {
+        var tds = row.querySelectorAll('td');
+        var eTxt = (tds[5] && (tds[5].textContent || '').trim()) || '';
+        if (eTxt) rawEnd = eTxt.replace(' ', 'T');
+      }
+    } catch(_) {}
     var payload = {
-      issued: document.getElementById('ot-issued')?.value || '',
-      start: document.getElementById('ot-start')?.value || '',
-      end: document.getElementById('ot-end')?.value || '',
+      issued: toServerDt(rawIssued),
+      start: toServerDt(rawStart),
+      end: toServerDt(rawEnd),
       status: st
     };
     fetch('/api/orders/' + id + '/timeline', {
@@ -945,9 +1205,9 @@
           var issued = row ? (row.getAttribute('data-issued') || '') : '';
           var start = row ? (row.getAttribute('data-start') || '') : '';
           var end = row ? (row.getAttribute('data-end') || '') : '';
-          var lockComplete = (st === 'done' && issued && start && end);
-          if (lockComplete) {
-            if (window.showToast) window.showToast('Изменение статуса запрещено: завершено и сроки заполнены', 'warning');
+          // Forbid any changes when completed
+          if (st === 'done') {
+            if (window.showToast) window.showToast('Изменение статуса запрещено: наряд завершён', 'warning');
             return;
           }
           if (!isApproved || !canEditStatusFor(svc)) {
@@ -1123,6 +1383,7 @@
       setupModalOverlayClose('orderEditModal');
       setupModalOverlayClose('orderDeleteModal');
       setupModalOverlayClose('orderTimelineModal');
+      setupModalOverlayClose('orderExtendModal');
       setupAriaHiddenFocusWatcher('orderNoteModal');
       setupAriaHiddenFocusWatcher('orderCreateModal');
       setupAriaHiddenFocusWatcher('orderEditModal');
@@ -1132,6 +1393,10 @@
       if (tlBtn) tlBtn.addEventListener('click', handleOrderTimelineSubmit);
       var editBtn = document.getElementById('order-edit-submit');
       if (editBtn) editBtn.addEventListener('click', handleOrderEditSubmit);
+      var extBtn = document.getElementById('order-extend-submit');
+      if (extBtn) extBtn.addEventListener('click', handleOrderExtendSubmit);
+      // Periodic overdue re-check for soft refresh visibility
+      try { if (!window._ordersOverdueTimer) { window._ordersOverdueTimer = setInterval(applyOverdueHighlight, 30000); } } catch(_) {}
     });
   } else {
     init();
@@ -1142,15 +1407,20 @@
     setupModalOverlayClose('orderEditModal');
     setupModalOverlayClose('orderDeleteModal');
     setupModalOverlayClose('orderTimelineModal');
+    setupModalOverlayClose('orderExtendModal');
     setupAriaHiddenFocusWatcher('orderNoteModal');
     setupAriaHiddenFocusWatcher('orderCreateModal');
     setupAriaHiddenFocusWatcher('orderEditModal');
     setupAriaHiddenFocusWatcher('orderDeleteModal');
     setupAriaHiddenFocusWatcher('orderTimelineModal');
+    setupAriaHiddenFocusWatcher('orderExtendModal');
     var tlBtn2 = document.getElementById('order-timeline-submit');
     if (tlBtn2) tlBtn2.addEventListener('click', handleOrderTimelineSubmit);
     var editBtn2 = document.getElementById('order-edit-submit');
     if (editBtn2) editBtn2.addEventListener('click', handleOrderEditSubmit);
+    var extBtn2 = document.getElementById('order-extend-submit');
+    if (extBtn2) extBtn2.addEventListener('click', handleOrderExtendSubmit);
+    try { if (!window._ordersOverdueTimer) { window._ordersOverdueTimer = setInterval(applyOverdueHighlight, 30000); } } catch(_) {}
   }
   if (window.OrdersSearch && typeof window.OrdersSearch.setupFilesSearch === 'function') {
     window.OrdersSearch.setupFilesSearch();

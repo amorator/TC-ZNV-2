@@ -250,6 +250,38 @@
     word-break: break-word;
 }
 
+/* Overdue orders: end < now => red-ish background */
+.orders-page__table tbody tr.order-overdue>td,
+.orders-page__table tbody tr.order-overdue>th,
+.orders-page__table.table-colored tbody tr.order-overdue>td,
+.orders-page__table.table-colored tbody tr.order-overdue>th {
+    background-color: #ffc9c9 !important;
+    /* ярче */
+    border-left: 4px solid #dc3545 !important;
+}
+
+.theme-dark .orders-page__table tbody tr.order-overdue>td,
+.theme-dark .orders-page__table tbody tr.order-overdue>th,
+.theme-dark .orders-page__table.table-colored tbody tr.order-overdue>td,
+.theme-dark .orders-page__table.table-colored tbody tr.order-overdue>th {
+    background-color: #4a2323 !important;
+    border-left: 4px solid #ff6b6b !important;
+}
+
+.theme-dark-hc .orders-page__table tbody tr.order-overdue>td,
+.theme-dark-hc .orders-page__table tbody tr.order-overdue>th,
+.theme-dark-hc .orders-page__table.table-colored tbody tr.order-overdue>td,
+.theme-dark-hc .orders-page__table.table-colored tbody tr.order-overdue>th {
+    background-color: #660000 !important;
+    border-left: 4px solid #ff6b6b !important;
+}
+
+/* keep highlight on hover */
+.orders-page__table tbody tr.order-overdue:hover>td,
+.orders-page__table tbody tr.order-overdue:hover>th {
+    background-color: #ffb3b3 !important;
+}
+
 .orders-page__table thead th:nth-child(1),
 .orders-page__table tbody td:nth-child(1) {
     width: 13% !important;

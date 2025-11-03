@@ -124,6 +124,7 @@ def register(app, socketio=None):
 					'approved': bool(getattr(o, 'approved', False)),
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
+					'extended': bool(getattr(o, 'extended', False)),
 				})
 			# Paginate
 			total = len(result)
@@ -168,7 +169,7 @@ def register(app, socketio=None):
 			if not work_name: missing.append('work_name')
 			if missing:
 				return jsonify({ 'ok': False, 'error': 'validation', 'missing': missing }), 400
-			# Normalize empty dates as None; try parse to 'YYYY-MM-DD HH:MM:SS' or keep None
+			# Dates validation: all three required; end > start > issued; issued >= today (date-only)
 			def norm_dt(x):
 				if not x: return None
 				try:
@@ -178,6 +179,16 @@ def register(app, socketio=None):
 			issued_dt = norm_dt(issued)
 			start_dt = norm_dt(start)
 			end_dt = norm_dt(end)
+			if not issued_dt or not start_dt or not end_dt:
+				return jsonify({ 'ok': False, 'error': 'dates_required' }), 400
+			if not (issued_dt < start_dt < end_dt):
+				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+			# issued date must be today or later (ignore time)
+			try:
+				if issued_dt.date() < dt.now().date():
+					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
+			except Exception:
+				pass
 			# Insert
 			new_id = app._sql.order_add([
 				service,
@@ -190,6 +201,14 @@ def register(app, socketio=None):
 				work_name,
 				0,  # approved default
 			])
+			# Set creator metadata
+			try:
+				app._sql.execute_non_query(
+					f"UPDATE {app._sql.config['db']['prefix']}_order SET created_by = %s, creator_gid = %s WHERE id = %s;",
+					[current_user.id, current_user.gid, int(new_id)]
+				)
+			except Exception:
+				pass
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
 			try:
@@ -228,6 +247,15 @@ def register(app, socketio=None):
 			issued_dt = norm_dt(issued)
 			start_dt = norm_dt(start)
 			end_dt = norm_dt(end)
+			if not issued_dt or not start_dt or not end_dt:
+				return jsonify({ 'ok': False, 'error': 'dates_required' }), 400
+			if not (issued_dt < start_dt < end_dt):
+				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+			try:
+				if issued_dt.date() < dt.now().date():
+					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
+			except Exception:
+				pass
 			new_id = app._sql.order_add([
 				service,
 				status,
@@ -239,6 +267,14 @@ def register(app, socketio=None):
 				work_name,
 				0,
 			])
+			# Set creator metadata
+			try:
+				app._sql.execute_non_query(
+					f"UPDATE {app._sql.config['db']['prefix']}_order SET created_by = %s, creator_gid = %s WHERE id = %s;",
+					[current_user.id, current_user.gid, int(new_id)]
+				)
+			except Exception:
+				pass
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
 			try:
@@ -255,7 +291,7 @@ def register(app, socketio=None):
 			prefix = app._sql.config['db']['prefix']
 			# Fetch existing order
 			rows = app._sql.execute_query(
-				f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved FROM {prefix}_order WHERE id=%s",
+				f"SELECT id, service, status, number, issued, start, end, responsible, work_name, approved, created_by, creator_gid, extended FROM {prefix}_order WHERE id=%s",
 				[order_id]
 			) or []
 			if not rows:
@@ -263,8 +299,7 @@ def register(app, socketio=None):
 			row = rows[0]
 			def to_iso(x):
 				try:
-
-					return (x if isinstance(x, _dt) else _dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))).isoformat(sep=' ')
+					return (x if isinstance(x, dt) else dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))).isoformat(sep=' ')
 				except Exception:
 					return ''
 			order = {
@@ -278,6 +313,9 @@ def register(app, socketio=None):
 				'responsible': str(row[7] or ''),
 				'work_name': str(row[8] or ''),
 				'approved': bool(row[9]),
+				'created_by': int(row[10]) if row[10] is not None else None,
+				'creator_gid': int(row[11]) if row[11] is not None else None,
+				'extended': bool(row[12]) if len(row) > 12 else False,
 			}
 			if request.method == 'GET':
 				return jsonify({ 'ok': True, 'order': order })
@@ -289,12 +327,16 @@ def register(app, socketio=None):
 				if str(name) == order['service']:
 					service_gid = int(gid)
 					break
+			creator_gid = order.get('creator_gid')
 			can_edit = (
 				current_user.has('admin.any') or
 				current_user.has('orders.edit_any') or
-				(service_gid and current_user.gid == service_gid)
+				(service_gid and current_user.gid == service_gid) or
+				(creator_gid and current_user.gid == creator_gid)
 			)
-			# Disallow edit if approved
+			# Disallow edit if approved or already completed
+			if str(order.get('status', '')).strip().lower() == 'done':
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
 			if order.get('approved'):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
 			if not can_edit:
@@ -318,7 +360,7 @@ def register(app, socketio=None):
 				if not x: return None
 				try:
 
-					return _dt.fromisoformat(str(x).replace('T', ' '))
+					return dt.fromisoformat(str(x).replace('T', ' '))
 				except Exception:
 					return None
 			issued_dt = norm_dt(issued)
@@ -395,7 +437,7 @@ def register(app, socketio=None):
 		try:
 			# Determine service of order to check approval and permissions
 			prefix = app._sql.config['db']['prefix']
-			row = app._sql.execute_query(f'SELECT service, status, approved, issued, start, end FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, status, approved, issued, start, end, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({ 'ok': False, 'error': 'not found' }), 404
 			service = (row[0][0] or '').strip()
@@ -404,10 +446,23 @@ def register(app, socketio=None):
 			issued = row[0][3]
 			start = row[0][4]
 			end = row[0][5]
-			# Permission: only admin or orders.status_change
+			# Forbid any further status changes once completed
+			if current_status == 'done':
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
+			# Permission: admin, explicit status_change, or membership in responsible/creator groups
+			# Resolve service_gid
+			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+			service_gid = None
+			for gid, name in groups:
+				if name == service:
+					service_gid = int(gid)
+					break
+			creator_gid = int(row[0][6]) if (row and len(row[0]) > 6 and row[0][6] is not None) else None
 			can_change = (
 				current_user.has('admin.any') or
-				current_user.has(ORDERS_STATUS_CHANGE)
+				current_user.has(ORDERS_STATUS_CHANGE) or
+				(service_gid and current_user.gid == service_gid) or
+				(creator_gid and current_user.gid == creator_gid)
 			)
 			if not can_change:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
@@ -452,7 +507,7 @@ def register(app, socketio=None):
 		"""Update order issued/start/end and status. Only admin or orders.status_change; only when approved == True."""
 		try:
 			prefix = app._sql.config['db']['prefix']
-			row = app._sql.execute_query(f'SELECT service, approved, status, issued, start, end FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, approved, status, issued, start, end, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({ 'ok': False, 'error': 'not found' }), 404
 			service = (row[0][0] or '').strip()
@@ -461,32 +516,68 @@ def register(app, socketio=None):
 			cur_issued = row[0][3]
 			cur_start = row[0][4]
 			cur_end = row[0][5]
+			# Permission: admin, explicit status_change, or membership in responsible/creator groups
+			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+			service_gid = None
+			for gid, name in groups:
+				if name == service:
+					service_gid = int(gid)
+					break
+			creator_gid = int(row[0][6]) if (row and len(row[0]) > 6 and row[0][6] is not None) else None
 			can_change = (
 				current_user.has('admin.any') or
-				current_user.has(ORDERS_STATUS_CHANGE)
+				current_user.has(ORDERS_STATUS_CHANGE) or
+				(service_gid and current_user.gid == service_gid) or
+				(creator_gid and current_user.gid == creator_gid)
 			)
 			if not can_change:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
 			if approved_val != 1:
 				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
-			# Lock when completed with all dates
-			if current_status == 'done' and (cur_issued is not None and cur_start is not None and cur_end is not None):
-				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_with_all_dates_locked' }), 403
+			# Forbid any further timeline changes once completed
+			if current_status == 'done':
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
 			data = request.get_json(silent=True) or {}
 			def norm_dt(x):
 				if not x: return None
 				try:
-
-					return _dt.fromisoformat(str(x).replace('T', ' '))
-				except Exception:
+					return dt.fromisoformat(str(x).replace('T', ' '))
+				except Exception as e:
+					try:
+						app.logger.warning(f"orders.timeline: parse_error value={x} err={e}")
+					except Exception:
+						pass
 					return None
 			issued = norm_dt((data.get('issued') or '').strip() or None)
 			start = norm_dt((data.get('start') or '').strip() or None)
 			end = norm_dt((data.get('end') or '').strip() or None)
+			try:
+				app.logger.info(f"orders.timeline: id={order_id} ct={request.headers.get('Content-Type')} raw={data} parsed_issued={issued} parsed_start={start} parsed_end={end} approved={approved_val}")
+			except Exception:
+				pass
 			status = (data.get('status') or '').strip().lower()
 			if status not in ('stopped','in_progress','done',''):
 				return jsonify({ 'ok': False, 'error': 'bad status' }), 400
-			# Build dynamic update
+			# If approved: allow only completion — update end, force status=done; keep issued/start unchanged
+			if approved_val == 1:
+				# Require end
+				if end is None:
+					try:
+						app.logger.warning(f"orders.timeline: dates_required id={order_id} end=None raw_end={data.get('end')}")
+					except Exception:
+						pass
+					return jsonify({ 'ok': False, 'error': 'dates_required' }), 400
+				# Validate order: end after existing issued/start when present
+				if cur_issued and end <= cur_issued:
+					return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+				if cur_start and end <= cur_start:
+					return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+				app._sql.execute_non_query(
+					f"UPDATE {prefix}_order SET end=%s, status=%s WHERE id=%s",
+					[end, 'done', order_id]
+				)
+				return jsonify({ 'ok': True })
+			# Not approved: update any provided fields
 			fields = ['issued = %s', 'start = %s', 'end = %s']
 			values = [issued, start, end]
 			if status:
@@ -501,6 +592,83 @@ def register(app, socketio=None):
 		except Exception as e:
 			try:
 				app.logger.error(f"Orders timeline update error: {e}")
+			except Exception:
+				pass
+			return jsonify({ 'ok': False, 'error': 'server' }), 500
+
+	@app.route('/api/orders/<int:order_id>/extend', methods=['POST'])
+	@login_required
+	@require_permissions(ORDERS_VIEW_PAGE)
+	def api_orders_extend(order_id: int):
+		"""One-time extension: allow changing start/end/status once when approved and not done.
+		Accessible to same users as completion (admin, orders.status_change, service/creator group)."""
+		try:
+			prefix = app._sql.config['db']['prefix']
+			row = app._sql.execute_query(f'SELECT service, approved, status, issued, start, end, extended, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
+			if not row:
+				return jsonify({ 'ok': False, 'error': 'not found' }), 404
+			service = (row[0][0] or '').strip()
+			approved_val = int(row[0][1] or 0)
+			current_status = str(row[0][2] or '').strip().lower()
+			cur_issued = row[0][3]
+			already_extended = int(row[0][6] or 0) == 1
+			creator_gid = int(row[0][7]) if (row and len(row[0]) > 7 and row[0][7] is not None) else None
+			# Permissions: same as completion
+			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+			service_gid = None
+			for gid, name in groups:
+				if name == service:
+					service_gid = int(gid)
+					break
+			can_change = (
+				current_user.has('admin.any') or
+				current_user.has(ORDERS_STATUS_CHANGE) or
+				(service_gid and current_user.gid == service_gid) or
+				(creator_gid and current_user.gid == creator_gid)
+			)
+			if not can_change:
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
+			# Business rules
+			if approved_val != 1:
+				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
+			if current_status == 'done':
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
+			if already_extended:
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'already_extended' }), 400
+			# Parse input
+			data = request.get_json(silent=True) or {}
+			def norm_dt(x):
+				if not x: return None
+				try:
+					return dt.fromisoformat(str(x).replace('T', ' '))
+				except Exception:
+					return None
+			start = norm_dt((data.get('start') or '').strip() or None)
+			end = norm_dt((data.get('end') or '').strip() or None)
+			status = (data.get('status') or '').strip().lower()
+			try:
+				app.logger.info(f"orders.extend: id={order_id} ct={request.headers.get('Content-Type')} raw={data} parsed_start={start} parsed_end={end} approved={approved_val}")
+			except Exception:
+				pass
+			if status not in ('stopped','in_progress','done',''):
+				return jsonify({ 'ok': False, 'error': 'bad status' }), 400
+			# Validate: require end and start; end > start; and if issued exists, start > issued
+			if start is None or end is None:
+				return jsonify({ 'ok': False, 'error': 'dates_required' }), 400
+			if end <= start:
+				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+			if cur_issued and start <= cur_issued:
+				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
+			# Apply update and mark extended once
+			set_status = status or current_status or 'stopped'
+			app._sql.execute_non_query(
+				f"UPDATE {prefix}_order SET start=%s, end=%s, status=%s, extended=1 WHERE id=%s",
+				[start, end, set_status, order_id]
+			)
+			return jsonify({ 'ok': True })
+		except Exception as e:
+			try:
+				app.logger.error(f"Orders extend error: {e}")
 			except Exception:
 				pass
 			return jsonify({ 'ok': False, 'error': 'server' }), 500
@@ -589,7 +757,8 @@ def register(app, socketio=None):
 					'work_name': getattr(o, 'work_name', ''),
 					'approved': bool(getattr(o, 'approved', False)),
 				'files': 0,
-				'note': getattr(o, 'note', '') or '',
+					'note': getattr(o, 'note', '') or '',
+					'extended': bool(getattr(o, 'extended', False)),
 				})
 			total = len(result)
 			pages = max(1, (total + page_size - 1) // page_size)
@@ -690,34 +859,35 @@ def register(app, socketio=None):
 		# Compute permission overrides for embed
 		force_can_manage = 0
 		force_can_add = 0
+		# Notes must follow standard file permissions in embed (no force)
 		force_can_notes = 0
 		perms = getattr(current_user, 'permissions', set()) or set()
 		if ADMIN_ANY in perms or ORDERS_FILES_EDIT in perms:
 			force_can_manage = 1
 			force_can_add = 1
-			force_can_notes = 1
 		elif ORDERS_FILES_VIEW in perms:
 			force_can_manage = 0
 			force_can_add = 0
-			force_can_notes = 0
+			# keep notes forced off
 		else:
 			# Group-based: full access if user's gid matches order's service group
 			prefix = app._sql.config['db']['prefix']
-			row = app._sql.execute_query(f'SELECT service FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
 			service = row[0][0] if row else ''
+			creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
 			for gid, name in groups:
 				if name == service:
 					service_gid = int(gid)
 					break
-			if service_gid and current_user.gid == service_gid:
+			if (service_gid and current_user.gid == service_gid) or (creator_gid and current_user.gid == creator_gid):
 				force_can_manage = 1
 				force_can_add = 1
-				force_can_notes = 1
+				# do not force notes in embed; use standard file permissions only
 
 		# Build redirect to files with embed flags
-		return redirect(url_for('files', embed=1, cat_id=cat_id, sub_id=sub_id, force_can_manage=force_can_manage, force_can_add=force_can_add, force_can_notes=force_can_notes))
+		return redirect(url_for('files', embed=1, no_move=1, cat_id=cat_id, sub_id=sub_id, force_can_manage=force_can_manage, force_can_add=force_can_add, force_can_notes=force_can_notes))
 
 	@app.route('/orders/note/<int:order_id>', methods=['POST'])
 	@login_required
@@ -726,10 +896,11 @@ def register(app, socketio=None):
 		try:
 			prefix = app._sql.config['db']['prefix']
 			# Найти order и узнать service (служба, == group.name)
-			row = app._sql.execute_query(f'SELECT service FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({'ok': False, 'error': 'not found'}), 404
 			service = row[0][0]
+			creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
 			# Получить все группы (имя->id)
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
@@ -741,6 +912,7 @@ def register(app, socketio=None):
 				or current_user.has('orders.edit_any')
 				or current_user.has('admin.any')
 				or (service_gid and current_user.gid == service_gid)
+				or (creator_gid and current_user.gid == creator_gid)
 			)
 			if not can_note:
 				return jsonify({'ok': False, 'error': 'forbidden'}), 403
@@ -755,27 +927,30 @@ def register(app, socketio=None):
 	def orders_delete(order_id: int):
 		try:
 			prefix = app._sql.config['db']['prefix']
-			# Resolve service and approval to check permissions
-			row = app._sql.execute_query(f'SELECT service, approved FROM {prefix}_order WHERE id=%s', [order_id])
+			# Resolve service, approval and status to check permissions and locks
+			row = app._sql.execute_query(f'SELECT service, approved, status, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({'ok': False, 'error': 'not found'}), 404
 			service = row[0][0]
 			approved_val = int(row[0][1] or 0)
+			cur_status = str(row[0][2] or '').strip().lower()
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
 			for gid, name in groups:
 				if name == service:
 					service_gid = int(gid)
 					break
+			creator_gid = int(row[0][3]) if (row and len(row[0]) > 3 and row[0][3] is not None) else None
 			can_delete = (
 				current_user.has('admin.any') or
 				current_user.has(ORDERS_DELETE_ANY) or
-				(service_gid and current_user.gid == service_gid)
+				(service_gid and current_user.gid == service_gid) or
+				(creator_gid and current_user.gid == creator_gid)
 			)
 			if not can_delete:
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'delete_permission_required'}), 403
-			# Disallow delete if approved
-			if approved_val == 1:
+			# Disallow delete if approved or completed
+			if approved_val == 1 or cur_status == 'done':
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'approved_locked'}), 403
 			# Delete order
 			app._sql.execute_non_query(f'DELETE FROM {prefix}_order WHERE id=%s', [order_id])
