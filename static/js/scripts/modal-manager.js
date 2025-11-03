@@ -20,6 +20,59 @@
      * Initialize modal manager
      */
     init() {
+      // Global fix: ensure focus is removed from modals when they are (about to be) hidden
+      try {
+        // Before Bootstrap hides a modal, if focus is inside it, blur and move to body
+        document.addEventListener('hide.bs.modal', function (e) {
+          try {
+            var modal = e && e.target;
+            if (!modal) return;
+            var active = document.activeElement;
+            if (active && modal.contains(active)) {
+              try { active.blur(); } catch (_) {}
+              try { document.body.focus(); } catch (_) {}
+            }
+          } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'hide.bs.modal'); }
+        }, true);
+
+        // After hidden, double-check no focused descendant remains in an aria-hidden modal
+        document.addEventListener('hidden.bs.modal', function (e) {
+          try {
+            var modal = e && e.target;
+            if (!modal) return;
+            // Bootstrap sets aria-hidden=true; make sure focus moved away
+            var active = document.activeElement;
+            if (active && modal.contains(active)) {
+              try { active.blur(); } catch (_) {}
+              try { document.body.focus(); } catch (_) {}
+            }
+            // Clean stray backdrops if any
+            try { document.querySelectorAll('.modal-backdrop').forEach(function(b){ if (!b.closest('.modal.show')) b.remove(); }); } catch(_) {}
+          } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'hidden.bs.modal'); }
+        }, true);
+
+        // MutationObserver: if an element gets aria-hidden=true while it contains focus, defocus
+        var observer = new MutationObserver(function(mutations){
+          try {
+            var ae = document.activeElement;
+            mutations.forEach(function(m){
+              try {
+                if (m.type === 'attributes' && m.attributeName === 'aria-hidden') {
+                  var node = m.target;
+                  var isHidden = (node.getAttribute && node.getAttribute('aria-hidden') === 'true');
+                  if (isHidden && ae && node.contains && node.contains(ae)) {
+                    try { ae.blur(); } catch(_) {}
+                    try { document.body.focus(); } catch(_) {}
+                  }
+                }
+              } catch (_) {}
+            });
+          } catch (err) { window.ErrorHandler && window.ErrorHandler.handleError(err, 'aria-hidden-observer'); }
+        });
+        try { observer.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['aria-hidden'] }); } catch(_) {}
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'modal-init-focus-guards');
+      }
       // Listen for escape key
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && this.activeModal) {

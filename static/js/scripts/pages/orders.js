@@ -338,27 +338,7 @@
     });
   }
 
-  function attachOrderModalA11yHandlers(){
-    try {
-      var el = document.getElementById('orderCreateModal');
-      if (!el || el.dataset.a11yBound === '1') return;
-      el.dataset.a11yBound = '1';
-      el.addEventListener('show.bs.modal', function(){
-        try { el.removeAttribute('aria-hidden'); } catch(_) {}
-      });
-      el.addEventListener('shown.bs.modal', function(){
-        try { el.removeAttribute('aria-hidden'); } catch(_) {}
-        // Ensure submit handlers are bound when modal becomes visible
-        try { bindOrderCreateSubmitHandlers(); } catch(_) {}
-      });
-      el.addEventListener('hide.bs.modal', function(){
-        try { if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur(); } catch(_) {}
-      });
-      el.addEventListener('hidden.bs.modal', function(){
-        try { el.setAttribute('aria-hidden', 'true'); } catch(_) {}
-      });
-    } catch(_) {}
-  }
+  
 
   function bindOrderCreateSubmitHandlers(){
     try {
@@ -1343,33 +1323,9 @@
     }
   }
 
-  function setupAccessibilityModalBlurFix() {
-    var modals = [
-      document.getElementById('orderNoteModal'),
-      document.getElementById('orderCreateModal')
-    ];
-    modals.forEach(function(modalEl) {
-      if (!modalEl) return;
-      modalEl.addEventListener('hidden.bs.modal', function() {
-        ensureFocusLeavesModal(modalEl);
-      });
-    });
-  }
+  
 
-  function fixBootstrapFocusLeak() {
-    var modals = [
-      document.getElementById('orderNoteModal'),
-      document.getElementById('orderCreateModal')
-    ];
-    modals.forEach(function(modalEl) {
-      if (!modalEl) return;
-      modalEl.addEventListener('hide.bs.modal', function(){
-        if (this.contains(document.activeElement)) {
-          document.body.focus();
-        }
-      });
-    });
-  }
+  
 
   function setupModalOverlayClose(modalId) {
     var modal = document.getElementById(modalId);
@@ -1384,53 +1340,17 @@
     modal.addEventListener('click', onOverlay);
   }
 
-  function setupAriaHiddenFocusWatcher(modalId) {
-    var modal = document.getElementById(modalId);
-    if (!modal || modal._ariaWatcherBound) return;
-    modal._ariaWatcherBound = true;
-    try {
-      var mo = new MutationObserver(function(list){
-        for (var i=0; i<list.length; i++) {
-          var m = list[i];
-          if (m.type === 'attributes' && m.attributeName === 'aria-hidden') {
-            var hidden = modal.getAttribute('aria-hidden') === 'true';
-            if (hidden) {
-              // Если фокус внутри скрытой модалки — убрать
-              if (modal.contains(document.activeElement)) {
-                try { document.activeElement.blur(); } catch(_) {}
-                try { document.body.focus(); } catch(_) {}
-              }
-              // Подстраховка таймером (асинхронные гонки Bootstrap)
-              setTimeout(function(){
-                if (modal.contains(document.activeElement)) {
-                  try { document.activeElement.blur(); } catch(_) {}
-                  try { document.body.focus(); } catch(_) {}
-                }
-              }, 30);
-            }
-          }
-        }
-      });
-      mo.observe(modal, { attributes: true, attributeFilter: ['aria-hidden'] });
-    } catch(_) {}
-  }
+  
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function(){
       init();
-      fixBootstrapFocusLeak();
-      setupAccessibilityModalBlurFix();
       setupModalOverlayClose('orderNoteModal');
       setupModalOverlayClose('orderCreateModal');
       setupModalOverlayClose('orderEditModal');
       setupModalOverlayClose('orderDeleteModal');
       setupModalOverlayClose('orderTimelineModal');
       setupModalOverlayClose('orderExtendModal');
-      setupAriaHiddenFocusWatcher('orderNoteModal');
-      setupAriaHiddenFocusWatcher('orderCreateModal');
-      setupAriaHiddenFocusWatcher('orderEditModal');
-      setupAriaHiddenFocusWatcher('orderDeleteModal');
-      setupAriaHiddenFocusWatcher('orderTimelineModal');
       var tlBtn = document.getElementById('order-timeline-submit');
       if (tlBtn) tlBtn.addEventListener('click', handleOrderTimelineSubmit);
       var editBtn = document.getElementById('order-edit-submit');
@@ -1442,20 +1362,12 @@
     });
   } else {
     init();
-    fixBootstrapFocusLeak();
-    setupAccessibilityModalBlurFix();
     setupModalOverlayClose('orderNoteModal');
     setupModalOverlayClose('orderCreateModal');
     setupModalOverlayClose('orderEditModal');
     setupModalOverlayClose('orderDeleteModal');
     setupModalOverlayClose('orderTimelineModal');
     setupModalOverlayClose('orderExtendModal');
-    setupAriaHiddenFocusWatcher('orderNoteModal');
-    setupAriaHiddenFocusWatcher('orderCreateModal');
-    setupAriaHiddenFocusWatcher('orderEditModal');
-    setupAriaHiddenFocusWatcher('orderDeleteModal');
-    setupAriaHiddenFocusWatcher('orderTimelineModal');
-    setupAriaHiddenFocusWatcher('orderExtendModal');
     var tlBtn2 = document.getElementById('order-timeline-submit');
     if (tlBtn2) tlBtn2.addEventListener('click', handleOrderTimelineSubmit);
     var editBtn2 = document.getElementById('order-edit-submit');

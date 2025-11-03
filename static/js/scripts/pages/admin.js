@@ -670,7 +670,7 @@ function submitAdminNotification(){
       .then(function(data){
         if (data && data.status === 'success') {
           window.showToast && window.showToast('Уведомление поставлено в очередь', 'success');
-          try { adminHideModalSafely('adminNotifyModal'); } catch(_) {}
+          try { if (window.closeModal) window.closeModal('adminNotifyModal'); } catch(_) {}
         } else {
           window.showToast && window.showToast((data && data.message) || 'Ошибка отправки', 'error');
         }
@@ -692,21 +692,7 @@ function showAdminNotification(title, body){
   } catch(_) {}
 }
 
-// Hide Bootstrap modal safely (blur focused element first to avoid aria-hidden focus warning)
-function adminHideModalSafely(modalId){
-  try {
-    if (document.activeElement && typeof document.activeElement.blur === 'function') {
-      document.activeElement.blur();
-    }
-  } catch(_) {}
-  try {
-    const el = document.getElementById(modalId);
-    if (!el) return;
-    const inst = (bootstrap && bootstrap.Modal && bootstrap.Modal.getInstance) ? bootstrap.Modal.getInstance(el) : null;
-    if (inst) inst.hide();
-    else if (bootstrap && bootstrap.Modal) { new bootstrap.Modal(el).hide(); }
-  } catch(_) {}
-}
+// (removed) local modal hide workaround; global modal-manager handles focus/aria
 
 /**
  * Handle presence filter

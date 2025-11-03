@@ -436,7 +436,6 @@ if (!window.usersDoFilter) {
           return true;
         })
         .catch((err) => {
-          if (err && (err.name === 'AbortError' || String(err).indexOf('AbortError') !== -1)) return false;
           return false;
         });
     }

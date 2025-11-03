@@ -117,24 +117,7 @@ function setupModalAccessibility() {
   });
 }
 
-// Safer modal hide to avoid aria-hidden/focus warning
-function hideModalSafely(modalId) {
-  try {
-    if (
-      document.activeElement &&
-      typeof document.activeElement.blur === "function"
-    ) {
-      document.activeElement.blur();
-    }
-  } catch (_) {}
-
-  try {
-    const el = document.getElementById(modalId);
-    if (!el) return;
-    const inst = bootstrap.Modal.getInstance(el);
-    if (inst) inst.hide();
-  } catch (_) {}
-}
+// (removed) local modal hide workaround; global modal-manager now handles focus/aria
 
 // Toast notification helper
 function notify(message, variant) {
@@ -1949,7 +1932,7 @@ function initCategoriesContextMenu() {
     try {
       if (visible) el.classList.remove('d-none'); else el.classList.add('d-none');
     } catch(_) {}
-    try { el.setAttribute('aria-hidden', visible ? 'false' : 'true'); } catch(_) {}
+    // aria-hidden toggling is managed globally by modal-manager focus guards
   }
 
   // Hard remove/restore helpers for subcategory items to avoid CSS overrides
