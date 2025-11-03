@@ -323,6 +323,7 @@ window.SyncManager = (function () {
       "categories:changed",
       "subcategories:changed",
       "files:changed",
+      "orders:changed",
       "files:maintenance_completed",
       "files:metadata_updated",
       "users:changed",
@@ -339,7 +340,7 @@ window.SyncManager = (function () {
     syncEvents.forEach((eventName) => {
       socket.off(eventName);
       socket.on(eventName, function (data) {
-        try { console.log('[sync:event]', eventName, data); } catch(_) {}
+        if (debugEnabled) { try { console.log('[sync:event]', eventName, data); } catch(_) {} }
         if (debugEnabled) {
           try {
           } catch (err) {

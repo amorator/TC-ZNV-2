@@ -3,6 +3,20 @@
 
 function handleError(err, context) {
   try {
+    // Suppress benign aborts (e.g., background refresh cancelled on navigation/visibility)
+    try {
+      const name = (err && err.name) || '';
+      const msg = (err && err.message) || (err && String(err)) || '';
+      const lower = String(msg).toLowerCase();
+      if (name === 'AbortError' ||
+          lower.includes('signal is aborted') ||
+          lower.includes('the user aborted a request') ||
+          lower.includes('aborted') ||
+          lower.includes('aborterror')) {
+        return; // do not toast on aborted background requests
+      }
+    } catch (_) {}
+
     let errorMessage = err.message || err.toString();
     // Normalize common HTTP errors to friendly Russian messages
     try {

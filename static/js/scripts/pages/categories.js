@@ -19,7 +19,7 @@ function initCategoriesPage() {
         Math.random().toString(36).slice(2) + "-" + Date.now();
     }
   } catch (_) {}
-  try { console.log('[categories] initCategoriesPage'); } catch(_){ }
+  
 
   setupTabNavigation();
   setupModalAccessibility();
@@ -32,9 +32,9 @@ function initCategoriesPage() {
 
   loadCategories();
   setupSaveCancelButtons();
-  try { console.log('[categories] setupCategoriesSocket call'); } catch(_){ }
+  
   setupCategoriesSocket();
-  try { console.log('[categories] SyncManager present?', !!(window.SyncManager)); } catch(_){ }
+  
 
   // Initialize Notification API bridge for categories events
   try { initCategoriesNotifications(); } catch(_) {}
@@ -1846,13 +1846,12 @@ function setupCategoriesSocket() {
           };
         }
         const reloadLists = debounce(function(){
-          try { console.log('[categories] reloadLists: start'); } catch(_) {}
           try { window.__categoriesSilentReload = true; } catch(_) {}
-          try { loadCategories(); console.log('[categories] reloadLists: loadCategories() called'); } catch(e) { try{ console.log('[categories] reloadLists: loadCategories error', e);}catch(_){}}
-          try { if (currentCategoryId) { loadSubcategories(currentCategoryId); console.log('[categories] reloadLists: loadSubcategories(', currentCategoryId, ')'); } } catch(e) { try{ console.log('[categories] reloadLists: loadSubcategories error', e);}catch(_){}}
+          try { loadCategories(); } catch(e) { }
+          try { if (currentCategoryId) { loadSubcategories(currentCategoryId); } } catch(e) { }
           try { window.__categoriesSilentReload = false; } catch(_) {}
           // NOTE: Server HTML replacement disabled on categories page to avoid wiping client-rendered nav
-          try { console.log('[categories] reloadLists: skip HTML replace (client-rendered)'); } catch(_) {}
+          
         });
         const reloadGroups = debounce(function(){
           const qg = (getSearchInput('groups')?.value || '').trim();
@@ -1863,11 +1862,11 @@ function setupCategoriesSocket() {
           loadPage('users', 1, qu);
         });
 
-        window.SyncManager.on('categories:changed', function(data){ try{ console.log('[categories] event: categories:changed', data);}catch(_){ } reloadLists(); });
-        window.SyncManager.on('subcategories:changed', function(data){ try{ console.log('[categories] event: subcategories:changed', data);}catch(_){ } reloadLists(); });
+        window.SyncManager.on('categories:changed', function(data){ reloadLists(); });
+        window.SyncManager.on('subcategories:changed', function(data){ reloadLists(); });
         // NEW: handle legacy event names some endpoints emit
-        window.SyncManager.on('category_updated', function(data){ try{ console.log('[categories] event: category_updated', data);}catch(_){ } reloadLists(); });
-        window.SyncManager.on('subcategory_updated', function(data){ try{ console.log('[categories] event: subcategory_updated', data);}catch(_){ } reloadLists(); });
+        window.SyncManager.on('category_updated', function(data){ reloadLists(); });
+        window.SyncManager.on('subcategory_updated', function(data){ reloadLists(); });
 
         window.SyncManager.on('subcategory_permissions_updated', function(data){
           if (document.hidden) return;
@@ -1891,7 +1890,7 @@ function setupCategoriesSocket() {
             }
           } catch(_) {}
         });
-        if (window.SyncManager.joinRoom) { try{ console.log('[categories] joinRoom(categories)'); }catch(_){ } window.SyncManager.joinRoom('categories'); }
+        if (window.SyncManager.joinRoom) { window.SyncManager.joinRoom('categories'); }
         // Idle-guard: refresh lists if долго нет событий (30s по умолчанию)
         // idle-guard запускается глобально в core/base.js
       }
@@ -1996,7 +1995,6 @@ function initCategoriesContextMenu() {
   }
 
   function configureForCategory(catId) {
-    try { console.log('[categories] context: configureForCategory', catId); } catch(_){ }
     ctx.targetType = "category";
     ctx.targetId = catId;
     const subsOfCat = catId ? (subcategoriesCache || []).filter(
@@ -2025,14 +2023,13 @@ function initCategoriesContextMenu() {
     if (toggleCat)
       toggleCat.textContent =
         cat && cat.enabled ? "Отключить категорию" : "Включить категорию";
-    try { console.log('[categories] context: toggle text (cache)', cat && cat.enabled); } catch(_){ }
 
     // Async refresh to ensure freshest enabled state across clients
     try {
       fetch('/api/categories', { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-        .then(function(r){ try{ console.log('[categories] context: fetch /api/categories status', r && r.status);}catch(_){ } return r && r.ok ? r.json() : null; })
+        .then(function(r){ return r && r.ok ? r.json() : null; })
         .then(function(list){
-          if (!list) { try{ console.log('[categories] context: no categories json'); }catch(_){ } return; }
+          if (!list) { return; }
           categoriesCache = Array.isArray(list)
             ? list.slice().sort(function(a,b){ return Number(a && a.display_order || 0) - Number(b && b.display_order || 0); })
             : [];
@@ -2040,10 +2037,9 @@ function initCategoriesContextMenu() {
           const el = menu && menu.querySelector('.context-menu__item[data-action="toggle-category"]');
           if (el) {
             el.textContent = fresh && fresh.enabled ? 'Отключить категорию' : 'Включить категорию';
-            try{ console.log('[categories] context: toggle text (fresh)', fresh && fresh.enabled);}catch(_){ }
           }
-        }).catch(function(err){ try{ console.log('[categories] context: fetch categories error', err);}catch(_){ }});
-    } catch(e) { try{ console.log('[categories] context: async refresh error', e);}catch(_){ }}
+        }).catch(function(err){ });
+    } catch(e) { }
 
     setItemEnabled("add-subcategory", !!catId);
     // When no subcategories for this category, remove subcategory actions entirely
@@ -2523,14 +2519,14 @@ function openConfirmToggleSubcategory() {
     if (!subId) return;
     const sub = (subcategoriesCache || []).find((s)=> String(s.id)===String(subId));
     const desired = !(sub && (sub.enabled ? true : false));
-    try { console.log('[categories] toggle-subcategory: start', { subId, desired }); } catch(_) {}
+    
     const fd = new FormData();
     // Always include 'enabled' key so backend lightweight toggle path is used
     fd.append('enabled', desired ? '1' : '');
     fetch(`/subcategories/edit/${subId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
       .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
       .then((resp)=>{
-        try { console.log('[categories] toggle-subcategory: response', resp); } catch(_) {}
+        
         if (!resp.ok || (resp.body && resp.body.error)) {
           notify((resp.body && (resp.body.error||resp.body.message)) || 'Ошибка', 'danger');
           return;
@@ -2546,7 +2542,7 @@ function openConfirmToggleSubcategory() {
           const payload = { reason: 'sub-toggled', subcategory_id: subId, category_id: (sub && sub.category_id) || currentCategoryId, enabled: desired ? 1 : 0, originClientId: window.__categoriesClientId };
           const sock1 = window.SyncManager && window.SyncManager.getSocket && window.SyncManager.getSocket();
           const sock2 = window.socket;
-          try { console.log('[categories] toggle-subcategory: emit attempt', { hasSyncSock: !!sock1, hasWinSock: !!sock2 }); } catch(_) {}
+          
           if (sock1 && sock1.emit) {
             try { sock1.emit('categories:changed', payload); } catch(_) {}
             try { sock1.emit('subcategories:changed', payload); } catch(_) {}

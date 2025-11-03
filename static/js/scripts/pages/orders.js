@@ -133,6 +133,10 @@
       if (!q) saveOrdersLastPage(data.page || 1);
       if (q && !items.length) resetOrdersPage();
     } catch (e) {
+      if (opts && opts.silent) {
+        // тихий режим: не тревожим пользователя и не затираем таблицу
+        return;
+      }
       window.ErrorHandler && window.ErrorHandler.handleError(e, 'orders.load');
       render([]);
     }
@@ -317,19 +321,19 @@
   }
 
   function bindCreateButton(){
-    var perms = (window.OrdersPerms || null);
-    var canCreate = perms && typeof perms.create !== 'undefined' ? !!perms.create : null;
-    var createBtn = document.getElementById('orders-create');
-    if (!createBtn) return;
-    if (canCreate === false) {
-      createBtn.classList.add('d-none');
-      createBtn.disabled = true;
-      return;
-    }
-    if (createBtn.dataset.bound === '1') return;
-    createBtn.dataset.bound = '1';
-    createBtn.addEventListener('click', function (e) {
-      e.preventDefault();
+      var perms = (window.OrdersPerms || null);
+      var canCreate = perms && typeof perms.create !== 'undefined' ? !!perms.create : null;
+      var createBtn = document.getElementById('orders-create');
+      if (!createBtn) return;
+      if (canCreate === false) {
+        createBtn.classList.add('d-none');
+        createBtn.disabled = true;
+        return;
+      }
+      if (createBtn.dataset.bound === '1') return;
+      createBtn.dataset.bound = '1';
+      createBtn.addEventListener('click', function (e) {
+        e.preventDefault();
       if (window.openModal) window.openModal('orderCreateModal');
     });
   }
@@ -771,6 +775,7 @@
           var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
           var current = this.getAttribute('data-approved') === '1';
           var next = !current;
+          var el = this;
           fetch('/api/orders/' + id + '/approved', {
             method: 'POST',
             credentials: 'same-origin',
@@ -780,10 +785,11 @@
             .then(function(res){
               if (!res.ok || !res.body || res.body.ok === false) { var t = toastFromError(res, 'Не удалось изменить статус'); if (window.showToast) window.showToast(t.msg, t.level); return; }
               var val = !!res.body.approved;
-              btn.setAttribute('data-approved', val ? '1' : '0');
-              btn.classList.toggle('btn-success', val);
-              btn.classList.toggle('btn-danger', !val);
-              btn.textContent = val ? 'Да' : 'Нет';
+              el.setAttribute('data-approved', val ? '1' : '0');
+              el.classList.toggle('btn-success', val);
+              el.classList.toggle('btn-danger', !val);
+              el.textContent = val ? 'Да' : 'Нет';
+              emitOrdersChanged('approve', { id: id, approved: val ? 1 : 0 });
             }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
         });
       });
@@ -848,6 +854,28 @@
           if (window.openModal) window.openModal('orderDeleteModal');
         });
       });
+      // AJAX delete submit
+      var delBtn = document.getElementById('order-delete-submit');
+      var delForm = document.getElementById('delete');
+      if (delBtn && delForm && !delBtn.dataset.bound) {
+        delBtn.dataset.bound = '1';
+        delBtn.addEventListener('click', function(){
+          try {
+            var url = delForm.action || '';
+            var m = url.match(/\/orders\/delete\/(\d+)/);
+            var id = m ? parseInt(m[1], 10) : 0;
+            fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+              .then(function(r){ return r.json().catch(function(){return {}}).then(function(j){ return { ok: r.ok, body: j }; }); })
+              .then(function(res){
+                if (!res.ok || (res.body && res.body.ok === false)) { if (window.showToast) window.showToast('Ошибка удаления', 'danger'); return; }
+                if (window.closeModal) window.closeModal('orderDeleteModal');
+                if (window.showToast) window.showToast('Наряд удалён', 'success');
+                emitOrdersChanged('delete', { id: id });
+                softReloadOrders();
+              }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+          } catch(_) {}
+        });
+      }
     } catch(_) {}
   }
 
@@ -1131,6 +1159,20 @@
         if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Ошибка сохранения', 'danger'); return; }
         if (window.closeModal) window.closeModal('orderTimelineModal');
         if (window.showToast) window.showToast('Сроки и статус обновлены', 'success');
+        // Immediately reflect "done" in row to hide extend/timeline in context menu
+        try {
+          var row = document.getElementById('order-' + id);
+          if (row && payload && payload.status) {
+            row.setAttribute('data-status', String(payload.status));
+            var btn = row.querySelector('button[data-action="toggle-status"]');
+            if (btn) {
+              var st = String(payload.status);
+              btn.textContent = (st === 'in_progress') ? 'Работы ведутся' : (st === 'stopped') ? 'Работы не ведутся' : 'Работы завершены';
+              btn.classList.remove('btn-success','btn-danger','btn-info','btn-secondary');
+              btn.classList.add((st === 'in_progress') ? 'btn-success' : (st === 'stopped') ? 'btn-danger' : 'btn-info');
+            }
+          }
+        } catch(_) {}
         load(1);
       }).catch(function(){ if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); });
   }
@@ -1424,6 +1466,140 @@
   }
   if (window.OrdersSearch && typeof window.OrdersSearch.setupFilesSearch === 'function') {
     window.OrdersSearch.setupFilesSearch();
+  }
+
+  // ===== Realtime sync (orders) =====
+  function softReloadOrders(){
+    try {
+      var q = (document.getElementById('searchinp')?.value || '').trim();
+      if (q) { load(1, { silent: true }); return; }
+      var pg = getOrdersLastPage();
+      load(pg || 1, { manualPage: true, silent: true });
+    } catch(_) { try { load(1, { silent: true }); } catch(_e){} }
+  }
+  function setupOrdersSocket(){
+    try {
+      if (window.SyncManager && typeof window.SyncManager.on === 'function') {
+        if (!window.__ordersSyncBound) {
+          window.__ordersSyncBound = true;
+          window.SyncManager.on('orders:changed', function(data){ softReloadOrders(); });
+          if (window.SyncManager.joinRoom) { window.SyncManager.joinRoom('orders'); }
+          // idle-guard запускается глобально в core/base.js
+        }
+        return;
+      }
+    } catch(e) { }
+  }
+
+  // Hook into existing success paths to emit orders:changed (client-side fallback)
+  function emitOrdersChanged(reason, extra){
+    try {
+      var payload = Object.assign({ reason: reason || 'updated', originClientId: window.__ordersClientId || (window.__categoriesClientId || '') }, extra||{});
+      var s1 = window.SyncManager && window.SyncManager.getSocket && window.SyncManager.getSocket();
+      var s2 = window.socket;
+      if (s1 && s1.emit) { try { s1.emit('orders:changed', payload); } catch(e){ } }
+      if (s2 && typeof s2.emit === 'function') { try { s2.emit('orders:changed', payload); } catch(e2){ } }
+    } catch(err) { }
+  }
+
+  // augment existing success handlers
+  var __origHandleOrderCreateSubmit = handleOrderCreateSubmit;
+  handleOrderCreateSubmit = function(){
+    __origHandleOrderCreateSubmit.apply(this, arguments);
+    // emit after slight delay to ensure backend commit
+    setTimeout(function(){ emitOrdersChanged('create'); }, 150);
+  };
+
+  // Approve toggle augmentation happens inside bindApprovedToggles success
+  var __origBindApprovedToggles = bindApprovedToggles;
+  bindApprovedToggles = function(){
+    try {
+      if (!(window.OrdersPerms && window.OrdersPerms.approve)) return __origBindApprovedToggles();
+      var tb = document.getElementById('orders-tbody');
+      if (!tb) return __origBindApprovedToggles();
+      tb.querySelectorAll('button[data-action="toggle-approved"]').forEach(function(btn){
+        if (btn.__ordersAugmented === '1') return;
+        btn.__ordersAugmented = '1';
+        btn.addEventListener('click', function onClick(){
+          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
+          var current = this.getAttribute('data-approved') === '1';
+          var next = !current;
+          // attach a one-time listener to emit on success by polling attribute change
+          var el = this;
+          var prev = el.getAttribute('data-approved');
+          setTimeout(function(){
+            var now = el.getAttribute('data-approved');
+            if (now !== prev) emitOrdersChanged('approve', { id: id, approved: now === '1' ? 1 : 0 });
+          }, 250);
+        }, true);
+      });
+    } catch(_) {}
+    return __origBindApprovedToggles();
+  };
+
+  var __origHandleOrderEditSubmit = handleOrderEditSubmit;
+  handleOrderEditSubmit = function(){
+    __origHandleOrderEditSubmit.apply(this, arguments);
+    setTimeout(function(){ emitOrdersChanged('edit'); }, 150);
+  };
+
+  var __origHandleOrderExtendSubmit = handleOrderExtendSubmit;
+  handleOrderExtendSubmit = function(){
+    __origHandleOrderExtendSubmit.apply(this, arguments);
+    setTimeout(function(){ emitOrdersChanged('extend'); }, 150);
+  };
+
+  var __origHandleOrderTimelineSubmit = handleOrderTimelineSubmit;
+  handleOrderTimelineSubmit = function(){
+    __origHandleOrderTimelineSubmit.apply(this, arguments);
+    setTimeout(function(){ emitOrdersChanged('timeline'); }, 150);
+  };
+
+  // Note save via AJAX + emit
+  (function bindOrderNoteSave(){
+    try {
+      var btn = document.getElementById('order-note-save');
+      var form = document.getElementById('note');
+      var area = document.getElementById('note-text');
+      if (btn && form && area && !btn.dataset.bound) {
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', function(){
+          try {
+            var m = (form.action || '').match(/\/orders\/note\/(\d+)/);
+            var id = m ? parseInt(m[1], 10) : 0;
+            var note = area.value || '';
+            var fd = new FormData();
+            fd.append('note', note);
+            fetch(form.action, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+              .then(function(r){ return r.json().catch(function(){return {}}).then(function(j){ return { ok: r.ok, body: j }; }); })
+              .then(function(res){
+                if (!res.ok || (res.body && res.body.ok === false)) { if (window.showToast) window.showToast('Ошибка сохранения примечания', 'danger'); return; }
+                if (window.closeModal) window.closeModal('orderNoteModal');
+                if (window.showToast) window.showToast('Примечание сохранено', 'success');
+                // update row attribute so UI shows new note without reload
+                try { var row = document.getElementById('order-' + id); if (row) row.setAttribute('data-note', note); } catch(_){}
+                emitOrdersChanged('note', { id: id });
+                softReloadOrders();
+              }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+          } catch(_) {}
+        });
+        // Enter/Esc shortcuts
+        form.addEventListener('keydown', function(e){
+          if (e.target && e.target.id === 'note-text') {
+            if ((e.ctrlKey && e.key === 'Enter') || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); btn.click(); }
+            if (e.key === 'Escape') { e.preventDefault(); window.closeModal && window.closeModal('orderNoteModal'); }
+          }
+        });
+      }
+    } catch(_) {}
+  })();
+
+  // Init sync
+  try { if (!window.__ordersClientId) { window.__ordersClientId = Math.random().toString(36).slice(2)+'-'+Date.now(); } } catch(_) {}
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupOrdersSocket);
+  } else {
+    setupOrdersSocket();
   }
 })();
 

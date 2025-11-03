@@ -17,6 +17,20 @@ from modules.logging import log_action
 
 
 def register(app, socketio=None):
+	# Socket.IO: support SyncManager.joinRoom('orders')
+	try:
+		_sock = socketio if socketio else getattr(app, 'socketio', None)
+		if _sock:
+			from flask_socketio import join_room
+
+			@_sock.on('orders:join')
+			def _orders_join(_data=None):
+				try:
+					join_room('orders')
+				except Exception:
+					pass
+	except Exception:
+		pass
 	@app.route('/orders', methods=['GET'])
 	@login_required
 	@require_permissions(ORDERS_VIEW_PAGE)
@@ -214,6 +228,16 @@ def register(app, socketio=None):
 				log_action('ORDER_CREATE', current_user.name, f'id={int(new_id)} number={number} service={service}', (request.remote_addr or ''))
 			except Exception:
 				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'create',
+						'id': int(new_id),
+					})
+			except Exception:
+				pass
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
 			try:
@@ -278,6 +302,16 @@ def register(app, socketio=None):
 					f"UPDATE {app._sql.config['db']['prefix']}_order SET created_by = %s, creator_gid = %s WHERE id = %s;",
 					[current_user.id, current_user.gid, int(new_id)]
 				)
+			except Exception:
+				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'create',
+						'id': int(new_id),
+					})
 			except Exception:
 				pass
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
@@ -394,6 +428,16 @@ def register(app, socketio=None):
 						app._sql.subcategory_edit([int(cat_id), display, folder, disp_order, enabled, int(sub_id)])
 			except Exception:
 				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'edit',
+						'id': int(order_id),
+					})
+			except Exception:
+				pass
 			return jsonify({ 'ok': True })
 		except Exception as e:
 			try:
@@ -428,6 +472,17 @@ def register(app, socketio=None):
 			)
 			try:
 				log_action('ORDER_APPROVE', current_user.name, f'id={order_id} approved={bool(val)}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'approve',
+						'id': int(order_id),
+						'approved': bool(val),
+					})
 			except Exception:
 				pass
 			return jsonify({ 'ok': True, 'approved': bool(val) })
@@ -503,6 +558,17 @@ def register(app, socketio=None):
 			)
 			try:
 				log_action('ORDER_STATUS', current_user.name, f'id={order_id} status={next_status}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'status',
+						'id': int(order_id),
+						'status': next_status,
+					})
 			except Exception:
 				pass
 			return jsonify({ 'ok': True, 'status': next_status })
@@ -593,6 +659,17 @@ def register(app, socketio=None):
 					log_action('ORDER_COMPLETE', current_user.name, f'id={order_id} end={end}', (request.remote_addr or ''))
 				except Exception:
 					pass
+				# Emit realtime update (completion)
+				try:
+					_sock = socketio if socketio else getattr(app, 'socketio', None)
+					if _sock:
+						_sock.emit('orders:changed', {
+							'reason': 'timeline',
+							'id': int(order_id),
+							'status': 'done',
+						})
+				except Exception:
+					pass
 				return jsonify({ 'ok': True })
 			# Not approved: update any provided fields
 			fields = ['issued = %s', 'start = %s', 'end = %s']
@@ -607,6 +684,16 @@ def register(app, socketio=None):
 			)
 			try:
 				log_action('ORDER_TIMELINE', current_user.name, f'id={order_id} issued={issued} start={start} end={end} status={status or "(nochange)"}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update (timeline updated)
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'timeline',
+						'id': int(order_id),
+					})
 			except Exception:
 				pass
 			return jsonify({ 'ok': True })
@@ -688,6 +775,16 @@ def register(app, socketio=None):
 			)
 			try:
 				log_action('ORDER_EXTEND', current_user.name, f'id={order_id} start={start} end={end} status={set_status}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'extend',
+						'id': int(order_id),
+					})
 			except Exception:
 				pass
 			return jsonify({ 'ok': True })
@@ -947,6 +1044,16 @@ def register(app, socketio=None):
 				log_action('ORDER_NOTE', current_user.name, f'id={order_id} note_len={len(note)}', (request.remote_addr or ''))
 			except Exception:
 				pass
+			# Emit realtime update to orders listeners
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'note',
+						'id': int(order_id),
+					})
+			except Exception:
+				pass
 			return jsonify({'ok': True}), 200
 		except Exception as e:
 			return jsonify({'ok': False, 'error': str(e)}), 500
@@ -1009,6 +1116,16 @@ def register(app, socketio=None):
 				pass
 			try:
 				log_action('ORDER_DELETE', current_user.name, f'id={order_id} service={service}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					_sock.emit('orders:changed', {
+						'reason': 'delete',
+						'id': int(order_id),
+					})
 			except Exception:
 				pass
 			return jsonify({'ok': True}), 200
