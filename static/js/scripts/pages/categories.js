@@ -19,6 +19,7 @@ function initCategoriesPage() {
         Math.random().toString(36).slice(2) + "-" + Date.now();
     }
   } catch (_) {}
+  try { console.log('[categories] initCategoriesPage'); } catch(_){ }
 
   setupTabNavigation();
   setupModalAccessibility();
@@ -31,7 +32,9 @@ function initCategoriesPage() {
 
   loadCategories();
   setupSaveCancelButtons();
+  try { console.log('[categories] setupCategoriesSocket call'); } catch(_){ }
   setupCategoriesSocket();
+  try { console.log('[categories] SyncManager present?', !!(window.SyncManager)); } catch(_){ }
 
   // Initialize Notification API bridge for categories events
   try { initCategoriesNotifications(); } catch(_) {}
@@ -1841,8 +1844,11 @@ function setupCategoriesSocket() {
           };
         }
         const reloadLists = debounce(function(){
-          loadCategories();
-          if (currentCategoryId) loadSubcategories(currentCategoryId);
+          try { console.log('[categories] reloadLists: start'); } catch(_) {}
+          try { loadCategories(); console.log('[categories] reloadLists: loadCategories() called'); } catch(e) { try{ console.log('[categories] reloadLists: loadCategories error', e);}catch(_){}}
+          try { if (currentCategoryId) { loadSubcategories(currentCategoryId); console.log('[categories] reloadLists: loadSubcategories(', currentCategoryId, ')'); } } catch(e) { try{ console.log('[categories] reloadLists: loadSubcategories error', e);}catch(_){}}
+          // NOTE: Server HTML replacement disabled on categories page to avoid wiping client-rendered nav
+          try { console.log('[categories] reloadLists: skip HTML replace (client-rendered)'); } catch(_) {}
         });
         const reloadGroups = debounce(function(){
           const qg = (getSearchInput('groups')?.value || '').trim();
@@ -1853,8 +1859,12 @@ function setupCategoriesSocket() {
           loadPage('users', 1, qu);
         });
 
-        window.SyncManager.on('categories:changed', function(){ if (!document.hidden) reloadLists(); });
-        window.SyncManager.on('subcategories:changed', function(){ if (!document.hidden) reloadLists(); });
+        window.SyncManager.on('categories:changed', function(data){ try{ console.log('[categories] event: categories:changed', data);}catch(_){ } reloadLists(); });
+        window.SyncManager.on('subcategories:changed', function(data){ try{ console.log('[categories] event: subcategories:changed', data);}catch(_){ } reloadLists(); });
+        // NEW: handle legacy event names some endpoints emit
+        window.SyncManager.on('category_updated', function(data){ try{ console.log('[categories] event: category_updated', data);}catch(_){ } reloadLists(); });
+        window.SyncManager.on('subcategory_updated', function(data){ try{ console.log('[categories] event: subcategory_updated', data);}catch(_){ } reloadLists(); });
+
         window.SyncManager.on('subcategory_permissions_updated', function(data){
           if (document.hidden) return;
           if (!data || String(data.subcategory_id||'') !== String(currentSubcategoryId||'')) return;
@@ -1877,7 +1887,12 @@ function setupCategoriesSocket() {
             }
           } catch(_) {}
         });
-        if (window.SyncManager.joinRoom) window.SyncManager.joinRoom('categories');
+        if (window.SyncManager.joinRoom) { try{ console.log('[categories] joinRoom(categories)'); }catch(_){ } window.SyncManager.joinRoom('categories'); }
+        // Idle-guard: refresh lists if долго нет событий (30s по умолчанию)
+        if (window.SyncManager.startIdleGuard) {
+          try{ console.log('[categories] startIdleGuard(30s)'); }catch(_){ }
+          window.SyncManager.startIdleGuard(function(){ try{ console.log('[categories] idle-guard refresh'); }catch(_){ } reloadLists(); }, 30);
+        }
       }
       return;
     }
@@ -1980,6 +1995,7 @@ function initCategoriesContextMenu() {
   }
 
   function configureForCategory(catId) {
+    try { console.log('[categories] context: configureForCategory', catId); } catch(_){ }
     ctx.targetType = "category";
     ctx.targetId = catId;
     const subsOfCat = catId ? (subcategoriesCache || []).filter(
@@ -2008,6 +2024,25 @@ function initCategoriesContextMenu() {
     if (toggleCat)
       toggleCat.textContent =
         cat && cat.enabled ? "Отключить категорию" : "Включить категорию";
+    try { console.log('[categories] context: toggle text (cache)', cat && cat.enabled); } catch(_){ }
+
+    // Async refresh to ensure freshest enabled state across clients
+    try {
+      fetch('/api/categories', { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+        .then(function(r){ try{ console.log('[categories] context: fetch /api/categories status', r && r.status);}catch(_){ } return r && r.ok ? r.json() : null; })
+        .then(function(list){
+          if (!list) { try{ console.log('[categories] context: no categories json'); }catch(_){ } return; }
+          categoriesCache = Array.isArray(list)
+            ? list.slice().sort(function(a,b){ return Number(a && a.display_order || 0) - Number(b && b.display_order || 0); })
+            : [];
+          const fresh = categoriesCache.find(function(c){ return String(c && c.id) === String(catId); });
+          const el = menu && menu.querySelector('.context-menu__item[data-action="toggle-category"]');
+          if (el) {
+            el.textContent = fresh && fresh.enabled ? 'Отключить категорию' : 'Включить категорию';
+            try{ console.log('[categories] context: toggle text (fresh)', fresh && fresh.enabled);}catch(_){ }
+          }
+        }).catch(function(err){ try{ console.log('[categories] context: fetch categories error', err);}catch(_){ }});
+    } catch(e) { try{ console.log('[categories] context: async refresh error', e);}catch(_){ }}
 
     setItemEnabled("add-subcategory", !!catId);
     // When no subcategories for this category, remove subcategory actions entirely
@@ -2394,86 +2429,91 @@ function openConfirmDeleteSubcategory() {
   }
 }
 
-function openConfirmToggleCategory() {
-  try {
-    const catId = arguments && arguments[0] ? arguments[0] : currentCategoryId;
-    if (!catId) { return; }
-    const cat = (categoriesCache || []).find((c)=> String(c.id)===String(catId));
-    const desired = !(cat && (cat.enabled ? true : false));
-    // If we are disabling a category, ensure there are no enabled subcategories
-    if (!desired) {
-      const proceed = () => {
-        const fd = new FormData();
-        fd.append('enabled', desired ? '1' : '');
-        fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
-          .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, status: r.status, body: j })))
-          .then((res)=>{
-            if (!res.ok || (res.body && res.body.error)) {
-              const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить категорию';
-              notify(msg, 'danger');
-              return;
+function openConfirmToggleCategory(catId) {
+  if (!catId) { catId = currentCategoryId; }
+  if (!catId) { return; }
+  const cat = (categoriesCache || []).find((c)=> String(c.id)===String(catId));
+  const desired = !(cat && (cat.enabled ? true : false));
+  // If we are disabling a category, ensure there are no enabled subcategories
+  if (!desired) {
+    const proceed = () => {
+      const fd = new FormData();
+      fd.append('enabled', desired ? '1' : '');
+      fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, status: r.status, body: j })))
+        .then((resp)=>{
+          if (!resp.ok || (resp.body && resp.body.error)) {
+            notify((resp.body && (resp.body.error||resp.body.message)) || 'Ошибка', 'danger');
+            return;
+          }
+          try {
+            const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
+            if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
+          } catch(_) {}
+          showCategoryTabs(categoriesCache||[]);
+          notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
+          // Client-side emit to sync other clients (fallback)
+          try {
+            const sock = window.SyncManager && window.SyncManager.getSocket && window.SyncManager.getSocket();
+            const payload = { reason: 'category-toggled', category_id: catId, enabled: desired ? 1 : 0, originClientId: window.__categoriesClientId };
+            if (sock && sock.emit) {
+              try { sock.emit('categories:changed', payload); } catch(_) {}
+              try { sock.emit('category_updated', payload); } catch(_) {}
             }
-            try {
-              const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
-              if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
-            } catch(_) {}
-            showCategoryTabs(categoriesCache||[]);
-            selectCategory(catId);
-            try { updateEmptyStateToggleTexts(); } catch(_) {}
-            notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
-          })
-          .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
-      };
-
-      try {
-        const subsOfCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(catId));
-        if (subsOfCat.length > 0) {
-          const anyEnabled = subsOfCat.some((s)=> s && (s.enabled ? true : false));
-          if (anyEnabled) { notify('Сначала отключите или удалите все подкатегории', 'warning'); return; }
-        } else {
-          // Cache empty or not loaded: verify via API
-          fetch(`/api/subcategories/${catId}`, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
-            .then(r=> r.json().catch(()=>({ items: [] })))
-            .then((data)=>{
-              const list = (data && (data.items || data)) || [];
-              if (Array.isArray(list) && list.some((s)=> s && (s.enabled ? true : false))) {
-                notify('Сначала отключите или удалите все подкатегории', 'warning');
-                return;
-              }
-              proceed();
-            })
-            .catch(()=>{ notify('Не удалось проверить подкатегории категории', 'danger'); });
-          return;
-        }
-      } catch(_) {}
-      // If reached here, either there are no subs or all disabled: proceed
-      proceed();
+          } catch(_) {}
+        })
+        .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
+    };
+    const subsOfCat = (subcategoriesCache || []).filter((s) => String(s.category_id) === String(catId));
+    if (subsOfCat.length > 0) {
+      const anyEnabled = subsOfCat.some((s)=> s && (s.enabled ? true : false));
+      if (anyEnabled) {
+        notify('Сначала отключите или удалите все подкатегории', 'warning');
+        return;
+      }
+    } else {
+      // Double-check via API if subs not cached
+      fetch(`/api/subcategories/${catId}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+        .then((r)=>r.json()).then((data)=>{
+          const list = (data && (data.items || data)) || [];
+          if (Array.isArray(list) && list.some((s)=> s && (s.enabled ? true : false))) {
+            notify('Сначала отключите или удалите все подкатегории', 'warning');
+            return;
+          }
+          proceed();
+        }).catch(()=> proceed());
       return;
     }
-    const fd = new FormData();
-    // Always include 'enabled' key so backend lightweight toggle path is used
-    fd.append('enabled', desired ? '1' : '');
-    fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
-      .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
-      .then((res)=>{
-        if (!res.ok || (res.body && res.body.error)) {
-          const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить категорию';
-          notify(msg, 'danger');
-          return;
-        }
-        try {
-          const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
-          if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
-        } catch(_) {}
-        showCategoryTabs(categoriesCache||[]);
-        selectCategory(catId);
-        try { updateEmptyStateToggleTexts(); } catch(_) {}
-        notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
-      })
-      .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
-  } catch(e) {
-    window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle');
+    proceed();
+    return;
   }
+  const fd = new FormData();
+  // Always include 'enabled' key so backend lightweight toggle path is used
+  fd.append('enabled', desired ? '1' : '');
+  fetch(`/categories/edit/${catId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
+    .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
+    .then((resp)=>{
+      if (!resp.ok || (resp.body && resp.body.error)) {
+        notify((resp.body && (resp.body.error||resp.body.message)) || 'Ошибка', 'danger');
+        return;
+      }
+      try {
+        const idx = (categoriesCache||[]).findIndex((c)=> String(c.id)===String(catId));
+        if (idx>=0) categoriesCache[idx].enabled = desired ? 1 : 0;
+      } catch(_) {}
+      showCategoryTabs(categoriesCache||[]);
+      notify(desired ? 'Категория включена' : 'Категория отключена', 'success');
+      // Client-side emit to sync other clients (fallback)
+      try {
+        const sock = window.SyncManager && window.SyncManager.getSocket && window.SyncManager.getSocket();
+        const payload = { reason: 'category-toggled', category_id: catId, enabled: desired ? 1 : 0, originClientId: window.__categoriesClientId };
+        if (sock && sock.emit) {
+          try { sock.emit('categories:changed', payload); } catch(_) {}
+          try { sock.emit('category_updated', payload); } catch(_) {}
+        }
+      } catch(_) {}
+    })
+    .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'category-toggle'); });
 }
 
 function openConfirmToggleSubcategory() {
@@ -2482,15 +2522,16 @@ function openConfirmToggleSubcategory() {
     if (!subId) return;
     const sub = (subcategoriesCache || []).find((s)=> String(s.id)===String(subId));
     const desired = !(sub && (sub.enabled ? true : false));
+    try { console.log('[categories] toggle-subcategory: start', { subId, desired }); } catch(_) {}
     const fd = new FormData();
     // Always include 'enabled' key so backend lightweight toggle path is used
     fd.append('enabled', desired ? '1' : '');
     fetch(`/subcategories/edit/${subId}`, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, credentials: 'same-origin' })
       .then(r=>r.json().catch(()=>({})).then((j)=>({ ok: r.ok, body: j })))
-      .then((res)=>{
-        if (!res.ok || (res.body && res.body.error)) {
-          const msg = (res.body && (res.body.error||res.body.message)) || 'Не удалось переключить подкатегорию';
-          notify(msg, 'danger');
+      .then((resp)=>{
+        try { console.log('[categories] toggle-subcategory: response', resp); } catch(_) {}
+        if (!resp.ok || (resp.body && resp.body.error)) {
+          notify((resp.body && (resp.body.error||resp.body.message)) || 'Ошибка', 'danger');
           return;
         }
         try {
@@ -2498,8 +2539,26 @@ function openConfirmToggleSubcategory() {
           if (idx>=0) subcategoriesCache[idx].enabled = desired ? 1 : 0;
         } catch(_) {}
         showSubcategoryTabs(subcategoriesCache||[]);
-        selectSubcategory(subId);
         notify(desired ? 'Подкатегория включена' : 'Подкатегория отключена', 'success');
+        // Client-side emit to sync other clients (fallback)
+        try {
+          const payload = { reason: 'sub-toggled', subcategory_id: subId, category_id: (sub && sub.category_id) || currentCategoryId, enabled: desired ? 1 : 0, originClientId: window.__categoriesClientId };
+          const sock1 = window.SyncManager && window.SyncManager.getSocket && window.SyncManager.getSocket();
+          const sock2 = window.socket;
+          try { console.log('[categories] toggle-subcategory: emit attempt', { hasSyncSock: !!sock1, hasWinSock: !!sock2 }); } catch(_) {}
+          if (sock1 && sock1.emit) {
+            try { sock1.emit('categories:changed', payload); } catch(_) {}
+            try { sock1.emit('subcategories:changed', payload); } catch(_) {}
+            try { sock1.emit('subcategory_updated', payload); } catch(_) {}
+          }
+          if (sock2 && typeof sock2.emit === 'function') {
+            try { sock2.emit('categories:changed', payload); } catch(_) {}
+            try { sock2.emit('subcategories:changed', payload); } catch(_) {}
+            try { sock2.emit('subcategory_updated', payload); } catch(_) {}
+          }
+          // As a last resort, self-refresh local lists immediately
+          try { if (typeof reloadLists === 'function') reloadLists(); } catch(_) {}
+        } catch(_) {}
       })
       .catch((e)=>{ window.ErrorHandler && window.ErrorHandler.handleError(e, 'subcategory-toggle'); });
   } catch(e) {
@@ -2592,3 +2651,28 @@ try { window.openConfirmToggleCategory = openConfirmToggleCategory; } catch(_) {
 try { window.openConfirmToggleSubcategory = openConfirmToggleSubcategory; } catch(_) {}
 try { window.openConfirmDeleteCategory = openConfirmDeleteCategory; } catch(_) {}
 try { window.openConfirmDeleteSubcategory = openConfirmDeleteSubcategory; } catch(_) {}
+
+(function(){
+  try {
+    var __origLog = console && console.log;
+    var __origDebug = console && console.debug;
+    if (__origLog) {
+      console.log = function(){
+        try {
+          var first = arguments && arguments[0];
+          if (typeof first === 'string' && (first.indexOf('[categories]') === 0 || first.indexOf('[sync:event]') === 0)) return;
+        } catch(_) {}
+        return __origLog.apply(console, arguments);
+      };
+    }
+    if (__origDebug) {
+      console.debug = function(){
+        try {
+          var first = arguments && arguments[0];
+          if (typeof first === 'string' && (first.indexOf('[categories]') === 0 || first.indexOf('[sync:event]') === 0)) return;
+        } catch(_) {}
+        return __origDebug.apply(console, arguments);
+      };
+    }
+  } catch(_) {}
+})();

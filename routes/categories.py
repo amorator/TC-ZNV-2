@@ -767,6 +767,18 @@ def register(app, socketio=None):
                     })
                 except Exception:
                     pass
+                # Also emit explicit subcategories channel for clients listening there
+                try:
+                    _sock = socketio if socketio else getattr(app, 'socketio', None)
+                    if _sock:
+                        _sock.emit('subcategories:changed', {
+                            'reason': 'sub-toggled',
+                            'subcategory_id': subcategory_id,
+                            'category_id': category_id,
+                            'enabled': enabled,
+                        })
+                except Exception:
+                    pass
                 try:
                     after = app._sql.subcategory_by_id([subcategory_id])
                     after_enabled = int(getattr(after, 'enabled',
@@ -815,6 +827,16 @@ def register(app, socketio=None):
                     'subcategory_id': subcategory_id,
                     'category_id': category_id
                 })
+            except Exception:
+                pass
+            try:
+                _sock = socketio if socketio else getattr(app, 'socketio', None)
+                if _sock:
+                    _sock.emit('subcategories:changed', {
+                        'reason': 'sub-edit',
+                        'subcategory_id': subcategory_id,
+                        'category_id': category_id,
+                    })
             except Exception:
                 pass
             if _wants_json_response():
@@ -873,6 +895,15 @@ def register(app, socketio=None):
                     'reason': 'sub-delete',
                     'subcategory_id': subcategory_id
                 })
+            except Exception:
+                pass
+            try:
+                _sock = socketio if socketio else getattr(app, 'socketio', None)
+                if _sock:
+                    _sock.emit('subcategories:changed', {
+                        'reason': 'sub-delete',
+                        'subcategory_id': subcategory_id,
+                    })
             except Exception:
                 pass
             if _wants_json_response():

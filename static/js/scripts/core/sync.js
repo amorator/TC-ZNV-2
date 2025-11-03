@@ -339,6 +339,7 @@ window.SyncManager = (function () {
     syncEvents.forEach((eventName) => {
       socket.off(eventName);
       socket.on(eventName, function (data) {
+        try { console.log('[sync:event]', eventName, data); } catch(_) {}
         if (debugEnabled) {
           try {
           } catch (err) {
