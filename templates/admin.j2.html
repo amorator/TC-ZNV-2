@@ -79,7 +79,7 @@
           <div class="card-body d-grid gap-2">
           <button type="button" id="adminForceLogoutBtn" class="btn btn-outline-danger" data-testid="admin-force-logout">Разорвать все сессии</button>
           <button type="button" id="adminForceRefreshBtn" class="btn btn-outline-warning" data-testid="admin-force-refresh">Принудительно обновить все страницы</button>
-          <button type="button" id="btnPushMaintain" class="btn btn-outline-danger" data-testid="admin-maintenance">Начать обслуживание таблицы подписок на уведомления</button>
+          
           <button type="button" id="btnFilesMaintain" class="btn btn-outline-info" data-testid="admin-files-maintenance">Начать обслуживание таблицы файлов</button>
         </div>
       </div>
@@ -213,24 +213,7 @@
     </div>
   </div>
 
-  <!-- Confirm: Push subscriptions maintenance -->
-  <div class="modal fade" id="confirmPushMaintainModal" tabindex="-1" aria-hidden="true" aria-labelledby="confirmPushMaintainTitle" data-testid="admin-confirm-maintenance-modal">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="confirmPushMaintainTitle">Начать обслуживание подписок?</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          Будут удалены невалидные и протестированы неактивные подписки. Действие ограничено по частоте.
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="button" id="btnConfirmPushMaintain" class="btn btn-danger" data-testid="admin-confirm-maintenance">Начать</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  
 </main>
 {% endblock %}
 

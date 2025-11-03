@@ -699,7 +699,13 @@ async function startUploadWithProgress(form) {
         if (window.showToast) {
           window.showToast(`Ошибка загрузки файла "${file.name}": ${err.message}`, "error");
         }
-        // Continue with next file
+        // If user requested cancel, stop processing further files
+        try {
+          if (window.__uploadCancelled === true) {
+            break;
+          }
+        } catch(_) {}
+        // Otherwise continue with next file
       }
     }
 
@@ -852,6 +858,9 @@ function cancelCurrentUploadAndCloseModal() {
       try { window.__currentUploadXhr = null; } catch(_) {}
       if (typeof window.closeModal === 'function') {
         window.closeModal('popup-add');
+      }
+      if (window.showToast) {
+        try { window.showToast('Загрузка отменена', 'success'); } catch(_) {}
       }
     }, 50);
   } catch (err) {

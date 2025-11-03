@@ -199,7 +199,7 @@
         <td class="table__body_item">${(r.responsible || '')}</td>
         <td class="table__body_item">${(function(){
             var wn = (r.work_name || '');
-            var badge = r.extended ? '<div class="mb-1"><span class="badge bg-warning text-dark">продлён</span></div>' : '';
+            var badge = r.extended ? '<div class="mb-1"><span class="badge bg-warning text-dark order-badge-extended">продлён</span></div>' : '';
             return badge + '<div>' + wn + '</div>';
           })()}</td>
         <td class="table__body_item">${(function(){

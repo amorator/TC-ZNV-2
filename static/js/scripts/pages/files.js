@@ -916,6 +916,86 @@ document.addEventListener("DOMContentLoaded", function () {
           .catch(() => {});
       }
     }
+
+    // Strong override for Add modal Cancel: bind directly on the button to preempt inline handlers
+    function bindAddCancelOverride() {
+      try {
+        const btn = document.getElementById('add-cancel-btn');
+        if (!btn || btn._cancelOverrideBound) return;
+        btn._cancelOverrideBound = true;
+        try { btn.onclick = null; } catch(_) {}
+        const handler = async function(e) {
+          try {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            e.stopPropagation();
+          } catch(_) {}
+          try {
+            if (window.__uploadInProgress === true) {
+              const proceed = (typeof window.confirm === 'function')
+                ? await window.confirm('Отменить загрузку? Частично загруженные файлы будут удалены.')
+                : true;
+              if (!proceed) return false;
+              if (window.FilesManagement && typeof window.FilesManagement.cancelCurrentUploadAndCloseModal === 'function') {
+                window.FilesManagement.cancelCurrentUploadAndCloseModal();
+              }
+              return false;
+            } else {
+              if (typeof window.closeModal === 'function') {
+                window.closeModal('popup-add');
+                return false;
+              }
+            }
+          } catch(err) {
+            window.ErrorHandler && window.ErrorHandler.handleError(err, 'files-cancel-override');
+          }
+          return false;
+        };
+        // Attach both capture and bubble to be safest
+        btn.addEventListener('click', handler, true);
+        btn.addEventListener('click', handler, false);
+      } catch(err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'bindAddCancelOverride');
+      }
+    }
+
+    // Bind immediately and also when modal shows
+    bindAddCancelOverride();
+    try {
+      const addModal = document.getElementById('popup-add');
+      if (addModal) {
+        const obs = new MutationObserver(() => bindAddCancelOverride());
+        obs.observe(addModal, { attributes: true, attributeFilter: ['class', 'style'] });
+      }
+    } catch(_) {}
+
+    // Intercept cancel in Add File popup to confirm and properly abort upload
+    document.addEventListener('click', async function (e) {
+      const btn = e.target && e.target.closest('button#add-cancel-btn');
+      if (!btn) return;
+      try {
+        if (window.__uploadInProgress === true) {
+          e.preventDefault();
+          e.stopPropagation();
+          const proceed = (typeof window.confirm === 'function')
+            ? await window.confirm('Отменить загрузку? Частично загруженные файлы будут удалены.')
+            : true;
+          if (!proceed) return;
+          if (window.FilesManagement && typeof window.FilesManagement.cancelCurrentUploadAndCloseModal === 'function') {
+            window.FilesManagement.cancelCurrentUploadAndCloseModal();
+          }
+          return;
+        }
+        // Not uploading: close modal normally
+        if (typeof window.closeModal === 'function') {
+          e.preventDefault();
+          e.stopPropagation();
+          window.closeModal('popup-add');
+        }
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'files-cancel-click');
+      }
+    }, true);
   } catch (err) {
     window.ErrorHandler.handleError(err, "setupFileUploadForms");
   }
@@ -2170,12 +2250,13 @@ if (document.readyState === 'loading') {
 }
 
 // Cancel upload function
-window.cancelUpload = function(uploadId) {
+window.cancelUpload = async function(uploadId) {
   try {
-    // Confirm cancellation
-    if (!confirm('Вы уверены, что хотите отменить загрузку? Частично загруженные файлы будут удалены.')) {
-      return;
-    }
+    // Confirm cancellation (async confirm modal)
+    const ok = (typeof window.confirm === 'function')
+      ? await window.confirm('Вы уверены, что хотите отменить загрузку? Частично загруженные файлы будут удалены.')
+      : true;
+    if (!ok) return;
     
     // Send cancel request to server
     fetch('/api/cancel-upload/' + uploadId, {

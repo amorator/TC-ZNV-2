@@ -37,7 +37,7 @@ def register(app):
             def _index_ack(data=None):
                 try:
                     seq = (data or {}).get('seq')
-                    app.logger.info(
+                    app.logger.debug(
                         f"index:ack seq={seq} sid={request.environ.get('flask_socketio.sid','')}"
                     )
                 except Exception:
@@ -93,7 +93,7 @@ def register(app):
                 'worker': worker,
             }
             try:
-                app.logger.info(
+                app.logger.debug(
                     f"index:changed emit seq={seq} worker={worker}")
             except Exception:
                 pass

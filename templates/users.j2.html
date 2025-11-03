@@ -52,9 +52,6 @@
             <tr id="{{ user.id }}" class="table__body_row" role="row" data-id="{{ user.id }}" data-enabled="{{ 1 if user.is_enabled() else 0 }}" data-login="{{ user.login }}" data-name="{{ user.name }}" data-gid="{{ user.gid }}" data-groupname="{{ groups[user.gid] }}" data-perm="{{ user.permission_string() }}" data-is-admin="{{ 1 if user.login|lower == 'admin' else 0 }}" data-full-access="{{ 1 if is_admin else 0 }}">
               <td class="table__body_item" role="cell">
                 <span class="users-page__login">{{ user.login }}</span>
-                {% if user.login|lower == 'admin' %}
-                  <i class="bi bi-shield-fill-check text-danger ms-1" title="Администратор системы"></i>
-                {% endif %}
               </td>
               <td class="table__body_item" role="cell"><span class="users-page__name" title="Клик — скопировать имя">{{ user.name }}</span></td>
               <td class="table__body_item" role="cell">{{ groups[user.gid] }}</td>

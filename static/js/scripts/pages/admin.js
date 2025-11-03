@@ -472,26 +472,7 @@ function setupButtonHandlers() {
       });
     }
 
-    // Push maintenance button
-    const btnPushMaintain = document.getElementById("btnPushMaintain");
-    if (btnPushMaintain) {
-      btnPushMaintain.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Use async/await to properly wait for confirmation
-        const confirmed = await new Promise((resolve) => {
-          const result = confirm(
-            "Начать обслуживание таблицы подписок на уведомления? Это может занять некоторое время."
-          );
-          resolve(result);
-        });
-
-        if (confirmed) {
-          handlePushMaintenance();
-        }
-      });
-    }
+    // Push maintenance button removed (push subscriptions deprecated)
 
     // Files maintenance button
     const btnFilesMaintain = document.getElementById("btnFilesMaintain");
@@ -960,76 +941,7 @@ function handleForceRefreshAll() {
 /**
  * Handle push maintenance
  */
-function handlePushMaintenance() {
-  try {
-    // Show loading state
-    const btn = document.getElementById("btnPushMaintain");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Запускаем обслуживание...";
-    }
-
-    fetch("/admin/push_maintain", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then((response) => {
-        if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
-          error.status = response.status;
-          error.response = response;
-          throw error;
-        }
-        return response.json();
-      })
-      .then((data) => {
-        if (data.status === "success") {
-          // Show success toast after a delay to ensure it appears after confirmation
-          setTimeout(() => {
-            if (window.showToast) {
-              try {
-                window.showToast("Обслуживание подписок запущено", "success");
-              } catch (err) {
-                window.ErrorHandler && window.ErrorHandler.handleError("Error calling showToast:", err, "app");
-              }
-            } else {
-              window.ErrorHandler && window.ErrorHandler.handleError("window.showToast is not defined", "app");
-            }
-          }, 500);
-        } else {
-          window.showToast(
-            data.message || "Ошибка при запуске обслуживания",
-            "error"
-          );
-        }
-      })
-      .catch((error) => {
-        handleHttpError(error, "запуске обслуживания подписок");
-      })
-      .finally(() => {
-        // Restore button state
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent =
-            "Начать обслуживание таблицы подписок на уведомления";
-        }
-      });
-  } catch (err) {
-    if (window.ErrorHandler) {
-      window.ErrorHandler.handleError(err, "handlePushMaintenance");
-    }
-    window.showToast("Ошибка при запуске обслуживания", "error");
-
-    // Restore button state
-    const btn = document.getElementById("btnPushMaintain");
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Начать обслуживание таблицы подписок на уведомления";
-    }
-  }
-}
+// handlePushMaintenance removed (push subscriptions deprecated)
 
 /**
  * Handle files maintenance
@@ -1155,5 +1067,4 @@ window.AdminPage = {
   handleSessionTerminate,
   handleLogExport,
   handleForceLogoutAll,
-  handlePushMaintenance,
 };

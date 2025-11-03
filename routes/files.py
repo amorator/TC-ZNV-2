@@ -2667,14 +2667,19 @@ def register(app, media_service, socketio=None) -> None:
                 job_data.decode('utf-8') if isinstance(job_data, bytes
                                                        ) else str(job_data))
 
-            # Mark job as cancelled
+            # Mark job as cancelled and remove from active set immediately
             job_info['status'] = 'cancelled'
             job_info['cancelled_at'] = time.time()
-            redis_client.set(job_key, json.dumps(job_info),
-                             ex=3600)  # Keep for 1 hour
-
-            # Remove from active uploads set
+            try:
+                redis_client.set(job_key, json.dumps(job_info), ex=300)
+            except Exception:
+                pass
+            # Remove from active uploads; also delete job key so workers see cancellation
             redis_client.srem('active_uploads', upload_id)
+            try:
+                redis_client.delete(job_key)
+            except Exception:
+                pass
 
             # Delete only partially uploaded files (not fully completed ones)
             deleted_files = []
@@ -2691,9 +2696,15 @@ def register(app, media_service, socketio=None) -> None:
                             # Delete from database
                             file_id = file_info.get('file_id')
                             if file_id:
-                                app._sql.delete_file(file_id)
-                                deleted_files.append(
-                                    file_info.get('filename', 'unknown'))
+                                try:
+                                    app._sql.file_delete([int(file_id)])
+                                except Exception:
+                                    # Fallback signature without list (legacy)
+                                    try:
+                                        app._sql.file_delete(int(file_id))
+                                    except Exception:
+                                        pass
+                                deleted_files.append(file_info.get('filename', 'unknown'))
 
                             # Delete from filesystem
                             file_path = file_info.get('file_path')
@@ -3250,6 +3261,18 @@ def start_background_upload(upload_job):
                         'end_time': time.time()
                     })
                     return
+                # Respect external cancellation via Redis
+                try:
+                    job_state = get_upload_job(upload_id)
+                except Exception:
+                    job_state = None
+                if job_state is None or job_state.get('status') == 'cancelled':
+                    _log.info(f"Cancellation detected for {upload_id}, stopping before file {i+1}")
+                    update_upload_job(upload_id, {
+                        'status': 'cancelled',
+                        'end_time': time.time()
+                    })
+                    return
                 
                 try:
                     # Update progress - mark file as started (don't update completed_files yet)
@@ -3320,7 +3343,14 @@ def start_background_upload(upload_job):
                                     temp_file.write(chunk)
                                     downloaded_size += len(chunk)
                                     chunk_count += 1
-                                    
+                                    # Mid-download cancellation check
+                                    try:
+                                        job_state = get_upload_job(upload_id)
+                                    except Exception:
+                                        job_state = None
+                                    if job_state is None or job_state.get('status') == 'cancelled':
+                                        _log.info(f"Cancellation detected during download for {upload_id}")
+                                        raise Exception('cancelled')
 
                                     # Update progress every 1MB or when complete
                                     if content_length > 0:
@@ -3372,6 +3402,15 @@ def start_background_upload(upload_job):
                                 # Prepare cookies for internal request
                                 cookies_dict = upload_job.get('cookies', {})
                                 
+                                # Pre-upload cancellation check
+                                try:
+                                    job_state = get_upload_job(upload_id)
+                                except Exception:
+                                    job_state = None
+                                if job_state is None or job_state.get('status') == 'cancelled':
+                                    _log.info(f"Cancellation detected before upload for {upload_id}")
+                                    raise Exception('cancelled')
+
                                 upload_response = requests.post(
                                     upload_url,
                                     files=files,

@@ -57,7 +57,7 @@ def init_middleware(app):
 			is_auth_attr = getattr(current_user, 'is_authenticated', False)
 			is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 			if is_authenticated:
-				cookie_name = getattr(app, 'session_cookie_name', 'session')
+				cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
 				sid = request.cookies.get(cookie_name) or request.cookies.get('session')
 				if sid:
 					uid = getattr(current_user, 'id', None)
@@ -154,7 +154,7 @@ def init_middleware(app):
 		is_auth_attr = getattr(current_user, 'is_authenticated', False)
 		is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
 		uid = getattr(current_user, 'id', None)
-		cookie_name = getattr(app, 'session_cookie_name', 'session')
+		cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
 		sid = request.cookies.get(cookie_name) or request.cookies.get('session')
 		
 		# Check Redis-based force logout first
@@ -201,7 +201,12 @@ def init_middleware(app):
 		try:
 			# If force logout was requested, delete session cookies on response
 			if getattr(g, 'force_logout', False):
-				response.delete_cookie(app.session_cookie_name, path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
+				try:
+					cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
+					response.delete_cookie(cookie_name, path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
+				except Exception:
+					# Fallback
+					response.delete_cookie('session', path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
 				response.delete_cookie('session', path='/', samesite=app.config.get('SESSION_COOKIE_SAMESITE', 'Lax'))
 				response.delete_cookie('remember_token', path='/', samesite=app.config.get('REMEMBER_COOKIE_SAMESITE', 'Lax'))
 			# Get request info

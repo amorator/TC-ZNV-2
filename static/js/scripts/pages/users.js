@@ -271,6 +271,8 @@ function initUsersPagination() {
 
         reinitializeContextMenu();
         if (window.rebindUsersTable) window.rebindUsersTable();
+        // Rebind row interactions (including toggles) after tbody replacement
+        if (typeof setupTableInteractions === 'function') setupTableInteractions();
       })
       .catch((error) =>
         window.ErrorHandler.handleError(error, "usersPager.render")
@@ -429,6 +431,7 @@ if (!window.usersDoFilter) {
           if (window.rebindUsersTable) window.rebindUsersTable();
           if (typeof reinitializeContextMenu === "function")
             reinitializeContextMenu();
+          if (typeof setupTableInteractions === 'function') setupTableInteractions();
 
           return true;
         })
@@ -664,6 +667,24 @@ function setupToggleHandlers() {
   toggleIcons.forEach((icon) => {
     icon.removeEventListener("click", handleToggleClick);
     icon.addEventListener("click", handleToggleClick);
+  });
+
+  // Also allow clicking the whole cell to toggle, not only the icon
+  const toggleCells = document.querySelectorAll(
+    "#maintable tbody tr td[data-enabled]"
+  );
+  toggleCells.forEach((cell) => {
+    const onCellClick = function (e) {
+      // ignore clicks on interactive children to avoid double handling
+      const onIcon = e.target && e.target.closest("i");
+      if (onIcon) return; // icon handler will process
+      const row = cell.closest("tr");
+      if (!row || !row.id) return;
+      const currentEnabled = row.dataset.enabled === "1";
+      toggleUserStatus(row.id, !currentEnabled);
+    };
+    cell.removeEventListener("click", onCellClick);
+    cell.addEventListener("click", onCellClick);
   });
 }
 

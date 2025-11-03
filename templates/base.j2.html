@@ -99,119 +99,80 @@
       </header>
     {% endif %}
     {% block main %}{% endblock %}
-    {% if current_user.is_authenticated %}
-    <div class="modal fade" id="pushConsentModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Уведомления браузера</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            Разрешить уведомления, чтобы получать важные сообщения в реальном времени?
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Позже</button>
-            <button type="button" id="btnAllowPush" class="btn btn-primary">Разрешить</button>
-          </div>
+  {% if current_user.is_authenticated %}
+  <div class="modal fade" id="notificationsConsentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Браузерные уведомления</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Разрешить браузерные уведомления для отображения важных сообщений?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Позже</button>
+          <button type="button" id="btnAllowBrowserNotifications" class="btn btn-primary">Разрешить</button>
         </div>
       </div>
     </div>
-    <script>
-      (function(){
-        function getCookie(name){
-          var v = document.cookie.split('; ').find(function(row){ return row.startsWith(name + '='); });
-          return v ? decodeURIComponent(v.split('=')[1]) : null;
-        }
-        function delCookie(name){
-          try { document.cookie = name + '=; Max-Age=0; path=/; samesite=Lax'; } catch(_) {}
-        }
-        function shouldAsk(){
-          if (!('Notification' in window)) return false;
-          // Only ask when permission is not yet decided
-          if (Notification.permission !== 'default') return false;
-          return getCookie('just_logged_in') === '1';
-        }
-        function attachA11yHandlers(el){
-          try {
-            el.addEventListener('show.bs.modal', function(){ el.removeAttribute('aria-hidden'); });
-            el.addEventListener('shown.bs.modal', function(){ el.removeAttribute('aria-hidden'); });
-            el.addEventListener('hide.bs.modal', function(){
-              try { if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur(); } catch(_) {}
-            });
-            el.addEventListener('hidden.bs.modal', function(){ el.setAttribute('aria-hidden','true'); });
-          } catch(_) {}
-        }
-        function showModal(){
-          var el = document.getElementById('pushConsentModal');
-          if (!el) return;
-          var m = new bootstrap.Modal(el);
-          el.addEventListener('hidden.bs.modal', function(){ delCookie('just_logged_in'); });
-          attachA11yHandlers(el);
-          var btn = document.getElementById('btnAllowPush');
-          if (btn && !btn.dataset.pushBound) {
-            btn.dataset.pushBound = '1';
-            btn.onclick = function(){
-              try {
-                if ('Notification' in window && typeof Notification.requestPermission === 'function') {
-                  var p = null;
-                  try { p = Notification.requestPermission(); } catch(_) {}
-                  if (p && typeof p.then === 'function') {
-                    p.then(function(perm){
-                      try { if (perm === 'granted' && window.pushInit) window.pushInit({ silent: true }); } catch(_) {}
-                    }).finally(function(){ try { m.hide(); } catch(_) {} });
-                    return;
-                  }
-                  try {
-                    Notification.requestPermission(function(perm){
-                      try { if (perm === 'granted' && window.pushInit) window.pushInit({ silent: true }); } catch(_) {}
-                      try { m.hide(); } catch(_) {}
-                    });
-                    return;
-                  } catch(_) {}
+  </div>
+  <script>
+    (function(){
+      function getCookie(name){
+        var v = document.cookie.split('; ').find(function(row){ return row.startsWith(name + '='); });
+        return v ? decodeURIComponent(v.split('=')[1]) : null;
+      }
+      function delCookie(name){
+        try { document.cookie = name + '=; Max-Age=0; path=/; samesite=Lax'; } catch(_) {}
+      }
+      function shouldAsk(){
+        if (!('Notification' in window)) return false;
+        if (Notification.permission !== 'default') return false;
+        return getCookie('just_logged_in') === '1';
+      }
+      function showModal(){
+        var el = document.getElementById('notificationsConsentModal');
+        if (!el) return;
+        var m = new bootstrap.Modal(el);
+        el.addEventListener('hidden.bs.modal', function(){ delCookie('just_logged_in'); });
+        var btn = document.getElementById('btnAllowBrowserNotifications');
+        if (btn && !btn.dataset.bound) {
+          btn.dataset.bound = '1';
+          btn.onclick = function(){
+            try {
+              if ('Notification' in window && typeof Notification.requestPermission === 'function') {
+                var p = null;
+                try { p = Notification.requestPermission(); } catch(_) {}
+                if (p && typeof p.then === 'function') {
+                  p.finally(function(){ try { m.hide(); } catch(_) {} });
+                  return;
                 }
-              } catch(_) {}
-              try { window.pushInit && window.pushInit({ silent: true }); } catch(_) {}
-              try { m.hide(); } catch(_) {}
-            };
-          }
-          // avoid double-open during fade-out
-          try { if (el.classList && el.classList.contains('show')) return; } catch(_) {}
-          m.show();
+                try {
+                  Notification.requestPermission(function(){ try { m.hide(); } catch(_) {} });
+                  return;
+                } catch(_) {}
+              }
+            } catch(_) {}
+            try { m.hide(); } catch(_) {}
+          };
         }
-        if (shouldAsk()) {
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', showModal);
-          } else {
-            showModal();
-          }
+        try { if (el.classList && el.classList.contains('show')) return; } catch(_) {}
+        m.show();
+      }
+      if (shouldAsk()) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', showModal);
         } else {
-          delCookie('just_logged_in');
+          showModal();
         }
-      })();
-    </script>
+      } else {
+        delCookie('just_logged_in');
+      }
+    })();
+  </script>
+  {% endif %}
     
-    {% endif %}
-    {% if current_user.is_authenticated %}
-    <script>
-      // Auto-initialize push on load if permission already granted (re-sync after server restart)
-      (function(){
-        try {
-          function tryInit(){
-            if (!('Notification' in window)) return;
-            if (Notification.permission === 'granted') {
-              try { window.pushInit && window.pushInit({ silent: true }); } catch(_) {}
-            }
-          }
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', tryInit);
-          } else {
-            tryInit();
-          }
-        } catch(_) {}
-      })();
-    </script>
-    {% endif %}
   </body>
 
 </html>
