@@ -88,6 +88,13 @@ function getReconnectInterval() {
   return config.reconnect_interval || 5; // Fallback to 5 seconds
 }
 
+function getSyncIdleSeconds() {
+  const config = getWebConfig();
+  const v = config.sync_idle_seconds;
+  const n = parseInt(v != null ? v : 0, 10);
+  return (Number.isFinite(n) && n > 0) ? n : 30;
+}
+
 // Export functions to global scope
 window.Config = {
   loadConfig,
@@ -101,6 +108,7 @@ window.Config = {
   getSessionLifetime,
   getReconnectInterval,
   getDefaultConfig,
+  getSyncIdleSeconds,
 };
 
 // Auto-load config on page load

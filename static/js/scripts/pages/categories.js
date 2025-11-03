@@ -238,6 +238,7 @@ function loadCategories() {
       }
     })
     .catch((error) => {
+      try { if (window.__categoriesSilentReload) return; } catch(_) {}
       window.ErrorHandler && window.ErrorHandler.handleError("Error loading categories:", error, "app");
       showEmptyCategories();
     });
@@ -363,6 +364,7 @@ function loadSubcategories(categoryId) {
       }
     })
     .catch((error) => {
+      try { if (window.__categoriesSilentReload) return; } catch(_) {}
       window.ErrorHandler && window.ErrorHandler.handleError("Error loading subcategories:", error, "app");
       showEmptySubcategories();
     });
@@ -1845,8 +1847,10 @@ function setupCategoriesSocket() {
         }
         const reloadLists = debounce(function(){
           try { console.log('[categories] reloadLists: start'); } catch(_) {}
+          try { window.__categoriesSilentReload = true; } catch(_) {}
           try { loadCategories(); console.log('[categories] reloadLists: loadCategories() called'); } catch(e) { try{ console.log('[categories] reloadLists: loadCategories error', e);}catch(_){}}
           try { if (currentCategoryId) { loadSubcategories(currentCategoryId); console.log('[categories] reloadLists: loadSubcategories(', currentCategoryId, ')'); } } catch(e) { try{ console.log('[categories] reloadLists: loadSubcategories error', e);}catch(_){}}
+          try { window.__categoriesSilentReload = false; } catch(_) {}
           // NOTE: Server HTML replacement disabled on categories page to avoid wiping client-rendered nav
           try { console.log('[categories] reloadLists: skip HTML replace (client-rendered)'); } catch(_) {}
         });
@@ -1889,10 +1893,7 @@ function setupCategoriesSocket() {
         });
         if (window.SyncManager.joinRoom) { try{ console.log('[categories] joinRoom(categories)'); }catch(_){ } window.SyncManager.joinRoom('categories'); }
         // Idle-guard: refresh lists if долго нет событий (30s по умолчанию)
-        if (window.SyncManager.startIdleGuard) {
-          try{ console.log('[categories] startIdleGuard(30s)'); }catch(_){ }
-          window.SyncManager.startIdleGuard(function(){ try{ console.log('[categories] idle-guard refresh'); }catch(_){ } reloadLists(); }, 30);
-        }
+        // idle-guard запускается глобально в core/base.js
       }
       return;
     }

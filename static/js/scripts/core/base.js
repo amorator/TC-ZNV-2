@@ -391,4 +391,32 @@
       }, 0);
     } catch (__) {}
   })();
+
+  // Global idle-guard fallback: apply to pages without their own guard
+  (function(){
+    function startGlobalIdleGuard(){
+      try {
+        if (!window.SyncManager || typeof window.SyncManager.startIdleGuard !== 'function') return;
+        if (window.__globalIdleGuardStarted) return;
+        window.__globalIdleGuardStarted = true;
+        var loadCfg = (window.Config && typeof window.Config.loadConfig === 'function') ? window.Config.loadConfig() : Promise.resolve();
+        Promise.resolve(loadCfg).catch(function(){ return null; }).then(function(){
+          var secs = 30;
+          try { if (window.Config && typeof window.Config.getSyncIdleSeconds === 'function') secs = window.Config.getSyncIdleSeconds(); } catch(_) {}
+          window.SyncManager.startIdleGuard(function(){
+            try {
+              if (typeof window.softRefreshFilesTable === 'function') { window.softRefreshFilesTable(true); return; }
+              if (typeof window.softRefreshUsersTable === 'function') { window.softRefreshUsersTable(true); return; }
+              if (typeof window.softRefreshGroupsTable === 'function') { window.softRefreshGroupsTable(true); return; }
+            } catch(_) {}
+          }, secs);
+        });
+      } catch(_) {}
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function(){ setTimeout(startGlobalIdleGuard, 0); });
+    } else {
+      setTimeout(startGlobalIdleGuard, 0);
+    }
+  })();
 })();
