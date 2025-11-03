@@ -155,6 +155,26 @@ async function validateForm(element) {
       return false;
     }
 
+    // Special handling for file upload form
+    if (form.hasAttribute('data-upload-form') && form.action.includes('/files/add')) {
+      // Validate file upload first
+      if (window.FilesFormValidation && window.FilesFormValidation.validateFileUpload) {
+        const isValid = await window.FilesFormValidation.validateFileUpload(form);
+        if (!isValid) {
+          return false;
+        }
+      }
+      
+      // If validation passed, start upload
+      if (window.FilesManagement && window.FilesManagement.startUploadWithProgress) {
+        window.FilesManagement.startUploadWithProgress(form);
+        return false;
+      }
+      
+      // Fallback: if startUploadWithProgress not available, return true to allow default submit
+      return true;
+    }
+
     // For all other forms, delegate to modal-manager's validateForm if available
     // This ensures backward compatibility
     const formData = new FormData(form);
@@ -314,11 +334,28 @@ function clearValidationErrors() {
 async function validateFileUpload(form) {
   try {
     const fileInput = form.querySelector('input[type="file"]');
-    if (!fileInput || !fileInput.files.length) {
-      window.ErrorHandler.handleError(
-        new Error("Выберите файл для загрузки"),
-        "validateFileUpload"
-      );
+    if (!fileInput) {
+      if (window.showToast) {
+        window.showToast("Поле выбора файлов не найдено", "error");
+      }
+      return false;
+    }
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+      if (window.showToast) {
+        window.showToast("Выберите файл для загрузки", "warning");
+      }
+      return false;
+    }
+
+    // Check max files limit
+    const maxFilesInput = document.getElementById("max-upload-files");
+    const maxFiles = maxFilesInput ? parseInt(maxFilesInput.value, 10) : 5;
+    
+    if (fileInput.files.length > maxFiles) {
+      if (window.showToast) {
+        window.showToast(`Можно загрузить максимум ${maxFiles} файлов. Выбрано: ${fileInput.files.length}`, "error");
+      }
       return false;
     }
 
@@ -326,6 +363,7 @@ async function validateFileUpload(form) {
     await window.Config.loadConfig();
     const maxSize = window.Config.getMaxFileSizeBytes();
     const allowedTypes = window.Config.getAllowedFileTypes();
+    
     function isTypeAllowed2(mime){
       try {
         if (!mime) return true;
@@ -344,28 +382,32 @@ async function validateFileUpload(form) {
       return false;
     }
 
-    const file = fileInput.files[0];
+    // Validate all files
+    const maxSizeMB = Math.round(maxSize / (1024 * 1024));
+    for (let i = 0; i < fileInput.files.length; i++) {
+      const file = fileInput.files[i];
+      
+      if (file.size > maxSize) {
+        if (window.showToast) {
+          window.showToast(`Файл "${file.name}" слишком большой (максимум ${maxSizeMB}MB)`, "error");
+        }
+        return false;
+      }
 
-    if (file.size > maxSize) {
-      const maxSizeMB = Math.round(maxSize / (1024 * 1024));
-      window.ErrorHandler.handleError(
-        new Error(`Файл слишком большой (максимум ${maxSizeMB}MB)`),
-        "validateFileUpload"
-      );
-      return false;
-    }
-
-    if (!isTypeAllowed2(file.type)) {
-      window.ErrorHandler.handleError(
-        new Error(`Тип файла не поддерживается`),
-        "validateFileUpload"
-      );
-      return false;
+      if (!isTypeAllowed2(file.type)) {
+        if (window.showToast) {
+          window.showToast(`Тип файла "${file.name}" не поддерживается`, "error");
+        }
+        return false;
+      }
     }
 
     return true;
   } catch (err) {
     window.ErrorHandler.handleError(err, "validateFileUpload");
+    if (window.showToast) {
+      window.showToast("Ошибка валидации файлов", "error");
+    }
     return false;
   }
 }

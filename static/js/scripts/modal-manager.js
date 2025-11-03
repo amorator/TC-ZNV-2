@@ -23,6 +23,19 @@
       // Listen for escape key
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && this.activeModal) {
+          // Block closing add modal via ESC during upload
+          try {
+            if (this.activeModal === 'popup-add' && window.__uploadInProgress === true) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (window.showToast) {
+                window.showToast('Загрузка идет. Используйте Отмена для остановки и закрытия.', 'warning');
+              }
+              return;
+            }
+          } catch (err) {
+            window.ErrorHandler && window.ErrorHandler.handleError(err, 'keydown-guard');
+          }
           // Intercept recorder ESC to guard close
           if (this.activeModal === "popup-rec") {
             try {
@@ -64,11 +77,28 @@
 
       // Listen for clicks outside modal
       document.addEventListener("click", (e) => {
-        if (
+        const isOverlayClick = (
           this.activeModal &&
-          e.target.classList &&
-          e.target.classList.contains("popup-overlay")
-        ) {
+          e.target && e.target.classList && (
+            e.target.classList.contains("popup-overlay") ||
+            e.target.classList.contains("overlay-container")
+          ) &&
+          e.target.id === this.activeModal
+        );
+        if (isOverlayClick) {
+          // Block closing add modal via overlay click during upload
+          try {
+            if (this.activeModal === 'popup-add' && window.__uploadInProgress === true) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (window.showToast) {
+                window.showToast('Загрузка идет. Используйте Отмена для остановки и закрытия.', 'warning');
+              }
+              return;
+            }
+          } catch (err) {
+            window.ErrorHandler && window.ErrorHandler.handleError(err, 'overlay-guard');
+          }
           // Intercept recorder overlay click to guard close
           if (this.activeModal === "popup-rec") {
             try {
@@ -299,6 +329,18 @@
         : document.getElementById(modalId);
 
       if (!modal) return false;
+
+      // Guard: prevent closing upload modal while upload in progress
+      try {
+        if (modalId === 'popup-add' && window.__uploadInProgress === true) {
+          if (window.showToast) {
+            window.showToast('Загрузка идет. Используйте Отмена для остановки и закрытия.', 'warning');
+          }
+          return false;
+        }
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'closeModal:guard');
+      }
 
       // For recorder: check state first, then show appropriate dialog
       try {

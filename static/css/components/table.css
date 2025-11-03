@@ -35,6 +35,15 @@
     white-space: nowrap;
 }
 
+/* Exception: files-page media-info must display in column, not truncated */
+.files-page__table td .files-page__media-info {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
 .table__head_item {
     font-weight: 600;
     text-align: left;

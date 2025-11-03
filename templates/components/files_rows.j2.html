@@ -19,7 +19,39 @@
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
-        <td class="table__body_item"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
+        <td class="table__body_item">
+          <div class="files-page__media-info" style="display:flex !important;flex-direction:column !important;gap:4px !important;align-items:flex-start !important;flex-wrap:nowrap !important;">
+          <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap;vertical-align:middle;background:transparent;">
+            <span class="files-page__media-type" data-media="{{ (file.media_type or '')|lower }}" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">{{ file.media_type }}</span>
+          {% if '[Регистратор -' in (file.description or '') %}
+            {% set search_str = '[Регистратор - ' %}
+            {% set desc = file.description or '' %}
+            {% set start_idx = desc.find(search_str) %}
+            {% if start_idx >= 0 %}
+              {% set end_idx = desc.find(']', start_idx) %}
+              {% if end_idx >= 0 %}
+                {% set reg_match = desc[start_idx+search_str|length:end_idx] %}
+                <span class="files-page__registrator-type" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">Регистратор: {{ reg_match }}</span>
+              {% endif %}
+              {% set desc_start_idx = desc.find('[Регистратор -') %}
+              {% if desc_start_idx >= 0 %}
+                {% set desc1 = desc[:desc_start_idx].strip() %}
+                {% set desc2 = end_idx >= 0 and desc[end_idx+1:].strip() or '' %}
+                {% set cleaned_desc = (desc1 + ' ' + desc2).strip() %}
+              {% else %}
+                {% set cleaned_desc = desc %}
+              {% endif %}
+            {% else %}
+              {% set cleaned_desc = file.description %}
+            {% endif %}
+          {% else %}
+            {% set cleaned_desc = file.description %}
+          {% endif %}
+          </span>
+          {% if cleaned_desc %}<div class="files-page__description">{{ cleaned_desc }}</div>{% endif %}
+          {% if file.exists_status_message %}<div class="files-page__status">{{ file.exists_status_message | safe }}</div>{% endif %}
+          </div>
+        </td>
         <td class="table__body_item">{{ file.owner }}</td>
         <td class="table__body_item">{{ file.created_at }}</td>
         <td class="table__body_item">{{ file.length_human }}</td>
@@ -63,19 +95,45 @@
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item">{{ file.display_name }}</td>
-        <td class="table__body_item"><strong>{{ file.media_type }}</strong>{% if file.description %}<br>{{ file.description }}{% endif %}{% if file.exists_status_message %}<br>{{ file.exists_status_message | safe }}{% endif %}</td>
+        <td class="table__body_item">
+          <div class="files-page__media-info" style="display:flex !important;flex-direction:column !important;gap:4px !important;align-items:flex-start !important;flex-wrap:nowrap !important;">
+          <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap;vertical-align:middle;background:transparent;">
+            <span class="files-page__media-type" data-media="{{ (file.media_type or '')|lower }}" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">{{ file.media_type }}</span>
+          {% if '[Регистратор -' in (file.description or '') %}
+            {% set search_str = '[Регистратор - ' %}
+            {% set desc = file.description or '' %}
+            {% set start_idx = desc.find(search_str) %}
+            {% if start_idx >= 0 %}
+              {% set end_idx = desc.find(']', start_idx) %}
+              {% if end_idx >= 0 %}
+                {% set reg_match = desc[start_idx+search_str|length:end_idx] %}
+                <span class="files-page__registrator-type" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">Регистратор: {{ reg_match }}</span>
+              {% endif %}
+              {% set desc_start_idx = desc.find('[Регистратор -') %}
+              {% if desc_start_idx >= 0 %}
+                {% set desc1 = desc[:desc_start_idx].strip() %}
+                {% set desc2 = end_idx >= 0 and desc[end_idx+1:].strip() or '' %}
+                {% set cleaned_desc = (desc1 + ' ' + desc2).strip() %}
+              {% else %}
+                {% set cleaned_desc = desc %}
+              {% endif %}
+            {% else %}
+              {% set cleaned_desc = file.description %}
+            {% endif %}
+          {% else %}
+            {% set cleaned_desc = file.description %}
+          {% endif %}
+          </span>
+          {% if cleaned_desc %}<div class="files-page__description">{{ cleaned_desc }}</div>{% endif %}
+          {% if file.exists_status_message %}<div class="files-page__status">{{ file.exists_status_message | safe }}</div>{% endif %}
+          </div>
+        </td>
         <td class="table__body_item">{{ file.owner }}</td>
         <td class="table__body_item">{{ file.created_at }}</td>
         <td class="table__body_item">{{ file.length_human }}</td>
         <td class="table__body_item">{{ file.size_human }}</td>
         <td class="table__body_item">
           Обрабатывается...
-          <div class="d-inline-flex gap-2 ms-2 align-items-center">
-            <a class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" href={{ url_for("files_orig_by_id", file_id=file.id) }} download><i class="bi bi-download"></i> Скачать исходный файл</a>
-            {% if current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id) %}
-              <button class="files-page__setting btn btn-link p-0 d-inline-flex align-items-center" onclick="openModal('popup-delete', {{ file.id }});"><i class="bi bi-trash3"></i> Удалить</button>
-            {% endif %}
-          </div>
         </td>
       </tr>
     {% endif %}

@@ -167,20 +167,24 @@
                 >
                   <td class="table__body_item" role="cell"><span class="files-page__link">{{ file.display_name }}</span></td>
                   <td class="table__body_item" role="cell">
-                    <div class="files-page__media-info">
-                      <span class="files-page__media-type">{{ file.media_type }}</span>
-                      {% if '[Регистратор -' in (file.description or '') %}
-                        {% set desc = file.description %}
-                        {% set search_str = '[Регистратор - ' %}
-                        {% set start_idx = desc.find(search_str) %}
-                        {% if start_idx >= 0 %}
-                          {% set end_idx = desc.find(']', start_idx + search_str|length) %}
-                          {% if end_idx >= 0 %}
-                            {% set reg_match = desc[start_idx + search_str|length:end_idx] %}
-                            <span class="files-page__registrator-type">Регистратор: {{ reg_match }}</span>
+                    <div class="files-page__media-info" style="display:flex !important;flex-direction:column !important;gap:4px !important;align-items:flex-start !important;flex-wrap:nowrap !important;">
+                      <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap;vertical-align:middle;background:transparent;">
+                        <span class="files-page__media-type" data-media="{{ (file.media_type or '')|lower }}" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">{{ file.media_type }}</span>
+                        {% if '[Регистратор -' in (file.description or '') %}
+                          {% set desc = file.description %}
+                          {% set search_str = '[Регистратор - ' %}
+                          {% set start_idx = desc.find(search_str) %}
+                          {% if start_idx >= 0 %}
+                            {% set end_idx = desc.find(']', start_idx + search_str|length) %}
+                            {% if end_idx >= 0 %}
+                              {% set reg_match = desc[start_idx + search_str|length:end_idx] %}
+                              <span class="files-page__registrator-type" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">Регистратор: {{ reg_match }}</span>
+                            {% endif %}
                           {% endif %}
                         {% endif %}
-                        {# Show description without registrar marker #}
+                      </span>
+                      {% if '[Регистратор -' in (file.description or '') %}
+                        {% set desc = file.description %}
                         {% set desc_start_idx = desc.find('[Регистратор -') %}
                         {% if desc_start_idx >= 0 %}
                           {% set desc_end_idx = desc.find(']', desc_start_idx) %}
@@ -242,8 +246,9 @@
                 >
                   <td class="table__body_item" role="cell">{{ file.display_name }}</td>
                   <td class="table__body_item" role="cell">
-                    <div class="files-page__media-info">
-                      <span class="files-page__media-type">{{ file.media_type }}</span>
+                    <div class="files-page__media-info" style="display:flex !important;flex-direction:column !important;gap:4px !important;align-items:flex-start !important;flex-wrap:nowrap !important;">
+                      <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;white-space:nowrap;vertical-align:middle;background:transparent;">
+                        <span class="files-page__media-type" data-media="{{ (file.media_type or '')|lower }}" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">{{ file.media_type }}</span>
                       {% if '[Регистратор -' in (file.description or '') %}
                         {% set desc = file.description %}
                         {% set search_str = '[Регистратор - ' %}
@@ -252,10 +257,13 @@
                           {% set end_idx = desc.find(']', start_idx + search_str|length) %}
                           {% if end_idx >= 0 %}
                             {% set reg_match = desc[start_idx + search_str|length:end_idx] %}
-                            <span class="files-page__registrator-type">Регистратор: {{ reg_match }}</span>
+                            <span class="files-page__registrator-type" style="display:inline-block;white-space:nowrap;max-width:max-content;vertical-align:middle;">Регистратор: {{ reg_match }}</span>
                           {% endif %}
                         {% endif %}
-                        {# Show description without registrar marker #}
+                      {% endif %}
+                      </span>
+                      {% if '[Регистратор -' in (file.description or '') %}
+                        {% set desc = file.description %}
                         {% set desc_start_idx = desc.find('[Регистратор -') %}
                         {% if desc_start_idx >= 0 %}
                           {% set desc_end_idx = desc.find(']', desc_start_idx) %}
@@ -320,7 +328,7 @@
     <div class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-add-title">
       <h1 class="popup__title mb-4" id="popup-add-title">Добавление файлов</h1>
       <div class="popup__body">
-      <form class="popup__form" id="add" action="{{ url_for('files_add') }}" method="post" enctype="multipart/form-data" autocomplete="off" onsubmit="return false;">
+      <form class="popup__form" id="add" action="{{ url_for('files_add') }}" method="post" enctype="multipart/form-data" autocomplete="off" data-upload-form onsubmit="return false;">
 
         <div class="popup__form-control form-control">
           <label class="form-control__label" for="add-name">Название:</label>
@@ -354,7 +362,7 @@
         </div>
 
         <div class="popup__actions d-flex gap-2 justify-content-between mt-4">
-          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="closeModal('popup-add');" >Отмена</button>
+          <button type="button" class="btn btn-secondary" id="add-cancel-btn" data-testid="files-add-cancel" onclick="(window.FilesManagement && window.FilesManagement.cancelCurrentUploadAndCloseModal) ? window.FilesManagement.cancelCurrentUploadAndCloseModal() : closeModal('popup-add');" >Отмена</button>
           <button type="button" class="btn btn-primary" id="add-submit-btn" data-testid="files-add-submit" onclick="validateForm(this);">Добавить</button>
         </div>
       </form>

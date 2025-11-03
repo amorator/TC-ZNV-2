@@ -305,6 +305,20 @@ document.addEventListener(
       const id = overlay.id;
       if (!id) return;
 
+      // Guard: prevent closing files add modal during active upload
+      try {
+        if (id === 'popup-add' && window.__uploadInProgress === true) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (window.showToast) {
+            window.showToast('Загрузка идет. Используйте Отмена для остановки и закрытия.', 'warning');
+          }
+          return;
+        }
+      } catch (error) {
+        window.ErrorHandler && window.ErrorHandler.handleError(error, 'popup-overlay-guard');
+      }
+
       if (id === "popup-rec") {
         try {
           const iframe = document.getElementById("rec-iframe");

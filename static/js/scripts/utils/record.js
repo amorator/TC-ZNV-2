@@ -2199,7 +2199,7 @@ function loadHandler(event) {
       window.ErrorHandler.handleError(err, "unknown");
     }
 
-    // Close modal directly like in scripts.js
+    // Close modal directly like in scripts.js and restore page scroll
     try {
       const overlay = window.parent.document.getElementById("popup-rec");
       if (overlay) {
@@ -2210,6 +2210,12 @@ function loadHandler(event) {
       // Reset popup variable in parent
       if (window.parent.popup === "popup-rec") {
         window.parent.popup = null;
+      }
+      // Ensure body scroll is restored in parent after closing overlay
+      try {
+        window.parent.document.body.style.overflow = "";
+      } catch (e) {
+        // noop
       }
     } catch (err) {
       window.ErrorHandler.handleError(err, "unknown");

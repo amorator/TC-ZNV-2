@@ -61,16 +61,151 @@
   flex-wrap: wrap;
 }
 
+/* Ensure media-info always displays in column layout - highest priority */
 .files-page__media-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  align-items: flex-start !important;
+  flex-wrap: nowrap !important;
+}
+
+/* Ultra-specific rule to prevent any overrides - must be applied first */
+table.files-page__table tbody tr.table__body_row td.table__body_item .files-page__media-info,
+.files-page__table .table__body_item .files-page__media-info,
+.files-page__table td .files-page__media-info {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  align-items: flex-start !important;
+  flex-wrap: nowrap !important;
 }
 
 .files-page__media-type {
   font-weight: bold;
   color: var(--primary-600);
-  font-size: 0.9em;
+  font-size: 0.95em;
+}
+
+/* Container for media type and registrator badges */
+.files-page__media-info>span[style*="inline-flex"] {
+  background: transparent !important;
+}
+
+/* Persistent badge-like styles for media and registrator labels */
+.files-page__media-type,
+.files-page__registrator-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: 0.95em;
+}
+
+/* Override generic span styling inside files table */
+.files-page__table .table__body_item .files-page__media-type,
+.files-page__table .table__body_item .files-page__registrator-type {
+  background-color: #ffffff !important;
+  color: var(--text, #0f1724) !important;
+  border-color: var(--sidebar-bg, #e5e7eb) !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: 0.95em !important;
+}
+
+.theme-dark .files-page__table .table__body_item .files-page__media-type,
+.theme-dark .files-page__table .table__body_item .files-page__registrator-type {
+  background-color: #111827 !important;
+  color: #e5e7eb !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Keep appearance on hover (app.css sets span:hover) */
+.files-page__table .table__body_item .files-page__media-type:hover,
+.files-page__table .table__body_item .files-page__registrator-type:hover {
+  background-color: inherit !important;
+  color: inherit !important;
+  border-color: inherit !important;
+}
+
+/* Ultra-specific rule to defeat any late overrides targeting generic spans */
+table.files-page__table tbody tr.table__body_row td.table__body_item span.files-page__media-type[data-media] {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: max-content !important;
+  background-color: #ffffff !important;
+  color: var(--text, #0f1724) !important;
+  border: 1px solid var(--sidebar-bg, #e5e7eb) !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+  font-size: 0.95em !important;
+}
+
+/* Do not draw bordered badges for viewers list lines */
+.files-page__table .file-viewers span {
+  border: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: block !important;
+  background: transparent !important;
+}
+
+/* Video badge */
+.files-page__media-type[data-media="видео"],
+.files-page__media-type[data-media^="видео"] {
+  background-color: rgba(37, 99, 235, 0.12) !important;
+  color: #1d4ed8 !important;
+  border-color: rgba(29, 78, 216, 0.35) !important;
+}
+
+/* Audio badge */
+.files-page__media-type[data-media="аудио"],
+.files-page__media-type[data-media^="аудио"] {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #059669 !important;
+  border-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+/* Registrator badge */
+.files-page__registrator-type {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  color: #b45309 !important;
+  border-color: rgba(180, 83, 9, 0.35) !important;
+}
+
+/* Dark theme adjustments */
+.theme-dark .files-page__media-type[data-media="видео"],
+.theme-dark .files-page__media-type[data-media^="видео"] {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  color: #93c5fd !important;
+  border-color: rgba(147, 197, 253, 0.35) !important;
+}
+
+.theme-dark .files-page__media-type[data-media="аудио"],
+.theme-dark .files-page__media-type[data-media^="аудио"] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(110, 231, 183, 0.35) !important;
+}
+
+/* Keep badge color on hover against table hover span rule */
+.files-page__table .table__body_item .files-page__media-type:hover {
+  background-color: inherit !important;
+  color: inherit !important;
+  border-color: inherit !important;
+}
+
+.theme-dark .files-page__registrator-type {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+  color: #fcd34d !important;
+  border-color: rgba(252, 211, 77, 0.35) !important;
 }
 
 .files-page__description {

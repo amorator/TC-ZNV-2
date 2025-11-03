@@ -83,6 +83,14 @@
   border-bottom-right-radius: inherit;
 }
 
+/* Ensure recording iframe has sensible dimensions even when embed-specific CSS is not loaded */
+.files-rec-iframe {
+  width: 100%;
+  height: 70vh;
+  border: 0;
+  display: block;
+}
+
 /* Buttons theme tokens (light defaults) */
 .btn {
   border: 1px solid transparent;

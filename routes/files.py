@@ -731,6 +731,62 @@ def register(app, media_service, socketio=None) -> None:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
+    @app.route('/api/files/resolve-ids', methods=['GET'])
+    @require_permissions(FILES_UPLOAD)
+    def api_files_resolve_ids():
+        """Resolve directory indices (did, sdid) to real category_id and subcategory_id."""
+        try:
+            did = request.args.get('did', type=int)
+            sdid = request.args.get('sdid', type=int)
+            
+            if did is None or sdid is None:
+                return jsonify({'status': 'error', 'message': 'did and sdid required'}), 400
+            
+            # Get directories structure for current user
+            _dirs = dirs_by_permission(app, 3, 'f')
+            
+            if not _dirs or len(_dirs) == 0:
+                return jsonify({'status': 'error', 'message': 'No directories available'}), 400
+            
+            # Validate indices
+            if did < 0 or did >= len(_dirs):
+                return jsonify({'status': 'error', 'message': 'Invalid category index'}), 400
+            
+            # Get category folder_name
+            cat_keys = list(_dirs[did].keys())
+            if not cat_keys:
+                return jsonify({'status': 'error', 'message': 'Category not found'}), 400
+            
+            root_key = cat_keys[0]
+            cat_id = app._sql.category_id_by_folder(root_key)
+            
+            if not cat_id:
+                return jsonify({'status': 'error', 'message': 'Category ID not found'}), 400
+            
+            # Get subcategory folder_name
+            sub_keys = list(_dirs[did].keys())
+            if sdid < 0 or sdid >= len(sub_keys):
+                return jsonify({'status': 'error', 'message': 'Invalid subcategory index'}), 400
+            
+            sub_key = sub_keys[sdid]
+            # Handle duplicate keys (with __dup_ suffix)
+            if '__dup_' in sub_key:
+                sub_key = sub_key.split('__dup_')[0]
+            
+            sub_id = app._sql.subcategory_id_by_folder(cat_id, sub_key)
+            
+            if not sub_id:
+                return jsonify({'status': 'error', 'message': 'Subcategory ID not found'}), 400
+            
+            return jsonify({
+                'status': 'success',
+                'category_id': int(cat_id),
+                'subcategory_id': int(sub_id)
+            })
+        except Exception as e:
+            app.flash_error(e)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
     @app.route('/files/add', methods=['POST'])
     @require_permissions(FILES_UPLOAD)
@@ -966,13 +1022,32 @@ def register(app, media_service, socketio=None) -> None:
             file_part = request.files.get('file') or request.files.get(
                 'upload')
             validate_uploaded_file(file_part, app)
-            # Save to original and begin conversion
-            base = path.join(file_rec.path,
-                             path.splitext(file_rec.real_name)[0])
+            
+            # Get storage path using category/subcategory IDs
+            if hasattr(file_rec, 'category_id') and hasattr(file_rec, 'subcategory_id'):
+                storage_dir = app._sql.get_file_storage_path(
+                    file_rec.category_id, file_rec.subcategory_id)
+            else:
+                # Fallback: try to get from file_rec.path or use default
+                storage_dir = getattr(file_rec, 'path', '') or path.join(
+                    app._sql.config['files']['root'], 'files')
+            
+            # Ensure directory exists
+            try:
+                os.makedirs(storage_dir, exist_ok=True)
+            except Exception:
+                pass
+            
+            # Build file path: use real_name from DB (which includes .mp4 extension)
+            real_name_base = path.splitext(file_rec.real_name or file_rec.file_name)[0]
+            base = path.join(storage_dir, real_name_base)
+            
             # Save original
             if not file_part:
                 return {'error': 'Файл не получен'}, 400
-            file_part.save(base + '.webm')
+            
+            webm_path = base + '.webm'
+            file_part.save(webm_path)
             # update size from uploaded file
             try:
                 file_part.seek(0, os.SEEK_END)
@@ -986,7 +1061,7 @@ def register(app, media_service, socketio=None) -> None:
                 p = subprocess.Popen([
                     "ffprobe", "-v", "error", "-show_entries",
                     "format=duration", "-of",
-                    "default=noprint_wrappers=1:nokey=1", base + '.webm'
+                    "default=noprint_wrappers=1:nokey=1", webm_path
                 ],
                                      stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE,
@@ -1008,11 +1083,12 @@ def register(app, media_service, socketio=None) -> None:
             except Exception:
                 pass
             # Choose target by final real_name extension
-            target_ext = (path.splitext(file_rec.real_name)[1]
+            target_ext = (path.splitext(file_rec.real_name or file_rec.file_name)[1]
                           or '.mp4').lower()
+            target_path = base + ('.m4a' if target_ext == '.m4a' else '.mp4')
             media_service.convert_async(
-                base + '.webm',
-                base + ('.m4a' if target_ext == '.m4a' else '.mp4'),
+                webm_path,
+                target_path,
                 ('file', id))
             if socketio:
                 try:

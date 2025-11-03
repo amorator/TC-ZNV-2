@@ -518,21 +518,137 @@ function setupFileManagement() {
       });
     });
 
-    // Setup file input change handler to auto-fill name field
+    // Setup file input change handler to auto-fill name field and handle multiple files
     const fileInput = document.getElementById("file");
     const nameInput = document.getElementById("add-name");
-    if (fileInput && nameInput) {
-      fileInput.addEventListener("change", function() {
-        // Only auto-fill if name field is empty
+    const nameLabel = nameInput ? nameInput.closest(".form-control")?.querySelector("label") : null;
+    
+    function updateNameFieldForMultipleFiles() {
+      if (!fileInput || !nameInput) return;
+      
+      const files = fileInput.files;
+      const fileCount = files ? files.length : 0;
+      
+      if (fileCount > 1) {
+        // Multiple files: disable name field and show message
+        nameInput.disabled = true;
+        nameInput.placeholder = "При множественной загрузке используются реальные имена файлов";
+        if (nameLabel) {
+          nameLabel.style.opacity = "0.6";
+        }
+        
+        // Show or update message about real names
+        let messageEl = document.getElementById("multiple-files-message");
+        if (!messageEl) {
+          messageEl = document.createElement("small");
+          messageEl.id = "multiple-files-message";
+          messageEl.className = "form-text text-muted d-block mt-1";
+          nameInput.closest(".form-control")?.appendChild(messageEl);
+        }
+        messageEl.textContent = `Выбрано ${fileCount} файлов. Будут использованы реальные имена файлов.`;
+      } else if (fileCount === 1) {
+        // Single file: enable name field and auto-fill
+        nameInput.disabled = false;
+        nameInput.placeholder = "Имя файла...";
+        if (nameLabel) {
+          nameLabel.style.opacity = "1";
+        }
+        
+        // Remove message about real names
+        const messageEl = document.getElementById("multiple-files-message");
+        if (messageEl) {
+          messageEl.remove();
+        }
+        
+        // Auto-fill if name field is empty
         if (!nameInput.value.trim()) {
-          const files = this.files;
-          if (files && files.length > 0) {
-            // If single file or multiple files, use the first file name
-            const fileName = files[0].name;
-            // Remove extension
-            const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
-            nameInput.value = nameWithoutExt;
+          const fileName = files[0].name;
+          const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
+          nameInput.value = nameWithoutExt;
+        }
+      } else {
+        // No files: enable and clear
+        nameInput.disabled = false;
+        nameInput.placeholder = "Имя файла...";
+        if (nameLabel) {
+          nameLabel.style.opacity = "1";
+        }
+        
+        // Remove message about real names
+        const messageEl = document.getElementById("multiple-files-message");
+        if (messageEl) {
+          messageEl.remove();
+        }
+      }
+    }
+    
+    if (fileInput) {
+      fileInput.addEventListener("change", updateNameFieldForMultipleFiles);
+      // Also call on page load if files are already selected (e.g., after modal reopen)
+      updateNameFieldForMultipleFiles();
+    }
+    
+    // Reset form state when modal opens
+    const addModal = document.getElementById("popup-add");
+    if (addModal) {
+      // Use MutationObserver to detect when modal is shown
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === "attributes" && mutation.attributeName === "class") {
+            const isVisible = addModal.classList.contains("active") || 
+                             addModal.style.display === "block" ||
+                             getComputedStyle(addModal).display !== "none";
+            if (isVisible && !addModal.dataset.setup) {
+              // Reset form state
+              if (fileInput) {
+                fileInput.value = "";
+              }
+              if (nameInput) {
+                nameInput.value = "";
+                nameInput.disabled = false;
+                nameInput.placeholder = "Имя файла...";
+              }
+              if (nameLabel) {
+                nameLabel.style.opacity = "1";
+              }
+              // Remove message about real names
+              const messageEl = document.getElementById("multiple-files-message");
+              if (messageEl) {
+                messageEl.remove();
+              }
+              // Hide progress
+              const progressContainer = document.getElementById("upload-progress");
+              if (progressContainer) {
+                progressContainer.classList.add("d-none");
+                const progressBar = progressContainer.querySelector(".progress-bar");
+                if (progressBar) {
+                  progressBar.style.width = "0%";
+                  progressBar.setAttribute("aria-valuenow", 0);
+                }
+              }
+              // Call update function to set initial state
+              updateNameFieldForMultipleFiles();
+              addModal.dataset.setup = "true";
+            } else if (!isVisible) {
+              addModal.dataset.setup = "false";
+            }
           }
+        });
+      });
+      
+      observer.observe(addModal, {
+        attributes: true,
+        attributeFilter: ["class", "style"]
+      });
+      
+      // Also listen for click on open buttons
+      document.addEventListener("click", (e) => {
+        if (e.target.closest('[data-action="files-upload"]') || 
+            e.target.closest('[data-testid="files-upload"]') ||
+            (e.target.closest("#filesUploadBtn"))) {
+          setTimeout(() => {
+            updateNameFieldForMultipleFiles();
+          }, 100);
         }
       });
     }
@@ -710,6 +826,50 @@ document.addEventListener("DOMContentLoaded", function () {
   try {
     initFilesPage();
     
+    // Force apply media-info styles on initial page load
+    if (window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+      window.FilesManagement.enforceMediaInfoColumnLayout();
+      // Also apply after a short delay to catch any late-rendered content
+      setTimeout(() => {
+        if (window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+          window.FilesManagement.enforceMediaInfoColumnLayout();
+        }
+      }, 100);
+    }
+    
+    // Setup MutationObserver to enforce styles when table content changes
+    const table = document.getElementById("maintable");
+    if (table) {
+      const observer = new MutationObserver((mutations) => {
+        let shouldEnforce = false;
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+            // Check if any added nodes contain media-info elements
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === 1) { // Element node
+                if (node.classList && node.classList.contains('files-page__media-info')) {
+                  shouldEnforce = true;
+                } else if (node.querySelector && node.querySelector('.files-page__media-info')) {
+                  shouldEnforce = true;
+                }
+              }
+            });
+          }
+        });
+        if (shouldEnforce && window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+          // Debounce enforcement
+          setTimeout(() => {
+            window.FilesManagement.enforceMediaInfoColumnLayout();
+          }, 10);
+        }
+      });
+      
+      observer.observe(table, {
+        childList: true,
+        subtree: true
+      });
+    }
+    
     // Initialize files pagination if table has data
     const mainTable = document.getElementById("maintable");
     const tbody = mainTable && mainTable.tBodies && mainTable.tBodies[0];
@@ -741,6 +901,12 @@ document.addEventListener("DOMContentLoaded", function () {
             if (newPagination && curPagination) {
               curPagination.innerHTML = newPagination.innerHTML;
               setupFilesPaginationClickHandler();
+            }
+            // Enforce styles after pagination update
+            if (window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+              setTimeout(() => {
+                window.FilesManagement.enforceMediaInfoColumnLayout();
+              }, 50);
             }
           })
           .catch(() => {});

@@ -190,6 +190,18 @@ async function filterFilesTable(searchTerm, page = 1) {
         const searchHTML = searchRow ? searchRow.outerHTML : '';
         tbody.innerHTML = searchHTML + data.html;
         __fsDbg('filterFilesTable:update tbody');
+        
+        // Force apply media-info column layout styles immediately
+        if (window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+          window.FilesManagement.enforceMediaInfoColumnLayout();
+          // Re-enforce after a short delay
+          setTimeout(() => {
+            if (window.FilesManagement && window.FilesManagement.enforceMediaInfoColumnLayout) {
+              window.FilesManagement.enforceMediaInfoColumnLayout();
+            }
+          }, 50);
+        }
+        
         try {
           const input = document.getElementById('searchinp');
           if (input) {
