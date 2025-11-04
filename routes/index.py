@@ -5,6 +5,7 @@ from os import path
 from datetime import datetime
 from modules.sync_manager import SyncManager
 from flask_socketio import join_room, emit
+from modules.logging import log_action
 import os
 
 
@@ -108,6 +109,8 @@ def register(app):
                                       room='index')
             except Exception:
                 pass
+            
+            log_action('INDEX_TOGGLE', current_user.name, f'state={state} seq={seq}', (request.remote_addr or ''))
 
             return {
                 'status': 'success',

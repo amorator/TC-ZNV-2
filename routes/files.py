@@ -844,6 +844,7 @@ def register(app, media_service, socketio=None) -> None:
             if not file_part:
                 raise ValueError('Файл не получен')
             file_part.save(fpath + '.webm')
+            _log.info(f"[files] File uploaded (single-phase): path={fpath + '.webm'}, user={current_user.name}")
             # Get file size from saved .webm
             stat = os.stat(fpath + '.webm')
             size_mb = round(stat.st_size / (1024 * 1024), 1)
@@ -904,8 +905,10 @@ def register(app, media_service, socketio=None) -> None:
                     pass
 
             # Start background conversion to the chosen target
+            target_path = fpath + ('.m4a' if is_audio else '.mp4')
+            _log.info(f"[files] Starting conversion: id={id}, from={fpath + '.webm'}, to={target_path}")
             media_service.convert_async(
-                fpath + '.webm', fpath + ('.m4a' if is_audio else '.mp4'),
+                fpath + '.webm', target_path,
                 ('file', id))
             log_action('FILE_UPLOAD_END', current_user.name,
                        f'uploaded file {name} as {real_name}.webm (id={id})',
@@ -1048,6 +1051,7 @@ def register(app, media_service, socketio=None) -> None:
             
             webm_path = base + '.webm'
             file_part.save(webm_path)
+            _log.info(f"[files] File uploaded: id={id}, path={webm_path}, user={current_user.name}")
             # update size from uploaded file
             try:
                 file_part.seek(0, os.SEEK_END)
@@ -1086,6 +1090,7 @@ def register(app, media_service, socketio=None) -> None:
             target_ext = (path.splitext(file_rec.real_name or file_rec.file_name)[1]
                           or '.mp4').lower()
             target_path = base + ('.m4a' if target_ext == '.m4a' else '.mp4')
+            _log.info(f"[files] Starting conversion: id={id}, from={webm_path}, to={target_path}")
             media_service.convert_async(
                 webm_path,
                 target_path,
@@ -2993,6 +2998,8 @@ def save_upload_job(upload_job):
         # Add to active uploads set if status is running
         if upload_job.get('status') == 'running':
             redis_client.sadd('active_uploads', upload_job['id'])
+        
+        _log.info(f"[redis] Saved upload job: id={upload_job['id']}, status={upload_job.get('status')}")
 
     except Exception as e:
         _log.error(f"Error saving upload job: {e}")
@@ -3051,6 +3058,7 @@ def update_upload_job(upload_id, updates):
 
         # Manage active uploads set based on status change
         if old_status != new_status:
+            _log.info(f"[redis] Upload job status changed: id={upload_id}, {old_status} -> {new_status}")
             if new_status == 'running':
                 redis_client.sadd('active_uploads', upload_id)
             elif new_status in ['completed', 'failed', 'cancelled']:

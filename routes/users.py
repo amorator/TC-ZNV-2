@@ -489,12 +489,7 @@ def register(app):
         ok = True
         error_message = ''
         try:
-            try:
-                _log.info(
-                    f"[users] toggle-entry id={id} origin={(request.headers.get('X-Client-Id') or '').strip()}"
-                )
-            except Exception:
-                pass
+            _log.debug(f"[users] toggle-entry id={id} origin={(request.headers.get('X-Client-Id') or '').strip()}")
             u = app._sql.user_by_id([id])
             if u and u.login and u.login.strip().lower() == 'admin':
                 app.flash_error('Нельзя отключать администратора')
@@ -544,16 +539,9 @@ def register(app):
                     }
                     sync_manager.emit_to_room('users:toggle', toggle_data,
                                               'users', 'toggled')
-                    try:
-                        _log.info(
-                            f"[users] emit users:toggle event: {toggle_data}")
-                    except Exception:
-                        pass
+                    _log.debug(f"[users] emit users:toggle: {toggle_data}")
 
-                try:
-                    _log.info(f"[users] toggle-exit id={id} origin={origin}")
-                except Exception:
-                    pass
+                _log.debug(f"[users] toggle-exit id={id} origin={origin}")
             except Exception:
                 pass
             # Return JSON for AJAX/fetch requests, redirect for traditional forms

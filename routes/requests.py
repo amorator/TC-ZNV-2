@@ -2,6 +2,7 @@ from flask import render_template, url_for, request, send_from_directory, redire
 from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
+from modules.logging import log_action
 
 
 def register(app):
@@ -30,6 +31,7 @@ def register(app):
 			req.files.remove(name)
 			app._sql.request_edit_before([req.creator, req.description, '|'.join(req.files), req.id])
 			remove(path.join(app._sql.config['files']['root'], 'req', name))
+			log_action('REQUEST_FILE_DELETE', current_user.name, f'id={id} file={name}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -52,6 +54,7 @@ def register(app):
 			req.files.append(name)
 			app._sql.request_edit_before([req.creator, req.description, '|'.join(req.files), req.id])
 			request.files.get('file').save(fname)
+			log_action('REQUEST_FILE_ADD', current_user.name, f'id={id} file={name}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(str(e))
 		finally:
@@ -64,6 +67,7 @@ def register(app):
 			creator = (request.form.get('creator') or '').strip()
 			description = (request.form.get('description') or '').strip()
 			app._sql.request_add([dt.now().strftime('%d.%m.%y %H:%M'), creator + '\n' if creator else '', f"{current_user.name} ({app._sql.group_name_by_id([current_user.gid])})", description, ''])
+			log_action('REQUEST_CREATE', current_user.name, f'creator={creator} desc_len={len(description)}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -79,6 +83,7 @@ def register(app):
 			creator = (request.form.get('creator') or '').strip()
 			description = (request.form.get('description') or '').strip()
 			app._sql.request_edit_before([creator, description, '|'.join(req.files), id])
+			log_action('REQUEST_EDIT_BEFORE', current_user.name, f'id={id} desc_len={len(description)}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -104,9 +109,10 @@ def register(app):
 			if end_date:
 				if start_date >= end_date:
 					raise Exception('Окончание ремонта не может быть раньше начала!')
-				if final_date and end_date > final_date:
-					raise Exception('Ввод оборудования в работу не может быть раньше окончания ремонта!')
+			if final_date and end_date > final_date:
+				raise Exception('Ввод оборудования в работу не может быть раньше окончания ремонта!')
 			app._sql.request_edit_after([start_date, end_date, final_date, id])
+			log_action('REQUEST_EDIT_AFTER', current_user.name, f'id={id} start={start_date} end={end_date} final={final_date}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -123,6 +129,7 @@ def register(app):
 			if len(req.files) > 1:
 				for file in req.files[1:]:
 					remove(path.join(app._sql.config['files']['root'], 'req', file))
+			log_action('REQUEST_DELETE', current_user.name, f'id={id} files_count={len(req.files)}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -135,6 +142,7 @@ def register(app):
 			req = app._sql.request_by_id([id])
 			if req.approve_now(current_user.name, app._sql.group_name_by_id([current_user.gid])):
 				app._sql.request_edit_status([req.status1, id], 1)
+				log_action('REQUEST_APPROVE', current_user.name, f'id={id}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -149,6 +157,7 @@ def register(app):
 			reason = 'Причина: ' + (reason if reason else 'не указана.')
 			if req.disapprove_now(current_user.name, app._sql.group_name_by_id([current_user.gid]), reason):
 				app._sql.request_edit_status([req.status1, id], 1)
+				log_action('REQUEST_DISAPPROVE', current_user.name, f'id={id} reason_len={len(reason)}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -161,6 +170,7 @@ def register(app):
 			req = app._sql.request_by_id([id])
 			if req.allow_now(current_user.name, app._sql.group_name_by_id([current_user.gid])):
 				app._sql.request_edit_status([req.status2, id], 2)
+				log_action('REQUEST_ALLOW', current_user.name, f'id={id}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:
@@ -175,6 +185,7 @@ def register(app):
 			reason = 'Причина: ' + (reason if reason else 'не указана.')
 			if req.deny_now(current_user.name, app._sql.group_name_by_id([current_user.gid]), reason):
 				app._sql.request_edit_status([req.status2, id], 2)
+				log_action('REQUEST_DENY', current_user.name, f'id={id} reason_len={len(reason)}', (request.remote_addr or ''))
 		except Exception as e:
 			app.flash_error(e)
 		finally:

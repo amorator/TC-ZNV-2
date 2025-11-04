@@ -14,6 +14,9 @@ from modules.permissions import (
 )
 from flask import redirect, url_for
 from modules.logging import log_action
+import logging
+
+_log = logging.getLogger(__name__)
 
 
 def register(app, socketio=None):
@@ -229,15 +232,14 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			# Emit realtime update
-			try:
-				_sock = socketio if socketio else getattr(app, 'socketio', None)
-				if _sock:
-					_sock.emit('orders:changed', {
-						'reason': 'create',
-						'id': int(new_id),
-					})
-			except Exception:
-				pass
+			_sock = socketio if socketio else getattr(app, 'socketio', None)
+			if _sock:
+				payload = {
+					'reason': 'create',
+					'id': int(new_id),
+				}
+				_log.debug(f"[orders] emit orders:changed: {payload}")
+				_sock.emit('orders:changed', payload)
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
 			try:
@@ -305,15 +307,14 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			# Emit realtime update
-			try:
-				_sock = socketio if socketio else getattr(app, 'socketio', None)
-				if _sock:
-					_sock.emit('orders:changed', {
-						'reason': 'create',
-						'id': int(new_id),
-					})
-			except Exception:
-				pass
+			_sock = socketio if socketio else getattr(app, 'socketio', None)
+			if _sock:
+				payload = {
+					'reason': 'create',
+					'id': int(new_id),
+				}
+				_log.debug(f"[orders] emit orders:changed: {payload}")
+				_sock.emit('orders:changed', payload)
 			return jsonify({ 'ok': True, 'id': int(new_id) }), 200
 		except Exception as e:
 			try:
@@ -429,15 +430,14 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			# Emit realtime update
-			try:
-				_sock = socketio if socketio else getattr(app, 'socketio', None)
-				if _sock:
-					_sock.emit('orders:changed', {
-						'reason': 'edit',
-						'id': int(order_id),
-					})
-			except Exception:
-				pass
+			_sock = socketio if socketio else getattr(app, 'socketio', None)
+			if _sock:
+				payload = {
+					'reason': 'edit',
+					'id': int(order_id),
+				}
+				_log.debug(f"[orders] emit orders:changed: {payload}")
+				_sock.emit('orders:changed', payload)
 			return jsonify({ 'ok': True })
 		except Exception as e:
 			try:
@@ -475,16 +475,15 @@ def register(app, socketio=None):
 			except Exception:
 				pass
 			# Emit realtime update
-			try:
-				_sock = socketio if socketio else getattr(app, 'socketio', None)
-				if _sock:
-					_sock.emit('orders:changed', {
-						'reason': 'approve',
-						'id': int(order_id),
-						'approved': bool(val),
-					})
-			except Exception:
-				pass
+			_sock = socketio if socketio else getattr(app, 'socketio', None)
+			if _sock:
+				payload = {
+					'reason': 'approve',
+					'id': int(order_id),
+					'approved': bool(val),
+				}
+				_log.debug(f"[orders] emit orders:changed: {payload}")
+				_sock.emit('orders:changed', payload)
 			return jsonify({ 'ok': True, 'approved': bool(val) })
 		except Exception as e:
 			try:
@@ -564,11 +563,13 @@ def register(app, socketio=None):
 			try:
 				_sock = socketio if socketio else getattr(app, 'socketio', None)
 				if _sock:
-					_sock.emit('orders:changed', {
+					payload = {
 						'reason': 'status',
 						'id': int(order_id),
 						'status': next_status,
-					})
+					}
+					_log.debug(f"[orders] emit orders:changed: {payload}")
+					_sock.emit('orders:changed', payload)
 			except Exception:
 				pass
 			return jsonify({ 'ok': True, 'status': next_status })
@@ -663,11 +664,18 @@ def register(app, socketio=None):
 				try:
 					_sock = socketio if socketio else getattr(app, 'socketio', None)
 					if _sock:
-						_sock.emit('orders:changed', {
+						payload = {
 							'reason': 'timeline',
 							'id': int(order_id),
 							'status': 'done',
-						})
+						}
+						_sock.emit('orders:changed', payload)
+						try:
+							import logging
+							_log = logging.getLogger(__name__)
+							_log.info(f"[orders] emit orders:changed event: {payload}")
+						except Exception:
+							pass
 				except Exception:
 					pass
 				return jsonify({ 'ok': True })
@@ -690,10 +698,12 @@ def register(app, socketio=None):
 			try:
 				_sock = socketio if socketio else getattr(app, 'socketio', None)
 				if _sock:
-					_sock.emit('orders:changed', {
+					payload = {
 						'reason': 'timeline',
 						'id': int(order_id),
-					})
+					}
+					_log.debug(f"[orders] emit orders:changed: {payload}")
+					_sock.emit('orders:changed', payload)
 			except Exception:
 				pass
 			return jsonify({ 'ok': True })
@@ -781,10 +791,12 @@ def register(app, socketio=None):
 			try:
 				_sock = socketio if socketio else getattr(app, 'socketio', None)
 				if _sock:
-					_sock.emit('orders:changed', {
+					payload = {
 						'reason': 'extend',
 						'id': int(order_id),
-					})
+					}
+					_log.debug(f"[orders] emit orders:changed: {payload}")
+					_sock.emit('orders:changed', payload)
 			except Exception:
 				pass
 			return jsonify({ 'ok': True })
@@ -1048,10 +1060,12 @@ def register(app, socketio=None):
 			try:
 				_sock = socketio if socketio else getattr(app, 'socketio', None)
 				if _sock:
-					_sock.emit('orders:changed', {
+					payload = {
 						'reason': 'note',
 						'id': int(order_id),
-					})
+					}
+					_log.debug(f"[orders] emit orders:changed: {payload}")
+					_sock.emit('orders:changed', payload)
 			except Exception:
 				pass
 			return jsonify({'ok': True}), 200
@@ -1122,10 +1136,12 @@ def register(app, socketio=None):
 			try:
 				_sock = socketio if socketio else getattr(app, 'socketio', None)
 				if _sock:
-					_sock.emit('orders:changed', {
+					payload = {
 						'reason': 'delete',
 						'id': int(order_id),
-					})
+					}
+					_log.debug(f"[orders] emit orders:changed: {payload}")
+					_sock.emit('orders:changed', payload)
 			except Exception:
 				pass
 			return jsonify({'ok': True}), 200

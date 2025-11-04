@@ -58,6 +58,7 @@ class MediaService:
 		"""
         old, new, entity = args
         etype, entity_id = entity
+        self._log.info(f"[media] Starting conversion: {etype} id={entity_id}, from={old}, to={new}")
         # noisy during normal operation; keep only errors in logs
 
         # Check if source file exists
@@ -134,7 +135,7 @@ class MediaService:
             return
         # After conversion, probe duration and size (robust ffprobe)
         length_seconds, size_mb = self._probe_length_and_size(new)
-        # conversion done; avoid extra info logs
+        self._log.info(f"[media] Conversion completed: {etype} id={entity_id}, duration={length_seconds}s, size={size_mb}MB")
         if etype == 'file':
             self._sql.file_ready([entity_id])
             try:

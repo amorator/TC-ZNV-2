@@ -45,8 +45,7 @@ def register(app, socketio=None):
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
 
     def _emit_categories_changed(payload: dict) -> None:
-        if _log.isEnabledFor(logging.DEBUG):
-            _log.debug(f"[categories] emit categories:changed: {payload}")
+        _log.debug(f"[categories] emit categories:changed: {payload}")
         _sock = socketio if socketio else getattr(app, 'socketio', None)
         if not _sock:
             _log.error("[categories] emit failed: socketio missing")
@@ -768,17 +767,16 @@ def register(app, socketio=None):
                 except Exception:
                     pass
                 # Also emit explicit subcategories channel for clients listening there
-                try:
-                    _sock = socketio if socketio else getattr(app, 'socketio', None)
-                    if _sock:
-                        _sock.emit('subcategories:changed', {
-                            'reason': 'sub-toggled',
-                            'subcategory_id': subcategory_id,
-                            'category_id': category_id,
-                            'enabled': enabled,
-                        })
-                except Exception:
-                    pass
+                _sock = socketio if socketio else getattr(app, 'socketio', None)
+                if _sock:
+                    payload = {
+                        'reason': 'sub-toggled',
+                        'subcategory_id': subcategory_id,
+                        'category_id': category_id,
+                        'enabled': enabled,
+                    }
+                    _log.debug(f"[categories] emit subcategories:changed: {payload}")
+                    _sock.emit('subcategories:changed', payload)
                 try:
                     after = app._sql.subcategory_by_id([subcategory_id])
                     after_enabled = int(getattr(after, 'enabled',
@@ -829,16 +827,15 @@ def register(app, socketio=None):
                 })
             except Exception:
                 pass
-            try:
-                _sock = socketio if socketio else getattr(app, 'socketio', None)
-                if _sock:
-                    _sock.emit('subcategories:changed', {
-                        'reason': 'sub-edit',
-                        'subcategory_id': subcategory_id,
-                        'category_id': category_id,
-                    })
-            except Exception:
-                pass
+            _sock = socketio if socketio else getattr(app, 'socketio', None)
+            if _sock:
+                payload = {
+                    'reason': 'sub-edit',
+                    'subcategory_id': subcategory_id,
+                    'category_id': category_id,
+                }
+                _log.debug(f"[categories] emit subcategories:changed: {payload}")
+                _sock.emit('subcategories:changed', payload)
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Подкатегория "{display_name}" успешно обновлена',
@@ -897,15 +894,14 @@ def register(app, socketio=None):
                 })
             except Exception:
                 pass
-            try:
-                _sock = socketio if socketio else getattr(app, 'socketio', None)
-                if _sock:
-                    _sock.emit('subcategories:changed', {
-                        'reason': 'sub-delete',
-                        'subcategory_id': subcategory_id,
-                    })
-            except Exception:
-                pass
+            _sock = socketio if socketio else getattr(app, 'socketio', None)
+            if _sock:
+                payload = {
+                    'reason': 'sub-delete',
+                    'subcategory_id': subcategory_id,
+                }
+                _log.debug(f"[categories] emit subcategories:changed: {payload}")
+                _sock.emit('subcategories:changed', payload)
             if _wants_json_response():
                 return jsonify({'success': True})
             flash(f'Подкатегория "{subcategory.display_name}" успешно удалена',
