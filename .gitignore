@@ -9,6 +9,7 @@ logs/
 artifacts/
 ops/
 bak/
+scripts/
 server.sock
 Pipfile.lock
 .coverage
