@@ -28,7 +28,7 @@ async function validateForm(element) {
       if (element) element.disabled = true;
       if (element && element.dataset) element.dataset.processing = '1';
     } catch(_) {}
-    try { if (form && form.id === 'perm') console.debug('[users:perm] submit:start', { action: form.action }); } catch(_) {}
+    
     
     // Special handling for groups forms (Add/Edit/Delete) via AJAX + soft refresh
     if (form.action.includes('/groups/')) {
@@ -84,10 +84,7 @@ async function validateForm(element) {
     if (form.id === 'perm' && form.action.includes('/users/edit/')) {
       try {
         const formData = new FormData(form);
-        try {
-          const a = new URL(form.action, window.location.origin);
-          console.debug('[users:perm] fetch:about-to-send', { href: a.pathname + a.search, page: a.searchParams.get('page'), page_size: a.searchParams.get('page_size') });
-        } catch(_) { console.debug('[users:perm] fetch:about-to-send', { href: form.action }); }
+        
         const resp = await fetch(form.action, {
           method: 'POST',
           body: formData,
@@ -95,7 +92,7 @@ async function validateForm(element) {
         });
         let data = null;
         try { data = await resp.json(); } catch(_) { if (resp.ok) data = { status: 'success' }; }
-        try { console.debug('[users:perm] fetch:response', { ok: resp.ok, status: resp.status, data_status: data && data.status }); } catch(_) {}
+        
         if (!resp.ok || !(data && (data.status === 'success'))) {
           throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
         }
@@ -123,7 +120,7 @@ async function validateForm(element) {
             try { pageSize = parseInt(localStorage.getItem('users:pageSize') || '0', 10) || 0; } catch(_) { pageSize = 0; }
             if (!pageSize) pageSize = 10;
           }
-          try { console.debug('[users:perm] soft-refresh:state', { page, pageSize }); } catch(_) {}
+          
           if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
             try { localStorage.setItem('users:lastPage', String(page)); } catch(_) {}
             window.usersPager.renderPage(page);
@@ -132,10 +129,9 @@ async function validateForm(element) {
             try { localStorage.setItem('tableState:users', JSON.stringify({ page: page, pageSize: pageSize })); } catch(_) {}
             window.softRefreshUsersTable();
           }
-        } catch(e) { try { console.debug('[users:perm] soft-refresh:err', e && (e.stack || e)); } catch(_) {} }
+        } catch(e) { }
         return false;
       } catch (e) {
-        try { console.debug('[users:perm] submit:error', e && (e.stack || e.message || e)); } catch(_) {}
         // Changes are often applied server-side even if response is HTML/redirect; degrade gracefully
         try { closeModal('popup-perm'); } catch(_) {}
         try {

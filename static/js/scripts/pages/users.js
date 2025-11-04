@@ -3,6 +3,8 @@
  * Основной файл страницы пользователей, использующий модули
  */
 
+ 
+
 // Initialize client ID for socket synchronization
 window.__usersClientId =
   window.__usersClientId ||
@@ -167,11 +169,9 @@ function initUsersPagination() {
       url.searchParams.set('page', String(parseInt(page, 10) || 1));
       url.searchParams.set('page_size', String(pageSize));
       url.searchParams.set('t', String(Date.now()));
-      try { console.debug('[users][serverRender] GET', String(url)); } catch(_) {}
       fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
         .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1, page_size: pageSize })
         .then(j => {
-          try { console.debug('[users][serverRender] resp', { total: j.total, page: j.page, page_size: j.page_size, has_html: !!(j && j.html && j.html.length) }); } catch(_) {}
           const searchRow = tbody.querySelector('tr#search');
           tbody.innerHTML = j.html || '';
           if (searchRow) { try { tbody.insertBefore(searchRow, tbody.firstChild); } catch(_) {} }
@@ -467,7 +467,6 @@ function initUsersPagination() {
     if (window.usersPager && typeof window.usersPager.renderPage === 'function') return;
     window.usersPager = {
       renderPage: function(page){
-        try { console.debug('[users][pager] fallback renderPage -> softRefreshUsersTable, page=', page); } catch(_) {}
         // Persist desired page into tableState so soft refresh picks it up
         try {
           const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");
@@ -521,7 +520,6 @@ function initUsersPagination() {
         url.searchParams.set('page', String(parseInt(page, 10) || 1));
         url.searchParams.set('page_size', String(ps));
         url.searchParams.set('t', String(Date.now()));
-        try { console.debug('[users][serverRender:initless] GET', String(url)); } catch(_) {}
         fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
           .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1, page_size: ps })
           .then(j => {
@@ -565,7 +563,6 @@ if (!window.usersDoFilter) {
     const q = (query || "").trim();
 
     if (q.length === 0) {
-      try { console.debug('[users][search] clear detected in usersDoFilter, restoring full table'); } catch(_) {}
       if (pager) pager.classList.remove("d-none");
       // Remove q from URL and reflect current pagination like on Files page
       try {
@@ -580,7 +577,6 @@ if (!window.usersDoFilter) {
       if (typeof window.__usersServerRender === 'function') {
         // Use direct server render to avoid conflicts
         let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
-        try { console.debug('[users][search] using __usersServerRender(', restore, ')'); } catch(_) {}
         window.__usersServerRender(restore);
       } else if (
         window.usersPager &&
@@ -588,11 +584,9 @@ if (!window.usersDoFilter) {
       ) {
         // Restore last page if exists
         let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
-        try { console.debug('[users][search] calling usersPager.renderPage(', restore, ')'); } catch(_) {}
         window.usersPager.renderPage(restore);
       } else if (typeof window.softRefreshUsersTable === 'function') {
         // Fallback to server-side soft refresh preserving current pagination
-        try { console.debug('[users][search] usersPager missing, calling softRefreshUsersTable()'); } catch(_) {}
         window.softRefreshUsersTable();
       }
       return Promise.resolve(true);
@@ -720,7 +714,6 @@ if (!window.usersDoFilter) {
   });
 
   window.searchClean = function () {
-    try { console.debug('[users][search] searchClean clicked'); } catch(_) {}
     const el = document.getElementById("searchinp");
     if (el) {
       el.value = "";
@@ -742,18 +735,14 @@ if (!window.usersDoFilter) {
     try { const pager = document.getElementById('users-pagination'); if (pager) pager.classList.remove('d-none'); } catch(_) {}
     // Trigger filter explicitly; fallback to soft refresh if pager API unavailable
     try {
-      try { console.debug('[users][search] invoking usersDoFilter("", 1)'); } catch(_) {}
       if (typeof window.usersDoFilter === 'function') {
         Promise.resolve(window.usersDoFilter('', 1)).catch(function(){
-          try { console.debug('[users][search] usersDoFilter rejected; fallback to softRefreshUsersTable()'); } catch(_) {}
           if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable();
         });
       } else if (typeof window.softRefreshUsersTable === 'function') {
-        try { console.debug('[users][search] usersDoFilter missing; calling softRefreshUsersTable()'); } catch(_) {}
         window.softRefreshUsersTable();
       } else if (el) {
         // last resort: dispatch input to any remaining listeners
-        try { console.debug('[users][search] fallback dispatch input'); } catch(_) {}
         el.dispatchEvent(new Event('input', { bubbles: true }));
       }
     } catch(_) {}

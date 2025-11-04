@@ -71,6 +71,79 @@ def register(app, socketio=None):
                                title='Администрирование — Заявки-Наряды-Файлы',
                                groups=groups)
 
+    @app.route('/admin/export/users-dokuwiki', methods=['GET'])
+    @require_permissions(ADMIN_VIEW_PAGE)
+    def admin_export_users_dokuwiki():
+        """Export users to a Dokuwiki-formatted table (text/plain)."""
+        try:
+            # Load users and groups
+            users = app._sql.user_all() or []
+            group_rows = app._sql.execute_query(
+                f"SELECT id, name FROM {app._sql.config['db']['prefix']}_group ORDER BY id;"
+            ) or []
+            gid_to_name = {int(r[0]): str(r[1] or '') for r in group_rows}
+
+            # Prepare rows
+            title = '=== Хренузеры (сайта) ==='
+            headers = [
+                'Логин', 'Пароль (хэш)', 'ФИО', 'Группа',
+                'Права', 'Права на категории', 'Права на регистраторы', 'Описание'
+            ]
+
+            def split_permissions(perm_str: str):
+                parts = (perm_str or '').split(',')
+                # Ensure at least 7 slots (1-requests,2-orders,3-files,4-users,5-groups,6-admin,7-categories)
+                if len(parts) < 7:
+                    parts += [''] * (7 - len(parts))
+                return parts
+
+            rows = []
+            for u in users:
+                login = str(getattr(u, 'login', '') or '')
+                pwd = str(getattr(u, 'password', '') or '')
+                fio = str(getattr(u, 'name', '') or '')
+                gname = gid_to_name.get(getattr(u, 'gid', None), '')
+                perm = str(getattr(u, 'permission', '') or '')
+                parts = split_permissions(perm)
+                cat_perm = parts[6] if len(parts) >= 7 else ''
+                # Registrators page uses categories permissions in this app
+                reg_perm = cat_perm
+                desc = ''
+                rows.append([login, pwd, fio, gname, perm, cat_perm, reg_perm, desc])
+
+            # Compute column widths
+            cols = len(headers)
+            widths = [len(h) for h in headers]
+            for r in rows:
+                for i in range(cols):
+                    widths[i] = max(widths[i], len(str(r[i] or '')))
+
+            def fmt_header(cells):
+                parts = []
+                for i, c in enumerate(cells):
+                    s = str(c)
+                    parts.append(' ^ ' + s + ' ' * (widths[i] - len(s)) + ' ')
+                return ''.join(parts) + '|'  # closing as in example
+
+            def fmt_row(cells):
+                parts = []
+                for i, c in enumerate(cells):
+                    s = str(c or '')
+                    parts.append(' | ' + s + ' ' * (widths[i] - len(s)) + ' ')
+                return ''.join(parts) + '|' 
+
+            lines = [title, '', fmt_header(headers)]
+            for r in rows:
+                lines.append(fmt_row(r))
+            text = '\n'.join(lines) + '\n'
+
+            resp = make_response(text)
+            resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            resp.headers['Content-Disposition'] = 'attachment; filename="users-znf.txt"'
+            return resp
+        except Exception as e:
+            return make_response(f"export error: {e}", 500)
+
     # --- Unified notification queue helpers (Redis-backed) ---
     def _queue_broadcast_notification(payload: dict) -> None:
         try:

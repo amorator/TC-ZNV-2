@@ -207,10 +207,10 @@
             return badge + '<div>' + wn + '</div>';
           })()}</td>
         <td class="table__body_item">${(function(){
-            if (canApprove) {
-              return `<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}">${r.approved ? 'Да' : 'Нет'}</button>`;
-            }
-            return (r.approved ? 'Да' : 'Нет');
+            // Always render the approve toggle button so everyone sees it;
+            // clicking is only bound for users with approve permission
+            var disabled = canApprove ? '' : ' disabled';
+            return `<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}"${disabled}>${r.approved ? 'Да' : 'Нет'}</button>`;
           })()}</td>
         <td class="table__body_item">${ (function(){
             var note = (r.note || '').replace(/</g, '&lt;');

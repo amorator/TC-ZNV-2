@@ -60,8 +60,7 @@ function isSessionSuppressed(sid) {
 
 function fetchSessions() {
   try {
-    if (!isMainSocketConnected()) return Promise.resolve();
-
+    // Always fetch sessions regardless of socket connection status
     // Сначала попробовать Redis endpoint
     return fetch("/admin/sessions/redis", { credentials: "same-origin" })
       .then(function (r) {
@@ -83,19 +82,14 @@ function fetchSessions() {
             return !isSessionSuppressed(sid);
           });
 
-          // Remove duplicates by sid and user+ip combination
+          // Remove duplicates by sid only (show all parallel sessions even from same user/ip)
           const uniqueItems = [];
           const seenSids = new Set();
-          const seenUserIp = new Set();
 
           for (const item of filteredItems) {
             const sid = item.sid || item.session_id;
-            const userIp = `${item.user || ""}|${item.ip || ""}`;
-
-            // Check both sid and user+ip combination to prevent duplicates
-            if (sid && !seenSids.has(sid) && !seenUserIp.has(userIp)) {
+            if (sid && !seenSids.has(sid)) {
               seenSids.add(sid);
-              seenUserIp.add(userIp);
               uniqueItems.push(item);
             }
           }
@@ -126,19 +120,14 @@ function fetchSessions() {
             return !isSessionSuppressed(sid);
           });
 
-          // Remove duplicates by sid and user+ip combination
+          // Remove duplicates by sid only (show all parallel sessions)
           const uniqueItems = [];
           const seenSids = new Set();
-          const seenUserIp = new Set();
 
           for (const item of filteredItems) {
             const sid = item.sid || item.session_id;
-            const userIp = `${item.user || ""}|${item.ip || ""}`;
-
-            // Check both sid and user+ip combination to prevent duplicates
-            if (sid && !seenSids.has(sid) && !seenUserIp.has(userIp)) {
+            if (sid && !seenSids.has(sid)) {
               seenSids.add(sid);
-              seenUserIp.add(userIp);
               uniqueItems.push(item);
             }
           }

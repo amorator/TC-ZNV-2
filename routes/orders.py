@@ -119,13 +119,31 @@ def register(app, socketio=None):
 				)
 				if not in_range:
 					continue
-				# text search
+				# text search across all visible columns
 				if q:
+					def fmt_dt(d):
+						try:
+							return d.strftime('%Y-%m-%d %H:%M') if isinstance(d, dt) else str(d or '')
+						except Exception:
+							return str(d or '')
+					approved_txt = 'да' if bool(getattr(o, 'approved', False)) else 'нет'
+					status_ru = {
+						'in_progress': 'работы ведутся',
+						'stopped': 'работы не ведутся',
+						'done': 'работы завершены',
+					}.get(stn, stn)
 					hay = ' '.join([
-						getattr(o, 'service', '') or '',
-						getattr(o, 'number', '') or '',
-						getattr(o, 'responsible', '') or '',
-						getattr(o, 'work_name', '') or '',
+						str(getattr(o, 'service', '') or ''),
+						str(getattr(o, 'number', '') or ''),
+						str(getattr(o, 'responsible', '') or ''),
+						str(getattr(o, 'work_name', '') or ''),
+						fmt_dt(issued) or '',
+						fmt_dt(start) or '',
+						fmt_dt(end) or '',
+						approved_txt,
+						status_ru,
+						str(getattr(o, 'note', '') or ''),
+						str(getattr(o, 'id', '') or ''),
 					]).lower()
 					if q not in hay:
 						continue
@@ -870,16 +888,34 @@ def register(app, socketio=None):
 				)
 				if not in_range:
 					continue
-				# Поиск. Достаточно service, number, responsible, work_name (как в /api/orders)
+				# Поиск по всем отображаемым колонкам и по всем страницам
+				def fmt_dt(d):
+					try:
+						return d.strftime('%Y-%m-%d %H:%M') if isinstance(d, dt) else str(d or '')
+					except Exception:
+						return str(d or '')
+				approved_txt = 'да' if bool(getattr(o, 'approved', False)) else 'нет'
+				status_ru = {
+					'in_progress': 'работы ведутся',
+					'stopped': 'работы не ведутся',
+					'done': 'работы завершены',
+				}.get(stn, stn)
 				hay = ' '.join([
-					getattr(o, 'service', '') or '',
-					getattr(o, 'number', '') or '',
-					getattr(o, 'responsible', '') or '',
-					getattr(o, 'work_name', '') or '',
+					str(getattr(o, 'service', '') or ''),
+					str(getattr(o, 'number', '') or ''),
+					str(getattr(o, 'responsible', '') or ''),
+					str(getattr(o, 'work_name', '') or ''),
+					fmt_dt(issued) or '',
+					fmt_dt(start) or '',
+					fmt_dt(end) or '',
+					approved_txt,
+					status_ru,
+					str(getattr(o, 'note', '') or ''),
+					str(getattr(o, 'id', '') or ''),
 				]).lower()
 				if q and q not in hay:
 					continue
-			result.append({
+				result.append({
 					'id': o.id,
 					'service': getattr(o, 'service', ''),
 					'status': stn,
@@ -890,7 +926,7 @@ def register(app, socketio=None):
 					'responsible': getattr(o, 'responsible', ''),
 					'work_name': getattr(o, 'work_name', ''),
 					'approved': bool(getattr(o, 'approved', False)),
-				'files': 0,
+					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
 				})

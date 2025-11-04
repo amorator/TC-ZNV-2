@@ -57,7 +57,7 @@ document.addEventListener(
     if (!defaultBtn) return;
 
     event.preventDefault();
-    try { console.debug('[kbd] Enter pressed -> clicking default button', { id: defaultBtn.id, classes: defaultBtn.className, dataset: defaultBtn.dataset }); } catch(_) {}
+    
     defaultBtn.click();
   },
   true
@@ -667,11 +667,11 @@ document.addEventListener("DOMContentLoaded", function () {
 // Soft refresh for Users table preserving current page and pagination
 function softRefreshUsersTable() {
   try {
-    if (window.__usersSoftRefreshing) { try { console.debug('[users][softRefresh] skipped (already refreshing)'); } catch(_) {} return; }
+    if (window.__usersSoftRefreshing) { return; }
     window.__usersSoftRefreshing = true;
     const table = document.querySelector("section[data-testid='users-section'] #maintable");
     if (!table) return;
-    try { console.debug('[users][softRefresh] start'); } catch(_) {}
+    
     // Read persisted state or current DOM state
     const lsKey = 'tableState:users';
     const domState = (function() {
@@ -701,7 +701,7 @@ function softRefreshUsersTable() {
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       return response.json();
     }).then((data) => {
-      try { console.debug('[users][softRefresh] response', { total: data.total, page: data.page, page_size: data.page_size }); } catch(_) {}
+      
       const tbody = table.tBodies && table.tBodies[0];
       if (tbody && data && typeof data.html === 'string') {
         // Preserve search row if present
@@ -752,7 +752,6 @@ function softRefreshUsersTable() {
         if (typeof window.rebindUsersTable === 'function') window.rebindUsersTable();
       } catch(_) {}
       try { const pagerEl = document.getElementById('users-pagination'); if (pagerEl) pagerEl.classList.remove('d-none'); } catch(_) {}
-      try { console.debug('[users][softRefresh] done'); } catch(_) {}
     }).catch((err) => {
       window.ErrorHandler && window.ErrorHandler.handleError(err, 'softRefreshUsersTable');
     }).finally(() => { try { window.__usersSoftRefreshing = false; } catch(_) {} });

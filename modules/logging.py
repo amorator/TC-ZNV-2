@@ -206,9 +206,12 @@ class LoggingConfig:
 		try:
 			p = (path or '').lower()
 			if (
-				'/api/heartbeat' in p or '/presence/heartbeat' in p or
+				'/api/heartbeat' in p or '/presence/heartbeat' in p or '/presence/leave' in p or
 				p.endswith('/heartbeat') or '/api/ping' in p or '/presence/ping' in p or p.endswith('/ping') or
-				p.startswith('/static/') or '/static/' in p
+				p.startswith('/static/') or '/static/' in p or
+				p.startswith('/admin/presence') or '/admin/presence/redis' in p or
+				p.startswith('/admin/logs') or '/admin/logs_list' in p or
+				p.startswith('/admin/sessions') or '/admin/sessions/redis' in p
 			):
 				return
 		except Exception:
