@@ -320,6 +320,26 @@ def register(app, media_service, socketio=None) -> None:
             max_file_size_mb = 500
             accept_attribute = 'audio/*,video/*,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.wma,.mka,.opus,.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv,.m4v'
         _dirs = dirs_by_permission(app, id, 'f')
+        # Hide system category 'orders' (Наряды) from generic Files UI; keep visible only in embed/direct view
+        try:
+            is_embed = (str(request.args.get('embed', '')).strip() == '1')
+        except Exception:
+            is_embed = False
+        if _dirs and not is_embed:
+            try:
+                filtered = []
+                for d in _dirs:
+                    try:
+                        keys = list(d.keys())
+                        if keys and str(keys[0]).strip().lower() == 'orders':
+                            continue
+                    except Exception:
+                        pass
+                    filtered.append(d)
+                if filtered:
+                    _dirs = filtered
+            except Exception:
+                pass
         # Guard: no available directories for this user
         if not _dirs or len(_dirs) == 0:
             resp = make_response(
@@ -331,7 +351,8 @@ def register(app, media_service, socketio=None) -> None:
                                 did=0,
                                 sdid=0,
                                 max_file_size_mb=max_file_size_mb,
-                                accept_attribute=accept_attribute))
+                                accept_attribute=accept_attribute,
+                                embed=bool(request.args.get('embed'))))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             resp.headers['Pragma'] = 'no-cache'
@@ -491,7 +512,8 @@ def register(app, media_service, socketio=None) -> None:
                                 did=did,
                                 sdid=0,
                                 max_file_size_mb=max_file_size_mb,
-                                accept_attribute=accept_attribute))
+                                accept_attribute=accept_attribute,
+                                embed=bool(request.args.get('embed'))))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             resp.headers['Pragma'] = 'no-cache'

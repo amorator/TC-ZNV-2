@@ -1,16 +1,17 @@
 {% extends 'base.j2.html' %}
 
 {% block css %}
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/table.css')}}">
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/search.css')}}">
-<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files.css')}}">
-<link rel="stylesheet" href="{{url_for('static',filename='css/files.css')}}">
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}">
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/popup.css')}}" />
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}"/>
-<link rel="stylesheet" href="{{url_for('static',filename='css/components/progress.css')}}"/>
+<link rel="stylesheet" href="{{url_for('static',filename='css/core/themes.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/table.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/search.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/files.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/select.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/popup.css')}}?v={{ config.get('VERSION', '1.0.0') }}" />
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/input.css')}}?v={{ config.get('VERSION', '1.0.0') }}"/>
+<link rel="stylesheet" href="{{url_for('static',filename='css/components/progress.css')}}?v={{ config.get('VERSION', '1.0.0') }}"/>
 {% if embed %}
-<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files-embed.css')}}">
+<link rel="stylesheet" href="{{url_for('static',filename='css/pages/files-embed.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
 {% endif %}
 {% endblock %}
 
@@ -28,7 +29,7 @@
       if (!theme) {
         try { theme = localStorage.getItem('selectedTheme') || localStorage.getItem('theme') || ''; } catch(_) {}
       }
-      if (!theme) return;
+      if (!theme) theme = 'light';
       // Normalize values
       var t = theme.toLowerCase();
       if (t.startsWith('theme-')) t = t.slice(6);
@@ -41,16 +42,10 @@
       if (document.body && document.body.classList) document.body.classList.add(cls);
       document.documentElement.setAttribute('data-theme', t);
       document.body && document.body.setAttribute && document.body.setAttribute('data-theme', t);
-      // Ensure critical CSS variables are present even if base styles load later
-      var varsLight = {
-        '--body-bg': '#fff597', '--body-text': '#0f1724', '--modal-bg': '#fff9c0', '--modal-border': '#000000', '--modal-header-bg': '#fff06d'
-      };
-      var varsDark = {
-        '--body-bg': '#121212', '--body-text': '#ffffff', '--modal-bg': '#121212', '--modal-border': '#000000', '--modal-header-bg': '#000000'
-      };
-      var varsHC = {
-        '--body-bg': '#000000', '--body-text': '#00ff00', '--modal-bg': '#000000', '--modal-border': '#00ff00', '--modal-header-bg': '#000000'
-      };
+      // Ensure CSS variables are present even if base styles load later
+      var varsLight = { '--sidebar-bg':'#cfd8e3','--sidebar-text':'#374151','--table-td-bg':'#f8fafc','--table-td-text':'#111827','--topbar-bg':'#dbe7f3','--topbar-text':'#111827','--btn-focus':'#f59e0b','--body-bg':'#fff597','--body-text':'#0f1724','--modal-bg':'#fff9c0','--modal-border':'#000000','--control-bg':'#ffffff','--control-text':'#0f1724','--control-border':'#000000','--control-radius':'10px','--button-bg':'#ffffff','--button-text':'#0f1724','--button-border':'#000000','--btn-primary-bg':'#f59e0b','--btn-primary-fg':'#111827','--btn-secondary-bg':'#6c757d','--btn-secondary-fg':'#ffffff','--modal-header-bg':'#fff06d','--modal-header-text':'#111827','--overlay-text':'#ffffff','--overlay-opacity':'0.8' };
+      var varsDark = { '--sidebar-bg':'#2b2b2b','--sidebar-text':'#ffd43b','--table-td-bg':'#000000','--table-td-text':'#ffd43b','--topbar-bg':'#000000','--topbar-text':'#ffd43b','--btn-focus':'#ffd43b','--body-bg':'#121212','--body-text':'#ffffff','--modal-bg':'#121212','--modal-border':'#000000','--control-bg':'#1a1a1a','--control-text':'#ffffff','--control-border':'#000000','--control-radius':'10px','--button-bg':'#1a1a1a','--button-text':'#ffffff','--button-border':'#000000','--btn-primary-bg':'#ffd43b','--btn-primary-fg':'#000000','--btn-secondary-bg':'#4b5563','--btn-secondary-fg':'#e5e7eb','--modal-header-bg':'#000000','--modal-header-text':'#ffd43b','--overlay-text':'#ffd43b','--overlay-opacity':'0.85' };
+      var varsHC = { '--sidebar-bg':'#101010','--table-td-bg':'#000000','--topbar-bg':'#000000','--body-bg':'#000000','--modal-bg':'#000000','--modal-header-bg':'#000000','--brand-green':'#00ff00','--sidebar-text':'#00ff00','--table-td-text':'#00ff00','--topbar-text':'#00ff00','--btn-focus':'#00ff00','--body-text':'#00ff00','--modal-border':'#00ff00','--control-text':'#00ff00','--control-border':'#00ff00','--button-text':'#00ff00','--button-border':'#00ff00','--modal-header-text':'#00ff00','--overlay-text':'#00ff00','--overlay-opacity':'0.82' };
       var map = (t === 'dark') ? varsDark : (t === 'dark-hc' ? varsHC : varsLight);
       var rootStyle = document.documentElement && document.documentElement.style;
       if (rootStyle) {

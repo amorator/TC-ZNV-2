@@ -248,8 +248,7 @@ def register(app, socketio=None):
             try:
                 files_query = f"""
                     SELECT id, file_name, category_id, subcategory_id 
-                    FROM {db_prefix}_file 
-                    WHERE file_exists = 1
+                    FROM {db_prefix}_file
                 """
                 files_rows = app._sql.execute_query(files_query, [])
 
@@ -292,35 +291,65 @@ def register(app, socketio=None):
 
                             # Определяем тип файла и длину
                             file_type = "Не опознан"
-                            duration = None
+                            duration = 0
 
                             if file_name.lower().endswith(
                                 ('.mp4', '.avi', '.mkv', '.mov', '.wmv',
                                  '.flv', '.webm')):
                                 file_type = "Видео"
-                                # Здесь можно добавить логику определения длительности видео
+                                # Определяем длительность видео через ffprobe
+                                try:
+                                    import subprocess, json
+                                    p = subprocess.Popen([
+                                        "ffprobe", "-v", "error", "-show_entries",
+                                        "format=duration", "-of",
+                                        "default=noprint_wrappers=1:nokey=1", full_path
+                                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                                    sout, _ = p.communicate(timeout=8)
+                                    duration = int(float((sout or '0').strip()) or 0)
+                                except Exception:
+                                    try:
+                                        p = subprocess.Popen([
+                                            "ffprobe", "-v", "error", "-select_streams", "v:0",
+                                            "-show_entries", "stream=duration", "-of",
+                                            "default=noprint_wrappers=1:nokey=1", full_path
+                                        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                                        sout, _ = p.communicate(timeout=8)
+                                        duration = int(float((sout or '0').strip()) or 0)
+                                    except Exception:
+                                        duration = 0
                             elif file_name.lower().endswith(
                                 ('.mp3', '.wav', '.flac', '.aac', '.ogg',
                                  '.m4a')):
                                 file_type = "Аудио"
-                                # Здесь можно добавить логику определения длительности аудио
+                                # Определяем длительность аудио через ffprobe
+                                try:
+                                    import subprocess
+                                    p = subprocess.Popen([
+                                        "ffprobe", "-v", "error", "-show_entries",
+                                        "format=duration", "-of",
+                                        "default=noprint_wrappers=1:nokey=1", full_path
+                                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                                    sout, _ = p.communicate(timeout=8)
+                                    duration = int(float((sout or '0').strip()) or 0)
+                                except Exception:
+                                    duration = 0
 
                             # Обновляем запись в БД
                             update_query = f"""
                                 UPDATE {db_prefix}_file 
-                                SET size_mb = %s, updated_at = %s
+                                SET size_mb = %s, length_seconds = %s, file_exists = 1, updated_at = %s
                                 WHERE id = %s
                             """
                             app._sql.execute_non_query(update_query, [
-                                file_size /
-                                (1024 * 1024), file_mtime, file_id
+                                (file_size / (1024 * 1024)), duration, file_mtime, file_id
                             ])
                             updated_count += 1
                         else:
-                            # Файл не существует - помечаем как удаленный
+                            # Файл не существует - только помечаем как отсутствующий (без изменения description)
                             update_query = f"""
                                 UPDATE {db_prefix}_file 
-                                SET file_exists = 0, description = 'Удален'
+                                SET file_exists = 0
                                 WHERE id = %s
                             """
                             app._sql.execute_non_query(update_query, [file_id])

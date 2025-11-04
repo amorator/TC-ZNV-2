@@ -197,6 +197,17 @@ class LoggingConfig:
 	def log_access(self, method: str, path: str, status: int, user: str = None, 
 				   ip: str = None, user_agent: str = None, duration: float = None):
 		"""Log HTTP access to access.log."""
+		# Filter noisy heartbeat/ping endpoints from access log
+		try:
+			p = (path or '').lower()
+			if (
+				'/api/heartbeat' in p or '/presence/heartbeat' in p or
+				p.endswith('/heartbeat') or '/api/ping' in p or '/presence/ping' in p or p.endswith('/ping')
+			):
+				return
+		except Exception:
+			pass
+
 		access_logger = logging.getLogger('access')
 		user_info = f" user={user}" if user else ""
 		ip_info = f" ip={ip}" if ip else ""
