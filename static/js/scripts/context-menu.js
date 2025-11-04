@@ -6,6 +6,25 @@
 (function () {
   "use strict";
 
+  // Safe helper to call HTMLMediaElement.play() and ignore AbortError or NotAllowedError
+  function safePlay(media) {
+    try {
+      if (!media || typeof media.play !== 'function') return;
+      const p = media.play();
+      if (p && typeof p.then === 'function' && typeof p.catch === 'function') {
+        p.catch(function (err) {
+          try {
+            const name = (err && (err.name || '')) || '';
+            if (name === 'AbortError' || name === 'NotAllowedError') {
+              return;
+            }
+          } catch (_) {}
+          try { window.ErrorHandler && window.ErrorHandler.handleError(err, 'media-play'); } catch (_) {}
+        });
+      }
+    } catch (_) {}
+  }
+
   /**
    * Unified context menu manager
    */
@@ -588,12 +607,13 @@
                 } catch (err) {
                   window.ErrorHandler.handleError(err, "unknown");
                 }
+                // Reset handlers
+                try { audio.onerror = null; } catch(_) {}
+                try { audio.oncanplay = null; } catch(_) {}
+                try { audio.onloadedmetadata = null; } catch(_) {}
                 audio.src = url;
-                try {
-                  audio.currentTime = 0;
-                } catch (err) {
-                  window.ErrorHandler.handleError(err, "unknown");
-                }
+                try { audio.load && audio.load(); } catch(_) {}
+                try { audio.currentTime = 0; } catch (err) { window.ErrorHandler.handleError(err, "unknown"); }
                 audio.onerror = function onAudioErr() {
                   try {
                     audio.onerror = null;
@@ -609,6 +629,15 @@
                     window.ErrorHandler.handleError(err, "unknown");
                   }
                 };
+                // Autoplay only when ready
+                const oncePlay = function () {
+                  try { audio.oncanplay = null; } catch(_) {}
+                  try { audio.onloadedmetadata = null; } catch(_) {}
+                  try { safePlay(audio); } catch(_) {}
+                  try { window.__mediaOpenState.opening = false; } catch (err) { window.ErrorHandler.handleError(err, "unknown"); }
+                };
+                audio.oncanplay = oncePlay;
+                audio.onloadedmetadata = oncePlay;
                 audio.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;
@@ -675,12 +704,13 @@
                 } catch (err) {
                   window.ErrorHandler.handleError(err, "unknown");
                 }
+                // Reset handlers
+                try { player.onerror = null; } catch(_) {}
+                try { player.oncanplay = null; } catch(_) {}
+                try { player.onloadedmetadata = null; } catch(_) {}
                 player.src = url;
-                try {
-                  player.currentTime = 0;
-                } catch (err) {
-                  window.ErrorHandler.handleError(err, "unknown");
-                }
+                try { player.load && player.load(); } catch(_) {}
+                try { player.currentTime = 0; } catch (err) { window.ErrorHandler.handleError(err, "unknown"); }
                 player.onerror = function onVideoErr() {
                   try {
                     player.onerror = null;
@@ -696,6 +726,15 @@
                     window.ErrorHandler.handleError(err, "unknown");
                   }
                 };
+                // Autoplay only when ready
+                const oncePlayV = function () {
+                  try { player.oncanplay = null; } catch(_) {}
+                  try { player.onloadedmetadata = null; } catch(_) {}
+                  try { safePlay(player); } catch(_) {}
+                  try { window.__mediaOpenState.opening = false; } catch (err) { window.ErrorHandler.handleError(err, "unknown"); }
+                };
+                player.oncanplay = oncePlayV;
+                player.onloadedmetadata = oncePlayV;
                 player.onloadeddata = function () {
                   try {
                     window.__mediaOpenState.opening = false;

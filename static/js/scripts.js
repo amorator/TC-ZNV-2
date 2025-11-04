@@ -62,6 +62,73 @@ document.addEventListener(
   true
 );
 
+// Layout-independent hotkeys for media: F (fullscreen), M (mute)
+document.addEventListener(
+  "keydown",
+  function (event) {
+    // Only when a media modal is open
+    const audioOverlay = document.getElementById("popup-audio");
+    const videoOverlay = document.getElementById("popup-view");
+    const audioOpen = !!(
+      audioOverlay &&
+      (audioOverlay.classList.contains("show") ||
+        audioOverlay.classList.contains("visible"))
+    );
+    const videoOpen = !!(
+      videoOverlay &&
+      (videoOverlay.classList.contains("show") ||
+        videoOverlay.classList.contains("visible"))
+    );
+    if (!audioOpen && !videoOpen) return;
+
+    // Ignore when typing
+    const active = document.activeElement;
+    if (
+      active &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.isContentEditable)
+    ) {
+      return;
+    }
+
+    // Use event.code so it works across keyboard layouts
+    const code = event.code;
+    if (code === "KeyF" && videoOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const video = document.getElementById("player-video");
+        // Request fullscreen on the video element itself (not the modal)
+        if (!document.fullscreenElement) {
+          if (video && video.requestFullscreen) video.requestFullscreen();
+        } else {
+          if (document.exitFullscreen) document.exitFullscreen();
+        }
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "video-fullscreen");
+      }
+      return;
+    }
+    if (code === "KeyM") {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        if (videoOpen) {
+          const v = document.getElementById("player-video");
+          if (v) v.muted = !v.muted;
+        } else if (audioOpen) {
+          const a = document.getElementById("player-audio");
+          if (a) a.muted = !a.muted;
+        }
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "media-mute");
+      }
+    }
+  },
+  true
+);
+
 /**
  * Глобальные клавиатурные сокращения для модальных окон
  * - Enter: отправляет форму (кроме textarea)
@@ -398,4 +465,63 @@ function notifyTest() {
 // Инициализация при загрузке DOM
 document.addEventListener("DOMContentLoaded", function () {
   popupKeys();
+  try {
+    // --- Users page: open permissions on row double-click ---
+    const usersSection = document.querySelector("section[data-testid='users-section']");
+    if (usersSection) {
+      const canManage = (usersSection.closest('body')?.querySelector('[data-testid="users-table"]')?.getAttribute('data-can-manage') === '1') || true; // fallback true if attribute missing
+      if (canManage) {
+        usersSection.addEventListener('dblclick', function (e) {
+          const row = e.target && e.target.closest && e.target.closest('tr.table__body_row');
+          if (!row) return;
+          const login = (row.getAttribute('data-login') || '').toLowerCase();
+          if (login === 'admin') return; // do not open perms for protected admin
+          const rowId = row.id || row.getAttribute('data-id');
+          if (!rowId) return;
+          try {
+            const form = document.getElementById('perm');
+            if (form && window.popupValues) {
+              window.popupValues(form, rowId);
+              // Pre-sync permissions UI if helpers are present
+              try {
+                if (window.syncPermFormFromRow) {
+                  window.syncPermFormFromRow(form, rowId);
+                }
+              } catch(_) {}
+            }
+            if (window.popupToggle) {
+              window.popupToggle('popup-perm', rowId);
+            }
+          } catch(_) {}
+        }, true);
+      }
+    }
+
+    // --- Files page: prevent opening player on dblclick when file missing ---
+    const filesSection = document.querySelector('section.files-page, .files-page');
+    if (filesSection) {
+      filesSection.addEventListener('dblclick', function (e) {
+        const row = e.target && e.target.closest && e.target.closest('tr.table__body_row');
+        if (!row) return;
+        const exists = row.getAttribute('data-exists');
+        const url = row.getAttribute('data-url') || '';
+        // Ignore if file missing or no open URL
+        if (exists === '0' || !url) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        // Mirror context menu "open"
+        try {
+          if (window.contextMenu && typeof window.contextMenu.executeFilesAction === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.contextMenu.executeFilesAction('open', row);
+          }
+        } catch(_) {}
+      }, true);
+    }
+  } catch (error) {
+    window.ErrorHandler && window.ErrorHandler.handleError(error, 'dom-ready-init');
+  }
 });
