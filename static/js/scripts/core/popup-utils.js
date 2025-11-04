@@ -47,9 +47,22 @@ function popupValues(form, rowId) {
   });
 
 
-  // Update form action URL with row ID
-  if (form.action && form.action.includes("/0")) {
-    form.action = form.action.replace("/0", `/${rowId}`);
+  // Update form action URL with row ID (robust: update existing id or 0)
+  if (form.action) {
+    try {
+      // Generic: replace trailing /0 with /<id>
+      if (form.action.includes('/0')) {
+        form.action = form.action.replace('/0', `/${rowId}`);
+      } else {
+        // Specific handlers: replace existing numeric id in path
+        // files
+        form.action = form.action.replace(/(\/files\/(?:delete|edit|move|note)\/)\d+/, `$1${rowId}`);
+        // orders
+        form.action = form.action.replace(/(\/orders\/(?:delete|note)\/)\d+/, `$1${rowId}`);
+        // fallback: if still unchanged and ends with numeric id, swap it
+        form.action = form.action.replace(/\/(\d+)(?=$|\D)/, `/${rowId}`);
+      }
+    } catch(_) {}
   }
 
   // Special handling for delete modal - update file name

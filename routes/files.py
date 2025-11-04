@@ -1,5 +1,5 @@
 from flask import (abort, flash, jsonify, make_response, redirect, request,
-                   render_template, Response, send_from_directory, url_for)
+                   render_template, Response, send_from_directory, url_for, jsonify)
 from flask_login import current_user
 from datetime import datetime as dt
 from os import path, remove
@@ -1184,12 +1184,30 @@ def register(app, media_service, socketio=None) -> None:
     @rate_limit
     def files_delete(id: int):
         """Delete file: remove DB record and any existing media files (.mp4, .webm)."""
+        #
         if id <= 0:
+            # For AJAX/fetch callers return JSON 200 (idempotent), else redirect with flash
+            try:
+                accept = (request.headers.get('Accept') or '').lower()
+                xrw = (request.headers.get('X-Requested-With') or '').lower()
+                ctype = (request.headers.get('Content-Type') or '').lower()
+                if ('application/json' in accept or ctype == 'application/json' or xrw in ('xmlhttprequest','fetch')):
+                    return jsonify({'status': 'success', 'message': 'Already deleted', 'code': 'invalid_id'}), 200
+            except Exception:
+                pass
             app.flash_error('Invalid file ID')
             return redirect(url_for('files'))
 
         file = app._sql.file_by_id([id])
         if not file:
+            try:
+                accept = (request.headers.get('Accept') or '').lower()
+                xrw = (request.headers.get('X-Requested-With') or '').lower()
+                ctype = (request.headers.get('Content-Type') or '').lower()
+                if ('application/json' in accept or ctype == 'application/json' or xrw in ('xmlhttprequest','fetch')):
+                    return jsonify({'status': 'success', 'message': 'Already deleted', 'code': 'not_found'}), 200
+            except Exception:
+                pass
             app.flash_error('File not found')
             return redirect(url_for('files'))
 
@@ -1244,15 +1262,17 @@ def register(app, media_service, socketio=None) -> None:
                 (request.remote_addr or ''),
                 success=False)
         finally:
-            # Return JSON for AJAX requests, redirect for traditional forms
-            if request.headers.get(
-                    'Content-Type'
-            ) == 'application/json' or request.headers.get(
-                    'X-Requested-With') == 'XMLHttpRequest':
-                return {
-                    'status': 'success',
-                    'message': 'File deleted successfully'
-                }, 200
+            # Return JSON for AJAX/fetch requests, redirect for traditional forms
+            try:
+                accept = (request.headers.get('Accept') or '').lower()
+                xrw = (request.headers.get('X-Requested-With') or '').lower()
+                ctype = (request.headers.get('Content-Type') or '').lower()
+                if ('application/json' in accept or ctype == 'application/json'
+                        or xrw in ('xmlhttprequest', 'fetch')):
+                    from flask import jsonify
+                    return jsonify({'status': 'success', 'message': 'File deleted successfully'}), 200
+            except Exception:
+                pass
             return redirect(url_for('files'))
 
     @app.route('/files/show/<int:did>/<int:sdid>/<name>', methods=['GET'])
