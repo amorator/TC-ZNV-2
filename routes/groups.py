@@ -122,9 +122,9 @@ def register(app):
             if ('text/html' in accept) and (not is_ajax):
                 return redirect(url_for('groups'))
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 15))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 15
+            if page_size < 1: page_size = 10
             groups = app._sql.group_get_all_objects() or []
             # Sort by first three columns alphabetically: Name, Description, Users count (as string)
             try:
@@ -179,12 +179,33 @@ def register(app):
             html = render_template('components/groups_rows.j2.html',
                                    groups=groups_slice,
                                    admin_group_name=admin_group_name)
+            # Build server-side pagination HTML with explicit page params
+            try:
+                total_pages = max(1, (total + page_size - 1) // page_size)
+                def page_item(p, label=None, active=False, disabled=False):
+                    lab = label if label is not None else str(p)
+                    cls = "page-item{}{}".format(" active" if active else "", " disabled" if disabled else "")
+                    href = url_for('groups', page=p, page_size=page_size)
+                    return f'<li class="{cls}"><a class="page-link" href="{href}" data-page="{p}">{lab}</a></li>'
+                parts = []
+                parts.append('<ul class="pagination mb-0">')
+                parts.append(page_item(max(1, page - 1), '«', False, page <= 1))
+                start_p = max(1, page - 3)
+                end_p = min(total_pages, page + 3)
+                for p in range(start_p, end_p + 1):
+                    parts.append(page_item(p, str(p), p == page, False))
+                parts.append(page_item(min(total_pages, page + 1), '»', False, page >= total_pages))
+                parts.append('</ul>')
+                pager_html = ''.join(parts)
+            except Exception:
+                pager_html = ''
             resp = make_response(
                 jsonify({
                     'html': html,
                     'total': total,
                     'page': page,
-                    'page_size': page_size
+                    'page_size': page_size,
+                    'pager_html': pager_html
                 }))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -221,9 +242,9 @@ def register(app):
         try:
             q = (request.args.get('q') or '').strip()
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 30))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 30
+            if page_size < 1: page_size = 10
             groups = app._sql.group_get_all_objects() or []
             # Sort by first three columns alphabetically: Name, Description, Users count (as string)
             try:

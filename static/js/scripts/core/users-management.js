@@ -123,7 +123,11 @@ function debouncedSync() {
 
   usersSyncTimeout = setTimeout(() => {
     usersPendingSync = false;
-    softRefreshUsersTable(true);
+    try {
+      // Skip if a guarded soft refresh is ongoing
+      if (window.__usersSoftRefreshing) return;
+      softRefreshUsersTable(true);
+    } catch(_) {}
   }, 100);
 }
 
@@ -132,14 +136,17 @@ function debouncedSync() {
  * @param {boolean} force - Force refresh even if table has data
  */
 function softRefreshUsersTable(force = false) {
+  if (window.__usersSoftRefreshing) return;
+  window.__usersSoftRefreshing = true;
   const input = document.getElementById("searchinp");
   const q = input && typeof input.value === "string" ? input.value.trim() : "";
 
   if (q && typeof window.usersDoFilter === "function") {
     return window.usersDoFilter(q).then(() => {
-      reinitializeContextMenu();
-      if (window.rebindUsersTable) window.rebindUsersTable();
-    });
+      try { reinitializeContextMenu(); } catch(_) {}
+      try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+      window.__usersSoftRefreshing = false;
+    }).catch(function(){ window.__usersSoftRefreshing = false; });
   }
 
   const table = document.getElementById("maintable");
@@ -160,15 +167,20 @@ function softRefreshUsersTable(force = false) {
     }
   }
 
-  if (window.usersPager && typeof window.usersPager.renderPage === "function") {
-    window.usersPager.renderPage(1);
-    reinitializeContextMenu();
-    if (window.rebindUsersTable) window.rebindUsersTable();
-  } else {
-    // Always use soft refresh
-    if (window.softRefreshUsersTable) {
-      window.softRefreshUsersTable(true);
+  try {
+    if (window.usersPager && typeof window.usersPager.renderPage === "function") {
+      window.usersPager.renderPage(1);
+      try { reinitializeContextMenu(); } catch(_) {}
+      try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+    } else {
+      // Always use soft refresh, but suppress sync recursion
+      if (window.softRefreshUsersTable) {
+        window.__suppressUsersSync = true;
+        try { window.softRefreshUsersTable(true); } finally { window.__suppressUsersSync = false; }
+      }
     }
+  } finally {
+    window.__usersSoftRefreshing = false;
   }
 }
 
@@ -176,6 +188,7 @@ function softRefreshUsersTable(force = false) {
  * Reinitialize context menu after table update
  */
 function reinitializeContextMenu() {
+  if (window.__suppressUsersSync) return;
   const now = Date.now();
   if (
     window._lastContextMenuReinit &&

@@ -52,18 +52,84 @@ function popupValues(form, rowId) {
     try {
       // Generic: replace trailing /0 with /<id>
       if (form.action.includes('/0')) {
+        const before = form.action;
         form.action = form.action.replace('/0', `/${rowId}`);
+        try { if (form.id === 'perm') console.debug('[users:perm] popupValues:action-replace-0', { before, after: form.action, rowId }); } catch(_) {}
       } else {
         // Specific handlers: replace existing numeric id in path
         // files
         form.action = form.action.replace(/(\/files\/(?:delete|edit|move|note)\/)\d+/, `$1${rowId}`);
         // orders
         form.action = form.action.replace(/(\/orders\/(?:delete|note)\/)\d+/, `$1${rowId}`);
+        // users
+        form.action = form.action.replace(/(\/users\/(?:edit|reset|delete|toggle)\/)\d+/, `$1${rowId}`);
+        // groups
+        form.action = form.action.replace(/(\/groups\/(?:edit|delete)\/)\d+/, `$1${rowId}`);
         // fallback: if still unchanged and ends with numeric id, swap it
+        const before2 = form.action;
         form.action = form.action.replace(/\/(\d+)(?=$|\D)/, `/${rowId}`);
+        try { if (form.id === 'perm') console.debug('[users:perm] popupValues:action-replace-path', { before: before2, after: form.action, rowId }); } catch(_) {}
       }
     } catch(_) {}
   }
+
+  // Reset submission state to allow repeated submits after first success
+  try {
+    if (form && form._submitting) {
+      try { console.debug('[popup] reset submitting flag for', form.id || form.name || 'form'); } catch(_) {}
+      form._submitting = false;
+    }
+    const btns = form.querySelectorAll('button, [type="submit"]');
+    btns.forEach(function(b){
+      try { b.disabled = false; } catch(_) {}
+      try { if (b.dataset && b.dataset.processing) delete b.dataset.processing; } catch(_) {}
+    });
+  } catch(_) {}
+
+  // Persist current page for Users before opening any Users modal
+  try {
+    const isUsersAction = /\/users\/(?:edit|delete|reset)/.test(form.action) || form.id === 'perm';
+    if (isUsersAction) {
+      let curPage = 1;
+      // Prefer URL param
+      try {
+        const u = new URL(window.location.href);
+        curPage = parseInt(u.searchParams.get('page') || '0', 10) || 0;
+      } catch(_) {}
+      // Fallback: active pagination item with data-page
+      if (!curPage) {
+        const pager = document.getElementById('users-pagination');
+        const activeLink = pager && pager.querySelector('.page-item.active [data-page]');
+        if (activeLink) curPage = parseInt(activeLink.getAttribute('data-page') || '0', 10) || 0;
+      }
+      // Fallback: text content of active page item
+      if (!curPage) {
+        const pager = document.getElementById('users-pagination');
+        const activeItem = pager && pager.querySelector('.page-item.active');
+        const txt = activeItem ? (activeItem.textContent || '').trim() : '';
+        const num = parseInt(txt, 10);
+        if (isFinite(num) && num > 0) curPage = num;
+      }
+      if (!curPage) curPage = 1;
+      try { localStorage.setItem('users:lastPage', String(curPage)); } catch(_) {}
+
+      // Also bake current page into the form.action query string (server-aware)
+      try {
+        const a = new URL(form.action, window.location.origin);
+        a.searchParams.set('page', String(curPage));
+        // Page size: try to read from URL, else from localStorage, else default 10
+        let ps = 0;
+        try { ps = parseInt((new URL(window.location.href)).searchParams.get('page_size')||'0',10)||0; } catch(_) {}
+        if (!ps) { try { ps = parseInt(localStorage.getItem('users:pageSize')||'0',10)||0; } catch(_) {}
+        }
+        if (!ps) ps = 10;
+        a.searchParams.set('page_size', String(ps));
+        const before = form.action;
+        form.action = a.toString();
+        try { console.debug('[users:perm] popupValues:action-final', { before, after: form.action, curPage, pageSize: ps }); } catch(_) {}
+      } catch(_) {}
+    }
+  } catch(_) {}
 
   // Special handling for delete modal - update file name
   if (form.id === "delete") {

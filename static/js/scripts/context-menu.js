@@ -1083,6 +1083,12 @@
                       }
                     }
                   }
+                  // Soft refresh users table to keep pagination and server state in sync
+                  try {
+                    if (typeof window.softRefreshUsersTable === 'function') {
+                      window.softRefreshUsersTable();
+                    }
+                  } catch(_) {}
                 })
                 .catch((error) => {
                   window.ErrorHandler && window.ErrorHandler.handleError("Toggle error:", error, "app");

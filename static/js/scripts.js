@@ -57,6 +57,7 @@ document.addEventListener(
     if (!defaultBtn) return;
 
     event.preventDefault();
+    try { console.debug('[kbd] Enter pressed -> clicking default button', { id: defaultBtn.id, classes: defaultBtn.className, dataset: defaultBtn.dataset }); } catch(_) {}
     defaultBtn.click();
   },
   true
@@ -466,28 +467,125 @@ function notifyTest() {
 document.addEventListener("DOMContentLoaded", function () {
   popupKeys();
   try {
+    // Initialize saved pagination state from URL on first load (Users/Groups)
+    (function initSavedPagination(){
+      try {
+        const url = new URL(window.location.href);
+        const page = parseInt(url.searchParams.get('page') || '0', 10);
+        const pageSize = parseInt(url.searchParams.get('page_size') || '0', 10);
+        if (document.querySelector("section[data-testid='users-section']")) {
+          const saved = (function(){ try { return JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; } catch(_) { return {}; }})();
+          const state = { page: page || saved.page || 1, pageSize: pageSize || saved.pageSize || 10 };
+          try { localStorage.setItem('tableState:users', JSON.stringify(state)); } catch(_) {}
+          try { if (pageSize) localStorage.setItem('users:pageSize', String(pageSize)); } catch(_) {}
+        }
+        if (document.querySelector("section[data-testid='groups-section']")) {
+          const saved = (function(){ try { return JSON.parse(localStorage.getItem('tableState:groups') || 'null') || {}; } catch(_) { return {}; }})();
+          const state = { page: page || saved.page || 1, pageSize: pageSize || saved.pageSize || 10 };
+          try { localStorage.setItem('tableState:groups', JSON.stringify(state)); } catch(_) {}
+          try { if (pageSize) localStorage.setItem('groups:pageSize', String(pageSize)); } catch(_) {}
+        }
+      } catch(_) {}
+    })();
+
+    // Ensure explicit ?page and ?page_size in URL on initial section open
+    (function ensureInitialPagerParams(){
+      try {
+        const url = new URL(window.location.href);
+        const hasPage = !!url.searchParams.get('page');
+        const hasPageSize = !!url.searchParams.get('page_size');
+        const inUsers = !!document.querySelector("section[data-testid='users-section']");
+        const inGroups = !!document.querySelector("section[data-testid='groups-section']");
+        if (!inUsers && !inGroups) return;
+        let page = parseInt(url.searchParams.get('page') || '0', 10);
+        let pageSize = parseInt(url.searchParams.get('page_size') || '0', 10);
+        if (inUsers) {
+          const saved = (function(){ try { return JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; } catch(_) { return {}; } })();
+          if (!page) page = saved.page || 1;
+          if (!pageSize) pageSize = saved.pageSize || 10;
+          try { if (!localStorage.getItem('users:pageSize')) localStorage.setItem('users:pageSize', String(pageSize)); } catch(_) {}
+        }
+        if (inGroups) {
+          const saved = (function(){ try { return JSON.parse(localStorage.getItem('tableState:groups') || 'null') || {}; } catch(_) { return {}; } })();
+          if (!page) page = saved.page || 1;
+          if (!pageSize) pageSize = saved.pageSize || 10;
+          try { if (!localStorage.getItem('groups:pageSize')) localStorage.setItem('groups:pageSize', String(pageSize)); } catch(_) {}
+        }
+        if (!hasPage || !hasPageSize) {
+          url.searchParams.set('page', String(page || 1));
+          url.searchParams.set('page_size', String(pageSize || 10));
+          try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
+        }
+      } catch(_) {}
+    })();
+
+    // Ensure explicit params on Categories and Registrators admin pages
+    (function ensureInitialAdminPagerParams(){
+      try {
+        const path = (window.location && window.location.pathname) || '';
+        const inCategories = path.indexOf('/categories') !== -1;
+        const inRegistrators = path.indexOf('/registrators') !== -1 && !document.querySelector("section[data-testid='users-section']");
+        if (!inCategories && !inRegistrators) return;
+        const url = new URL(window.location.href);
+        // Categories: two independent lists (groups/users)
+        if (inCategories) {
+          const hasPg = !!url.searchParams.get('page_groups');
+          const hasSg = !!url.searchParams.get('page_size_groups');
+          const hasPu = !!url.searchParams.get('page_users');
+          const hasSu = !!url.searchParams.get('page_size_users');
+          // Defaults 1/10
+          if (!hasPg) url.searchParams.set('page_groups', '1');
+          if (!hasSg) url.searchParams.set('page_size_groups', '10');
+          if (!hasPu) url.searchParams.set('page_users', '1');
+          if (!hasSu) url.searchParams.set('page_size_users', '10');
+          if (!hasPg || !hasSg || !hasPu || !hasSu) {
+            try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
+          }
+        }
+        // Registrators: two independent lists (groups/users) in permissions panel
+        if (inRegistrators) {
+          const hasPg = !!url.searchParams.get('page_groups');
+          const hasSg = !!url.searchParams.get('page_size_groups');
+          const hasPu = !!url.searchParams.get('page_users');
+          const hasSu = !!url.searchParams.get('page_size_users');
+          if (!hasPg) url.searchParams.set('page_groups', '1');
+          if (!hasSg) url.searchParams.set('page_size_groups', '10');
+          if (!hasPu) url.searchParams.set('page_users', '1');
+          if (!hasSu) url.searchParams.set('page_size_users', '10');
+          if (!hasPg || !hasSg || !hasPu || !hasSu) {
+            try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
+          }
+        }
+      } catch(_) {}
+    })();
+
     // --- Users page: open permissions on row double-click ---
     const usersSection = document.querySelector("section[data-testid='users-section']");
     if (usersSection) {
-      const canManage = (usersSection.closest('body')?.querySelector('[data-testid="users-table"]')?.getAttribute('data-can-manage') === '1') || true; // fallback true if attribute missing
+      const usersTable = document.querySelector('[data-testid="users-table"]');
+      const canManage = !!(usersTable && usersTable.getAttribute('data-can-manage') === '1');
       if (canManage) {
         usersSection.addEventListener('dblclick', function (e) {
           const row = e.target && e.target.closest && e.target.closest('tr.table__body_row');
           if (!row) return;
           const login = (row.getAttribute('data-login') || '').toLowerCase();
           if (login === 'admin') return; // do not open perms for protected admin
+          // Mirror context menu: users -> perm
+          try {
+            if (window.contextMenu && typeof window.contextMenu.executeUsersAction === 'function') {
+              e.preventDefault();
+              e.stopPropagation();
+              window.contextMenu.executeUsersAction('perm', row);
+              return;
+            }
+          } catch(_) {}
+          // Fallback direct open if contextMenu unavailable
           const rowId = row.id || row.getAttribute('data-id');
           if (!rowId) return;
           try {
             const form = document.getElementById('perm');
             if (form && window.popupValues) {
               window.popupValues(form, rowId);
-              // Pre-sync permissions UI if helpers are present
-              try {
-                if (window.syncPermFormFromRow) {
-                  window.syncPermFormFromRow(form, rowId);
-                }
-              } catch(_) {}
             }
             if (window.popupToggle) {
               window.popupToggle('popup-perm', rowId);
@@ -524,4 +622,454 @@ document.addEventListener("DOMContentLoaded", function () {
   } catch (error) {
     window.ErrorHandler && window.ErrorHandler.handleError(error, 'dom-ready-init');
   }
+  // Global error diagnostics (noisy, but only for current debugging)
+  try {
+    if (!window.__globalDebugHandlersInstalled) {
+      window.__globalDebugHandlersInstalled = true;
+      window.addEventListener('error', function(e){ try { console.debug('[global-error]', e && (e.error && (e.error.stack || e.error) || e.message)); } catch(_) {} });
+      window.addEventListener('unhandledrejection', function(e){ try { console.debug('[global-rejection]', e && (e.reason && (e.reason.stack || e.reason) || e)); } catch(_) {} });
+    }
+  } catch(_) {}
+  try { ensurePagerLinks('users'); ensurePagerLinks('groups'); } catch(_) {}
+  try {
+    // Observe pagination containers for dynamic changes and normalize links
+    const observePager = function(id, scope){
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el._pagerObserved) return; el._pagerObserved = true;
+      const mo = new MutationObserver(function(){ try { ensurePagerLinks(scope); } catch(_) {} });
+      mo.observe(el, { childList: true, subtree: true });
+    };
+    observePager('users-pagination', 'users');
+    observePager('groups-pagination', 'groups');
+    // Also normalize and observe admin pages (categories/registrators) pagers using current path
+    (function(){
+      const path = (window.location && window.location.pathname) || '';
+      const inCategories = path.indexOf('categories') !== -1;
+      const inRegistrators = path.indexOf('registrators') !== -1;
+      if (inCategories || inRegistrators) {
+        try { ensurePagerLinksForContainer('users-pagination', 'users:pageSize'); } catch(_) {}
+        try { ensurePagerLinksForContainer('groups-pagination', 'groups:pageSize'); } catch(_) {}
+        const observeGeneric = function(id, lsKey){
+          const el = document.getElementById(id);
+          if (!el) return;
+          if (el._pagerObserved2) return; el._pagerObserved2 = true;
+          const mo = new MutationObserver(function(){ try { ensurePagerLinksForContainer(id, lsKey); } catch(_) {} });
+          mo.observe(el, { childList: true, subtree: true });
+        };
+        observeGeneric('users-pagination', 'users:pageSize');
+        observeGeneric('groups-pagination', 'groups:pageSize');
+      }
+    })();
+  } catch(_) {}
 });
+
+// Soft refresh for Users table preserving current page and pagination
+function softRefreshUsersTable() {
+  try {
+    if (window.__usersSoftRefreshing) { try { console.debug('[users][softRefresh] skipped (already refreshing)'); } catch(_) {} return; }
+    window.__usersSoftRefreshing = true;
+    const table = document.querySelector("section[data-testid='users-section'] #maintable");
+    if (!table) return;
+    try { console.debug('[users][softRefresh] start'); } catch(_) {}
+    // Read persisted state or current DOM state
+    const lsKey = 'tableState:users';
+    const domState = (function() {
+      const pager = document.getElementById('users-pagination');
+      const activeLink = pager && pager.querySelector('.page-item.active [data-page]');
+      let page = activeLink ? parseInt(activeLink.getAttribute('data-page') || '1', 10) : 0;
+      if (!page) {
+        const activeItem = pager && pager.querySelector('.page-item.active');
+        const txt = activeItem ? (activeItem.textContent || '').trim() : '';
+        const num = parseInt(txt, 10);
+        page = (isFinite(num) && num > 0) ? num : 1;
+      }
+      const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");
+      const pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
+      return { page: page, pageSize: pageSize };
+    })();
+    const saved = (function(){ try { return JSON.parse(localStorage.getItem(lsKey) || 'null') || {}; } catch(_) { return {}; } })();
+    const state = { page: saved.page || domState.page || 1, pageSize: saved.pageSize || domState.pageSize || 10 };
+    try { localStorage.setItem(lsKey, JSON.stringify(state)); } catch(_) {}
+
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams({ page: String(state.page), page_size: String(state.pageSize), _t: String(Date.now()) });
+    fetch(`/users/page?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+    }).then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      return response.json();
+    }).then((data) => {
+      try { console.debug('[users][softRefresh] response', { total: data.total, page: data.page, page_size: data.page_size }); } catch(_) {}
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody && data && typeof data.html === 'string') {
+        // Preserve search row if present
+        let searchRow = null;
+        try { searchRow = tbody.querySelector('tr#search'); } catch(_) { searchRow = null; }
+        tbody.innerHTML = data.html;
+        if (searchRow) {
+          try { tbody.insertBefore(searchRow, tbody.firstChild); } catch(_) {}
+        }
+      }
+      // Use server-provided pager HTML when available
+      try {
+        const pager = document.getElementById('users-pagination');
+        if (pager && typeof data.pager_html === 'string' && data.pager_html) {
+          pager.innerHTML = data.pager_html;
+        } else {
+          const total = parseInt(data.total || 0, 10);
+          const page = parseInt(data.page || 1, 10);
+          const pageSize = parseInt(data.page_size || 10, 10);
+          renderPagination('users-pagination', page, pageSize, total, 'users');
+        }
+        try { ensurePagerLinks('users'); } catch(_) {}
+        // Persist and reflect in URL
+        const page = parseInt(data.page || 1, 10);
+        const pageSize = parseInt(data.page_size || 10, 10);
+        const stateNow = { page: page, pageSize: pageSize };
+        try { localStorage.setItem(lsKey, JSON.stringify(stateNow)); } catch(_) {}
+        const newQs = new URLSearchParams(url.search);
+        newQs.set('page', String(page)); newQs.set('page_size', String(pageSize));
+        try { window.history.replaceState(null, '', `${url.pathname}?${newQs.toString()}`); } catch(_) {}
+      } catch(_) {}
+      // Notify listeners that table content was updated (to rebind search etc.)
+      try { document.dispatchEvent(new Event('table-updated', { bubbles: true })); } catch(_) {}
+      // Reinitialize UI bindings explicitly for Users page
+      try {
+        if (window.reinitializeContextMenu) {
+          window.reinitializeContextMenu();
+        } else {
+          const event = new CustomEvent('context-menu-reinit', { detail: { timestamp: Date.now() } });
+          document.dispatchEvent(event);
+        }
+        if (window.UsersPage && typeof window.UsersPage.selectUser === 'function') {
+          // no-op, just verify module loaded
+        }
+        if (typeof setupUserManagement === 'function') setupUserManagement();
+        if (typeof setupPermissions === 'function') setupPermissions();
+        if (typeof setupTableInteractions === 'function') setupTableInteractions();
+        if (typeof window.rebindUsersTable === 'function') window.rebindUsersTable();
+      } catch(_) {}
+      try { const pagerEl = document.getElementById('users-pagination'); if (pagerEl) pagerEl.classList.remove('d-none'); } catch(_) {}
+      try { console.debug('[users][softRefresh] done'); } catch(_) {}
+    }).catch((err) => {
+      window.ErrorHandler && window.ErrorHandler.handleError(err, 'softRefreshUsersTable');
+    }).finally(() => { try { window.__usersSoftRefreshing = false; } catch(_) {} });
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'softRefreshUsersTable');
+    try { window.__usersSoftRefreshing = false; } catch(_) {}
+  }
+}
+
+// Export
+window.softRefreshUsersTable = softRefreshUsersTable;
+
+// Soft refresh for Groups table preserving current page and pagination
+function softRefreshGroupsTable() {
+  try {
+    const table = document.querySelector("section[data-testid='groups-section'] #maintable");
+    if (!table) return;
+    // Read persisted state or current DOM state
+    const lsKey = 'tableState:groups';
+    const domState = (function() {
+      const pager = document.getElementById('groups-pagination');
+      const activeLink = pager && pager.querySelector('.page-item.active [data-page]');
+      let page = activeLink ? parseInt(activeLink.getAttribute('data-page') || '1', 10) : 0;
+      if (!page) {
+        const activeItem = pager && pager.querySelector('.page-item.active');
+        const txt = activeItem ? (activeItem.textContent || '').trim() : '';
+        const num = parseInt(txt, 10);
+        page = (isFinite(num) && num > 0) ? num : 1;
+      }
+      const sizeEl = document.querySelector("section[data-testid='groups-section'] select[name='page_size']");
+      const pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
+      return { page: page, pageSize: pageSize };
+    })();
+    const saved = (function(){ try { return JSON.parse(localStorage.getItem(lsKey) || 'null') || {}; } catch(_) { return {}; } })();
+    const state = { page: saved.page || domState.page || 1, pageSize: saved.pageSize || domState.pageSize || 10 };
+    try { localStorage.setItem(lsKey, JSON.stringify(state)); } catch(_) {}
+
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams({ page: String(state.page), page_size: String(state.pageSize), _t: String(Date.now()) });
+    fetch(`/groups/page?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+    }).then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      return response.json();
+    }).then((data) => {
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody && data && typeof data.html === 'string') {
+        tbody.innerHTML = data.html;
+      }
+      // Use server-provided pager HTML when available
+      try {
+        const pager = document.getElementById('groups-pagination');
+        if (pager && typeof data.pager_html === 'string' && data.pager_html) {
+          pager.innerHTML = data.pager_html;
+        } else {
+          const total = parseInt(data.total || 0, 10);
+          const page = parseInt(data.page || 1, 10);
+          const pageSize = parseInt(data.page_size || 10, 10);
+          renderPagination('groups-pagination', page, pageSize, total, 'groups');
+        }
+        try { ensurePagerLinks('groups'); } catch(_) {}
+        const stateNow = { page: page, pageSize: pageSize };
+        try { localStorage.setItem(lsKey, JSON.stringify(stateNow)); } catch(_) {}
+        const newQs = new URLSearchParams(url.search);
+        newQs.set('page', String(page)); newQs.set('page_size', String(pageSize));
+        try { window.history.replaceState(null, '', `${url.pathname}?${newQs.toString()}`); } catch(_) {}
+      } catch(_) {}
+      // Reinitialize context menu
+      if (window.reinitializeContextMenu) {
+        window.reinitializeContextMenu();
+      } else {
+        const event = new CustomEvent('context-menu-reinit', { detail: { timestamp: Date.now() } });
+        document.dispatchEvent(event);
+      }
+    }).catch((err) => {
+      window.ErrorHandler && window.ErrorHandler.handleError(err, 'softRefreshGroupsTable');
+    });
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'softRefreshGroupsTable');
+  }
+}
+
+// Export
+window.softRefreshGroupsTable = softRefreshGroupsTable;
+
+// Renders a simple Bootstrap-like pagination into a container
+function renderPagination(containerId, page, pageSize, total, scope) {
+  try {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const totalPages = Math.max(1, Math.ceil((total || 0) / Math.max(1, pageSize || 1)));
+    const cur = Math.min(Math.max(1, page || 1), totalPages);
+    const basePath = (scope === 'groups') ? '/groups' : '/users';
+    function pageItem(p, label, active, disabled) {
+      const href = `${basePath}?page=${p}&page_size=${pageSize}`;
+      const aAttrs = disabled ? '' : ` href="${href}" data-page="${p}"`;
+      const cls = ["page-item", active ? "active" : "", disabled ? "disabled" : ""].join(' ').trim();
+      return `<li class="${cls}"><a class="page-link"${aAttrs}>${label}</a></li>`;
+    }
+    const parts = [];
+    parts.push('<ul class="pagination mb-0">');
+    parts.push(pageItem(1, '««', false, cur <= 1));
+    parts.push(pageItem(cur - 1, '«', false, cur <= 1));
+    const start = Math.max(1, cur - 3);
+    const end = Math.min(totalPages, cur + 3);
+    for (let p = start; p <= end; p++) parts.push(pageItem(p, String(p), p === cur, false));
+    parts.push(pageItem(cur + 1, '»', false, cur >= totalPages));
+    parts.push(pageItem(totalPages, '»»', false, cur >= totalPages));
+    parts.push('</ul>');
+    container.innerHTML = parts.join('');
+  } catch(_) {}
+}
+
+// Normalize pager links to ensure explicit href with page params
+function ensurePagerLinks(scope) {
+  try {
+    const containerId = (scope === 'groups') ? 'groups-pagination' : 'users-pagination';
+    const pager = document.getElementById(containerId);
+    if (!pager) return;
+    const lsKey = (scope === 'groups') ? 'groups:pageSize' : 'users:pageSize';
+    let pageSize = 10;
+    try { pageSize = parseInt(localStorage.getItem(lsKey) || '0', 10) || pageSize; } catch(_) {}
+    const basePath = (scope === 'groups') ? '/groups' : '/users';
+    pager.querySelectorAll('a.page-link').forEach(function(a){
+      // Derive page from data-page or text content
+      let p = 0;
+      try { p = parseInt(a.getAttribute('data-page') || '0', 10) || 0; } catch(_) { p = 0; }
+      if (!p) {
+        const txt = (a.textContent || '').trim();
+        const num = parseInt(txt, 10);
+        p = (isFinite(num) && num > 0) ? num : 0;
+      }
+      if (!p) {
+        // For « and » infer from siblings
+        const li = a.closest('li.page-item');
+        if (li && a.textContent) {
+          const isPrev = a.textContent.indexOf('«') !== -1 || a.textContent.indexOf('‹') !== -1;
+          const isNext = a.textContent.indexOf('»') !== -1 || a.textContent.indexOf('›') !== -1;
+          if (isPrev || isNext) {
+            const active = pager.querySelector('.page-item.active a.page-link');
+            let cur = 1;
+            if (active) {
+              const t = (active.textContent || '').trim();
+              const n = parseInt(active.getAttribute('data-page') || t, 10);
+              cur = (isFinite(n) && n > 0) ? n : 1;
+            }
+            p = isPrev ? Math.max(1, cur - 1) : (cur + 1);
+          }
+        }
+      }
+      if (!p) p = 1;
+      a.setAttribute('href', `${basePath}?page=${p}&page_size=${pageSize}`);
+      a.setAttribute('data-page', String(p));
+    });
+  } catch(_) {}
+}
+
+// Generic normalizer for arbitrary pagination containers on current page
+function ensurePagerLinksForContainer(containerId, lsKey) {
+  try {
+    const pager = document.getElementById(containerId);
+    if (!pager) return;
+    const basePath = window.location && window.location.pathname ? window.location.pathname : '';
+    let pageSize = 10;
+    try { pageSize = parseInt(localStorage.getItem(lsKey) || '0', 10) || pageSize; } catch(_) {}
+    pager.querySelectorAll('a.page-link').forEach(function(a){
+      let p = 0;
+      try { p = parseInt(a.getAttribute('data-page') || '0', 10) || 0; } catch(_) { p = 0; }
+      if (!p) {
+        const txt = (a.textContent || '').trim();
+        const num = parseInt(txt, 10);
+        p = (isFinite(num) && num > 0) ? num : 0;
+      }
+      if (!p) {
+        const li = a.closest('li.page-item');
+        if (li && a.textContent) {
+          const isPrev = a.textContent.indexOf('«') !== -1 || a.textContent.indexOf('‹') !== -1;
+          const isNext = a.textContent.indexOf('»') !== -1 || a.textContent.indexOf('›') !== -1;
+          if (isPrev || isNext) {
+            const active = pager.querySelector('.page-item.active a.page-link');
+            let cur = 1;
+            if (active) {
+              const t = (active.textContent || '').trim();
+              const n = parseInt(active.getAttribute('data-page') || t, 10);
+              cur = (isFinite(n) && n > 0) ? n : 1;
+            }
+            p = isPrev ? Math.max(1, cur - 1) : (cur + 1);
+          }
+        }
+      }
+      if (!p) p = 1;
+      a.setAttribute('href', `${basePath}?page=${p}&page_size=${pageSize}`);
+      a.setAttribute('data-page', String(p));
+    });
+  } catch(_) {}
+}
+
+// Global: persist pagination interactions to localStorage for Users and Groups
+document.addEventListener('click', function (e) {
+  try {
+    const a = e.target && e.target.closest && e.target.closest('a[data-page]');
+    if (!a) return;
+    const page = parseInt(a.getAttribute('data-page') || '1', 10);
+    if (document.querySelector("section[data-testid='users-section']") && a.closest('#users-pagination')) {
+      const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");
+      const pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
+      try { localStorage.setItem('tableState:users', JSON.stringify({ page: page, pageSize: pageSize })); } catch(_) {}
+    }
+    if (document.querySelector("section[data-testid='groups-section']") && a.closest('#groups-pagination')) {
+      const sizeEl = document.querySelector("section[data-testid='groups-section'] select[name='page_size']");
+      const pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
+      try { localStorage.setItem('tableState:groups', JSON.stringify({ page: page, pageSize: pageSize })); } catch(_) {}
+    }
+  } catch(_) {}
+}, true);
+
+document.addEventListener('change', function (e) {
+  try {
+    const sel = e.target && e.target.closest && e.target.closest("select[name='page_size']");
+    if (!sel) return;
+    const pageSize = parseInt(sel.value || '10', 10);
+    if (sel.closest("section[data-testid='users-section']")) {
+      try { localStorage.setItem('tableState:users', JSON.stringify({ page: 1, pageSize: pageSize })); } catch(_) {}
+      try { localStorage.setItem('users:pageSize', String(pageSize)); } catch(_) {}
+      try { ensurePagerLinks('users'); } catch(_) {}
+    }
+    if (sel.closest("section[data-testid='groups-section']")) {
+      try { localStorage.setItem('tableState:groups', JSON.stringify({ page: 1, pageSize: pageSize })); } catch(_) {}
+      try { localStorage.setItem('groups:pageSize', String(pageSize)); } catch(_) {}
+      try { ensurePagerLinks('groups'); } catch(_) {}
+    }
+  } catch(_) {}
+}, true);
+
+// Global clear search handler used by components/searchbar.html
+if (!window.searchClean) {
+  window.searchClean = function(btn){
+    try {
+      try { console.debug('[search][global] searchClean invoked', { pageUsers: !!document.querySelector("section[data-testid='users-section']") }); } catch(_) {}
+      var scope = (btn && btn.closest && btn.closest('.searchbar')) || document;
+      var input = scope.querySelector ? scope.querySelector('#searchinp') : document.getElementById('searchinp');
+      if (input) {
+        input.value = '';
+        try { console.debug('[search][global] dispatch input/change'); } catch(_) {}
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+        try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+      }
+      // Remove persisted search where applicable
+      try { localStorage.removeItem('users:search'); } catch(_) {}
+      try { localStorage.removeItem('groups:search'); } catch(_) {}
+      // Page-specific fallbacks
+      if (document.querySelector("section[data-testid='users-section']")) {
+        try { console.debug('[search][global] users-section detected; calling usersDoFilter("")'); } catch(_) {}
+        try { if (window.usersDoFilter) window.usersDoFilter(''); } catch(_) {}
+      }
+      if (typeof window.GroupsSearch !== 'undefined' && window.GroupsSearch.filterGroupsTable) {
+        try { window.GroupsSearch.filterGroupsTable(''); } catch(_) {}
+      }
+    } catch(_) {}
+    return false;
+  };
+}
+
+// Ensure top menu links for Categories/Registrators include pagination params
+(function ensureTopMenuPagingLinks(){
+  try {
+    function withParams(url, params){
+      try {
+        var u = new URL(url, window.location.origin);
+        Object.keys(params).forEach(function(k){ if (!u.searchParams.get(k)) u.searchParams.set(k, String(params[k])); });
+        return u.pathname + (u.search ? u.search : '');
+      } catch(_) {
+        return url;
+      }
+    }
+    function rewriteAnchor(anchor, params){
+      if (!anchor || !anchor.href) return;
+      var newHref = withParams(anchor.href, params);
+      if (newHref && anchor.getAttribute('href') !== newHref) {
+        anchor.setAttribute('href', newHref);
+      }
+      if (!anchor.__pagingBound) {
+        anchor.__pagingBound = true;
+        anchor.addEventListener('click', function(ev){
+          try {
+            var href = withParams(anchor.href, params);
+            if (href !== anchor.href) {
+              ev.preventDefault();
+              window.location.assign(href);
+            }
+          } catch(_) {}
+        }, { capture: true });
+      }
+    }
+    function apply(){
+      // Keep URL minimal: only set sizes (defaults to 10), do not add page indexes
+      var defaultsGroups = { page_size_groups: 10 };
+      var defaultsUsers = { page_size_users: 10 };
+      var defaultsAll = Object.assign({}, defaultsGroups, defaultsUsers);
+      var links = document.querySelectorAll('a.topbtn[href]');
+      links.forEach(function(a){
+        try {
+          var href = a.getAttribute('href') || '';
+          if (!href) return;
+          if (href.includes('/categories')) {
+            rewriteAnchor(a, defaultsAll);
+          } else if (href.includes('/registrators')) {
+            rewriteAnchor(a, defaultsAll);
+          }
+        } catch(_) {}
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', apply);
+    } else {
+      apply();
+    }
+  } catch(_) {}
+})();

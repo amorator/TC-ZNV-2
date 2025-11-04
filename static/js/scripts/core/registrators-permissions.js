@@ -572,7 +572,19 @@ function renderPagination(which, resp) {
     li.className = "page-item" + (disabled ? " disabled" : "") + (active ? " active" : "");
     var a = document.createElement("a");
     a.className = "page-link";
-    a.href = "#";
+    // Build explicit href on current path with separate params per list
+    try {
+      var u = new URL(window.location.href);
+      var size = pageSize || 10;
+      if (which === 'groups') {
+        u.searchParams.set('page_groups', String(targetPage));
+        u.searchParams.set('page_size_groups', String(size));
+      } else {
+        u.searchParams.set('page_users', String(targetPage));
+        u.searchParams.set('page_size_users', String(size));
+      }
+      a.href = u.pathname + '?' + u.searchParams.toString();
+    } catch(_) { a.href = '#'; }
     a.setAttribute("data-page", String(targetPage));
     a.textContent = String(label);
     a.onclick = function (e) {
@@ -584,6 +596,19 @@ function renderPagination(which, resp) {
       } catch(_) {}
       var q = getRegSearchValue(which);
       loadPage(which, targetPage, q);
+      // Reflect in URL without reload
+      try {
+        var u2 = new URL(window.location.href);
+        var size2 = pageSize || 10;
+        if (which === 'groups') {
+          u2.searchParams.set('page_groups', String(targetPage));
+          u2.searchParams.set('page_size_groups', String(size2));
+        } else {
+          u2.searchParams.set('page_users', String(targetPage));
+          u2.searchParams.set('page_size_users', String(size2));
+        }
+        window.history.replaceState(null, '', u2.pathname + '?' + u2.searchParams.toString());
+      } catch(_) {}
     };
     li.appendChild(a);
     return li;
@@ -743,10 +768,22 @@ function bindRegistratorsSearchbars() {
 
 // Bind on DOM ready
 (function(){
+  function ensureUrlSizes(){
+    try {
+      var u = new URL(window.location.href);
+      var changed = false;
+      if (!u.searchParams.get('page_size_groups')) { u.searchParams.set('page_size_groups', '10'); changed = true; }
+      if (!u.searchParams.get('page_size_users')) { u.searchParams.set('page_size_users', '10'); changed = true; }
+      if (changed) {
+        window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+      }
+    } catch(_) {}
+  }
+  function run(){ ensureUrlSizes(); bindRegistratorsSearchbars(); }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindRegistratorsSearchbars);
+    document.addEventListener('DOMContentLoaded', run);
   } else {
-    bindRegistratorsSearchbars();
+    run();
   }
 })();
 

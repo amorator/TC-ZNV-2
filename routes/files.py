@@ -1370,9 +1370,15 @@ def register(app, media_service, socketio=None) -> None:
                     f'download file {name} from {dirs[0]}/{dirs[sdid]}',
                     (request.remote_addr or ''))
             else:
-                log_action('FILE_OPEN', current_user.name,
-                           f'open file {name} in {dirs[0]}/{dirs[sdid]}',
-                           (request.remote_addr or ''))
+                # Avoid spamming logs for video range chunk requests
+                try:
+                    rng = (request.headers.get('Range') or '').strip()
+                except Exception:
+                    rng = ''
+                if not rng:
+                    log_action('FILE_OPEN', current_user.name,
+                               f'open file {name} in {dirs[0]}/{dirs[sdid]}',
+                               (request.remote_addr or ''))
             return send_from_directory(file_dir,
                                        name,
                                        as_attachment=is_download)
@@ -1420,10 +1426,16 @@ def register(app, media_service, socketio=None) -> None:
                     f'download file {file.file_name} from category {file.category_id}/{file.subcategory_id}',
                     (request.remote_addr or ''))
             else:
-                log_action(
-                    'FILE_OPEN', current_user.name,
-                    f'open file {file.file_name} in category {file.category_id}/{file.subcategory_id}',
-                    (request.remote_addr or ''))
+                # Avoid spamming logs for video range chunk requests
+                try:
+                    rng = (request.headers.get('Range') or '').strip()
+                except Exception:
+                    rng = ''
+                if not rng:
+                    log_action(
+                        'FILE_OPEN', current_user.name,
+                        f'open file {file.file_name} in category {file.category_id}/{file.subcategory_id}',
+                        (request.remote_addr or ''))
 
             return send_from_directory(file_dir,
                                        file.file_name,

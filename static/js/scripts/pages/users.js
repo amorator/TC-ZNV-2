@@ -156,6 +156,71 @@ function initUsersPagination() {
 
   const pageSize = 10;
 
+  // Lightweight server render usable from anywhere (bypasses conflicting globals)
+  function serverRender(page){
+    try {
+      const table = document.getElementById('maintable');
+      const tbody = table && table.tBodies && table.tBodies[0];
+      const pager = document.getElementById('users-pagination');
+      if (!tbody || !pager) return;
+      const url = new URL(window.location.origin + '/users/page');
+      url.searchParams.set('page', String(parseInt(page, 10) || 1));
+      url.searchParams.set('page_size', String(pageSize));
+      url.searchParams.set('t', String(Date.now()));
+      try { console.debug('[users][serverRender] GET', String(url)); } catch(_) {}
+      fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
+        .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1, page_size: pageSize })
+        .then(j => {
+          try { console.debug('[users][serverRender] resp', { total: j.total, page: j.page, page_size: j.page_size, has_html: !!(j && j.html && j.html.length) }); } catch(_) {}
+          const searchRow = tbody.querySelector('tr#search');
+          tbody.innerHTML = j.html || '';
+          if (searchRow) { try { tbody.insertBefore(searchRow, tbody.firstChild); } catch(_) {} }
+          // Pager
+          if (typeof j.pager_html === 'string' && j.pager_html) {
+            pager.innerHTML = j.pager_html;
+          } else {
+            const total = parseInt(j.total || 0, 10);
+            const p = parseInt(j.page || 1, 10);
+            const ps = parseInt(j.page_size || pageSize, 10);
+            const pages = Math.max(1, Math.ceil(total / Math.max(1, ps)));
+            const btn = (label, targetPage, disabled = false, extraClass = "") => {
+              const href = `/users?page=${targetPage}&page_size=${ps}`;
+              return `<li class="page-item ${extraClass} ${disabled ? "disabled" : ""}"><a class="page-link" href="${href}" data-page="${targetPage}">${label}</a></li>`;
+            };
+            const items = [];
+            items.push(btn('⏮', 1, p === 1, 'first'));
+            items.push(btn('‹', Math.max(1, p - 1), p === 1, 'prev'));
+            items.push(`<li class="page-item ${p===1?'active':''}"><a class="page-link" href="/users?page=1&page_size=${ps}" data-page="1">1</a></li>`);
+            const leftStart = Math.max(2, p - 2);
+            const leftGap = leftStart - 2; if (leftGap >= 1) items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
+            const midStart = Math.max(2, p - 2), midEnd = Math.min(pages - 1, p + 2);
+            for (let x = midStart; x <= midEnd; x++) items.push(`<li class="page-item ${x===p?'active':''}"><a class="page-link" href="/users?page=${x}&page_size=${ps}" data-page="${x}">${x}</a></li>`);
+            const rightEnd = Math.min(pages - 1, p + 2);
+            const rightGap = pages - 1 - rightEnd; if (rightGap >= 1) items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
+            if (pages > 1) items.push(`<li class="page-item ${p===pages?'active':''}"><a class="page-link" href="/users?page=${pages}&page_size=${ps}" data-page="${pages}">${pages}</a></li>`);
+            items.push(btn('›', Math.min(pages, p + 1), p === pages, 'next'));
+            items.push(btn('⏭', pages, p === pages, 'last'));
+            pager.innerHTML = `<nav><ul class="pagination mb-0">${items.join('')}</ul></nav>`;
+          }
+          try { pager.classList.remove('d-none'); } catch(_) {}
+          try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+          try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+          try { if (typeof setupTableInteractions === 'function') setupTableInteractions(); } catch(_) {}
+          try { ensurePagerLinks && ensurePagerLinks('users'); } catch(_) {}
+          try { localStorage.setItem('users:lastPage', String(j.page || page || 1)); } catch(_) {}
+          // Reflect URL
+          try {
+            const u = new URL(window.location.href);
+            const curP = String(j.page || page || 1);
+            const curS = String(j.page_size || pageSize);
+            u.searchParams.set('page', curP);
+            u.searchParams.set('page_size', curS);
+            window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+          } catch(_) {}
+        });
+    } catch(_) {}
+  }
+
   function render(page) {
     const url = new URL(window.location.origin + "/users/page");
     url.searchParams.set("page", String(page));
@@ -202,10 +267,12 @@ function initUsersPagination() {
         // Persist current page
         try { localStorage.setItem('users:lastPage', String(page)); } catch(_) {}
 
-        const btn = (label, targetPage, disabled = false, extraClass = "") =>
-          `<li class="page-item ${extraClass} ${
+        const btn = (label, targetPage, disabled = false, extraClass = "") => {
+          const href = `/users?page=${targetPage}&page_size=${pageSize}`;
+          return `<li class="page-item ${extraClass} ${
             disabled ? "disabled" : ""
-          }"><a class="page-link" href="#" data-page="${targetPage}">${label}</a></li>`;
+          }"><a class="page-link" href="${href}" data-page="${targetPage}">${label}</a></li>`;
+        };
 
         const items = [];
         items.push(btn("⏮", 1, page === 1, "first"));
@@ -213,7 +280,7 @@ function initUsersPagination() {
         items.push(
           `<li class="page-item ${
             page === 1 ? "active" : ""
-          }"><a class="page-link" href="#" data-page="1">1</a></li>`
+          }"><a class="page-link" href="/users?page=1&page_size=${pageSize}" data-page="1">1</a></li>`
         );
 
         const leftStart = Math.max(2, page - 2);
@@ -230,7 +297,7 @@ function initUsersPagination() {
           items.push(
             `<li class="page-item ${
               p === page ? "active" : ""
-            }"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`
+            }"><a class="page-link" href="/users?page=${p}&page_size=${pageSize}" data-page="${p}">${p}</a></li>`
           );
         }
 
@@ -246,16 +313,21 @@ function initUsersPagination() {
           items.push(
             `<li class="page-item ${
               page === pages ? "active" : ""
-            }"><a class="page-link" href="#" data-page="${pages}">${pages}</a></li>`
+            }"><a class="page-link" href="/users?page=${pages}&page_size=${pageSize}" data-page="${pages}">${pages}</a></li>`
           );
         }
 
         items.push(btn("›", Math.min(pages, page + 1), page === pages, "next"));
         items.push(btn("⏭", pages, page === pages, "last"));
 
-        pager.innerHTML = `<nav><ul class="pagination mb-0">${items.join(
-          ""
-        )}</ul></nav>`;
+        pager.innerHTML = `<nav><ul class="pagination mb-0">${items.join("")}</ul></nav>`;
+        try {
+          // Ensure explicit hrefs with current page_size
+          pager.querySelectorAll('a.page-link[data-page]').forEach(function(a){
+            const p = parseInt(a.getAttribute('data-page') || '0', 10) || 1;
+            a.setAttribute('href', `/users?page=${p}&page_size=${pageSize}`);
+          });
+        } catch(_) {}
 
         if (!pager._clickBound) {
           const onPagerClick = (e) => {
@@ -271,13 +343,30 @@ function initUsersPagination() {
 
         reinitializeContextMenu();
         if (window.rebindUsersTable) window.rebindUsersTable();
-        // Rebind row interactions (including toggles) after tbody replacement
         if (typeof setupTableInteractions === 'function') setupTableInteractions();
       })
       .catch((error) =>
         window.ErrorHandler.handleError(error, "usersPager.render")
       );
   }
+
+  // Ensure usersPager is available even when pager HTML exists initially
+  try {
+    if (!window.usersPager) {
+      window.usersPager = {
+        renderPage: render,
+        readPage: function(){
+          try {
+            const pagerEl = document.getElementById('users-pagination');
+            const a = pagerEl && pagerEl.querySelector('.page-item.active a[data-page]');
+            const t = a ? (a.getAttribute('data-page') || a.textContent || '1') : '1';
+            const n = parseInt(t, 10) || 1;
+            return n;
+          } catch(_) { return 1; }
+        }
+      };
+    }
+  } catch(_) {}
 
   // If table has data but no pagination, initialize pagination without reloading table
   if (tbody.querySelectorAll("tr.table__body_row").length > 0) {
@@ -353,10 +442,12 @@ function initUsersPagination() {
     }
 
     // Expose usersPager for external use
-    window.usersPager = {
-      renderPage: render,
-      readPage: () => 1,
-    };
+    try {
+      window.usersPager = {
+        renderPage: render,
+        readPage: () => 1,
+      };
+    } catch(_) {}
 
     return;
   }
@@ -365,7 +456,98 @@ function initUsersPagination() {
   let startPage = 1;
   try { const saved = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (saved > 0) startPage = saved; } catch(_) {}
   render(startPage);
+
+  // Expose lightweight serverRender for other modules (search clear)
+  try { window.__usersServerRender = serverRender; } catch(_) {}
 }
+
+// Fallback usersPager that drives server soft-refresh if the above pager isn't initialized
+(function ensureUsersPagerFallback(){
+  try {
+    if (window.usersPager && typeof window.usersPager.renderPage === 'function') return;
+    window.usersPager = {
+      renderPage: function(page){
+        try { console.debug('[users][pager] fallback renderPage -> softRefreshUsersTable, page=', page); } catch(_) {}
+        // Persist desired page into tableState so soft refresh picks it up
+        try {
+          const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");
+          let pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
+          try { pageSize = parseInt(localStorage.getItem('users:pageSize') || String(pageSize), 10) || pageSize; } catch(_) {}
+          localStorage.setItem('tableState:users', JSON.stringify({ page: parseInt(page, 10) || 1, pageSize: pageSize }));
+        } catch(_) {}
+        // Reflect URL
+        try {
+          const u = new URL(window.location.href);
+          const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || { page: 1, pageSize: 10 };
+          u.searchParams.set('page', String(st.page || 1));
+          u.searchParams.set('page_size', String(st.pageSize || 10));
+          window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+        } catch(_) {}
+        // Soft refresh
+        if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable();
+      },
+      readPage: function(){
+        try {
+          const u = new URL(window.location.href);
+          const p = parseInt(u.searchParams.get('page') || '0', 10) || 0;
+          if (p > 0) return p;
+        } catch(_) {}
+        try {
+          const pagerEl = document.getElementById('users-pagination');
+          const a = pagerEl && pagerEl.querySelector('.page-item.active a[data-page]');
+          const t = a ? (a.getAttribute('data-page') || a.textContent || '1') : '1';
+          const n = parseInt(t, 10) || 1;
+          return n;
+        } catch(_) { return 1; }
+      }
+    };
+  } catch(_) {}
+})();
+
+// Ensure direct server renderer exists even if initUsersPagination was not invoked
+(function ensureUsersServerRender(){
+  try {
+    if (typeof window.__usersServerRender === 'function') return;
+    window.__usersServerRender = function(page){
+      try {
+        const table = document.getElementById('maintable');
+        const tbody = table && table.tBodies && table.tBodies[0];
+        const pager = document.getElementById('users-pagination');
+        if (!tbody || !pager) return;
+        const ps = (function(){
+          try { return parseInt(localStorage.getItem('users:pageSize') || '10', 10) || 10; } catch(_) { return 10; }
+        })();
+        const url = new URL(window.location.origin + '/users/page');
+        url.searchParams.set('page', String(parseInt(page, 10) || 1));
+        url.searchParams.set('page_size', String(ps));
+        url.searchParams.set('t', String(Date.now()));
+        try { console.debug('[users][serverRender:initless] GET', String(url)); } catch(_) {}
+        fetch(String(url), { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }})
+          .then(r => r.ok ? r.json() : { html: '', total: 0, page: 1, page_size: ps })
+          .then(j => {
+            const searchRow = tbody.querySelector('tr#search');
+            tbody.innerHTML = j.html || '';
+            if (searchRow) { try { tbody.insertBefore(searchRow, tbody.firstChild); } catch(_) {} }
+            if (typeof j.pager_html === 'string' && j.pager_html) {
+              pager.innerHTML = j.pager_html;
+            }
+            try { pager.classList.remove('d-none'); } catch(_) {}
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+            try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+            try { if (typeof setupTableInteractions === 'function') setupTableInteractions(); } catch(_) {}
+            try { ensurePagerLinks && ensurePagerLinks('users'); } catch(_) {}
+            try { localStorage.setItem('users:lastPage', String(j.page || page || 1)); } catch(_) {}
+            try {
+              const u = new URL(window.location.href);
+              u.searchParams.set('page', String(j.page || page || 1));
+              u.searchParams.set('page_size', String(j.page_size || ps));
+              window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+            } catch(_) {}
+          });
+      } catch(_) {}
+    };
+  } catch(_) {}
+})();
 
 /**
  * Global search function
@@ -383,14 +565,35 @@ if (!window.usersDoFilter) {
     const q = (query || "").trim();
 
     if (q.length === 0) {
+      try { console.debug('[users][search] clear detected in usersDoFilter, restoring full table'); } catch(_) {}
       if (pager) pager.classList.remove("d-none");
-      if (
+      // Remove q from URL and reflect current pagination like on Files page
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('q');
+        let page = 1, pageSize = 10;
+        try { const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; page = st.page || 1; pageSize = st.pageSize || 10; } catch(_) {}
+        url.searchParams.set('page', String(page));
+        url.searchParams.set('page_size', String(pageSize));
+        window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
+      } catch(_) {}
+      if (typeof window.__usersServerRender === 'function') {
+        // Use direct server render to avoid conflicts
+        let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
+        try { console.debug('[users][search] using __usersServerRender(', restore, ')'); } catch(_) {}
+        window.__usersServerRender(restore);
+      } else if (
         window.usersPager &&
         typeof window.usersPager.renderPage === "function"
       ) {
         // Restore last page if exists
         let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
+        try { console.debug('[users][search] calling usersPager.renderPage(', restore, ')'); } catch(_) {}
         window.usersPager.renderPage(restore);
+      } else if (typeof window.softRefreshUsersTable === 'function') {
+        // Fallback to server-side soft refresh preserving current pagination
+        try { console.debug('[users][search] usersPager missing, calling softRefreshUsersTable()'); } catch(_) {}
+        window.softRefreshUsersTable();
       }
       return Promise.resolve(true);
     }
@@ -517,6 +720,7 @@ if (!window.usersDoFilter) {
   });
 
   window.searchClean = function () {
+    try { console.debug('[users][search] searchClean clicked'); } catch(_) {}
     const el = document.getElementById("searchinp");
     if (el) {
       el.value = "";
@@ -525,9 +729,34 @@ if (!window.usersDoFilter) {
     try {
       localStorage.removeItem(key);
     } catch (_) {}
-    if (el) {
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }
+    // Reflect URL like on Files page and ensure pager visible
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('q');
+      let page = 1, pageSize = 10;
+      try { const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; page = st.page || 1; pageSize = st.pageSize || 10; } catch(_) {}
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('page_size', String(pageSize));
+      window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
+    } catch(_) {}
+    try { const pager = document.getElementById('users-pagination'); if (pager) pager.classList.remove('d-none'); } catch(_) {}
+    // Trigger filter explicitly; fallback to soft refresh if pager API unavailable
+    try {
+      try { console.debug('[users][search] invoking usersDoFilter("", 1)'); } catch(_) {}
+      if (typeof window.usersDoFilter === 'function') {
+        Promise.resolve(window.usersDoFilter('', 1)).catch(function(){
+          try { console.debug('[users][search] usersDoFilter rejected; fallback to softRefreshUsersTable()'); } catch(_) {}
+          if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable();
+        });
+      } else if (typeof window.softRefreshUsersTable === 'function') {
+        try { console.debug('[users][search] usersDoFilter missing; calling softRefreshUsersTable()'); } catch(_) {}
+        window.softRefreshUsersTable();
+      } else if (el) {
+        // last resort: dispatch input to any remaining listeners
+        try { console.debug('[users][search] fallback dispatch input'); } catch(_) {}
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } catch(_) {}
   };
 })();
 

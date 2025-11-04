@@ -6,6 +6,11 @@ from os import path, makedirs
 from configparser import ConfigParser
 from datetime import datetime
 from typing import Optional
+try:
+    # Optional import; functions guard if no request context
+    from flask import request as _flask_request
+except Exception:
+    _flask_request = None
 
 
 class LoggingConfig:
@@ -202,7 +207,8 @@ class LoggingConfig:
 			p = (path or '').lower()
 			if (
 				'/api/heartbeat' in p or '/presence/heartbeat' in p or
-				p.endswith('/heartbeat') or '/api/ping' in p or '/presence/ping' in p or p.endswith('/ping')
+				p.endswith('/heartbeat') or '/api/ping' in p or '/presence/ping' in p or p.endswith('/ping') or
+				p.startswith('/static/') or '/static/' in p
 			):
 				return
 		except Exception:
@@ -224,7 +230,26 @@ class LoggingConfig:
 		status = "SUCCESS" if success else "FAILED"
 		ip_info = f" ip={ip}" if ip else ""
 		details_info = f" details={details}" if details else ""
-		
+		# Enrich with request context (route, method, path, referer) when available
+		ctx_parts = []
+		try:
+			req = _flask_request if _flask_request else None
+			if req:
+				endpoint = getattr(req, 'endpoint', None)
+				method = getattr(req, 'method', None)
+				path_ = getattr(req, 'path', None) or getattr(req, 'full_path', None)
+				referer = (req.headers.get('Referer') or req.headers.get('Referrer') or '')
+				if endpoint:
+					ctx_parts.append(f"endpoint={endpoint}")
+				if method:
+					ctx_parts.append(f"method={method}")
+				if path_:
+					ctx_parts.append(f"route={path_}")
+				if referer:
+					ctx_parts.append(f"referer={referer}")
+		except Exception:
+			pass
+
 		# Добавляем дополнительную информацию если есть
 		extra_info = ""
 		if extra_data:
@@ -235,6 +260,9 @@ class LoggingConfig:
 				else:
 					extra_parts.append(f"{key}={str(value)[:100]}")
 			extra_info = f" {' '.join(extra_parts)}"
+		# Merge context parts after extra_data for readability
+		if ctx_parts:
+			extra_info = (extra_info + ' ' + ' '.join(ctx_parts)).rstrip()
 		
 		# Формируем полное сообщение
 		message = f'{action} user={user} status={status}{ip_info}{details_info}{extra_info}'

@@ -6,9 +6,59 @@
 
 async function validateForm(element) {
   try {
-    const form = element.closest("form");
+    const form = element && element.closest ? element.closest("form") : null;
+    try {
+      const dbg = {
+        at: 'validateForm:enter',
+        ts: Date.now(),
+        element: element && { tag: element.tagName, id: element.id, classes: element.className, dataset: element.dataset },
+        formId: form && form.id,
+        action: form && form.action,
+        stack: (new Error()).stack,
+      };
+      console.debug('[form]', dbg);
+    } catch(_) {}
     if (!form) return false;
+    // Reentrancy guard to avoid recursive submissions
+    if (form._submitting) return false;
+    form._submitting = true;
+    // Guard double-clicks on the same control
+    try {
+      if (element && element.disabled) return false;
+      if (element) element.disabled = true;
+      if (element && element.dataset) element.dataset.processing = '1';
+    } catch(_) {}
+    try { if (form && form.id === 'perm') console.debug('[users:perm] submit:start', { action: form.action }); } catch(_) {}
     
+    // Special handling for groups forms (Add/Edit/Delete) via AJAX + soft refresh
+    if (form.action.includes('/groups/')) {
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        if (!resp.ok || !(data && data.status === 'success')) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        try { console.debug('[groups:submit] success'); } catch(_) {}
+        // Close possible modals
+        try { if (document.getElementById('popup-add')) closeModal('popup-add'); } catch(_) {}
+        try { if (document.getElementById('popup-edit')) closeModal('popup-edit'); } catch(_) {}
+        try { if (document.getElementById('popup-delete')) closeModal('popup-delete'); } catch(_) {}
+        if (window.showToast) window.showToast('Группы обновлены', 'success');
+        // Soft refresh groups table preserving page
+        try { if (typeof window.softRefreshGroupsTable === 'function') window.softRefreshGroupsTable(); } catch(_) {}
+        return false;
+      } catch (e) {
+        try { console.debug('[groups:submit] error', e && (e.stack || e.message || e)); } catch(_) {}
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'groups-submit');
+        return false;
+      }
+    }
+
     // Special handling for delete form (Files)
     if (form.id === "delete" && form.action.includes('/files/delete/') && element) {
       const formAction = form.action;
@@ -28,6 +78,168 @@ async function validateForm(element) {
         return false;
       }
       return false;
+    }
+
+    // Special handling for users permissions form
+    if (form.id === 'perm' && form.action.includes('/users/edit/')) {
+      try {
+        const formData = new FormData(form);
+        try {
+          const a = new URL(form.action, window.location.origin);
+          console.debug('[users:perm] fetch:about-to-send', { href: a.pathname + a.search, page: a.searchParams.get('page'), page_size: a.searchParams.get('page_size') });
+        } catch(_) { console.debug('[users:perm] fetch:about-to-send', { href: form.action }); }
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { if (resp.ok) data = { status: 'success' }; }
+        try { console.debug('[users:perm] fetch:response', { ok: resp.ok, status: resp.status, data_status: data && data.status }); } catch(_) {}
+        if (!resp.ok || !(data && (data.status === 'success'))) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        // Close modal
+        try { closeModal('popup-perm'); } catch(_) {}
+        if (window.showToast) window.showToast('Разрешения обновлены', 'success');
+        // Refresh Users table preserving current page using page baked in form.action
+        try {
+          var page = 1;
+          var pageSize = 10;
+          try {
+            var act = new URL(form.action, window.location.origin);
+            page = parseInt(act.searchParams.get('page') || '0', 10) || 0;
+            pageSize = parseInt(act.searchParams.get('page_size') || '0', 10) || 0;
+          } catch(_) {}
+          if (!page) {
+            try { page = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; } catch(_) { page = 0; }
+          }
+          if (!page) {
+            var pager = document.getElementById('users-pagination');
+            var active = pager && pager.querySelector('.page-item.active [data-page]');
+            page = active ? (parseInt(active.getAttribute('data-page') || '1', 10) || 1) : 1;
+          }
+          if (!pageSize) {
+            try { pageSize = parseInt(localStorage.getItem('users:pageSize') || '0', 10) || 0; } catch(_) { pageSize = 0; }
+            if (!pageSize) pageSize = 10;
+          }
+          try { console.debug('[users:perm] soft-refresh:state', { page, pageSize }); } catch(_) {}
+          if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+            try { localStorage.setItem('users:lastPage', String(page)); } catch(_) {}
+            window.usersPager.renderPage(page);
+          } else if (typeof window.softRefreshUsersTable === 'function') {
+            // Ensure soft refresh uses our page
+            try { localStorage.setItem('tableState:users', JSON.stringify({ page: page, pageSize: pageSize })); } catch(_) {}
+            window.softRefreshUsersTable();
+          }
+        } catch(e) { try { console.debug('[users:perm] soft-refresh:err', e && (e.stack || e)); } catch(_) {} }
+        return false;
+      } catch (e) {
+        try { console.debug('[users:perm] submit:error', e && (e.stack || e.message || e)); } catch(_) {}
+        // Changes are often applied server-side even if response is HTML/redirect; degrade gracefully
+        try { closeModal('popup-perm'); } catch(_) {}
+        try {
+          // Fallback to soft refresh and optimistic success toast
+          if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable();
+          if (window.showToast) window.showToast('Разрешения обновлены', 'success');
+        } catch(_) {}
+        return false;
+      }
+    }
+
+    // Special handling for users edit (main edit modal)
+    if (form.id === 'edit' && form.action.includes('/users/edit/')) {
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { if (resp.ok) data = { status: 'success' }; }
+        if (!resp.ok || !(data && (data.status === 'success'))) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        try { closeModal('popup-edit'); } catch(_) {}
+        if (window.showToast) window.showToast('Пользователь обновлён', 'success');
+        try { if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable(); } catch(_) {}
+        return false;
+      } catch (e) {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'users-edit-submit');
+        return false;
+      }
+    }
+
+    // Special handling for users add
+    if (form.id === 'add' && form.action.includes('/users/add')) {
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { if (resp.ok) data = { status: 'success' }; }
+        if (!resp.ok || !(data && (data.status === 'success'))) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        try { closeModal('popup-add'); } catch(_) {}
+        if (window.showToast) window.showToast('Пользователь добавлен', 'success');
+        try { if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable(); } catch(_) {}
+        return false;
+      } catch (e) {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'users-add-submit');
+        return false;
+      }
+    }
+
+    // Special handling for users reset password
+    if (form.id === 'reset' && form.action.includes('/users/reset/')) {
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { if (resp.ok) data = { status: 'success' }; }
+        if (!resp.ok || !(data && (data.status === 'success'))) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        try { closeModal('popup-reset'); } catch(_) {}
+        if (window.showToast) window.showToast('Пароль изменён', 'success');
+        try { if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable(); } catch(_) {}
+        return false;
+      } catch (e) {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'users-reset-submit');
+        return false;
+      }
+    }
+
+    // Special handling for users delete
+    if (form.id === 'delete' && form.action.includes('/users/delete/')) {
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        if (!resp.ok || !(data && (data.status === 'success'))) {
+          throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        try { closeModal('popup-delete'); } catch(_) {}
+        if (window.showToast) window.showToast('Пользователь удалён', 'success');
+        try { if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable(); } catch(_) {}
+        return false;
+      } catch (e) {
+        window.ErrorHandler && window.ErrorHandler.handleError(e, 'users-delete-submit');
+        return false;
+      }
     }
 
     // Special handling for delete form (Orders)
@@ -270,8 +482,13 @@ async function validateForm(element) {
     clearValidationErrors();
     return true;
   } catch (err) {
+    try { console.debug('[form] validateForm:catch', err && (err.stack || err.message || err)); } catch(_) {}
     window.ErrorHandler.handleError(err, "validateForm");
     return false;
+  } finally {
+    try { if (form) form._submitting = false; } catch(_) {}
+    try { if (element) { element.disabled = false; if (element.dataset) delete element.dataset.processing; } } catch(_) {}
+    try { console.debug('[form] validateForm:exit'); } catch(_) {}
   }
 }
 

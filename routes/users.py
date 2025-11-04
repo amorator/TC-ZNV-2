@@ -35,7 +35,7 @@ def register(app):
     @app.route('/users', methods=['GET'])
     @require_permissions(USERS_VIEW_PAGE)
     def users():
-        """Render users page with list and groups."""
+        """Render users page with list and groups (server-paginated)."""
         # Support both ConfigParser and dict-like config
         from configparser import ConfigParser
         cfg = getattr(app._sql, 'config', {})
@@ -45,12 +45,70 @@ def register(app):
         else:
             min_password_length = int(
                 str(cfg.get('web', {}).get('min_password_length', '1')))
+        # Server-side pagination parameters
+        try:
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('page_size', 10))
+            if page < 1:
+                page = 1
+            if page_size < 1:
+                page_size = 10
+        except Exception:
+            page, page_size = 1, 10
+
+        users_all = app._sql.user_all() or []
+        # Sort by first three columns alphabetically: Login, Name, Group
+        try:
+            group_map = app._sql.group_all() or {}
+
+            def sort_key(u):
+                login = (getattr(u, 'login', '') or '').upper()
+                name = (getattr(u, 'name', '') or '').upper()
+                groupname = (group_map.get(getattr(u, 'gid', None))
+                             or '').upper()
+                return (login, name, groupname)
+
+            users_all.sort(key=sort_key)
+        except Exception:
+            pass
+        total = len(users_all)
+        start = (page - 1) * page_size
+        end = start + page_size
+        users_slice = users_all[start:end]
+
+        # Build pager HTML with explicit page params
+        try:
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            def page_item(p, label=None, active=False, disabled=False):
+                lab = label if label is not None else str(p)
+                cls = "page-item{}{}".format(" active" if active else "", " disabled" if disabled else "")
+                href = url_for('users', page=p, page_size=page_size)
+                return f'<li class="{cls}"><a class="page-link" href="{href}" data-page="{p}">{lab}</a></li>'
+            parts = []
+            parts.append('<ul class="pagination mb-0">')
+            parts.append(page_item(1, '««', False, page <= 1))
+            parts.append(page_item(max(1, page - 1), '«', False, page <= 1))
+            start_p = max(1, page - 3)
+            end_p = min(total_pages, page + 3)
+            for p in range(start_p, end_p + 1):
+                parts.append(page_item(p, str(p), p == page, False))
+            parts.append(page_item(min(total_pages, page + 1), '»', False, page >= total_pages))
+            parts.append(page_item(total_pages, '»»', False, page >= total_pages))
+            parts.append('</ul>')
+            pager_html = ''.join(parts)
+        except Exception:
+            pager_html = ''
+
         return render_template('users.j2.html',
                                title='Пользователи — Заявки-Наряды-Файлы',
                                id=4,
-                               users=app._sql.user_all(),
+                               users=users_slice,
                                groups=app._sql.group_all(),
-                               min_password_length=min_password_length)
+                               min_password_length=min_password_length,
+                               pager_html=pager_html,
+                               page=page,
+                               page_size=page_size,
+                               total=total)
 
     @app.route('/users/page')
     @require_permissions(USERS_VIEW_PAGE)
@@ -65,9 +123,9 @@ def register(app):
             if ('text/html' in accept) and (not is_ajax):
                 return redirect(url_for('users'))
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 15))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 15
+            if page_size < 1: page_size = 10
             users = app._sql.user_all() or []
             # Sort by first three columns alphabetically: Login, Name, Group
             try:
@@ -90,12 +148,35 @@ def register(app):
             html = render_template('components/users_rows.j2.html',
                                    users=users_slice,
                                    groups=app._sql.group_all())
+            # Build server-side pagination HTML with explicit page params
+            try:
+                total_pages = max(1, (total + page_size - 1) // page_size)
+                def page_item(p, label=None, active=False, disabled=False):
+                    lab = label if label is not None else str(p)
+                    cls = "page-item{}{}".format(" active" if active else "", " disabled" if disabled else "")
+                    href = url_for('users', page=p, page_size=page_size)
+                    return f'<li class="{cls}"><a class="page-link" href="{href}" data-page="{p}">{lab}</a></li>'
+                parts = []
+                parts.append('<ul class="pagination mb-0">')
+                parts.append(page_item(1, '««', False, page <= 1))
+                parts.append(page_item(max(1, page - 1), '«', False, page <= 1))
+                start_p = max(1, page - 3)
+                end_p = min(total_pages, page + 3)
+                for p in range(start_p, end_p + 1):
+                    parts.append(page_item(p, str(p), p == page, False))
+                parts.append(page_item(min(total_pages, page + 1), '»', False, page >= total_pages))
+                parts.append(page_item(total_pages, '»»', False, page >= total_pages))
+                parts.append('</ul>')
+                pager_html = ''.join(parts)
+            except Exception:
+                pager_html = ''
             resp = make_response(
                 jsonify({
                     'html': html,
                     'total': total,
                     'page': page,
-                    'page_size': page_size
+                    'page_size': page_size,
+                    'pager_html': pager_html
                 }))
             resp.headers[
                 'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -112,9 +193,9 @@ def register(app):
         try:
             q = (request.args.get('q') or '').strip()
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 30))
+            page_size = int(request.args.get('page_size', 10))
             if page < 1: page = 1
-            if page_size < 1: page_size = 30
+            if page_size < 1: page_size = 10
             users = app._sql.user_all() or []
             # Sort by first three columns alphabetically: Login, Name, Group
             try:
@@ -214,6 +295,14 @@ def register(app):
             app.flash_error(
                 'Невозможно создать или переименовать пользователя admin через интерфейс'
             )
+            # Preserve page in redirect when available
+            try:
+                page = request.args.get('page', type=int)
+                page_size = request.args.get('page_size', type=int)
+                if page or page_size:
+                    return redirect(url_for('users', page=page, page_size=page_size))
+            except Exception:
+                pass
             return redirect(url_for('users'))
         ok = True
         error_message = ''
@@ -305,6 +394,13 @@ def register(app):
                         'status': 'error',
                         'message': error_message or 'Failed to create user'
                     }, 400
+            try:
+                page = request.args.get('page', type=int)
+                page_size = request.args.get('page_size', type=int)
+                if page or page_size:
+                    return redirect(url_for('users', page=page, page_size=page_size))
+            except Exception:
+                pass
             return redirect(url_for('users'))
 
     @app.route('/users/edit/<id>', methods=['POST'])
@@ -316,6 +412,13 @@ def register(app):
         user = app._sql.user_by_id([id])
         if user and user.login and user.login.strip().lower() == 'admin':
             app.flash_error('Разрешено только изменение пароля администратора')
+            try:
+                page = request.args.get('page', type=int)
+                page_size = request.args.get('page_size', type=int)
+                if page or page_size:
+                    return redirect(url_for('users', page=page, page_size=page_size))
+            except Exception:
+                pass
             return redirect(url_for('users'))
         ok = True
         error_message = ''
@@ -411,6 +514,13 @@ def register(app):
                         'status': 'error',
                         'message': error_message or 'Failed to update user'
                     }, 400
+            try:
+                page = request.args.get('page', type=int)
+                page_size = request.args.get('page_size', type=int)
+                if page or page_size:
+                    return redirect(url_for('users', page=page, page_size=page_size))
+            except Exception:
+                pass
             return redirect(url_for('users'))
 
     @app.route('/users/reset/<id>', methods=['POST'])

@@ -470,9 +470,15 @@ if (document.readyState === "loading") {
 // Load permissions
 function loadPermissions(subcategoryId) {
   // Load groups and users data
+  // Derive initial pages/sizes from URL (?page_groups, ?page_size_groups, ?page_users, ?page_size_users)
+  const url0 = new URL(window.location.href);
+  const pG = parseInt(url0.searchParams.get('page_groups') || '1', 10) || 1;
+  const sG = parseInt(url0.searchParams.get('page_size_groups') || '10', 10) || 10;
+  const pU = parseInt(url0.searchParams.get('page_users') || '1', 10) || 1;
+  const sU = parseInt(url0.searchParams.get('page_size_users') || '10', 10) || 10;
   Promise.all([
-    fetch("/api/groups?page=1&page_size=5").then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
-    fetch("/api/users?page=1&page_size=5").then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch(`/api/groups?page=${pG}&page_size=${sG}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch(`/api/users?page=${pU}&page_size=${sU}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
     fetch(`/api/subcategory/${subcategoryId}/permissions`).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
   ])
     .then(([groupsResp, usersResp, permissionsData]) => {
@@ -1401,8 +1407,19 @@ function renderPagination(which, resp) {
     }`;
     const a = document.createElement("a");
     a.className = "page-link";
-    a.href = "javascript:void(0)";
+    // Build explicit href with page params in URL
+    const cur = new URL(window.location.href);
+    if (which === 'groups') {
+      cur.searchParams.set('page_groups', String(targetPage));
+      cur.searchParams.set('page_size_groups', String(size));
+    } else {
+      cur.searchParams.set('page_users', String(targetPage));
+      cur.searchParams.set('page_size_users', String(size));
+    }
+    const qParam = (q ? `&${which}_q=${encodeURIComponent(q)}` : '');
+    a.href = `${cur.pathname}?${cur.searchParams.toString()}${qParam}`;
     a.textContent = label;
+    a.setAttribute('data-page', String(targetPage));
     a.onclick = () => {
       if (disabled) return;
       // Persist page per subcategory
@@ -1412,6 +1429,18 @@ function renderPagination(which, resp) {
         localStorage.setItem(pkey, String(targetPage));
       } catch(_) {}
       loadPage(which, targetPage, q);
+      // Reflect in URL without reload
+      try {
+        const u = new URL(window.location.href);
+        if (which === 'groups') {
+          u.searchParams.set('page_groups', String(targetPage));
+          u.searchParams.set('page_size_groups', String(size));
+        } else {
+          u.searchParams.set('page_users', String(targetPage));
+          u.searchParams.set('page_size_users', String(size));
+        }
+        window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+      } catch(_) {}
     };
     li.appendChild(a);
     return li;
