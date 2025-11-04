@@ -927,7 +927,7 @@ class SQLUtils(SQL):
 			admin_group_result = self.execute_scalar(f"SELECT id FROM {prefix}_group WHERE LOWER(name) = LOWER(%s) LIMIT 1;", [admin_group_name])
 			if not admin_group_result:
 				self.execute_non_query(f"""
-					INSERT INTO {prefix}_group (name, description) 
+					INSERT IGNORE INTO {prefix}_group (name, description) 
 					VALUES (%s, 'Группа администраторов системы');
 				""", [admin_group_name])
 				# Only log admin group creation once across all workers using Redis
@@ -949,7 +949,7 @@ class SQLUtils(SQL):
 			if not existing_admin:
 				if admin_password_hash and admin_password_hash.strip():
 					self.execute_non_query(f"""
-						INSERT INTO {prefix}_user (login, name, password, gid, enabled, permission) 
+						INSERT IGNORE INTO {prefix}_user (login, name, password, gid, enabled, permission) 
 						VALUES (%s, %s, %s, %s, %s, %s);
 					""", [admin_login, admin_name, admin_password_hash, admin_group_id, True, admin_permissions])
 					# Only log admin user creation once across all workers using Redis

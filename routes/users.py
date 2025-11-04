@@ -353,14 +353,25 @@ def register(app):
             if not login:
                 raise Exception('Логин не может быть пустым')
 
-            # Case-insensitive uniqueness excluding current id
-            if app._sql.user_exists(login, name, id):
-                raise Exception('Имя или логин занято другим пользователем!')
+            # Case-insensitive uniqueness: only when login or name actually changed
+            try:
+                orig_login = (user.login or '').strip() if user else ''
+                orig_name = (user.name or '').strip() if user else ''
+                changed_login = (login.strip().lower() != orig_login.strip().lower())
+                changed_name = (name.strip().lower() != orig_name.strip().lower())
+            except Exception:
+                changed_login = True
+                changed_name = True
+            if changed_login or changed_name:
+                if app._sql.user_exists(login, name, id):
+                    raise Exception('Имя или логин занято другим пользователем!')
 
-            gid_value = _resolve_gid(request.form.get('group'))
-            # Fallback to existing gid if group not provided
-            if request.form.get('group') is None and user and getattr(user, 'gid', None) is not None:
-                gid_value = int(user.gid)
+            # Resolve group: keep existing when field is missing or empty
+            raw_group = request.form.get('group')
+            if (raw_group is None) or (str(raw_group).strip() == ''):
+                gid_value = int(user.gid) if user and getattr(user, 'gid', None) is not None else _resolve_gid(None)
+            else:
+                gid_value = _resolve_gid(raw_group)
             app._sql.user_edit([
                 login, name, gid_value,
                 int(request.form.get('enabled') != None), permission_value, id

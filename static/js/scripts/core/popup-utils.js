@@ -23,6 +23,16 @@ function popupValues(form, rowId) {
 
     // Try to find corresponding data attribute in the row
     let dataValue = row.getAttribute(`data-${name}`);
+    // Special handling: group select expects numeric gid, while row stores data-gid and data-groupname
+    if (dataValue === null && name === 'group') {
+      const gid = row.getAttribute('data-gid');
+      if (gid !== null && input.tagName === 'SELECT') {
+        try {
+          input.value = String(gid);
+          return;
+        } catch(_) {}
+      }
+    }
     if (dataValue !== null) {
       if (input.type === "checkbox") {
         input.checked = dataValue === "true" || dataValue === "1";
