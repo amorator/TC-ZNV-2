@@ -18,11 +18,11 @@ This guide shows how to use search, pagination, files browsing, and orders.
 
 Screenshots:
 
-![Files page](/usr/share/znf/docs/images/user/20251105_090241_files.png)
+![Files page](images/user/20251105_090241_files.png)
 
-![Files search](/usr/share/znf/docs/images/admin/20251105_090543_files_search.png)
+![Files search](images/admin/20251105_090543_files_search.png)
 
-![Files cleared](/usr/share/znf/docs/images/admin/20251105_090543_files_cleared.png)
+![Files cleared](images/admin/20251105_090543_files_cleared.png)
 
 ### Orders
 - Enter search text; results update and the `q` parameter appears in the URL.

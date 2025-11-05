@@ -23,17 +23,17 @@ This guide covers Users, Groups, Categories, Registrators pages and dual searche
 
 Screenshots:
 
-![Users](/usr/share/znf/docs/images/admin/20251105_090241_users.png)
+![Users](images/admin/20251105_090241_users.png)
 
-![Groups](/usr/share/znf/docs/images/admin/20251105_090241_groups.png)
+![Groups](images/admin/20251105_090241_groups.png)
 
 Interactive:
 
-![Users search](/usr/share/znf/docs/images/admin/20251105_090543_users_search.png)
+![Users search](images/admin/20251105_090543_users_search.png)
 
-![Users cleared](/usr/share/znf/docs/images/admin/20251105_090543_users_cleared.png)
+![Users cleared](images/admin/20251105_090543_users_cleared.png)
 
-![Users page 2](/usr/share/znf/docs/images/admin/20251105_090543_users_page2.png)
+![Users page 2](images/admin/20251105_090543_users_page2.png)
 
 ### Categories / Registrators
 - Two independent search fields: `q_groups` and `q_users`.
@@ -42,27 +42,27 @@ Interactive:
 
 Screenshots:
 
-![Categories](/usr/share/znf/docs/images/admin/20251105_090241_categories.png)
+![Categories](images/admin/20251105_090241_categories.png)
 
-![Registrators](/usr/share/znf/docs/images/admin/20251105_090241_registrators.png)
+![Registrators](images/admin/20251105_090241_registrators.png)
 
 Interactive:
 
-![Categories dual search](/usr/share/znf/docs/images/admin/20251105_090543_categories_dual_search.png)
+![Categories dual search](images/admin/20251105_090543_categories_dual_search.png)
 
-![Categories groups cleared](/usr/share/znf/docs/images/admin/20251105_090543_categories_groups_cleared.png)
+![Categories groups cleared](images/admin/20251105_090543_categories_groups_cleared.png)
 
 ### Files / Orders
 
-![Files](/usr/share/znf/docs/images/admin/20251105_090241_files.png)
+![Files](images/admin/20251105_090241_files.png)
 
-![Orders](/usr/share/znf/docs/images/admin/20251105_090241_orders.png)
+![Orders](images/admin/20251105_090241_orders.png)
 
 Interactive:
 
-![Orders search](/usr/share/znf/docs/images/admin/20251105_090543_orders_search.png)
+![Orders search](images/admin/20251105_090543_orders_search.png)
 
-![Orders cleared](/usr/share/znf/docs/images/admin/20251105_090543_orders_cleared.png)
+![Orders cleared](images/admin/20251105_090543_orders_cleared.png)
 
 ### Images
 - See `docs/images/admin/` for screenshots.

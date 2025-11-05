@@ -24,5 +24,5 @@
 
 Example (Orders with `q` parameter in URL):
 
-![Orders with q](/usr/share/znf/docs/images/developer/20251105_090241_orders_q.png)
+![Orders with q](images/developer/20251105_090241_orders_q.png)
 
