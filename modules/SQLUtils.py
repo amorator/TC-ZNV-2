@@ -675,15 +675,20 @@ class SQLUtils(SQL):
 	def order_all(self):
 		# Include extended flag but keep Order ctor arity intact; set attribute afterwards
 		rows = self.execute_query(
-			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended FROM {self.config['db']['prefix']}_order ORDER BY id DESC;"
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized FROM {self.config['db']['prefix']}_order ORDER BY id DESC;"
 		)
 		result = []
 		for r in (rows or []):
 			base = r[:13]
 			ext = r[13] if len(r) > 13 else 0
+			fin = r[14] if len(r) > 14 else 0
 			obj = Order(*base)
 			try:
 				setattr(obj, 'extended', int(ext) if ext is not None else 0)
+			except Exception:
+				pass
+			try:
+				setattr(obj, 'finalized', int(fin) if fin is not None else 0)
 			except Exception:
 				pass
 			result.append(obj)
@@ -691,16 +696,21 @@ class SQLUtils(SQL):
 
 	def order_by_id(self, args):
 		row = self.execute_scalar(
-			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended FROM {self.config['db']['prefix']}_order WHERE id = %s;",
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized FROM {self.config['db']['prefix']}_order WHERE id = %s;",
 			args
 		)
 		if not row:
 			return None
 		base = row[:13]
 		ext = row[13] if len(row) > 13 else 0
+		fin = row[14] if len(row) > 14 else 0
 		obj = Order(*base)
 		try:
 			setattr(obj, 'extended', int(ext) if ext is not None else 0)
+		except Exception:
+			pass
+		try:
+			setattr(obj, 'finalized', int(fin) if fin is not None else 0)
 		except Exception:
 			pass
 		return obj
@@ -827,6 +837,7 @@ class SQLUtils(SQL):
 					issued DATETIME NULL,
 					start DATETIME NULL,
 					end DATETIME NULL,
+					finalized TINYINT(1) NOT NULL DEFAULT 0,
 					responsible VARCHAR(255) NOT NULL DEFAULT '',
 					work_name TEXT NOT NULL,
 					note TEXT DEFAULT '',
@@ -841,41 +852,10 @@ class SQLUtils(SQL):
 					INDEX idx_issued (issued),
 					INDEX idx_start (start),
 					INDEX idx_end (end),
+					INDEX idx_finalized (finalized),
 					INDEX idx_approved (approved)
 				) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 			""")
-
-			# Ensure column 'note' exists for older schemas
-			try:
-				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS note TEXT DEFAULT '';")
-			except Exception:
-				try:
-					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN note TEXT DEFAULT '';")
-				except Exception:
-					pass
-
-			# Ensure new columns exist for older schemas (order.created_by, order.creator_gid, order.extended)
-			try:
-				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS created_by INT NULL;")
-			except Exception:
-				try:
-					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN created_by INT NULL;")
-				except Exception:
-					pass
-			try:
-				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS creator_gid INT NULL;")
-			except Exception:
-				try:
-					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN creator_gid INT NULL;")
-				except Exception:
-					pass
-			try:
-				self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN IF NOT EXISTS extended TINYINT(1) NOT NULL DEFAULT 0;")
-			except Exception:
-				try:
-					self.execute_non_query(f"ALTER TABLE {prefix}_order ADD COLUMN extended TINYINT(1) NOT NULL DEFAULT 0;")
-				except Exception:
-					pass
 
 			# Ensure unified settings table exists (web_settings)
 			self.execute_non_query(f"""

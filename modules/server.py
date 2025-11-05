@@ -13,10 +13,11 @@ from flask_session import Session
 from modules.SQLUtils import SQLUtils
 
 
+
 class Server(Flask):
 	"""Flask app with login manager, DB access, and helpers."""
 
-	def __init__(self, root, name=__name__, redis_client=None):
+	def __init__(self, root, name=__name__, redis_client=None, session_disabled=False):
 		super().__init__(name, root_path=root)
 		CORS(self, resources={r'*': {'origins': '*'}}, supports_credentials=True)
 		# Prefer env-provided secret for sessions; fallback to static default
@@ -24,12 +25,39 @@ class Server(Flask):
 		self.config['TEMPLATES_AUTO_RELOAD'] = True
 		
 		# Configure session storage
-		if redis_client:
+		if session_disabled:
+			# Explicitly disable Flask-Session for helper/temporary Server instances
+			self.config['SESSION_TYPE'] = 'null'
+		elif redis_client:
 			self.config['SESSION_TYPE'] = 'redis'
-			self.config['SESSION_REDIS'] = redis_client.client
+			# Use a raw (bytes) Redis connection for Flask-Session to avoid UTF-8 decode on binary payloads
+			try:
+				import redis as _redis
+				rcfg = getattr(redis_client, 'config', {}) or {}
+				if rcfg.get('socket'):
+					if rcfg.get('password'):
+						_url = f"unix://:{rcfg['password']}@{rcfg['socket']}?db={rcfg.get('db', 0)}"
+					else:
+						_url = f"unix://{rcfg['socket']}?db={rcfg.get('db', 0)}"
+				else:
+					host = rcfg.get('server', 'localhost')
+					port = rcfg.get('port', 6379)
+					password = rcfg.get('password')
+					db = rcfg.get('db', 0)
+					if password:
+						_url = f"redis://:{password}@{host}:{port}/{db}"
+					else:
+						_url = f"redis://{host}:{port}/{db}"
+				self.config['SESSION_REDIS'] = _redis.from_url(_url, decode_responses=False, socket_connect_timeout=5, socket_timeout=5)
+			except Exception:
+				# Fallback to shared client if bytes client creation fails
+				self.config['SESSION_REDIS'] = getattr(redis_client, 'client', None)
 			self.config['SESSION_KEY_PREFIX'] = 'znf:session:'
+			# Ensure cookie carries only a signed session id (not whole payload)
+			self.config['SESSION_USE_SIGNER'] = True
 		else:
-			self.config['SESSION_TYPE'] = 'filesystem'
+			# Do not default to filesystem; leave null to avoid creating directories
+			self.config['SESSION_TYPE'] = 'null'
 		
 		self.config['SESSION_PERMANENT'] = True
 		self.config['PERMANENT_SESSION_LIFETIME'] = 86400
@@ -40,6 +68,13 @@ class Server(Flask):
 		self.config['REMEMBER_COOKIE_SECURE'] = True
 		self.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 		
+		# Initialize Flask-Session if not disabled
+		try:
+			if not session_disabled:
+				Session(self)
+		except Exception:
+			pass
+
 		# Store Redis client for other components
 		self.redis_client = redis_client
 		

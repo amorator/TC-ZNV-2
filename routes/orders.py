@@ -42,10 +42,43 @@ def register(app, socketio=None):
 		prefix = app._sql.config['db']['prefix']
 		rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
 		groups = [{'id': int(r[0]), 'name': str(r[1])} for r in rows]
+		# Determine admin group id from config name (case-insensitive)
+		def _get_admin_group_name(default: str = 'Программисты') -> str:
+			try:
+				cfg = getattr(app._sql, 'config', {})
+				from configparser import ConfigParser
+				if isinstance(cfg, ConfigParser):
+					return cfg.get('admin', 'group', fallback=default) or default
+			except Exception:
+				pass
+			try:
+				if isinstance(cfg, dict):
+					admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+					if isinstance(admin, dict) and 'group' in admin:
+						return admin.get('group') or default
+					if 'group' in cfg:
+						return cfg.get('group') or default
+			except Exception:
+				pass
+			return default
+		admin_group_name = _get_admin_group_name()
+		admin_group_id = None
+		try:
+			name_norm = (admin_group_name or '').strip().lower()
+			for r in rows:
+				try:
+					if str(r[1]).strip().lower() == name_norm:
+						admin_group_id = int(r[0])
+						break
+				except Exception:
+					continue
+		except Exception:
+			admin_group_id = None
 		return render_template('orders.j2.html',
 							   title='Наряды — Заявки-Наряды-Файлы',
 							   id=2,
-					   groups=groups)
+				   groups=groups,
+				   admin_group_id=admin_group_id)
 
 	@app.route('/api/orders', methods=['GET'])
 	@login_required
@@ -161,6 +194,7 @@ def register(app, socketio=None):
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
+					'finalized': bool(getattr(o, 'finalized', False)),
 				})
 			# Paginate
 			total = len(result)
@@ -189,7 +223,8 @@ def register(app, socketio=None):
 		try:
 			# Accept JSON body
 			data = request.get_json(silent=True) or {}
-			service = (data.get('service') or '').strip()
+			# Always enforce creator's service (current user's group name), ignore client input
+			service = ''
 			number = (data.get('number') or '').strip()
 			responsible = (data.get('responsible') or '').strip()
 			work_name = (data.get('work_name') or '').strip()
@@ -199,7 +234,6 @@ def register(app, socketio=None):
 			end = (data.get('end') or '').strip() or None
 			# Backend validation: required fields except 3 date fields
 			missing = []
-			if not service: missing.append('service')
 			if not number: missing.append('number')
 			if not responsible: missing.append('responsible')
 			if not work_name: missing.append('work_name')
@@ -223,6 +257,15 @@ def register(app, socketio=None):
 			try:
 				if issued_dt.date() < dt.now().date():
 					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
+			except Exception:
+				pass
+			# Enforce service to creator's group (for all users)
+			try:
+				prefix = app._sql.config['db']['prefix']
+				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
+				creator_group_name = (row[0][0] or '') if row and row[0] else ''
+				if creator_group_name:
+					service = str(creator_group_name)
 			except Exception:
 				pass
 			# Insert
@@ -272,7 +315,8 @@ def register(app, socketio=None):
 	def orders_create():
 		"""Create order via form-data (for validateForm flow)."""
 		try:
-			service = (request.form.get('service') or '').strip()
+			# Ignore client input; will set to current user's group below
+			service = ''
 			number = (request.form.get('number') or '').strip()
 			responsible = (request.form.get('responsible') or '').strip()
 			work_name = (request.form.get('work_name') or '').strip()
@@ -281,7 +325,6 @@ def register(app, socketio=None):
 			start = (request.form.get('start') or '').strip() or None
 			end = (request.form.get('end') or '').strip() or None
 			missing = []
-			if not service: missing.append('service')
 			if not number: missing.append('number')
 			if not responsible: missing.append('responsible')
 			if not work_name: missing.append('work_name')
@@ -303,6 +346,15 @@ def register(app, socketio=None):
 			try:
 				if issued_dt.date() < dt.now().date():
 					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
+			except Exception:
+				pass
+			# Enforce service to creator's group (for all users)
+			try:
+				prefix = app._sql.config['db']['prefix']
+				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
+				creator_group_name = (row[0][0] or '') if row and row[0] else ''
+				if creator_group_name:
+					service = str(creator_group_name)
 			except Exception:
 				pass
 			new_id = app._sql.order_add([
@@ -402,13 +454,20 @@ def register(app, socketio=None):
 			data = request.get_json(silent=True) or {}
 			number = (data.get('number') or '').strip()
 			responsible = (data.get('responsible') or '').strip()
-			service = (data.get('service') or '').strip() or order['service']
+			# Ignore incoming service; always set to current user's group name
+			service = order['service']
+			try:
+				row2 = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
+				cgname = (row2[0][0] or '') if row2 and row2[0] else ''
+				if cgname:
+					service = str(cgname)
+			except Exception:
+				pass
 			work_name = (data.get('work_name') or '').strip()
 			issued = (data.get('issued') or '').strip() or None
 			start = (data.get('start') or '').strip() or None
 			end = (data.get('end') or '').strip() or None
 			missing = []
-			if not service: missing.append('service')
 			if not number: missing.append('number')
 			if not responsible: missing.append('responsible')
 			if not work_name: missing.append('work_name')
@@ -518,7 +577,7 @@ def register(app, socketio=None):
 		try:
 			# Determine service of order to check approval and permissions
 			prefix = app._sql.config['db']['prefix']
-			row = app._sql.execute_query(f'SELECT service, status, approved, issued, start, end, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, status, approved, issued, start, end, creator_gid, finalized FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({ 'ok': False, 'error': 'not found' }), 404
 			service = (row[0][0] or '').strip()
@@ -527,32 +586,94 @@ def register(app, socketio=None):
 			issued = row[0][3]
 			start = row[0][4]
 			end = row[0][5]
-			# Forbid any further status changes once completed
-			if current_status == 'done':
-				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
+			finalized = int(row[0][7] or 0)
+			# Forbid further changes when completed unless override by admin or admin-group member
+			def is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					for gid, gname in rows:
+						if str(gname).strip().lower() == name_norm:
+							return int(current_user.gid) == int(gid)
+				except Exception:
+					return False
+				return False
+			is_override = bool(current_user.has('admin.any') or is_admin_group_member())
+			# Disabled: allow status changes even when current status is 'done'
+			# if current_status == 'done' and not is_override:
+			# 	return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
 			# Permission: admin, explicit status_change, or membership in responsible/creator groups
 			# Resolve service_gid
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
+			service_norm = (service or '').strip().lower()
 			for gid, name in groups:
-				if name == service:
-					service_gid = int(gid)
-					break
+				try:
+					gname_norm = (str(name) or '').strip().lower()
+					if gname_norm == service_norm:
+						service_gid = int(gid)
+						break
+				except Exception:
+					continue
 			creator_gid = int(row[0][6]) if (row and len(row[0]) > 6 and row[0][6] is not None) else None
+			# Full-access semantics: status change allowed for admins, explicit permission,
+			# members of service/creator groups, and users with orders.view_all or orders.edit_any
 			can_change = (
 				current_user.has('admin.any') or
 				current_user.has(ORDERS_STATUS_CHANGE) or
+				current_user.has('orders.view_all') or
+				current_user.has('orders.edit_any') or
 				(service_gid and current_user.gid == service_gid) or
 				(creator_gid and current_user.gid == creator_gid)
 			)
-			if not can_change:
+			# Admin group membership override
+			def _is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					rows2 = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					for gid2, gname2 in rows2:
+						if str(gname2).strip().lower() == name_norm:
+							return int(current_user.gid) == int(gid2)
+				except Exception:
+					return False
+				return False
+			if not (can_change or _is_admin_group_member()):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
 			# Only when approved
+			# Strict rule: status can be changed only when order is approved
 			if approved_val != 1:
 				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
+			# New rule: finalized locks any further status changes
+			if finalized == 1 and not current_user.has('admin.any'):
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'finalized_locked' }), 403
 			# Lock when completed with all dates
-			if current_status == 'done' and (issued is not None and start is not None and end is not None):
-				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_with_all_dates_locked' }), 403
+			# Disabled: lock when completed with all dates
+			# if current_status == 'done' and (issued is not None and start is not None and end is not None) and not (is_override or current_user.has('orders.view_all') or current_user.has('orders.edit_any')):
+			# 	return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_with_all_dates_locked' }), 403
 			# Read incoming desired status or cycle
 			data = request.get_json(silent=True) or {}
 			req_status = (data.get('status') or '').strip().lower()
@@ -617,24 +738,50 @@ def register(app, socketio=None):
 			# Permission: admin, explicit status_change, or membership in responsible/creator groups
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
+			service_norm = (service or '').strip().lower()
 			for gid, name in groups:
-				if name == service:
-					service_gid = int(gid)
-					break
+				try:
+					gname_norm = (str(name) or '').strip().lower()
+					if gname_norm == service_norm:
+						service_gid = int(gid)
+						break
+				except Exception:
+					continue
 			creator_gid = int(row[0][6]) if (row and len(row[0]) > 6 and row[0][6] is not None) else None
+			# Admin group membership override helper (same as in status handler)
+			def _is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					rows2 = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					for gid2, gname2 in rows2:
+						if str(gname2).strip().lower() == name_norm:
+							return int(current_user.gid) == int(gid2)
+				except Exception:
+					return False
+				return False
 			can_change = (
 				current_user.has('admin.any') or
 				current_user.has(ORDERS_STATUS_CHANGE) or
 				(service_gid and current_user.gid == service_gid) or
 				(creator_gid and current_user.gid == creator_gid)
 			)
-			if not can_change:
+			if not (can_change or _is_admin_group_member()):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
 			if approved_val != 1:
 				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
-			# Forbid any further timeline changes once completed
-			if current_status == 'done':
-				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
+			# Allow timeline updates even when status is 'done' for permitted users (no done_locked)
 			data = request.get_json(silent=True) or {}
 			def norm_dt(x):
 				if not x: return None
@@ -670,33 +817,33 @@ def register(app, socketio=None):
 					return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
 				if cur_start and end <= cur_start:
 					return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
-				app._sql.execute_non_query(
-					f"UPDATE {prefix}_order SET end=%s, status=%s WHERE id=%s",
-					[end, 'done', order_id]
-				)
-				try:
-					log_action('ORDER_COMPLETE', current_user.name, f'id={order_id} end={end}', (request.remote_addr or ''))
-				except Exception:
-					pass
-				# Emit realtime update (completion)
-				try:
-					_sock = socketio if socketio else getattr(app, 'socketio', None)
-					if _sock:
-						payload = {
-							'reason': 'timeline',
-							'id': int(order_id),
-							'status': 'done',
-						}
-						_sock.emit('orders:changed', payload)
-						try:
-							import logging
-							_log = logging.getLogger(__name__)
-							_log.info(f"[orders] emit orders:changed event: {payload}")
-						except Exception:
-							pass
-				except Exception:
-					pass
-				return jsonify({ 'ok': True })
+			app._sql.execute_non_query(
+				f"UPDATE {prefix}_order SET end=%s, status=%s, finalized=1 WHERE id=%s",
+				[end, 'done', order_id]
+			)
+			try:
+				log_action('ORDER_COMPLETE', current_user.name, f'id={order_id} end={end}', (request.remote_addr or ''))
+			except Exception:
+				pass
+			# Emit realtime update (completion)
+			try:
+				_sock = socketio if socketio else getattr(app, 'socketio', None)
+				if _sock:
+					payload = {
+						'reason': 'timeline',
+						'id': int(order_id),
+						'status': 'done',
+					}
+					_sock.emit('orders:changed', payload)
+					try:
+						import logging
+						_log = logging.getLogger(__name__)
+						_log.info(f"[orders] emit orders:changed event: {payload}")
+					except Exception:
+						pass
+			except Exception:
+				pass
+			return jsonify({ 'ok': True })
 			# Not approved: update any provided fields
 			fields = ['issued = %s', 'start = %s', 'end = %s']
 			values = [issued, start, end]
@@ -752,10 +899,15 @@ def register(app, socketio=None):
 			# Permissions: same as completion
 			groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
 			service_gid = None
+			service_norm = (service or '').strip().lower()
 			for gid, name in groups:
-				if name == service:
-					service_gid = int(gid)
-					break
+				try:
+					gname_norm = (str(name) or '').strip().lower()
+					if gname_norm == service_norm:
+						service_gid = int(gid)
+						break
+				except Exception:
+					continue
 			can_change = (
 				current_user.has('admin.any') or
 				current_user.has(ORDERS_STATUS_CHANGE) or
@@ -765,11 +917,11 @@ def register(app, socketio=None):
 			if not can_change:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
 			# Business rules
-			if approved_val != 1:
+			if approved_val != 1 and not _is_admin_group_member() and not current_user.has('admin.any'):
 				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
-			if current_status == 'done':
+			if current_status == 'done' and not _is_admin_group_member() and not current_user.has('admin.any'):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
-			if already_extended:
+			if already_extended and not _is_admin_group_member() and not current_user.has('admin.any'):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'already_extended' }), 400
 			# Parse input
 			data = request.get_json(silent=True) or {}

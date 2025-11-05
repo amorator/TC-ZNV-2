@@ -37,6 +37,30 @@ try:
         pass
 except Exception:
     pass
+try:
+    # Guard Flask-Login remember-cookie update when session proxy is None
+    from flask_login import LoginManager as _FLLoginManager
+    _orig_update_remember = getattr(_FLLoginManager, '_update_remember_cookie', None)
+    if _orig_update_remember:
+        def _safe_update_remember(self, response):
+            try:
+                from flask import session as _fl_session
+                # Try a benign membership check to ensure proxy is usable
+                try:
+                    _ = ('__probe__' in _fl_session)
+                except TypeError:
+                    return response
+                except Exception:
+                    pass
+                return _orig_update_remember(self, response)
+            except TypeError:
+                # Guard against "argument of type 'NoneType' is not iterable"
+                return response
+            except Exception:
+                return response
+        _FLLoginManager._update_remember_cookie = _safe_update_remember
+except Exception:
+    pass
 """Main application bootstrap: app creation, core routes, and error handlers."""
 
 import os
@@ -87,7 +111,7 @@ def _create_redis_client_for_logging():
     """Create a temporary Redis client for logging synchronization using config settings."""
     try:
         # Get Redis config from the main app
-        temp_app = Server(path.dirname(path.realpath(__file__)))
+        temp_app = Server(path.dirname(path.realpath(__file__)), session_disabled=True)
         redis_config = {}
 
         # Try dict-style access first
@@ -147,7 +171,7 @@ def _create_redis_client_for_logging():
 redis_client = None
 try:
     # We need to create a temporary app to read config
-    temp_app = Server(path.dirname(path.realpath(__file__)))
+    temp_app = Server(path.dirname(path.realpath(__file__)), session_disabled=True)
     redis_config = {}
     # Try dict-style access first
     try:
@@ -690,12 +714,39 @@ def logout():
                 # Remove from Redis presence
                 app.redis_client.hdel('presence:users', user_key)
 
-                # Also remove from sessions:active
+                # Also remove from sessions:active and server-side session store
                 cookie_name = getattr(app, 'session_cookie_name', 'session')
-                sid = request.cookies.get(cookie_name) or request.cookies.get(
-                    'session')
+                cookie_sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+                # Prefer Flask-Session sid if extension is active
+                try:
+                    runtime_sid = getattr(session, 'sid', None)
+                except Exception:
+                    runtime_sid = None
+                sid = runtime_sid or cookie_sid
                 if sid:
                     app.redis_client.hdel('sessions:active', sid)
+                    # Remove cookie-session metadata and TTL beacon
+                    try:
+                        app.redis_client.delete(f'sessions:cookie:{sid}')
+                    except Exception:
+                        pass
+                    try:
+                        app.redis_client.delete(f'sessions:cookie:ttl:{sid}')
+                    except Exception:
+                        pass
+                    try:
+                        app.redis_client.srem('sessions:cookie:index', sid)
+                    except Exception:
+                        pass
+                    # Remove Flask-Session stored key to invalidate server-side session immediately
+                    try:
+                        sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                        # If Flask-Session is active, prefer runtime_sid for the Redis key
+                        key_sid = runtime_sid or sid
+                        if key_sid:
+                            app.redis_client.delete(f'{sess_prefix}{key_sid}')
+                    except Exception:
+                        pass
 
                 # Notify admins about user logout
                 if socketio:

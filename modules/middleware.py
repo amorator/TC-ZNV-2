@@ -86,6 +86,44 @@ def init_middleware(app):
 							}
 							app.redis_client.hset('sessions:active', sid, json.dumps(session_data))
 							app.redis_client.expire('sessions:active', 1800)  # TTL 30 minutes
+
+							# New: precise cookie-session tracking with TTL and index
+							try:
+								# Resolve configured lifetime (seconds)
+								lifetime_s = 1800
+								try:
+									from datetime import timedelta
+									cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+									if isinstance(cfg_life, timedelta):
+										lifetime_s = int(cfg_life.total_seconds())
+									else:
+										lifetime_s = int(cfg_life or 1800)
+								except Exception:
+									# fallback to config.ini if present
+									try:
+										lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+									except Exception:
+										lifetime_s = 1800
+
+								# Store metadata per cookie session
+								meta_key = f"sessions:cookie:{sid}"
+								app.redis_client.hset(meta_key, mapping={
+									'sid': sid,
+									'user_id': uid or '',
+									'user': uname or '',
+									'ip': ip or '',
+									'ua': ua or '',
+									'created_at': str(int(entry.get('created_at', now_ts))),
+									'last_seen': str(int(now_ts))
+								})
+								app.redis_client.expire(meta_key, lifetime_s)
+								# TTL beacon key to read remaining lifetime accurately
+								beacon_key = f"sessions:cookie:ttl:{sid}"
+								app.redis_client.set(beacon_key, '1', ex=lifetime_s)
+								# Index of active cookie sessions
+								app.redis_client.sadd('sessions:cookie:index', sid)
+							except Exception:
+								pass
 							
 							# Also update presence for active users (only for real pages)
 							# Filter out API endpoints, static files, and background requests
@@ -199,6 +237,71 @@ def init_middleware(app):
 	def after_request(response):
 		"""Log access after request completion."""
 		try:
+			# Ensure Redis cookie-session tracking on login (when session cookie is first issued)
+			try:
+				# If user is authenticated, try to extract session id from Set-Cookie
+				is_auth_attr = getattr(current_user, 'is_authenticated', False)
+				is_authenticated = bool(is_auth_attr() if callable(is_auth_attr) else is_auth_attr)
+				if is_authenticated and hasattr(app, 'redis_client') and app.redis_client:
+					cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
+					# Attempt to read sid from request cookies first
+					sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+					# If not present (first login), parse from Set-Cookie header
+					if not sid:
+						set_cookies = response.headers.getlist('Set-Cookie') if hasattr(response.headers, 'getlist') else []
+						for sc in set_cookies:
+							try:
+								if sc.startswith(f"{cookie_name}=") or sc.startswith("session="):
+									# value is between '=' and first ';'
+									val = sc.split('=', 1)[1]
+									val = val.split(';', 1)[0]
+									if val:
+										sid = val
+										break
+							except Exception:
+								continue
+					if sid:
+						# Same metadata as in before_request
+						try:
+							uid = getattr(current_user, 'id', None)
+							uname = getattr(current_user, 'name', None)
+							ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+							ua = request.headers.get('User-Agent', '')
+							now_ts = int(time())
+							# Resolve configured lifetime (seconds)
+							lifetime_s = 1800
+							try:
+								from datetime import timedelta
+								cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+								if isinstance(cfg_life, timedelta):
+									lifetime_s = int(cfg_life.total_seconds())
+								else:
+									lifetime_s = int(cfg_life or 1800)
+							except Exception:
+								try:
+									lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+								except Exception:
+									lifetime_s = 1800
+							# Write meta and TTL beacon
+							meta_key = f"sessions:cookie:{sid}"
+							app.redis_client.hset(meta_key, mapping={
+								'sid': sid,
+								'user_id': uid or '',
+								'user': uname or '',
+								'ip': ip or '',
+								'ua': ua or '',
+								'created_at': str(now_ts),
+								'last_seen': str(now_ts),
+							})
+							app.redis_client.expire(meta_key, lifetime_s)
+							beacon_key = f"sessions:cookie:ttl:{sid}"
+							app.redis_client.set(beacon_key, '1', ex=lifetime_s)
+							app.redis_client.sadd('sessions:cookie:index', sid)
+						except Exception:
+							pass
+			except Exception:
+				pass
+
 			# If force logout was requested, delete session cookies on response
 			if getattr(g, 'force_logout', False):
 				try:
@@ -219,8 +322,14 @@ def init_middleware(app):
 			user_agent = request.headers.get('User-Agent', '')
 			duration = time() - g.start_time if hasattr(g, 'start_time') else None
 			
-			# Log access
-			log_access(method, path, status, user_name, ip, user_agent, duration)
+			# Log access (skip noisy polling endpoints)
+			skip_paths = (
+				'/admin/sessions',
+				'/admin/presence',
+				'/api/heartbeat',
+			)
+			if path not in skip_paths:
+				log_access(method, path, status, user_name, ip, user_agent, duration)
 			
 		except Exception as e:
 			_log.exception("Error in access logging: %s", e)

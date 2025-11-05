@@ -13,6 +13,9 @@ class Order:
 		self.approved = bool(approved)
 		self.created_at = created_at
 		self.updated_at = updated_at
+		# Optional flags (may be set after construction by SQLUtils)
+		self.extended = getattr(self, 'extended', 0)
+		self.finalized = getattr(self, 'finalized', 0)
 		# Derived human-readable status
 		st = (self.status or "").strip().lower()
 		if st in ("in_progress", "process", "0"):

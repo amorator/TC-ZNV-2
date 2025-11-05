@@ -1,0 +1,117 @@
+{% extends 'base.j2.html' %}
+{% set title = 'Активные сессии' %}
+{% block main %}
+<section class="container py-3">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="h5 m-0">Активные сессии</h2>
+    <div class="text-muted small">Автообновление каждые 5 сек</div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Пользователь</th>
+          <th>IP</th>
+          <th>Браузер</th>
+          <th>Создана</th>
+          <th>Последняя активность</th>
+          <th>TTL</th>
+          <th class="text-end">Действия</th>
+        </tr>
+      </thead>
+      <tbody id="sessions-tbody">
+        <tr><td colspan="7" class="text-center text-muted">Загрузка…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block js %}
+<script>
+(function(){
+  function fmtTs(sec){
+    if(!sec) return '—';
+    try{ var d=new Date(sec*1000); return d.toLocaleString(); }catch(e){return '—';}
+  }
+  function fmtTtl(ttl){
+    if(typeof ttl !== 'number' || ttl < 0) return '—';
+    var m = Math.floor(ttl/60), s = ttl%60; return m+'м '+s+'с';
+  }
+  function esc(s){ return (s||'').toString().replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+  var tbody = document.getElementById('sessions-tbody');
+  var timer = null;
+
+  async function fetchSessions(){
+    try{
+      const r = await fetch('/admin/sessions', {headers:{'Accept':'application/json'}});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const data = await r.json();
+      const items = (data && data.items) || [];
+      if(!items.length){
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Нет активных сессий</td></tr>';
+        return;
+      }
+      var rows = items.map(function(it){
+        return '<tr>'+
+          '<td>'+esc(it.user||('ID:'+ (it.user_id||'')))+'</td>'+
+          '<td>'+esc(it.ip)+'</td>'+
+          '<td title="'+esc(it.ua)+'">'+esc((it.ua||'').slice(0,48))+(it.ua&&it.ua.length>48?'…':'')+'</td>'+
+          '<td>'+fmtTs(it.created_at)+'</td>'+
+          '<td>'+fmtTs(it.last_seen)+'</td>'+
+          '<td data-ttl="'+(typeof it.ttl_seconds==='number'?it.ttl_seconds:-1)+'">'+fmtTtl(it.ttl_seconds)+'</td>'+
+          '<td class="text-end">'+
+            '<button type="button" class="btn btn-sm btn-outline-danger" data-action="logout" data-sid="'+esc(it.sid)+'">Завершить</button>'+
+          '</td>'+
+        '</tr>';
+      }).join('');
+      tbody.innerHTML = rows;
+    }catch(e){
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Ошибка загрузки</td></tr>';
+    }
+  }
+
+  // TTL countdown (client-side) between polls
+  function tickTtl(){
+    try{
+      var cells = tbody.querySelectorAll('td[data-ttl]');
+      cells.forEach(function(td){
+        var ttl = parseInt(td.getAttribute('data-ttl')||'-1',10);
+        if(isNaN(ttl) || ttl<0) return;
+        if(ttl>0) ttl -= 1;
+        td.setAttribute('data-ttl', ttl);
+        td.textContent = fmtTtl(ttl);
+      });
+    }catch(e){}
+  }
+
+  // Poll every 5s
+  fetchSessions();
+  setInterval(fetchSessions, 5000);
+  setInterval(tickTtl, 1000);
+
+  // Force logout handler
+  tbody.addEventListener('click', async function(e){
+    var btn = e.target && e.target.closest('[data-action="logout"]');
+    if(!btn) return;
+    var sid = btn.getAttribute('data-sid');
+    if(!sid) return;
+    btn.disabled = true;
+    try{
+      const r = await fetch('/admin/force_logout_session', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({sid: sid})});
+      // Refresh after action
+      fetchSessions();
+    }catch(e){} finally{
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}
+
+
+
+
+

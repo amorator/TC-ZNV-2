@@ -279,7 +279,7 @@ function setupSessionsMonitoring() {
         stop: () => {
           // No specific stop action needed
         },
-        interval: 10000,
+        interval: 5000,
         autoStart: true,
       });
     } else if (window.SocketOptimizer) {
@@ -298,7 +298,7 @@ function setupSessionsMonitoring() {
         if (window.AdminSessions && window.AdminSessions.fetchSessions) {
           window.AdminSessions.fetchSessions();
         }
-      }, 10000);
+      }, 5000);
     }
   } catch (err) {
     if (window.ErrorHandler) {

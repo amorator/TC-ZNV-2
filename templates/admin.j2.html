@@ -50,8 +50,8 @@
             <thead class="table__head">
               <tr class="table__head_row" role="row">
                 <th class="table__head_item" scope="col">Пользователь</th>
-                <th class="table__head_item" scope="col">IP</th>
-                <th class="table__head_item" scope="col">UA</th>
+                <th class="table__head_item" scope="col">Создана</th>
+                <th class="table__head_item" scope="col">TTL</th>
                 <th class="table__head_item text-end" scope="col">Последняя активность</th>
               </tr>
             </thead>
@@ -230,6 +230,68 @@
   </div>
 
   
+
+  <script>
+    // Generic overflow tooltips for admin tables: presence, sessions, logs
+    (function setupAdminOverflowTooltips(){
+      function isOverflowing(el){ try { return el && el.scrollWidth > el.clientWidth + 1; } catch(_) { return false; } }
+      function getText(el){ try { return (el && el.textContent ? el.textContent.trim() : ''); } catch(_) { return ''; } }
+      function setTitleIfOverflow(cell){
+        if (!cell) return;
+        var txt = getText(cell);
+        if (!txt) { if (cell.title) cell.removeAttribute('title'); return; }
+        if (isOverflowing(cell)) cell.setAttribute('title', txt); else if (cell.title === txt) cell.removeAttribute('title');
+      }
+      function applyForTable(table){
+        if (!table) return;
+        try {
+          var cells = table.querySelectorAll('thead th.table__head_item, tbody td.table__body_item, tbody td');
+          cells.forEach(setTitleIfOverflow);
+        } catch(_) {}
+      }
+      function applyAll(){
+        try {
+          applyForTable(document.getElementById('presenceTable'));
+          applyForTable(document.getElementById('sessionsTable'));
+          applyForTable(document.getElementById('logsTable'));
+        } catch(_) {}
+      }
+
+      // Initial and on resize
+      try {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(applyAll, 30); }, { once: true });
+        else setTimeout(applyAll, 10);
+        window.addEventListener('resize', function(){ applyAll(); }, true);
+      } catch(_) {}
+
+      // Observe table mutations to re-apply (data refresh/pagination)
+      try {
+        var targets = ['presenceTable','sessionsTable','logsTable']
+          .map(function(id){ return document.getElementById(id); })
+          .filter(function(t){ return !!t; });
+        if (window.MutationObserver) {
+          var mo = new MutationObserver(function(){ setTimeout(applyAll, 0); });
+          targets.forEach(function(t){ mo.observe(t, { childList: true, subtree: true }); });
+        }
+      } catch(_) {}
+
+      // Event delegation to set title on first hover
+      try {
+        document.addEventListener('mouseover', function(e){
+          try {
+            var cell = e.target && e.target.closest && e.target.closest('th.table__head_item, td.table__body_item, #logsTable td');
+            if (!cell) return;
+            if (!cell.closest('.admin-page__table')) return;
+            setTitleIfOverflow(cell);
+          } catch(_) {}
+        }, true);
+      } catch(_) {}
+
+      // Expose for manual refresh hooks
+      try { window.applyAdminOverflowTooltips = applyAll; } catch(_) {}
+    })();
+  </script>
+
 </main>
 {% endblock %}
 

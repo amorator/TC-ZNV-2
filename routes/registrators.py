@@ -152,7 +152,7 @@ def register(app, socketio=None):
 
     # --- Registrators API ---
     @app.route('/api/registrators', methods=['GET'])
-    @require_permissions(CATEGORIES_VIEW)
+    @require_permissions(CATEGORIES_VIEW, FILES_UPLOAD)
     def registrators_list():
         try:
             rows = app._sql.execute_query(
@@ -165,13 +165,20 @@ def register(app, socketio=None):
                 'enabled': int(r[3]),
                 'display_order': int(r[4] or 0)
             } for r in (rows or []) if r]
+            # Enforce access filtering for non-admins: only enabled registrators user can view
+            try:
+                is_admin = hasattr(current_user, 'has') and current_user.has(ADMIN_ANY)
+            except Exception:
+                is_admin = False
+            if not is_admin:
+                items = [it for it in items if int(it.get('enabled', 0)) == 1 and _can_view_registrator(app, int(it.get('id')))]
             return jsonify({'status': 'success', 'items': items})
         except Exception as e:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.route('/api/registrators/<int:rid>', methods=['GET'])
-    @require_permissions(CATEGORIES_VIEW)
+    @require_permissions(CATEGORIES_VIEW, FILES_UPLOAD)
     def registrator_detail(rid):
         """Get individual registrator details."""
         try:
@@ -541,7 +548,7 @@ def register(app, socketio=None):
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     @app.route('/registrators/<int:rid>/browse', methods=['GET'])
-    @require_permissions(CATEGORIES_VIEW)
+    @require_permissions(CATEGORIES_VIEW, FILES_UPLOAD)
     def registrators_browse(rid):
         """Browse remote structure progressively: ?level=date|user|time|type and ?parent=..."""
         try:
@@ -608,7 +615,7 @@ def register(app, socketio=None):
 
     # --- Registrators import selected files ---
     @app.route('/registrators/<int:rid>/import', methods=['POST'])
-    @require_permissions(CATEGORIES_MANAGE)
+    @require_permissions(CATEGORIES_MANAGE, FILES_UPLOAD)
     @rate_limit()
     def registrators_import(rid):
         """Download selected remote files, convert, and store locally under registrators/<sub>.

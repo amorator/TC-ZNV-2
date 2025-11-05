@@ -66,6 +66,9 @@
 <script src="{{ url_for('static', filename='js/lib/purify.min.js') }}"></script>
 <script>
   (function() {
+    function safeTrim(v){
+      try { return (v==null? '': String(v)).trim(); } catch(_) { return ''; }
+    }
     function showToast(message) {
       var body = document.getElementById('docToastBody');
       if (body) body.textContent = message;
@@ -225,7 +228,7 @@
       codeNodes.forEach(function(code){
         try {
           if (!code || code.closest('pre')) return; // skip code blocks
-          var text = (code.textContent || '').trim();
+          var text = safeTrim(code.textContent || '');
           if (!text) return;
           var mdMatch = text.match(/^(?:\.\.\/|\.\/)?(?:docs\/)?([A-Za-z0-9_\-\/]+\.md)$/);
           var imgMatch = text.match(/^(?:\.\.\/|\.\/)?(?:docs\/)?((?:images\/[A-Za-z0-9_\-\/]+)\.(?:png|jpg|jpeg|webp|gif))$/i);
@@ -257,9 +260,9 @@
       imgs.forEach(function(img){
         // Skip if already inside a figure
         if (img.closest('figure')) return;
-        var alt = img.getAttribute('alt') || '';
+        var alt = String(img.getAttribute('alt') || '');
         var figure = document.createElement('figure');
-        var captionNeeded = alt && alt.trim().length > 0;
+        var captionNeeded = !!safeTrim(alt);
 
         var parent = img.parentNode;
         var parentIsP = parent && parent.tagName && parent.tagName.toLowerCase() === 'p';
@@ -268,7 +271,7 @@
           parent.parentNode.insertBefore(figure, parent.nextSibling);
           figure.appendChild(img);
           // Remove paragraph if it became empty (no text or only whitespace)
-          if (!parent.textContent.trim() && parent.childElementCount === 0) {
+          if (!safeTrim(parent.textContent) && parent.childElementCount === 0) {
             parent.remove();
           }
         } else {

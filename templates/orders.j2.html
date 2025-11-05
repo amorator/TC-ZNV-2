@@ -179,17 +179,7 @@
               <input type="text" class="form-control" id="oc-responsible" name="responsible" placeholder="ФИО">
             </div>
           </div>
-          <div class="row g-3 mb-3">
-            <div class="col-12">
-              <label for="oc-service" class="form-label">Служба</label>
-              <select class="form-select" id="oc-service" name="service">
-                <option value="">— Выберите службу —</option>
-                {% for g in (groups or []) %}
-                  <option value="{{ g.name }}" data-id="{{ g.id }}">{{ g.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
+          <!-- Служба не выбирается: используется служба текущего пользователя -->
           <div class="row g-3 mb-3">
             <div class="col-12">
               <label for="oc-work" class="form-label">Наименование работ</label>
@@ -218,7 +208,7 @@
               <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderCreateModal')">Отмена</button>
             </div>
             <div>
-              <button type="button" id="order-create-submit" class="btn btn-primary" onclick="validateForm(this);">Создать</button>
+              <button type="button" id="order-create-submit" class="btn btn-primary">Создать</button>
             </div>
           </div>
         </form>
@@ -247,17 +237,7 @@
               <input type="text" class="form-control" id="oe-responsible" name="responsible" placeholder="ФИО">
             </div>
           </div>
-          <div class="row g-3 mb-3">
-            <div class="col-12">
-              <label for="oe-service" class="form-label">Служба</label>
-              <select class="form-select" id="oe-service" name="service">
-                <option value="">— Выберите службу —</option>
-                {% for g in (groups or []) %}
-                  <option value="{{ g.name }}" data-id="{{ g.id }}">{{ g.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
+          <!-- Служба не выбирается при изменении: всегда служба текущего пользователя -->
           <div class="row g-3 mb-3">
             <div class="col-12">
               <label for="oe-work" class="form-label">Наименование работ</label>
@@ -311,7 +291,7 @@
               <button type="button" class="btn btn-outline-secondary" onclick="closeModal('orderDeleteModal')">Отмена</button>
             </div>
             <div>
-              <button type="button" class="btn btn-danger" id="order-delete-submit" onclick="validateForm(this);">Удалить</button>
+              <button type="button" class="btn btn-danger" id="order-delete-submit">Удалить</button>
             </div>
           </div>
         </form>
@@ -427,6 +407,8 @@
   };
   // current user gid for group matching (service -> group)
   window.CurrentUser = { gid: {{ current_user.gid|int }} };
+  // admin group id for override rights
+  window.AdminGroupId = {{ (admin_group_id if admin_group_id is not none else 'null') }};
   // map of service name -> group id
   (function(){ try {
     window.OrdersGroups = {

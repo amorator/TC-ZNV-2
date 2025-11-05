@@ -17,6 +17,23 @@ function isJsonResponse(r) {
   }
 }
 
+function toDateString(sec){
+  try{
+    if(!sec) return '—';
+    const d = new Date((typeof sec==='number'?sec:parseInt(sec,10))*1000);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString();
+  }catch(_){return '—';}
+}
+
+function formatTtl(ttl){
+  try{
+    if(typeof ttl !== 'number' || ttl < 0) return '—';
+    const m = Math.floor(ttl/60), s = ttl%60;
+    return `${m}м ${s}с`;
+  }catch(_){return '—';}
+}
+
 function isMainSocketConnected() {
   try {
     const s =
@@ -60,48 +77,8 @@ function isSessionSuppressed(sid) {
 
 function fetchSessions() {
   try {
-    // Always fetch sessions regardless of socket connection status
-    // Сначала попробовать Redis endpoint
-    return fetch("/admin/sessions/redis", { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok || !isJsonResponse(r)) {
-          return { status: "error" };
-        }
-        return r.json().catch(function () {
-          return { status: "error" };
-        });
-      })
-      .then((data) => {
-        if (data && data.status === "success" && data.source === "redis") {
-          // Данные из Redis - быстрее и точнее
-          const items = Array.isArray(data.items) ? data.items : [];
-
-          // Filter out suppressed sessions
-          const filteredItems = items.filter((item) => {
-            const sid = item.sid || item.session_id;
-            return !isSessionSuppressed(sid);
-          });
-
-          // Remove duplicates by sid only (show all parallel sessions even from same user/ip)
-          const uniqueItems = [];
-          const seenSids = new Set();
-
-          for (const item of filteredItems) {
-            const sid = item.sid || item.session_id;
-            if (sid && !seenSids.has(sid)) {
-              seenSids.add(sid);
-              uniqueItems.push(item);
-            }
-          }
-
-          sessionsItems = uniqueItems;
-          renderSessions();
-          return;
-        }
-
-        // Fallback к обычному endpoint
-        return fetch("/admin/sessions", { credentials: "same-origin" });
-      })
+    // Всегда используем единый endpoint
+    return fetch("/admin/sessions", { credentials: "same-origin" })
       .then(function (r) {
         if (!r || !r.ok || !isJsonResponse(r)) {
           return { status: "error" };
@@ -162,38 +139,46 @@ function renderSessions() {
       return;
     }
 
-    // Sort by user name alphabetically
+    // Sort by last_seen desc
     const sortedItems = [...sessionsItems].sort((a, b) => {
-      const userA = (a.user || "").toString().toLowerCase();
-      const userB = (b.user || "").toString().toLowerCase();
-      return userA.localeCompare(userB);
+      return (b.last_seen || b.last_activity || 0) - (a.last_seen || a.last_activity || 0);
     });
 
     const html = sortedItems
       .map((item) => {
         const user = item.user || "Неизвестно";
-        const ip = item.ip || "Неизвестно";
-        const ua = item.ua || "Неизвестно";
         const sid = item.sid || item.session_id || "Неизвестно";
+        const createdAt = toDateString(item.created_at);
+        let ttlSeconds = -1;
+        try {
+          if (typeof item.ttl_seconds === 'number') ttlSeconds = item.ttl_seconds;
+          else if (typeof item.ttl_seconds === 'string') {
+            const n = parseInt(item.ttl_seconds, 10);
+            ttlSeconds = isNaN(n) ? -1 : n;
+          }
+        } catch(_) { ttlSeconds = -1; }
 
         // Calculate time ago properly
         let timeAgo = "Неизвестно";
 
-        if (item.last_activity) {
+        const activitySource = (typeof item.last_activity !== 'undefined' && item.last_activity !== null)
+          ? item.last_activity
+          : item.last_seen;
+        if (activitySource) {
           let lastActivity;
 
-          if (typeof item.last_activity === "number") {
+          if (typeof activitySource === "number") {
             // Check if timestamp is in seconds or milliseconds
-            if (item.last_activity > 1000000000000) {
+            if (activitySource > 1000000000000) {
               // Already in milliseconds
-              lastActivity = item.last_activity;
+              lastActivity = activitySource;
             } else {
               // Convert from seconds to milliseconds
-              lastActivity = item.last_activity * 1000;
+              lastActivity = activitySource * 1000;
             }
-          } else if (typeof item.last_activity === "string") {
+          } else if (typeof activitySource === "string") {
             // Try to parse string timestamp
-            const parsed = new Date(item.last_activity).getTime();
+            const parsed = new Date(activitySource).getTime();
             if (!isNaN(parsed)) {
               lastActivity = parsed;
             }
@@ -223,14 +208,10 @@ function renderSessions() {
         return `
           <tr class="table__body_row" data-sid="${sid}">
             <td class="table__body_item">${user}</td>
-            <td class="table__body_item">${ip}</td>
-            <td class="table__body_item">${ua}</td>
-            <td class="table__body_item text-end">
-              ${timeAgo}
-              <button class="btn btn-sm btn-outline-danger ms-2" onclick="terminateSession('${sid}')">
-                Завершить
-              </button>
-            </td>
+            <td class="table__body_item">${createdAt}</td>
+            <td class="table__body_item" data-ttl="${ttlSeconds}">${formatTtl(ttlSeconds)}</td>
+            <td class="table__body_item text-end">${timeAgo}
+              <button class="btn btn-sm btn-outline-danger ms-2" onclick="terminateSession('${sid}')">Завершить</button></td>
           </tr>
         `;
       })
@@ -279,6 +260,24 @@ function renderSessions() {
         }
       }
     }
+
+    // TTL tick
+    if (!window._sessionsTtlInterval) {
+      window._sessionsTtlInterval = setInterval(() => {
+        try{
+          const table = document.getElementById('sessionsTable');
+          if (!table) return;
+          const cells = table.querySelectorAll('td[data-ttl]');
+          cells.forEach(function(td){
+            let ttl = parseInt(td.getAttribute('data-ttl')||'-1',10);
+            if (isNaN(ttl) || ttl < 0) return;
+            if (ttl>0) ttl -= 1;
+            td.setAttribute('data-ttl', String(ttl));
+            td.textContent = formatTtl(ttl);
+          });
+        }catch(_){ }
+      }, 1000);
+    }
   } catch (err) {
     if (window.ErrorHandler) {
       window.ErrorHandler.handleError(err, "renderSessions");
@@ -306,21 +305,25 @@ function updateSessionsTimeDisplay() {
         (item) => (item.sid || item.session_id) === sid
       );
 
-      if (sessionItem && sessionItem.last_activity) {
+      if (sessionItem && (sessionItem.last_activity || sessionItem.last_seen)) {
         let lastActivity;
 
-        if (typeof sessionItem.last_activity === "number") {
+        const activitySource = (typeof sessionItem.last_activity !== 'undefined' && sessionItem.last_activity !== null)
+          ? sessionItem.last_activity
+          : sessionItem.last_seen;
+
+        if (typeof activitySource === "number") {
           // Check if timestamp is in seconds or milliseconds
-          if (sessionItem.last_activity > 1000000000000) {
+          if (activitySource > 1000000000000) {
             // Already in milliseconds
-            lastActivity = sessionItem.last_activity;
+            lastActivity = activitySource;
           } else {
             // Convert from seconds to milliseconds
-            lastActivity = sessionItem.last_activity * 1000;
+            lastActivity = activitySource * 1000;
           }
-        } else if (typeof sessionItem.last_activity === "string") {
+        } else if (typeof activitySource === "string") {
           // Try to parse string timestamp
-          const parsed = new Date(sessionItem.last_activity).getTime();
+          const parsed = new Date(activitySource).getTime();
           if (!isNaN(parsed)) {
             lastActivity = parsed;
           }

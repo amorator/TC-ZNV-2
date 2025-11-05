@@ -6,6 +6,11 @@
       if (!tb) return;
       var now = new Date();
       tb.querySelectorAll('tr.table__body_row').forEach(function(tr){
+        // Do not highlight overdue only for finalized orders
+        try {
+          var finalized = (tr.getAttribute('data-finalized') || '') === '1';
+          if (finalized) { tr.classList.remove('order-overdue'); return; }
+        } catch(_) {}
         var endStr = (tr.getAttribute('data-end') || '').trim();
         if (!endStr) {
           // fallback to visible cell text (6th column)
@@ -233,14 +238,16 @@
           data-issued="${(r.issued||'').replace(/"/g,'&quot;')}"
           data-start="${(r.start||'').replace(/"/g,'&quot;')}"
           data-end="${(r.end||'').replace(/"/g,'&quot;')}"
-          data-extended="${r.extended ? '1' : '0'}">
+          data-extended="${r.extended ? '1' : '0'}"
+          data-finalized="${r.finalized ? '1' : '0'}">
         <td class="table__body_item">${(r.service || '').replace(/</g, '&lt;')}</td>
         <td class="table__body_item">${ (function(){
-            // Render as button with color and data attributes
+            // Render badge (if finalized) above the status button
             var st = (r.status || 'stopped');
             var text = statusText(st);
             var cls = statusBtnClass(st);
-            return `<button type="button" class="btn btn-sm ${cls}" data-action="toggle-status" data-id="${r.id}" data-status="${st}">${text}</button>`;
+            var badge = r.finalized ? '<div class="mb-0 text-center p-0" style="margin:0;padding:0;"><span class="badge bg-info text-dark text-lowercase d-inline-block" style="font-size:.75rem;padding:.15rem .4rem;border-radius:.2rem;margin-left:0;">завершен</span></div>' : '';
+            return badge + `<button type="button" class="btn btn-sm ${cls}" data-action="toggle-status" data-id="${r.id}" data-status="${st}">${text}</button>`;
           })() }</td>
         <td class="table__body_item">${(r.number || '').replace(/</g, '&lt;')}</td>
         <td class="table__body_item">${fmtDate(r.issued)}</td>
@@ -249,8 +256,10 @@
         <td class="table__body_item">${(r.responsible || '')}</td>
         <td class="table__body_item">${(function(){
             var wn = (r.work_name || '');
-            var badge = r.extended ? '<div class="mb-1"><span class="badge bg-warning text-dark order-badge-extended">продлён</span></div>' : '';
-            return badge + '<div>' + wn + '</div>';
+            var badges = [];
+            if (r.extended) badges.push('<span class="badge bg-warning text-dark order-badge-extended">продлён</span>');
+            var hd = badges.length ? ('<div class="mb-1">' + badges.join(' ') + '</div>') : '';
+            return hd + '<div>' + wn + '</div>';
           })()}</td>
         <td class="table__body_item">${(function(){
             // Always render the approve toggle button so everyone sees it;
@@ -290,6 +299,7 @@
     }
     bindNoteBadges(); // Обеспечить bind, даже если не через renderWithNoteBind
     bindOrdersContextMenu();
+    bindDeleteButtons();
     setupOrdersHeaderTooltips();
   }
   function bindRowDoubleClickForFiles(){
@@ -306,9 +316,23 @@
             if (t && (t.closest('button') || t.closest('a') || t.closest('input') || t.closest('textarea') || t.closest('select'))) return;
             var idStr = String(this.id || '').replace('order-','');
             var oid = parseInt(idStr || '0', 10) || 0;
-            if (oid && typeof window.openOrderFilesModal === 'function') {
-              window.openOrderFilesModal(oid);
+            // Permissions: require files_view OR membership in the service group (same as context menu)
+            var svc = this.getAttribute('data-service') || '';
+            var canFilesUI = !!(window.OrdersPerms && window.OrdersPerms.files_view);
+            var canFilesByGroup = (function(){
+              try {
+                var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+                var map = window.OrdersGroups || {};
+                var srv = String(svc || '').trim();
+                var gid = map[srv] || map[srv.toLowerCase()] || map[srv.toUpperCase()];
+                return !!(gid && userGid && gid === userGid);
+              } catch(_) { return false; }
+            })();
+            if (!(canFilesUI || canFilesByGroup)) {
+              if (window.showToast) window.showToast('Недостаточно прав для просмотра файлов', 'warning');
+              return;
             }
+            if (oid && typeof window.openOrderFilesModal === 'function') { window.openOrderFilesModal(oid); }
           } catch(_) {}
         });
       });
@@ -325,38 +349,19 @@
   (function setupOrdersSearchClearButton() {
     const setupClearButton = () => {
       const searchInput = document.getElementById('searchinp');
-      if (!searchInput) {
-        console.debug('[orders:search] Search input not found yet');
-        return;
-      }
+      if (!searchInput) { return; }
       
       // Find clear button (next sibling or parent's button)
       const searchbar = searchInput.closest('.searchbar');
-      if (!searchbar) {
-        console.debug('[orders:search] Searchbar not found');
-        return;
-      }
+      if (!searchbar) { return; }
       
       const clearBtn = searchbar.querySelector('button[onclick*="searchClean"], button[aria-label*="Очистить"], button:has(+ input)');
-      if (!clearBtn) {
-        console.debug('[orders:search] Clear button not found in searchbar');
-        // Try to find any button in searchbar
-        const anyBtn = searchbar.querySelector('button');
-        console.debug('[orders:search] Any button in searchbar:', !!anyBtn, anyBtn ? { onclick: anyBtn.onclick, ariaLabel: anyBtn.getAttribute('aria-label') } : null);
-        return;
-      }
+      if (!clearBtn) { return; }
       
-      console.debug('[orders:search] Found clear button:', { 
-        hasOnclick: !!clearBtn.onclick, 
-        onclick: clearBtn.getAttribute('onclick'),
-        ariaLabel: clearBtn.getAttribute('aria-label')
-      });
+      
       
       // Remove existing handler to avoid duplicates
-      if (clearBtn.__ordersClearBound) {
-        console.debug('[orders:search] Clear button already bound');
-        return;
-      }
+      if (clearBtn.__ordersClearBound) { return; }
       clearBtn.__ordersClearBound = true;
       
       // Remove inline onclick to prevent conflicts
@@ -410,7 +415,7 @@
         if (typeof window.load === 'function') { window.load(restorePage, { manualPage: false }); }
       }, true); // Use capture phase to run before other handlers
       
-      console.debug('[orders:search] Clear button handler attached successfully');
+      
     };
     
     // Try to setup immediately
@@ -475,6 +480,24 @@
     const dt = document.getElementById('flt-to');
     if (df && !df.value) df.value = rng.from;
     if (dt && !dt.value) dt.value = rng.to;
+    // Default service filter to user's current group if empty
+    try {
+      var sel = document.getElementById('flt-service');
+      if (sel && !sel.value) {
+        var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+        var map = window.OrdersGroups || {};
+        var serviceName = null;
+        // find service name with matching gid
+        for (var name in map) {
+          if (!Object.prototype.hasOwnProperty.call(map, name)) continue;
+          if (map[name] === userGid) { serviceName = name; break; }
+        }
+        if (serviceName) {
+          // set exact option value match
+          sel.value = serviceName;
+        }
+      }
+    } catch(_) {}
     const applyBtn = document.getElementById('flt-apply');
     if (applyBtn) applyBtn.addEventListener('click', function () { load(1); });
     ['flt-st-inp', 'flt-st-stp', 'flt-st-done', 'flt-from', 'flt-to', 'flt-service'].forEach((id) => {
@@ -537,6 +560,9 @@
       createBtn.addEventListener('click', function (e) {
         e.preventDefault();
       if (window.openModal) window.openModal('orderCreateModal');
+      // Ensure submit handlers are (re)bound when modal opens
+      try { bindOrderCreateSubmitHandlers(); } catch(_) {}
+      // Service selection removed; backend enforces user's service
     });
   }
 
@@ -583,10 +609,9 @@
       var fields = {
         number: document.getElementById('oc-number')?.value || '',
         responsible: document.getElementById('oc-responsible')?.value || '',
-        service: document.getElementById('oc-service')?.value || '',
         work_name: document.getElementById('oc-work')?.value || ''
       };
-      ['oc-number','oc-responsible','oc-service','oc-work'].forEach(function(id){
+      ['oc-number','oc-responsible','oc-work'].forEach(function(id){
         var el = document.getElementById(id);
         if (el) el.classList.remove('is-invalid');
       });
@@ -623,7 +648,6 @@
       var payload = {
         number: fields.number.trim(),
         responsible: fields.responsible.trim(),
-        service: fields.service.trim(),
         work_name: fields.work_name.trim(),
         status: 'stopped',
         issued: document.getElementById('oc-issued')?.value || '',
@@ -665,11 +689,10 @@
             var fields = {
               number: document.getElementById('oc-number')?.value || '',
               responsible: document.getElementById('oc-responsible')?.value || '',
-              service: document.getElementById('oc-service')?.value || '',
               work_name: document.getElementById('oc-work')?.value || ''
             };
             // Clear previous invalids
-            ['oc-number','oc-responsible','oc-service','oc-work'].forEach(function(id){
+            ['oc-number','oc-responsible','oc-work'].forEach(function(id){
               var el = document.getElementById(id);
               if (el) el.classList.remove('is-invalid');
             });
@@ -682,7 +705,6 @@
             var payload = {
               number: fields.number.trim(),
               responsible: fields.responsible.trim(),
-              service: fields.service.trim(),
               work_name: fields.work_name.trim(),
               status: 'stopped',
               issued: document.getElementById('oc-issued')?.value || '',
@@ -792,8 +814,18 @@
             var canApproveUI = !!(window.OrdersPerms && window.OrdersPerms.approve);
             var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
             var canFilesUI = !!(window.OrdersPerms && window.OrdersPerms.files_view);
+            // Allow service group members to access files even without explicit orders.files_view
+            var canFilesByGroup = (function(){
+              try {
+                var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+                var map = window.OrdersGroups || {};
+                var srv = String(svc || '').trim();
+                var gid = map[srv];
+                return !!(gid && userGid && gid === userGid);
+              } catch(_) { return false; }
+            })();
             function setVis(action, visible){ var el = menu.querySelector('[data-action="'+action+'"]'); if (el) el.classList.toggle('d-none', !visible); }
-            setVis('files', canFilesUI);
+            setVis('files', canFilesUI || canFilesByGroup);
             setVis('edit', canEdit);
             setVis('timeline', canTimeline);
             setVis('extend', canTimeline);
@@ -807,7 +839,7 @@
             var btn = this.querySelector('button[data-action="toggle-approved"]');
             var isApproved = btn ? (btn.getAttribute('data-approved') === '1') : false;
             var isExtended = (this.getAttribute('data-extended') === '1');
-            if (approveItem && unapproveItem) {
+            if (canApproveUI && approveItem && unapproveItem) {
               approveItem.classList.toggle('d-none', isApproved);
               unapproveItem.classList.toggle('d-none', !isApproved);
             }
@@ -818,22 +850,35 @@
             var issued = (this.getAttribute('data-issued') || '').trim();
             var start = (this.getAttribute('data-start') || '').trim();
             var end = (this.getAttribute('data-end') || '').trim();
-            if (st === 'done') {
+            var isAdminOverride = (function(){
+              var perms = window.OrdersPerms || {};
+              if (perms.admin) return true;
+              try { var agid = window.AdminGroupId, ugid = (window.CurrentUser && window.CurrentUser.gid) || null; if (agid && ugid && agid === ugid) return true; } catch(_) {}
+              return false;
+            })();
+            if (st === 'done' && !isAdminOverride) {
               setVis('edit', false);
               setVis('delete', false);
-              setVis('timeline', false);
+              // Keep timeline visible even when status is done to allow "Завершить наряд" action
+              setVis('timeline', canTimeline);
               setVis('extend', false);
               setVis('approve', false);
               setVis('unapprove', false);
-              // Keep only files and note visible (already set earlier)
+              // Keep only files, note, and timeline visible (already set earlier)
+              var tl = menu.querySelector('[data-action="timeline"]');
+              if (tl && isApproved) tl.textContent = 'Завершить наряд';
+              // If not approved, hide completion entry even if done
+              if (!isApproved) setVis('timeline', false);
             } else {
               if (!isApproved) {
                 setVis('timeline', false);
                 setVis('extend', false);
               } else {
                 // ensure edit/delete hidden when approved
-                setVis('edit', false);
-                setVis('delete', false);
+                if (!isAdminOverride) {
+                  setVis('edit', false);
+                  setVis('delete', false);
+                }
                 // Rename timeline action to "Завершить наряд" when approved
                 var tl = menu.querySelector('[data-action="timeline"]');
                 if (tl) tl.textContent = 'Завершить наряд';
@@ -891,6 +936,8 @@
               break;
             case 'create':
               if (window.openModal) window.openModal('orderCreateModal');
+              // Bind submit handlers
+              try { if (typeof bindOrderCreateSubmitHandlers === 'function') bindOrderCreateSubmitHandlers(); } catch(_) {}
               break;
           }
         });
@@ -981,8 +1028,18 @@
 
   function canEditStatusFor(serviceName){
     var perms = window.OrdersPerms || {};
-    // Only admin or explicit status_change permission may change timeline/status
-    return !!(perms.admin || perms.status_change);
+    // Admin, explicit status_change, or member of admin group
+    if (perms.admin || perms.status_change) return true;
+    // Full-access users (view_all/edit_any imply ability to change status)
+    if (perms.view_all || perms.edit_any) return true;
+    try {
+      var agid = (typeof window.AdminGroupId !== 'undefined') ? window.AdminGroupId : null;
+      var ugid = (window.CurrentUser && window.CurrentUser.gid) || null;
+      if (agid && ugid && agid === ugid) return true;
+    } catch(_) {}
+    // Service group members can change status for their service
+    if (canEditOrderFor(serviceName)) return true;
+    return false;
   }
 
   function canEditOrderFor(serviceName){
@@ -991,7 +1048,7 @@
     var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
     var map = window.OrdersGroups || {};
     var srv = String(serviceName || '').trim();
-    var gid = map[srv];
+    var gid = map[srv] || map[srv.toLowerCase()] || map[srv.toUpperCase()];
     return !!(gid && userGid && gid === userGid);
   }
 
@@ -1001,7 +1058,7 @@
     var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
     var map = window.OrdersGroups || {};
     var srv = String(serviceName || '').trim();
-    var gid = map[srv];
+    var gid = map[srv] || map[srv.toLowerCase()] || map[srv.toUpperCase()];
     return !!(gid && userGid && gid === userGid);
   }
 
@@ -1066,8 +1123,7 @@
     try {
       document.getElementById('oe-number').value = order.number || '';
       document.getElementById('oe-responsible').value = order.responsible || '';
-      var sel = document.getElementById('oe-service');
-      if (sel) sel.value = order.service || '';
+      // Service selection removed
       document.getElementById('oe-work').value = order.work_name || '';
       function toInputDt(v){
         if (!v) return '';
@@ -1315,17 +1371,7 @@
     var rawIssued = document.getElementById('ot-issued')?.value || '';
     var rawStart = document.getElementById('ot-start')?.value || '';
     var rawEnd = document.getElementById('ot-end')?.value || '';
-    // If approved and end empty, fallback to row cell text to avoid empty payload
-    try {
-      var row = document.getElementById('order-' + id);
-      var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
-      var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
-      if (isApproved && !rawEnd && row) {
-        var tds = row.querySelectorAll('td');
-        var eTxt = (tds[5] && (tds[5].textContent || '').trim()) || '';
-        if (eTxt) rawEnd = eTxt.replace(' ', 'T');
-      }
-    } catch(_) {}
+    
     var payload = {
       issued: toServerDt(rawIssued),
       start: toServerDt(rawStart),
@@ -1337,7 +1383,7 @@
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify(payload)
-    }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+    }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function(res){
         if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Ошибка сохранения', 'danger'); return; }
         if (window.closeModal) window.closeModal('orderTimelineModal');
@@ -1367,14 +1413,13 @@
     var payload = {
       number: document.getElementById('oe-number')?.value || '',
       responsible: document.getElementById('oe-responsible')?.value || '',
-      service: document.getElementById('oe-service')?.value || '',
       work_name: document.getElementById('oe-work')?.value || '',
       issued: document.getElementById('oe-issued')?.value || '',
       start: document.getElementById('oe-start')?.value || '',
       end: document.getElementById('oe-end')?.value || ''
     };
-    var missing = ['number','responsible','service','work_name'].filter(function(k){ return !String(payload[k]).trim(); });
-    ['oe-number','oe-responsible','oe-service','oe-work'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
+    var missing = ['number','responsible','work_name'].filter(function(k){ return !String(payload[k]).trim(); });
+    ['oe-number','oe-responsible','oe-work'].forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
     if (missing.length){
       missing.forEach(function(k){ var el = document.getElementById('oe-' + (k === 'work_name' ? 'work' : k)); if (el) el.classList.add('is-invalid'); });
       if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
@@ -1425,16 +1470,12 @@
           var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
           var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
           var svc = row ? (row.getAttribute('data-service') || '') : '';
-          // Additional complete lock: status=done and all three dates set
+          // Current status value (may be 'stopped' | 'in_progress' | 'done')
           var st = row ? (row.getAttribute('data-status') || '') : '';
           var issued = row ? (row.getAttribute('data-issued') || '') : '';
           var start = row ? (row.getAttribute('data-start') || '') : '';
           var end = row ? (row.getAttribute('data-end') || '') : '';
-          // Forbid any changes when completed
-          if (st === 'done') {
-            if (window.showToast) window.showToast('Изменение статуса запрещено: наряд завершён', 'warning');
-            return;
-          }
+          // Do not block on client when completed; let server enforce locks
           if (!isApproved || !canEditStatusFor(svc)) {
             if (window.showToast) window.showToast('Недостаточно прав или не согласовано', 'warning');
             return;

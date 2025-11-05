@@ -960,16 +960,17 @@ def register(app, socketio=None):
             ua = request.headers.get('User-Agent', '')
 
             # Only update presence for real pages, not API endpoints or background requests
+            # Prepare default user_data to avoid UnboundLocalError in emit
+            user_data = {
+                'user': user,
+                'ip': ip,
+                'ua': ua,
+                'page': page,
+                'lastSeen': int(datetime.utcnow().timestamp() * 1000)
+            }
             if page and is_real_page(page):
 
                 user_key = f"{user}|{ip}"
-                user_data = {
-                    'user': user,
-                    'ip': ip,
-                    'ua': ua,
-                    'page': page,
-                    'lastSeen': int(datetime.utcnow().timestamp() * 1000)
-                }
 
                 import json
                 app.redis_client.hset('presence:users', user_key,
@@ -984,7 +985,7 @@ def register(app, socketio=None):
                     'ip': ip,
                     'ua': ua,
                     'page': page,
-                    'lastSeen': user_data['lastSeen']
+                    'lastSeen': user_data.get('lastSeen')
                 },
                               room='admin')
 
@@ -1071,42 +1072,293 @@ def register(app, socketio=None):
     def admin_sessions():
         """Return JSON with active sessions tracked via middleware (best-effort)."""
         try:
-            # Try Redis first if available
+            debug_flag = (request.args.get('debug') or '').strip() in ('1','true','yes')
+            dbg = {'index_count': 0, 'ttl_union_count': 0, 'items_count': 0}
+            # Try Redis (cookie sessions with TTL) first if available
             if hasattr(app, 'redis_client') and app.redis_client:
                 try:
-                    sessions_data = app.redis_client.hgetall('sessions:active')
-                    sessions = []
-                    for key, value in sessions_data.items():
+                    rc = app.redis_client
+                    sids_raw = rc.smembers('sessions:cookie:index') or set()
+                    # Normalize to a mutable set of decoded strings
+                    sids = set()
+                    try:
+                        for _sid in sids_raw:
+                            if isinstance(_sid, bytes):
+                                sids.add(_sid.decode('utf-8', errors='ignore'))
+                            else:
+                                sids.add(str(_sid))
+                    except Exception:
+                        # Fallback: ensure it's at least a set
                         try:
-                            import json
-                            session_data = json.loads(value)
-                            sessions.append({
-                                'sid':
-                                session_data.get('sid', key),
-                                'session_id':
-                                session_data.get('sid', key),
-                                'user_id':
-                                session_data.get('user_id'),
-                                'user':
-                                session_data.get('user', 'Неизвестно'),
-                                'ip':
-                                session_data.get('ip', 'Неизвестно'),
-                                'ua':
-                                session_data.get('ua', 'Неизвестно'),
-                                'created_at':
-                                int(session_data.get('created_at', 0)),
-                                'last_seen':
-                                int(session_data.get('last_activity', 0)),
-                                'last_activity':
-                                int(session_data.get('last_activity', 0))
-                            })
+                            sids = set(sids_raw)
+                        except Exception:
+                            sids = set()
+                    dbg['index_count'] = len(sids)
+                    # Always union with TTL beacons to include inactive-but-unexpired sessions
+                    try:
+                        if hasattr(rc, 'scan_iter'):
+                            for key in rc.scan_iter(match='sessions:cookie:ttl:*', count=200):
+                                try:
+                                    # key format: sessions:cookie:ttl:{sid}
+                                    if isinstance(key, bytes):
+                                        key_str = key.decode('utf-8', errors='ignore')
+                                    else:
+                                        key_str = str(key)
+                                    sid = key_str.split(':', 3)[-1]
+                                    if sid:
+                                        sids.add(sid)
+                                except Exception:
+                                    continue
+                        else:
+                            # Fallback to KEYS if scan_iter is unavailable
+                            keys = rc.keys('sessions:cookie:ttl:*') or []
+                            for key in keys:
+                                try:
+                                    key_str = key.decode('utf-8', errors='ignore') if isinstance(key, bytes) else str(key)
+                                    sid = key_str.split(':', 3)[-1]
+                                    if sid:
+                                        sids.add(sid)
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
+                    dbg['ttl_union_count'] = len(sids)
+
+                    # Union with Flask-Session storage keys (survive app restarts)
+                    try:
+                        sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                        patt = f"{sess_prefix}*"
+                        if hasattr(rc, 'scan_iter'):
+                            for skey in rc.scan_iter(match=patt, count=200):
+                                try:
+                                    kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
+                                    # sid is suffix after prefix
+                                    if kstr.startswith(sess_prefix):
+                                        sid = kstr[len(sess_prefix):]
+                                        if sid:
+                                            sids.add(sid)
+                                except Exception:
+                                    continue
+                        else:
+                            keys = rc.keys(patt) or []
+                            for skey in keys:
+                                try:
+                                    kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
+                                    if kstr.startswith(sess_prefix):
+                                        sid = kstr[len(sess_prefix):]
+                                        if sid:
+                                            sids.add(sid)
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
+                    import time as _time
+                    items = []
+                    for sid in sids:
+                        try:
+                            # Normalize sid
+                            if isinstance(sid, bytes):
+                                sid = sid.decode('utf-8', errors='ignore')
+                            meta = rc.hgetall(f'sessions:cookie:{sid}') or {}
+                            ttl_cookie = rc.ttl(f'sessions:cookie:ttl:{sid}')
+                            # Also read TTL from Flask-Session key if available to survive restarts
+                            ttl_store = -1
+                            try:
+                                sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                                ttl_store = rc.ttl(f'{sess_prefix}{sid}')
+                            except Exception:
+                                ttl_store = -1
+                            # Normalize types
+                            def _ival(v, d=0):
+                                try:
+                                    if isinstance(v, bytes):
+                                        v = v.decode('utf-8', errors='ignore')
+                                    return int(v)
+                                except Exception:
+                                    return d
+                            def _sval(v, d=''):
+                                try:
+                                    if isinstance(v, bytes):
+                                        return v.decode('utf-8', errors='ignore')
+                                    return str(v)
+                                except Exception:
+                                    return d
+                            item = {
+                                'sid': sid,
+                                'session_id': sid,
+                                'user_id': _sval(meta.get('user_id')) or None,
+                                'user': _sval(meta.get('user'), 'Неизвестно'),
+                                'ip': _sval(meta.get('ip'), 'Неизвестно'),
+                                'ua': _sval(meta.get('ua'), 'Неизвестно'),
+                                'created_at': _ival(meta.get('created_at')), 
+                                'last_seen': _ival(meta.get('last_seen')),
+                                'last_activity': _ival(meta.get('last_seen')),
+                                'ttl_seconds': ttl_cookie if isinstance(ttl_cookie, int) and ttl_cookie >= 0 else (ttl_store if isinstance(ttl_store, int) else -1),
+                            }
+                            # If TTL unknown/negative, estimate from created_at/last_seen and configured lifetime
+                            try:
+                                if not isinstance(item['ttl_seconds'], int) or item['ttl_seconds'] < 0:
+                                    # Resolve lifetime
+                                    lifetime_s = 1800
+                                    try:
+                                        from datetime import timedelta as _td
+                                        cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+                                        if isinstance(cfg_life, _td):
+                                            lifetime_s = int(cfg_life.total_seconds())
+                                        else:
+                                            lifetime_s = int(cfg_life or 1800)
+                                    except Exception:
+                                        try:
+                                            lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+                                        except Exception:
+                                            lifetime_s = 1800
+                                    now_s = int(_time.time())
+                                    if item['created_at']:
+                                        eta = (int(item['created_at']) + int(lifetime_s)) - now_s
+                                    else:
+                                        # Fallback: estimate from last_seen when created_at is missing
+                                        ls = int(item.get('last_seen') or 0)
+                                        eta = (ls + int(lifetime_s)) - now_s if ls else -1
+                                    if eta < 0:
+                                        eta = 0
+                                    item['ttl_seconds'] = int(eta)
+                            except Exception:
+                                pass
+                            # If last_seen is missing/zero, try legacy store sessions:active
+                            if not item['last_seen']:
+                                try:
+                                    sa = rc.hget('sessions:active', sid)
+                                    if sa:
+                                        import json as _json
+                                        sd = _json.loads(sa)
+                                        la = sd.get('last_activity') or sd.get('last_seen') or 0
+                                        try:
+                                            la = int(la)
+                                        except Exception:
+                                            la = 0
+                                        if la:
+                                            item['last_seen'] = la
+                                            item['last_activity'] = la
+                                except Exception:
+                                    pass
+                            items.append(item)
                         except Exception:
                             continue
+                    # If cookie-index is empty, fallback to legacy hash for backward compatibility
+                    if not items:
+                        sessions_data = rc.hgetall('sessions:active')
+                        for key, value in sessions_data.items():
+                            try:
+                                import json
+                                session_data = json.loads(value)
+                                items.append({
+                                    'sid': session_data.get('sid', key),
+                                    'session_id': session_data.get('sid', key),
+                                    'user_id': session_data.get('user_id'),
+                                    'user': session_data.get('user', 'Неизвестно'),
+                                    'ip': session_data.get('ip', 'Неизвестно'),
+                                    'ua': session_data.get('ua', 'Неизвестно'),
+                                    'created_at': int(session_data.get('created_at', 0)),
+                                    'last_seen': int(session_data.get('last_activity', 0)),
+                                    'ttl_seconds': -1,
+                                })
+                            except Exception:
+                                continue
+                    # If no items yet, synthesize from session store keys only (after restart)
+                    if not items:
+                        try:
+                            sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                            keys = []
+                            if hasattr(rc, 'scan_iter'):
+                                keys = [k for k in rc.scan_iter(match=f'{sess_prefix}*', count=200)]
+                            else:
+                                keys = rc.keys(f'{sess_prefix}*') or []
+                            for skey in keys:
+                                try:
+                                    kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
+                                    if not kstr.startswith(sess_prefix):
+                                        continue
+                                    sid2 = kstr[len(sess_prefix):]
+                                    if not sid2:
+                                        continue
+                                    ttl_s = rc.ttl(kstr)
+                                    # Approximate created_at from ttl if lifetime known
+                                    lifetime_s = 1800
+                                    try:
+                                        from datetime import timedelta as _td
+                                        cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+                                        if isinstance(cfg_life, _td):
+                                            lifetime_s = int(cfg_life.total_seconds())
+                                        else:
+                                            lifetime_s = int(cfg_life or 1800)
+                                    except Exception:
+                                        try:
+                                            lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+                                        except Exception:
+                                            lifetime_s = 1800
+                                    created_guess = 0
+                                    try:
+                                        if isinstance(ttl_s, int) and ttl_s >= 0:
+                                            created_guess = int(_time.time()) - max(0, (lifetime_s - ttl_s))
+                                    except Exception:
+                                        created_guess = 0
+                                    items.append({
+                                        'sid': sid2,
+                                        'session_id': sid2,
+                                        'user_id': None,
+                                        'user': 'Неизвестно',
+                                        'ip': 'Неизвестно',
+                                        'ua': 'Неизвестно',
+                                        'created_at': created_guess,
+                                        'last_seen': created_guess,
+                                        'last_activity': created_guess,
+                                        'ttl_seconds': ttl_s if isinstance(ttl_s, int) else -1,
+                                    })
+                                except Exception:
+                                    continue
+                        except Exception:
+                            pass
 
-                    # Sort by last_activity desc
-                    sessions.sort(key=lambda r: r.get('last_activity') or 0,
-                                  reverse=True)
-                    return jsonify({'status': 'success', 'items': sessions})
+                    # Union with in-memory sessions to avoid dropping inactive-but-unexpired
+                    try:
+                        mem_sessions = getattr(app, '_sessions', {}) or {}
+                        if mem_sessions:
+                            # Build a map for dedup by sid
+                            idx = { (it.get('sid') or it.get('session_id')): it for it in items }
+                            for msid, minfo in mem_sessions.items():
+                                if msid in idx: continue
+                                try:
+                                    items.append({
+                                        'sid': msid,
+                                        'session_id': msid,
+                                        'user_id': minfo.get('user_id'),
+                                        'user': minfo.get('user') or 'Неизвестно',
+                                        'ip': minfo.get('ip') or 'Неизвестно',
+                                        'ua': minfo.get('ua') or 'Неизвестно',
+                                        'created_at': int(minfo.get('created_at') or 0),
+                                        'last_seen': int(minfo.get('last_seen') or 0),
+                                        'last_activity': int(minfo.get('last_seen') or 0),
+                                        'ttl_seconds': idx.get(msid, {}).get('ttl_seconds', -1),
+                                    })
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
+
+                    # Sort by last_seen desc
+                    items.sort(key=lambda r: r.get('last_seen') or 0, reverse=True)
+                    dbg['items_count'] = len(items)
+                    if debug_flag:
+                        try:
+                            _log.info("/admin/sessions debug: index=%s ttl_union=%s items=%s sample=%s",
+                                      dbg.get('index_count'), dbg.get('ttl_union_count'), dbg.get('items_count'),
+                                      items[0:3])
+                        except Exception:
+                            pass
+                    payload = {'status': 'success', 'items': items}
+                    if debug_flag:
+                        payload['debug'] = dbg
+                    return jsonify(payload)
                 except Exception as e:
                     _log.warning(f"Redis sessions fallback: {e}")
 
@@ -1190,6 +1442,34 @@ def register(app, socketio=None):
                     user_id_for_cleanup = entry.get('user_id')
             except Exception:
                 pass
+            # Immediate Redis cleanup of this HTTP session (so it doesn't reappear)
+            try:
+                if hasattr(app, 'redis_client') and app.redis_client:
+                    rc = app.redis_client
+                    try:
+                        rc.hdel('sessions:active', sid)
+                    except Exception:
+                        pass
+                    try:
+                        rc.delete(f'sessions:cookie:{sid}')
+                    except Exception:
+                        pass
+                    try:
+                        rc.delete(f'sessions:cookie:ttl:{sid}')
+                    except Exception:
+                        pass
+                    try:
+                        rc.srem('sessions:cookie:index', sid)
+                    except Exception:
+                        pass
+                    # Also delete Flask-Session storage key to invalidate server-side session immediately
+                    try:
+                        sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                        rc.delete(f'{sess_prefix}{sid}')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Immediately remove from active sessions store for instant UI update
             try:
                 if hasattr(app, '_sessions'):
@@ -1246,6 +1526,16 @@ def register(app, socketio=None):
         except Exception as e:
             app.flash_error(e)
             return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    # --- Admin Sessions Page (UI) ---
+    @app.route('/admin/sessions/view', methods=['GET'])
+    @require_permissions(ADMIN_VIEW_PAGE)
+    def admin_sessions_view():
+        try:
+            return render_template('admin_sessions.j2.html')
+        except Exception as e:
+            app.flash_error(e)
+            return render_template('error.j2.html', message=str(e)), 500
 
     # --- Generic heartbeat for idle tabs (no admin permission required) ---
     @app.route('/presence/heartbeat', methods=['POST'])
