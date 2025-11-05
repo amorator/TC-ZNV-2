@@ -9,6 +9,7 @@ Files and Users pages - implemented validations, restrictions, and protections
 - Enter key submits the currently open modal (primary action), except inside multiline textarea.
 - Custom context menus suppress the native menu; close on outside click/Escape.
 - Prefer soft refresh (AJAX) over full reloads.
+- Search and pagination state is persisted in URL parameters, not localStorage.
 - Avoid duplicate event handlers using flags; re-attach row handlers after soft refreshes.
 
 2) Files (frontend)
@@ -84,6 +85,9 @@ Files and Users pages - implemented validations, restrictions, and protections
 - Force logout emits to all sockets for targeted user and sets server-side invalidation flag.
 - Middleware clears invalidation flag on first enforcement to avoid repeated logouts after re-login.
 - Admin push notifications use VAPID keys stored in DB; no secrets in config.
+- Admin Categories/Registrators:
+  - Independent search fields: `q_groups` and `q_users` with separate pagination `page_*`/`page_size_*`.
+  - Initial navigation appends defaults for both pagers if missing to ensure predictable URLs.
 - Flask secret key stored in DB and ensured at startup.
 - Actions/logs endpoints require admin.view; downloads sanitized (basename, path traversal protection).
  

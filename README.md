@@ -157,6 +157,40 @@ Security‑логи краткие, без утечек чувствительн
 
 ---
 
+### Документация
+
+Подробные гайды и иллюстрации:
+
+<<<<<<< HEAD
+- `docs/README.md` — индекс документации
+- `docs/USER_GUIDE.md` — пользовательский гайд со скриншотами
+- `docs/ADMIN_GUIDE.md` — гайд администратора (Users/Groups/Categories/Registrators, поиск/пагинация)
+- `docs/DEVELOPER_GUIDE.md` — гайд разработчика (URL‑параметры, эндпоинты, скрипты)
+- `docs/SEARCH_AND_PAGINATION.md` — спецификация поведения поиска и пагинации
+- `docs/BRUTEFORCE.md` — скрипт брутфорса (CPU и Hashcat/GPU)
+
+Скриншоты находятся в `docs/images/` и генерируются скриптом:
+
+```bash
+source .venv/bin/activate
+ZNV_BASE_URL=https://<host> ZNV_USERNAME=admin ZNV_PASSWORD='vtsadmin!' \
+=======
+- [Индекс документации](docs/README.md)
+- [User Guide](docs/USER_GUIDE.md) — пользовательский гайд со скриншотами
+- [Admin Guide](docs/ADMIN_GUIDE.md) — администрирование (Users/Groups/Categories/Registrators, поиск/пагинация)
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) — для разработчиков (URL‑параметры, эндпоинты, скрипты)
+- [Search & Pagination](docs/SEARCH_AND_PAGINATION.md) — спецификация поведения поиска и пагинации
+- [Bruteforce Script](docs/BRUTEFORCE.md) — скрипт брутфорса (CPU и Hashcat/GPU)
+
+Скриншоты находятся в [docs/images/](docs/images/) и генерируются скриптом:
+
+```bash
+source .venv/bin/activate
+ZNV_BASE_URL=https://<host> ZNV_USERNAME=admin ZNV_PASSWORD='********' \
+>>>>>>> 8608916 (Update documentation and add guides for users, admins, and developers)
+python scripts/docs_screenshots.py
+```
+
 ### Тестирование и отладка
 
 - Проверьте доступность страниц: `/files`, `/registrators`, `/categories`
