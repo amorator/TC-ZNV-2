@@ -527,34 +527,17 @@ document.addEventListener("DOMContentLoaded", function () {
         const inRegistrators = path.indexOf('/registrators') !== -1 && !document.querySelector("section[data-testid='users-section']");
         if (!inCategories && !inRegistrators) return;
         const url = new URL(window.location.href);
-        // Categories: two independent lists (groups/users)
-        if (inCategories) {
-          const hasPg = !!url.searchParams.get('page_groups');
-          const hasSg = !!url.searchParams.get('page_size_groups');
-          const hasPu = !!url.searchParams.get('page_users');
-          const hasSu = !!url.searchParams.get('page_size_users');
-          // Defaults 1/10
-          if (!hasPg) url.searchParams.set('page_groups', '1');
-          if (!hasSg) url.searchParams.set('page_size_groups', '10');
-          if (!hasPu) url.searchParams.set('page_users', '1');
-          if (!hasSu) url.searchParams.set('page_size_users', '10');
-          if (!hasPg || !hasSg || !hasPu || !hasSu) {
-            try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
-          }
-        }
-        // Registrators: two independent lists (groups/users) in permissions panel
-        if (inRegistrators) {
-          const hasPg = !!url.searchParams.get('page_groups');
-          const hasSg = !!url.searchParams.get('page_size_groups');
-          const hasPu = !!url.searchParams.get('page_users');
-          const hasSu = !!url.searchParams.get('page_size_users');
-          if (!hasPg) url.searchParams.set('page_groups', '1');
-          if (!hasSg) url.searchParams.set('page_size_groups', '10');
-          if (!hasPu) url.searchParams.set('page_users', '1');
-          if (!hasSu) url.searchParams.set('page_size_users', '10');
-          if (!hasPg || !hasSg || !hasPu || !hasSu) {
-            try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
-          }
+        // Categories and Registrators both use two independent lists (groups/users)
+        const needPg = !url.searchParams.get('page_groups');
+        const needSg = !url.searchParams.get('page_size_groups');
+        const needPu = !url.searchParams.get('page_users');
+        const needSu = !url.searchParams.get('page_size_users');
+        if (needPg) url.searchParams.set('page_groups', '1');
+        if (needSg) url.searchParams.set('page_size_groups', '10');
+        if (needPu) url.searchParams.set('page_users', '1');
+        if (needSu) url.searchParams.set('page_size_users', '10');
+        if (needPg || needSg || needPu || needSu) {
+          try { window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {}
         }
       } catch(_) {}
     })();
@@ -660,6 +643,64 @@ document.addEventListener("DOMContentLoaded", function () {
         observeGeneric('users-pagination', 'users:pageSize');
         observeGeneric('groups-pagination', 'groups:pageSize');
       }
+    })();
+  } catch(_) {}
+  try {
+    // Setup dual-search URL persistence for Categories and Registrators (groups/users)
+    (function setupAdminDualSearch(){
+      try {
+        const path = (window.location && window.location.pathname) || '';
+        const inCategories = path.indexOf('/categories') !== -1;
+        const inRegistrators = path.indexOf('/registrators') !== -1 && !document.querySelector("section[data-testid='users-section']");
+        if (!inCategories && !inRegistrators) return;
+        const root = document;
+        function getParam(name){ try { const url = new URL(window.location.href); return url.searchParams.get(name) || ''; } catch(_) { return ''; } }
+        function setParam(name, val){ try { const url = new URL(window.location.href); if (val) url.searchParams.set(name, val); else url.searchParams.delete(name); url.searchParams.delete('q'); window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`); } catch(_) {} }
+        function bindInput(input, paramName){
+          if (!input || input.__urlBind) return; input.__urlBind = true;
+          // restore from URL
+          const v = getParam(paramName); if (v) { input.value = v; try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {} }
+          // save on input/change (debounced)
+          let t = null;
+          input.addEventListener('input', function(){ if (t) clearTimeout(t); t = setTimeout(function(){ setParam(paramName, (input.value || '').trim()); }, 200); });
+          input.addEventListener('change', function(){ setParam(paramName, (input.value || '').trim()); });
+          // clear button
+          const bar = input.closest('.searchbar') || root.querySelector('.searchbar');
+          if (bar) {
+            const btn = bar.querySelector('button[onclick*="searchClean"], button[aria-label*="Очистить"], button[aria-label*="Clear"], button[type="button"], button');
+            if (btn && !btn.__urlBind) {
+              btn.__urlBind = true;
+              try { if (btn.getAttribute('onclick')) btn.removeAttribute('onclick'); } catch(_) {}
+              btn.addEventListener('click', function(e){
+                try { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } catch(_) {}
+                input.value = '';
+                try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+                try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                setParam(paramName, '');
+              }, true);
+            }
+          }
+        }
+        // Bind both search inputs if present
+        bindInput(root.getElementById ? root.getElementById('groups-search') : document.getElementById('groups-search'), 'q_groups');
+        bindInput(root.getElementById ? root.getElementById('users-search') : document.getElementById('users-search'), 'q_users');
+        // Delegated fallback for clear buttons (robust against rerenders)
+        if (!window.__adminDualSearchDelegated) {
+          window.__adminDualSearchDelegated = true;
+          document.addEventListener('click', function(e){
+            try {
+              const btn = e.target && e.target.closest && e.target.closest('button');
+              if (!btn) return;
+              const isClear = (btn.getAttribute('aria-label')||'').indexOf('Очистить') !== -1 || (btn.getAttribute('onclick')||'').indexOf('searchClean') !== -1;
+              if (!isClear) return;
+              const g = document.getElementById('groups-search');
+              const u = document.getElementById('users-search');
+              if (g && btn.closest('.searchbar') && btn.closest('.searchbar').contains(g)) { g.value = ''; try { g.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} try { g.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {} setParam('q_groups',''); return; }
+              if (u && btn.closest('.searchbar') && btn.closest('.searchbar').contains(u)) { u.value = ''; try { u.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} try { u.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {} setParam('q_users',''); return; }
+            } catch(_) {}
+          }, true);
+        }
+      } catch(_) {}
     })();
   } catch(_) {}
 });
@@ -990,17 +1031,100 @@ document.addEventListener('change', function (e) {
 // Global clear search handler used by components/searchbar.html
 if (!window.searchClean) {
   window.searchClean = function(btn){
+    console.debug('[search][global] searchClean START', { btn, timestamp: Date.now() });
     try {
       try { console.debug('[search][global] searchClean invoked', { pageUsers: !!document.querySelector("section[data-testid='users-section']") }); } catch(_) {}
       var scope = (btn && btn.closest && btn.closest('.searchbar')) || document;
       var input = scope.querySelector ? scope.querySelector('#searchinp') : document.getElementById('searchinp');
+      console.debug('[search][global] Found input:', { inputExists: !!input, inputValue: input?.value });
+      
+      // Check if this is Orders page first
+      const ordersTbody = document.getElementById('orders-tbody');
+      const ordersPagination = document.getElementById('orders-pagination');
+      const isOrdersPage = ordersTbody || ordersPagination || (input && input.closest && input.closest('#orders-tbody'));
+      console.debug('[search][global] Orders page check:', { 
+        ordersTbody: !!ordersTbody, 
+        ordersPagination: !!ordersPagination,
+        inputClosest: input && input.closest ? !!input.closest('#orders-tbody') : false,
+        isOrdersPage 
+      });
+      
+      if (isOrdersPage) {
+        // Orders page: handle clearing search
+        try {
+          console.debug('[orders:search] searchClean called for orders page', { 
+            ordersTbodyExists: !!ordersTbody, 
+            ordersPaginationExists: !!ordersPagination,
+            inputValue: input?.value,
+            windowLoadExists: typeof window.load === 'function'
+          });
+          
+          if (input) {
+            console.debug('[orders:search] Clearing search input, current value:', input.value);
+            input.value = '';
+            try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+            try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+            
+            // Get current page and page_size from URL or use last saved page
+            let restorePage = 1;
+            let pageSize = 10;
+            try {
+              const url = new URL(window.location.href);
+              const urlPage = url.searchParams.get('page');
+              const urlPageSize = url.searchParams.get('page_size');
+              if (urlPage) restorePage = parseInt(urlPage, 10) || 1;
+              if (urlPageSize) pageSize = parseInt(urlPageSize, 10) || 10;
+              
+              // If no page in URL, try to get from localStorage
+              if (!urlPage) {
+                const lastPage = parseInt(localStorage.getItem('orders:lastPage') || '1', 10) || 1;
+                restorePage = lastPage;
+              }
+              
+              console.debug('[orders:search] Restoring page:', { restorePage, pageSize, urlPage, urlPageSize });
+              
+              // Update URL to remove q parameter but keep page and page_size
+              url.searchParams.delete('q');
+              url.searchParams.set('page', String(restorePage));
+              url.searchParams.set('page_size', String(pageSize));
+              window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+              console.debug('[orders:search] Updated URL (removed q, kept page/page_size):', url.toString());
+            } catch(e) {
+              console.error('[orders:search] Error updating URL:', e);
+            }
+            
+            // Trigger load to restore pagination (in addition to input/change events)
+            try {
+              if (typeof window.load === 'function') {
+                console.debug('[orders:search] Calling load() to restore pagination with page:', restorePage);
+                window.load(restorePage, { manualPage: false });
+              } else {
+                console.warn('[orders:search] window.load function not found!');
+              }
+            } catch(e) { console.error('[orders:search] Error calling load():', e); }
+          } else {
+            console.warn('[orders:search] Search input not found!');
+          }
+        } catch(e) {
+          console.error('[orders:search] Error in searchClean for orders:', e);
+        }
+        return false; // Return early for Orders page
+      }
+      
+      // For other pages, use standard clearing
       if (input) {
         input.value = '';
         try { console.debug('[search][global] dispatch input/change'); } catch(_) {}
         try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
         try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
       }
-      // Remove persisted search where applicable
+      // Remove search query from URL (no longer using localStorage)
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('q');
+        window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+      } catch(_) {}
+      // Remove old localStorage entries (cleanup)
       try { localStorage.removeItem('users:search'); } catch(_) {}
       try { localStorage.removeItem('groups:search'); } catch(_) {}
       // Page-specific fallbacks
@@ -1048,9 +1172,9 @@ if (!window.searchClean) {
       }
     }
     function apply(){
-      // Keep URL minimal: only set sizes (defaults to 10), do not add page indexes
-      var defaultsGroups = { page_size_groups: 10 };
-      var defaultsUsers = { page_size_users: 10 };
+      // Keep URL minimal: set defaults for both pages and sizes
+      var defaultsGroups = { page_groups: 1, page_size_groups: 10 };
+      var defaultsUsers = { page_users: 1, page_size_users: 10 };
       var defaultsAll = Object.assign({}, defaultsGroups, defaultsUsers);
       var links = document.querySelectorAll('a.topbtn[href]');
       links.forEach(function(a){

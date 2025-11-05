@@ -476,9 +476,13 @@ function loadPermissions(subcategoryId) {
   const sG = parseInt(url0.searchParams.get('page_size_groups') || '10', 10) || 10;
   const pU = parseInt(url0.searchParams.get('page_users') || '1', 10) || 1;
   const sU = parseInt(url0.searchParams.get('page_size_users') || '10', 10) || 10;
+  const qG = url0.searchParams.get('q_groups') || '';
+  const qU = url0.searchParams.get('q_users') || '';
+  const qsG = qG ? `&search=${encodeURIComponent(qG)}&q=${encodeURIComponent(qG)}` : '';
+  const qsU = qU ? `&search=${encodeURIComponent(qU)}&q=${encodeURIComponent(qU)}` : '';
   Promise.all([
-    fetch(`/api/groups?page=${pG}&page_size=${sG}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
-    fetch(`/api/users?page=${pU}&page_size=${sU}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch(`/api/groups?page=${pG}&page_size=${sG}${qsG}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
+    fetch(`/api/users?page=${pU}&page_size=${sU}${qsU}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' }).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
     fetch(`/api/subcategory/${subcategoryId}/permissions`).then((r) => r.json()).catch((e)=>({ error:e && (e.message||String(e)) })),
   ])
     .then(([groupsResp, usersResp, permissionsData]) => {
@@ -1196,6 +1200,16 @@ function savePermissions(which) {
         }
         const term = (getSearchInput(which)?.value || "").trim();
         loadPage(which, 1, term);
+        // Save search query to URL parameter
+        try {
+          const u = new URL(window.location.href);
+          if (term) {
+            u.searchParams.set('q', term);
+          } else {
+            u.searchParams.delete('q');
+          }
+          window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+        } catch(_) {}
 
         // Soft refresh files list for current subcategory
         try {
@@ -1288,19 +1302,24 @@ function wireSearchbar(which) {
   if (input) {
     input.placeholder =
       which === "groups" ? "Поиск по группам..." : "Поиск по пользователям...";
-    // Restore saved term
+    // Restore saved term from URL parameter (per table)
     try {
-      const sid = String(currentSubcategoryId || '0');
-      const skey = `categories:search:${which}:${sid}`;
-      const saved = localStorage.getItem(skey) || '';
-      if (saved && !input._restored) { input._restored = true; input.value = saved; }
+      const url = new URL(window.location.href);
+      const paramName = (which === 'groups') ? 'q_groups' : 'q_users';
+      const urlQ = url.searchParams.get(paramName) || '';
+      if (urlQ && !input._restored) {
+        input._restored = true;
+        input.value = urlQ;
+      } else {
+      // No fallback to localStorage - search is only in URL now
+      }
     } catch(_) {}
     if (!input._catBound) {
       input._catBound = true;
       let t = null;
       const handler = function(){
         const val = (input.value || '').trim();
-        try { const sid = String(currentSubcategoryId || '0'); const skey = `categories:search:${which}:${sid}`; if (val) localStorage.setItem(skey, val); else localStorage.removeItem(skey); } catch(_) {}
+        // No longer using localStorage, search is stored in URL parameter q=
         filterTable(which);
       };
       input.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(handler, 250); });
@@ -1328,6 +1347,13 @@ function wireSearchbar(which) {
 
 function filterTable(which) {
   const term = (getSearchInput(which)?.value || "").trim();
+  // Update URL with search query (per table)
+  try {
+    const u = new URL(window.location.href);
+    const paramName = (which === 'groups') ? 'q_groups' : 'q_users';
+    if (term) u.searchParams.set(paramName, term); else u.searchParams.delete(paramName);
+    window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+  } catch(_) {}
   if (!term) {
     // Restore last page if available
     let restorePage = 1;
@@ -1347,7 +1373,13 @@ function clearSearch(which) {
   const input = getSearchInput(which);
   if (!input) return;
   input.value = "";
-  try { const sid = String(currentSubcategoryId || '0'); const skey = `categories:search:${which}:${sid}`; localStorage.removeItem(skey); } catch(_) {}
+  // Remove search query from URL (per table)
+  try {
+    const u = new URL(window.location.href);
+    const paramName = (which === 'groups') ? 'q_groups' : 'q_users';
+    u.searchParams.delete(paramName);
+    window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+  } catch(_) {}
   // Restore last page if available
   let restorePage = 1;
   try {
@@ -1362,10 +1394,8 @@ function clearSearch(which) {
 
 function loadPage(which, page, q) {
   const url = which === "groups" ? "/api/groups" : "/api/users";
-  // Backend expects 'search' param; keep 'q' fallback if supported
-  const qs = q
-    ? `&search=${encodeURIComponent(q)}&q=${encodeURIComponent(q)}`
-    : "";
+  // Backend expects 'q' (keep 'search' for compatibility)
+  const qs = q ? `&search=${encodeURIComponent(q)}&q=${encodeURIComponent(q)}` : "";
   fetch(`${url}?page=${page}&page_size=10${qs}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
     .then((r) => r.json())
     .then((resp) => {
@@ -1438,6 +1468,10 @@ function renderPagination(which, resp) {
         } else {
           u.searchParams.set('page_users', String(targetPage));
           u.searchParams.set('page_size_users', String(size));
+        }
+        // Preserve search query in URL
+        if (q) {
+          u.searchParams.set('q', q);
         }
         window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
       } catch(_) {}

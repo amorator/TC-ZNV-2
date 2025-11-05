@@ -27,6 +27,19 @@ function initRegistratorsPage() {
     // Context menu across whole page
     setupRegistratorsContextMenu();
 
+    // Ensure dual-table pager defaults and load permissions lists
+    try { ensureAdminDualPagerDefaults(); } catch(_) {}
+    // Wire search bars exactly like Categories
+    try { wireSearchbar('groups'); } catch(_) {}
+    try { wireSearchbar('users'); } catch(_) {}
+    // Initial load using URL q_* and paging
+    try {
+      var qg = getUrlParam('q_groups') || '';
+      var qu = getUrlParam('q_users') || '';
+      loadPage('groups', parseInt(getUrlParam('page_groups')||'1',10)||1, qg);
+      loadPage('users', parseInt(getUrlParam('page_users')||'1',10)||1, qu);
+    } catch(_) {}
+
     // Wire up Add Registrator modal submit
     try {
       var addBtn = document.getElementById('regAddSubmit');
@@ -637,3 +650,184 @@ if (document.readyState === "loading") {
 } else {
   initRegistratorsPage();
 }
+
+// --- Admin dual lists (groups/users) for Registrators & Categories: minimal loader using q_groups/q_users ---
+function ensureAdminDualPagerDefaults(){
+  try {
+    var url = new URL(window.location.href);
+    var changed = false;
+    if (!url.searchParams.get('page_groups')) { url.searchParams.set('page_groups','1'); changed = true; }
+    if (!url.searchParams.get('page_size_groups')) { url.searchParams.set('page_size_groups','10'); changed = true; }
+    if (!url.searchParams.get('page_users')) { url.searchParams.set('page_users','1'); changed = true; }
+    if (!url.searchParams.get('page_size_users')) { url.searchParams.set('page_size_users','10'); changed = true; }
+    if (changed) { try { window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString()); } catch(_) {} }
+  } catch(_) {}
+}
+
+function getUrlParam(name){ try { return (new URL(window.location.href)).searchParams.get(name) || ''; } catch(_) { return ''; } }
+function setUrlParams(obj){
+  try {
+    var url = new URL(window.location.href);
+    Object.keys(obj||{}).forEach(function(k){ var v = obj[k]; if (v === null || v === undefined || v === '') url.searchParams.delete(k); else url.searchParams.set(k, String(v)); });
+    // keep dual params only; remove generic q if present
+    url.searchParams.delete('q');
+    window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
+  } catch(_) {}
+}
+
+function loadAdminPermissionsLists(){
+  try {
+    loadGroupsPermissions();
+    loadUsersPermissions();
+  } catch(_) {}
+}
+
+function loadGroupsPermissions(){
+  try {
+    var p = parseInt(getUrlParam('page_groups')||'1',10) || 1;
+    var s = parseInt(getUrlParam('page_size_groups')||'10',10) || 10;
+    var qg = getUrlParam('q_groups') || '';
+    var qs = qg ? ('&q=' + encodeURIComponent(qg)) : '';
+    fetch('/api/groups?page=' + p + '&page_size=' + s + qs, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ renderGroupsPermissions(j); })
+      .catch(function(_){ renderGroupsPermissions({ items: [], page: 1, total_pages: 1 }); });
+  } catch(_) {}
+}
+
+function renderGroupsPermissions(data){
+  try {
+    var tbody = document.getElementById('groups-permissions');
+    if (tbody) {
+      var rows = (data && data.items ? data.items : []).map(function(it){
+        var name = (it && (it.name||it.login||it.display_name)) || '';
+        return '<tr class="table__body_row"><td>' + escapeHtml(name) + '</td><td class="text-center"></td></tr>';
+      }).join('');
+      tbody.innerHTML = rows || '';
+    }
+    buildPager('groups-pagination', data && data.page, data && data.total_pages, 'groups');
+  } catch(_) {}
+}
+
+function loadUsersPermissions(){
+  try {
+    var p = parseInt(getUrlParam('page_users')||'1',10) || 1;
+    var s = parseInt(getUrlParam('page_size_users')||'10',10) || 10;
+    var qu = getUrlParam('q_users') || '';
+    var qs = qu ? ('&q=' + encodeURIComponent(qu)) : '';
+    fetch('/api/users?page=' + p + '&page_size=' + s + qs, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ renderUsersPermissions(j); })
+      .catch(function(_){ renderUsersPermissions({ items: [], page: 1, total_pages: 1 }); });
+  } catch(_) {}
+}
+
+function renderUsersPermissions(data){
+  try {
+    var tbody = document.getElementById('users-permissions');
+    if (tbody) {
+      var rows = (data && data.items ? data.items : []).map(function(it){
+        var name = (it && (it.name||it.login||it.display_name)) || '';
+        return '<tr class="table__body_row"><td>' + escapeHtml(name) + '</td><td class="text-center"></td></tr>';
+      }).join('');
+      tbody.innerHTML = rows || '';
+    }
+    buildPager('users-pagination', data && data.page, data && data.total_pages, 'users');
+  } catch(_) {}
+}
+
+function buildPager(containerId, page, totalPages, scope){
+  try {
+    var cont = document.getElementById(containerId);
+    if (!cont) return;
+    page = parseInt(page||'1',10) || 1; totalPages = parseInt(totalPages||'1',10) || 1;
+    var html = '';
+    function li(p, lbl, active){
+      return '<li class="page-item' + (active?' active':'') + '"><a class="page-link" href="#" data-page="' + p + '" data-scope="' + scope + '">' + lbl + '</a></li>';
+    }
+    html += li(Math.max(1, page-1), '&laquo;', false);
+    for (var i=Math.max(1, page-2); i<=Math.min(totalPages, page+2); i++) { html += li(i, String(i), i===page); }
+    html += li(Math.min(totalPages, page+1), '&raquo;', false);
+    cont.innerHTML = html;
+    // bind clicks
+    cont.querySelectorAll('a[data-page]').forEach(function(a){
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        var p = parseInt(this.getAttribute('data-page')||'1',10)||1;
+        if (scope==='groups') { setUrlParams({ page_groups: p }); loadPage('groups', p, getUrlParam('q_groups')||''); }
+        else { setUrlParams({ page_users: p }); loadPage('users', p, getUrlParam('q_users')||''); }
+      }, false);
+    });
+  } catch(_) {}
+}
+
+// --- Full categories-like search mechanics ---
+function wireSearchbar(which){
+  try {
+    var inputId = (which === 'groups') ? 'groups-search' : 'users-search';
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.__wired) return; input.__wired = true;
+    // restore from URL
+    var v = getUrlParam(which === 'groups' ? 'q_groups' : 'q_users') || '';
+    if (v) {
+      input.value = v;
+      try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+      try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+    }
+    // debounce input, update URL param and reload table
+    var t = null;
+    input.addEventListener('input', function(){ if (t) clearTimeout(t); t = setTimeout(function(){ filterTable(which); }, 200); });
+    input.addEventListener('change', function(){ filterTable(which); });
+    // clear button inside same .searchbar (delegated is already global, but make it explicit)
+    var bar = input.closest('.searchbar');
+    if (bar) {
+      var btn = bar.querySelector('button');
+      if (btn && !btn.__wired){
+        btn.__wired = true;
+        btn.addEventListener('click', function(e){ try { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } catch(_) {}
+          clearSearch(which);
+        }, true);
+      }
+    }
+  } catch(_) {}
+}
+
+function filterTable(which){
+  try {
+    var inputId = (which === 'groups') ? 'groups-search' : 'users-search';
+    var input = document.getElementById(inputId);
+    var term = (input && input.value) ? String(input.value).trim() : '';
+    // persist its own q_* and reset its own page to 1
+    if (which === 'groups') setUrlParams({ q_groups: term, page_groups: 1 });
+    else setUrlParams({ q_users: term, page_users: 1 });
+    loadPage(which, 1, term);
+  } catch(_) {}
+}
+
+function clearSearch(which){
+  try {
+    var inputId = (which === 'groups') ? 'groups-search' : 'users-search';
+    var input = document.getElementById(inputId);
+    if (input) { input.value = ''; try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {} try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {} }
+    if (which === 'groups') setUrlParams({ q_groups: '', page_groups: 1 }); else setUrlParams({ q_users: '', page_users: 1 });
+    loadPage(which, 1, '');
+  } catch(_) {}
+}
+
+function loadPage(which, page, q){
+  try {
+    var isGroups = (which === 'groups');
+    var pageSize = parseInt(getUrlParam(isGroups ? 'page_size_groups' : 'page_size_users') || '10', 10) || 10;
+    var qs = q ? ('&q=' + encodeURIComponent(q)) : '';
+    var url = isGroups ? ('/api/groups?page=' + (page||1) + '&page_size=' + pageSize + qs)
+                       : ('/api/users?page=' + (page||1) + '&page_size=' + pageSize + qs);
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if (isGroups) renderGroupsPermissions(j); else renderUsersPermissions(j); })
+      .catch(function(_){ if (isGroups) renderGroupsPermissions({ items: [], page: 1, total_pages: 1 }); else renderUsersPermissions({ items: [], page: 1, total_pages: 1 }); });
+  } catch(_) {}
+}
+
+function debounce(fn, ms){ var t=null; return function(){ var ctx=this, args=arguments; if (t) clearTimeout(t); t=setTimeout(function(){ t=null; try{ fn.apply(ctx, args); }catch(_){ } }, ms||200); }; }
+function escapeHtml(s){ try { return String(s).replace(/[&<>"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt','"':'&quot;','\'':'&#39;'}[ch]); }); } catch(_){ return s; } }

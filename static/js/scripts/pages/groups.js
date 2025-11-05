@@ -349,6 +349,12 @@ if (!window.groupsDoFilter) {
 
     if (q.length === 0) {
       if (pager) pager.classList.remove("d-none");
+      // Remove q from URL
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('q');
+        window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+      } catch(_) {}
       if (
         window.groupsPager &&
         typeof window.groupsPager.renderPage === "function"
@@ -362,6 +368,12 @@ if (!window.groupsDoFilter) {
 
     if (q.length > 0) {
       if (pager) pager.classList.add("d-none");
+      // Update URL with search query
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set('q', q);
+        window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+      } catch(_) {}
       const url = new URL(window.location.origin + "/groups/search");
       url.searchParams.set("q", q);
       url.searchParams.set("page", String(page || 1));
@@ -453,30 +465,42 @@ if (!window.groupsDoFilter) {
   const input = document.getElementById("searchinp");
   if (!input) return;
 
-  const key = "groups:search";
-  const saved = (() => {
+  // Restore search from URL parameter q= first, then from localStorage (for backward compatibility)
+  const restoreSearch = () => {
     try {
-      return localStorage.getItem(key) || "";
-    } catch (_) {
-      return "";
-    }
-  })();
-
-  if (saved) {
-    input.value = saved;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    window.addEventListener("load", () => {
-      setTimeout(() => {
+      const url = new URL(window.location.href);
+      const urlQ = url.searchParams.get('q') || '';
+      if (urlQ) {
+        input.value = urlQ;
         input.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
-  }
+        return;
+      }
+      // No fallback to localStorage - search is only in URL now
+    } catch (_) {}
+  };
+
+  restoreSearch();
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      restoreSearch();
+    }, 0);
+  });
 
   input.addEventListener("input", (e) => {
     const v = (e.target.value || "").trim();
+    // Update URL with search query
     try {
-      if (v) localStorage.setItem(key, v);
-      else localStorage.removeItem(key);
+      const url = new URL(window.location.href);
+      if (v) {
+        url.searchParams.set('q', v);
+      } else {
+        url.searchParams.delete('q');
+      }
+      window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+    } catch (_) {}
+    // Remove old localStorage usage (no longer needed)
+    try {
+      localStorage.removeItem("groups:search");
     } catch (_) {}
   });
 
@@ -486,8 +510,15 @@ if (!window.groupsDoFilter) {
       el.value = "";
       el.focus();
     }
+    // Remove search query from URL
     try {
-      localStorage.removeItem(key);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('q');
+      window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+    } catch (_) {}
+    // Remove old localStorage usage (no longer needed)
+    try {
+      localStorage.removeItem("groups:search");
     } catch (_) {}
     if (el) {
       el.dispatchEvent(new Event("input", { bubbles: true }));

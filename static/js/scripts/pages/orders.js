@@ -76,13 +76,37 @@
     return { from: d2(from), to: d2(to) };
   }
 
-  // --- localStorage keys for orders page ---
-  const ORDERS_SEARCH_KEY = 'orders:search';
+  // --- localStorage keys for orders page (page only, search now in URL) ---
   const ORDERS_LASTPAGE_KEY = 'orders:lastPage';
 
-  // --- Save/load search and page state ---
-  function saveOrdersSearch(val) { if (val) localStorage.setItem(ORDERS_SEARCH_KEY, val); else localStorage.removeItem(ORDERS_SEARCH_KEY); }
-  function getOrdersSearch() { return localStorage.getItem(ORDERS_SEARCH_KEY) || ''; }
+  // --- Save/load search from URL, page state from localStorage ---
+  function saveOrdersSearch(val) {
+    // Update URL with search query
+    try {
+      const url = new URL(window.location.href);
+      if (val) {
+        url.searchParams.set('q', val);
+      } else {
+        url.searchParams.delete('q');
+      }
+      window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+    } catch (e) {
+    }
+    // Remove old localStorage usage (no longer needed)
+    try {
+      localStorage.removeItem('orders:search');
+    } catch (_) {}
+  }
+  function getOrdersSearch() {
+    // Get search from URL parameter q=
+    try {
+      const url = new URL(window.location.href);
+      const q = url.searchParams.get('q') || '';
+      return q;
+    } catch (e) {
+      return '';
+    }
+  }
   function saveOrdersLastPage(page) { if (page > 0) localStorage.setItem(ORDERS_LASTPAGE_KEY, String(page)); }
   function getOrdersLastPage() { const pg = parseInt(localStorage.getItem(ORDERS_LASTPAGE_KEY) || '1', 10); return (+pg > 0 ? +pg : 1); }
   function resetOrdersPage() { localStorage.removeItem(ORDERS_LASTPAGE_KEY); }
@@ -102,7 +126,10 @@
       saveOrdersSearch(q);
       // page persistence (restore if not set and not search)
       let usePage = (typeof page === 'number' && page > 0) ? page : 1;
-      if (!q && !opts.manualPage) usePage = getOrdersLastPage();
+      const lastPage = getOrdersLastPage();
+      if (!q && !opts.manualPage) {
+        usePage = lastPage;
+      }
       if (!usePage) usePage = 1;
       // Params
       const params = new URLSearchParams();
@@ -128,10 +155,29 @@
       if (pager && data && typeof data.total === 'number') {
         renderOrdersPaginationControls(pager, data.total, data.page || 1, data.page_size || 10);
         setupOrdersPaginationClickHandler();
+      } else {
+        
       }
-      // Save lastPage if not searching
-      if (!q) saveOrdersLastPage(data.page || 1);
-      if (q && !items.length) resetOrdersPage();
+      // Save lastPage if not searching and update URL with page/page_size
+      if (!q) {
+        const savedPage = data.page || 1;
+        saveOrdersLastPage(savedPage);
+        
+        // Update URL with current page and page_size
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('page', String(savedPage));
+          url.searchParams.set('page_size', String(data.page_size || 10));
+          // Remove q if it exists
+          url.searchParams.delete('q');
+          window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+        } catch(e) {
+          
+        }
+      }
+      if (q && !items.length) {
+        resetOrdersPage();
+      }
     } catch (e) {
       if (opts && opts.silent) {
         // тихий режим: не тревожим пользователя и не затираем таблицу
@@ -275,6 +321,154 @@
   // Заменяем на интеграцию с files-search.js
   window.ordersDoFilter = function(q, page) { load(page || 1); };
 
+  // Setup search clear button handler for Orders page
+  (function setupOrdersSearchClearButton() {
+    const setupClearButton = () => {
+      const searchInput = document.getElementById('searchinp');
+      if (!searchInput) {
+        console.debug('[orders:search] Search input not found yet');
+        return;
+      }
+      
+      // Find clear button (next sibling or parent's button)
+      const searchbar = searchInput.closest('.searchbar');
+      if (!searchbar) {
+        console.debug('[orders:search] Searchbar not found');
+        return;
+      }
+      
+      const clearBtn = searchbar.querySelector('button[onclick*="searchClean"], button[aria-label*="Очистить"], button:has(+ input)');
+      if (!clearBtn) {
+        console.debug('[orders:search] Clear button not found in searchbar');
+        // Try to find any button in searchbar
+        const anyBtn = searchbar.querySelector('button');
+        console.debug('[orders:search] Any button in searchbar:', !!anyBtn, anyBtn ? { onclick: anyBtn.onclick, ariaLabel: anyBtn.getAttribute('aria-label') } : null);
+        return;
+      }
+      
+      console.debug('[orders:search] Found clear button:', { 
+        hasOnclick: !!clearBtn.onclick, 
+        onclick: clearBtn.getAttribute('onclick'),
+        ariaLabel: clearBtn.getAttribute('aria-label')
+      });
+      
+      // Remove existing handler to avoid duplicates
+      if (clearBtn.__ordersClearBound) {
+        console.debug('[orders:search] Clear button already bound');
+        return;
+      }
+      clearBtn.__ordersClearBound = true;
+      
+      // Remove inline onclick to prevent conflicts
+      const originalOnclick = clearBtn.getAttribute('onclick');
+      if (originalOnclick) { clearBtn.removeAttribute('onclick'); }
+      
+      // Add event listener that will handle everything
+      clearBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        const input = document.getElementById('searchinp');
+        if (!input) { return; }
+        
+        const currentValue = input.value;
+        
+        if (!currentValue || !currentValue.trim()) { return; }
+        
+        // Clear input and dispatch events so input listeners react
+        input.value = '';
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+        try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+        
+        // Get current page and page_size from URL or use last saved page
+        let restorePage = 1;
+        let pageSize = 10;
+        try {
+          const url = new URL(window.location.href);
+          const urlPage = url.searchParams.get('page');
+          const urlPageSize = url.searchParams.get('page_size');
+          if (urlPage) restorePage = parseInt(urlPage, 10) || 1;
+          if (urlPageSize) pageSize = parseInt(urlPageSize, 10) || 10;
+          
+          // If no page in URL, try to get from localStorage
+          if (!urlPage) {
+            const lastPage = parseInt(localStorage.getItem('orders:lastPage') || '1', 10) || 1;
+            restorePage = lastPage;
+          }
+          
+          // Update URL to remove q parameter but keep page and page_size
+          url.searchParams.delete('q');
+          url.searchParams.set('page', String(restorePage));
+          url.searchParams.set('page_size', String(pageSize));
+          window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+        } catch(e) {
+          
+        }
+        
+        // Trigger load to restore pagination
+        if (typeof window.load === 'function') { window.load(restorePage, { manualPage: false }); }
+      }, true); // Use capture phase to run before other handlers
+      
+      console.debug('[orders:search] Clear button handler attached successfully');
+    };
+    
+    // Try to setup immediately
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', setupClearButton);
+    } else {
+      setupClearButton();
+    }
+    
+    // Also try after delays (in case DOM is not ready)
+    setTimeout(setupClearButton, 100);
+    setTimeout(setupClearButton, 500);
+    setTimeout(setupClearButton, 1000);
+  })();
+
+  // Delegated click handler to survive DOM rerenders of the search row
+  (function delegateOrdersSearchClear(){
+    try {
+      if (window.__ordersClearDelegated) return;
+      window.__ordersClearDelegated = true;
+      document.addEventListener('click', function(e){
+        try {
+          // Work only within Orders section
+          var ordersSection = document.querySelector("section[data-testid='orders-section']");
+          if (!ordersSection) return;
+          var btn = e.target && (e.target.closest && e.target.closest("section[data-testid='orders-section'] .searchbar button"));
+          if (!btn) return;
+          // Heuristic: clear button has aria-label 'Очистить поиск' or contains the X icon
+          var isClear = (btn.getAttribute('aria-label')||'').indexOf('Очистить') !== -1;
+          if (!isClear) return;
+          // Prevent default and handle
+          e.preventDefault();
+          // Clear input and dispatch events
+          var input = ordersSection.querySelector('#searchinp');
+          if (!input) return;
+          var hadValue = !!(input.value && input.value.trim());
+          input.value = '';
+          try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+          // Keep page and page_size in URL; remove q
+          try {
+            var url = new URL(window.location.href);
+            var restorePage = parseInt(url.searchParams.get('page')||'0',10) || parseInt(localStorage.getItem('orders:lastPage')||'1',10) || 1;
+            var pageSize = parseInt(url.searchParams.get('page_size')||'10',10) || 10;
+            url.searchParams.delete('q');
+            url.searchParams.set('page', String(restorePage));
+            url.searchParams.set('page_size', String(pageSize));
+            window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
+          } catch(_) {}
+          // Trigger load as a fallback if value actually changed
+          if (hadValue && typeof window.load === 'function') {
+            window.load(1, { manualPage: false });
+          }
+        } catch(_) {}
+      }, true); // capture to run early
+    } catch(_) {}
+  })();
+
   function init() {
     const rng = currentMonthRange();
     const df = document.getElementById('flt-from');
@@ -290,8 +484,16 @@
     // restore search & page
     let pg = getOrdersLastPage();
     let q = getOrdersSearch();
-    if (q) load(1);
-    else load(pg);
+    // Restore search input value from URL
+    const searchInput = document.getElementById('searchinp');
+    if (searchInput && q) {
+      searchInput.value = q;
+    }
+    if (q) {
+      load(1);
+    } else {
+      load(pg);
+    }
     setupOrdersHeaderTooltips();
   }
 
@@ -548,7 +750,8 @@
     try {
       const pager = document.getElementById('orders-pagination');
       if (!pager) return;
-      pager.querySelectorAll('a.page-link[data-page]').forEach((a) => {
+      const links = pager.querySelectorAll('a.page-link[data-page]');
+      links.forEach((a) => {
         a.addEventListener('click', function (e) {
           e.preventDefault();
           const p = parseInt(this.getAttribute('data-page') || '1', 10) || 1;

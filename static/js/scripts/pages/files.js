@@ -277,16 +277,20 @@ function initFilesPage() {
     // Setup background progress
     setupBackgroundProgress();
 
-    // Setup server-side search
-    if (window.FilesSearch && typeof window.FilesSearch.setupFilesSearch === 'function') {
-      window.FilesSearch.setupFilesSearch();
+    // Always set up URL-param-based search
+    setupFilesSearch();
+    setupFilesSearchClearButton();
+
+    // If URL contains q, load search results immediately and skip normal pagination init
+    const initialQ = getFilesSearch();
+    if (initialQ) {
+      filesDoFilter(initialQ, 1);
+    } else {
+      // Setup pagination click handler
+      setupFilesPaginationClickHandler();
+      // Initialize files pagination data on first load (when not searching)
+      initFilesPagination();
     }
-
-    // Setup pagination click handler
-    setupFilesPaginationClickHandler();
-
-    // Initialize files pagination data on first load (when not searching)
-    initFilesPagination();
 
     // Restore toasts from storage
     if (
@@ -401,6 +405,7 @@ function fetchFilesPage(page, ids) {
         // Update URL page param (keep current path and other params)
         const cur = new URL(window.location);
         cur.searchParams.set('page', String(data.page || 1));
+        cur.searchParams.set('page_size', String(ps));
         window.history.pushState({}, '', cur.pathname + cur.search);
 
         // Rebind handlers
@@ -2330,3 +2335,179 @@ window.cancelUpload = async function(uploadId) {
     }
   }
 };
+
+// --- Files search with URL param q= ---
+function saveFilesSearch(val) {
+  try {
+    const url = new URL(window.location.href);
+    if (val) url.searchParams.set('q', val); else url.searchParams.delete('q');
+    window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+  } catch(_) {}
+}
+function getFilesSearch() {
+  try { const url = new URL(window.location.href); return url.searchParams.get('q') || ''; } catch(_) { return ''; }
+}
+function filesDoFilter(q, page) {
+  try {
+    const input = document.getElementById('searchinp');
+    if (typeof q === 'undefined' || q === null) q = (input && input.value ? input.value.trim() : '');
+    const table = document.getElementById('maintable');
+    const pager = document.getElementById('files-pagination');
+    if (!table || !pager) return;
+    const url = new URL(window.location);
+    const catId = (window.current_category_id != null) ? window.current_category_id : (url.searchParams.get('cat_id'));
+    const subId = (window.current_subcategory_id != null) ? window.current_subcategory_id : (url.searchParams.get('sub_id'));
+    if (!catId || !subId) return;
+    const pageSize = parseInt(url.searchParams.get('page_size') || '10', 10) || 10;
+    const nextPage = parseInt(page || '1', 10) || 1;
+    if (!q) {
+      // empty query -> restore normal pagination
+      saveFilesSearch('');
+      fetchFilesPage( (function(){ try { return parseInt(url.searchParams.get('page')||'1',10)||1; } catch(_) { return 1; } })(), { catId, subId });
+      return;
+    }
+    // Persist q in URL
+    saveFilesSearch(q);
+    // Build /files/search request
+    const api = new URL('/files/search', window.location.origin);
+    api.searchParams.set('q', q);
+    api.searchParams.set('cat_id', String(catId));
+    api.searchParams.set('sub_id', String(subId));
+    api.searchParams.set('page', String(nextPage));
+    api.searchParams.set('page_size', String(pageSize));
+    fetch(api.toString(), {
+      method: 'GET',
+      headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+      credentials: 'include'
+    }).then(function(r){ return r.json(); }).then(function(data){
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody && typeof data.html === 'string') {
+        const searchRow = tbody.querySelector('#search');
+        const searchHTML = searchRow ? searchRow.outerHTML : '';
+        tbody.innerHTML = searchHTML + data.html;
+      }
+      const total = parseInt(data.total || 0, 10);
+      const pageNum = parseInt(data.page || nextPage || 1, 10);
+      const ps = parseInt(data.page_size || pageSize || 10, 10);
+      renderFilesPaginationControls(pager, total, pageNum, ps);
+      // Save last known pager state for recovery
+      window.__filesPagerState = { total: total, page: pageNum, pageSize: ps };
+      // Reflect page/page_size in URL together with q
+      try {
+        const cur = new URL(window.location);
+        cur.searchParams.set('page', String(pageNum));
+        cur.searchParams.set('page_size', String(ps));
+        cur.searchParams.set('q', q);
+        window.history.replaceState({}, '', cur.pathname + '?' + cur.searchParams.toString());
+      } catch(_) {}
+      // Rebind hooks
+      setupFilesPaginationClickHandler();
+      reinitializeContextMenu();
+      if (window.rebindFilesTable) window.rebindFilesTable();
+    }).catch(function(err){ window.ErrorHandler && window.ErrorHandler.handleError(err, 'filesDoFilter'); });
+  } catch(err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, 'filesDoFilter');
+  }
+}
+function setupFilesSearch() {
+  try {
+    const input = document.getElementById('searchinp');
+    if (!input) return;
+    // Restore input from URL
+    const q = getFilesSearch();
+    if (q) input.value = q;
+    // Debounced input handler
+    if (!input._filesSearchBound) {
+      input._filesSearchBound = true;
+      let t = null;
+      input.addEventListener('input', function(){
+        if (t) clearTimeout(t);
+        t = setTimeout(function(){ filesDoFilter(input.value.trim(), 1); }, 200);
+      });
+      input.addEventListener('change', function(){ filesDoFilter(input.value.trim(), 1); });
+    }
+  } catch(_) {}
+}
+function setupFilesSearchClearButton(){
+  try {
+    const input = document.getElementById('searchinp');
+    if (!input) return;
+    const searchbar = input.closest('.searchbar') || document.querySelector('.searchbar');
+    if (!searchbar) return;
+    const btn = searchbar.querySelector('button[onclick*="searchClean"], button[aria-label*="Очистить"], button[aria-label*="Clear"], button[type="button"], button');
+    if (!btn || btn._filesClearBound) return;
+    btn._filesClearBound = true;
+    try { if (btn.getAttribute('onclick')) btn.removeAttribute('onclick'); } catch(_) {}
+    const handler = function(e){
+      try { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } catch(_) {}
+      // Clear input and dispatch events so listeners react
+      input.value = '';
+      try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+      try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+      // Remove q from URL but keep cat/sub and page params
+      try {
+        const url = new URL(window.location.href);
+        const page = parseInt(url.searchParams.get('page') || '1', 10) || 1;
+        const pageSize = parseInt(url.searchParams.get('page_size') || '10', 10) || 10;
+        url.searchParams.delete('q');
+        url.searchParams.set('page', String(page));
+        url.searchParams.set('page_size', String(pageSize));
+        window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+      } catch(_) {}
+      // Restore normal pagination for current category/subcategory
+      try {
+        const cur = new URL(window.location);
+        const catId = (window.current_category_id != null) ? window.current_category_id : (cur.searchParams.get('cat_id'));
+        const subId = (window.current_subcategory_id != null) ? window.current_subcategory_id : (cur.searchParams.get('sub_id'));
+        const pg = parseInt(cur.searchParams.get('page')||'1',10) || 1;
+        fetchFilesPage(pg, { catId, subId });
+      } catch(_) { fetchFilesPage(1, {}); }
+      return false;
+    };
+    btn.addEventListener('click', handler, true);
+  } catch(_) {}
+}
+// Delegated Files clear handler (capture) to survive rerenders
+(function delegateFilesSearchClear(){
+  try {
+    if (window.__filesClearDelegated) return;
+    window.__filesClearDelegated = true;
+    document.addEventListener('click', function(e){
+      try {
+        const filesSection = document.querySelector('section.files-page, .files-page, section[data-testid="files-section"]');
+        if (!filesSection) return;
+        const btn = e.target && e.target.closest && e.target.closest('button');
+        if (!btn) return;
+        const isClear = (btn.getAttribute('aria-label')||'').indexOf('Очистить') !== -1 || (btn.getAttribute('onclick')||'').indexOf('searchClean') !== -1;
+        if (!isClear) return;
+        const input = filesSection.querySelector('#searchinp');
+        if (!input) return;
+        e.preventDefault();
+        // Clear and dispatch
+        input.value = '';
+        try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+        try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+        // Remove q and keep paging
+        try {
+          const url = new URL(window.location.href);
+          const page = parseInt(url.searchParams.get('page') || '1', 10) || 1;
+          const pageSize = parseInt(url.searchParams.get('page_size') || '10', 10) || 10;
+          url.searchParams.delete('q');
+          url.searchParams.set('page', String(page));
+          url.searchParams.set('page_size', String(pageSize));
+          window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+        } catch(_) {}
+        // Restore
+        try {
+          const cur = new URL(window.location);
+          const catId = (window.current_category_id != null) ? window.current_category_id : (cur.searchParams.get('cat_id'));
+          const subId = (window.current_subcategory_id != null) ? window.current_subcategory_id : (cur.searchParams.get('sub_id'));
+          const pg = parseInt(cur.searchParams.get('page')||'1',10) || 1;
+          fetchFilesPage(pg, { catId, subId });
+        } catch(_) { fetchFilesPage(1, {}); }
+      } catch(_) {}
+    }, true);
+  } catch(_) {}
+})();
+// Expose for pager click delegation
+window.filesDoFilter = filesDoFilter;

@@ -6,7 +6,7 @@
 <div class="container-fluid registrators-page">
   <div class="subbar cat">
     <div class="subbar__group">
-      <a class="topbtn" href="{{ url_for('categories_admin') }}">
+      <a class="topbtn" href="{{ url_for('categories_admin', page_groups=1, page_size_groups=10, page_users=1, page_size_users=10) }}">
         <i class="fas fa-folder"></i> Категории
       </a>
       <button class="topbtn active">

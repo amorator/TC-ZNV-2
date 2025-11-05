@@ -564,27 +564,28 @@ if (!window.usersDoFilter) {
 
     if (q.length === 0) {
       if (pager) pager.classList.remove("d-none");
-      // Remove q from URL and reflect current pagination like on Files page
+      // Remove q from URL and keep existing page/page_size if present; otherwise, fall back to saved/local defaults
+      let curPage = 1, curSize = 10;
       try {
         const url = new URL(window.location.href);
+        const urlPage = parseInt(url.searchParams.get('page') || '0', 10) || 0;
+        const urlSize = parseInt(url.searchParams.get('page_size') || '0', 10) || 0;
+        if (urlPage) curPage = urlPage; else { try { const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; curPage = st.page || 1; } catch(_) {} }
+        if (urlSize) curSize = urlSize; else { try { const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; curSize = st.pageSize || 10; } catch(_) {} }
         url.searchParams.delete('q');
-        let page = 1, pageSize = 10;
-        try { const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || {}; page = st.page || 1; pageSize = st.pageSize || 10; } catch(_) {}
-        url.searchParams.set('page', String(page));
-        url.searchParams.set('page_size', String(pageSize));
+        url.searchParams.set('page', String(curPage));
+        url.searchParams.set('page_size', String(curSize));
         window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
       } catch(_) {}
       if (typeof window.__usersServerRender === 'function') {
-        // Use direct server render to avoid conflicts
-        let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
-        window.__usersServerRender(restore);
+        // Render exactly the page reflected in URL
+        window.__usersServerRender(curPage);
       } else if (
         window.usersPager &&
         typeof window.usersPager.renderPage === "function"
       ) {
-        // Restore last page if exists
-        let restore = 1; try { const s = parseInt(localStorage.getItem('users:lastPage') || '0', 10) || 0; if (s > 0) restore = s; } catch(_) {}
-        window.usersPager.renderPage(restore);
+        // Render exactly the page reflected in URL
+        window.usersPager.renderPage(curPage);
       } else if (typeof window.softRefreshUsersTable === 'function') {
         // Fallback to server-side soft refresh preserving current pagination
         window.softRefreshUsersTable();
@@ -594,6 +595,12 @@ if (!window.usersDoFilter) {
 
     if (q.length > 0) {
       if (pager) pager.classList.add("d-none");
+      // Update URL with search query
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set('q', q);
+        window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
+      } catch(_) {}
       const url = new URL(window.location.origin + "/users/search");
       url.searchParams.set("q", q);
       url.searchParams.set("page", String(page || 1));
@@ -686,30 +693,42 @@ if (!window.usersDoFilter) {
   const input = document.getElementById("searchinp");
   if (!input) return;
 
-  const key = "users:search";
-  const saved = (() => {
+  // Restore search from URL parameter q= first, then from localStorage (for backward compatibility)
+  const restoreSearch = () => {
     try {
-      return localStorage.getItem(key) || "";
-    } catch (_) {
-      return "";
-    }
-  })();
-
-  if (saved) {
-    input.value = saved;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    window.addEventListener("load", () => {
-      setTimeout(() => {
+      const url = new URL(window.location.href);
+      const urlQ = url.searchParams.get('q') || '';
+      if (urlQ) {
+        input.value = urlQ;
         input.dispatchEvent(new Event("input", { bubbles: true }));
-      }, 0);
-    });
-  }
+        return;
+      }
+      // No fallback to localStorage - search is only in URL now
+    } catch (_) {}
+  };
+
+  restoreSearch();
+  window.addEventListener("load", () => {
+    setTimeout(() => {
+      restoreSearch();
+    }, 0);
+  });
 
   input.addEventListener("input", (e) => {
     const v = (e.target.value || "").trim();
+    // Update URL with search query
     try {
-      if (v) localStorage.setItem(key, v);
-      else localStorage.removeItem(key);
+      const url = new URL(window.location.href);
+      if (v) {
+        url.searchParams.set('q', v);
+      } else {
+        url.searchParams.delete('q');
+      }
+      window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`);
+    } catch (_) {}
+    // Remove old localStorage usage (no longer needed)
+    try {
+      localStorage.removeItem("users:search");
     } catch (_) {}
   });
 
@@ -719,10 +738,7 @@ if (!window.usersDoFilter) {
       el.value = "";
       el.focus();
     }
-    try {
-      localStorage.removeItem(key);
-    } catch (_) {}
-    // Reflect URL like on Files page and ensure pager visible
+    // Remove search query from URL
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('q');
