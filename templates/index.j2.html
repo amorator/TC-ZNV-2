@@ -1,30 +1,325 @@
 {% extends 'base.j2.html' %}
-{% block css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/index.css') }}"/>
-{% endblock %}
+{% set title = 'Документация' %}
 {% block main %}
-
-<section class="main-page">
-  <div class="main-page__content">
-    <div class="card shadow-sm p-3">
-      <div class="d-flex align-items-center gap-3">
-        <button id="indexToggleBtn" class="btn btn-primary" disabled>Toggle</button>
-        <span id="indexConnStatus" class="badge text-bg-secondary">Подключение…</span>
-        <div>
-          <div>Время отправки: <span id="indexSendTs" class="ts-chip">—</span></div>
-          <div>Время получения: <span id="indexRecvTs" class="ts-chip">—</span></div>
+<section class="container py-3">
+  <style>
+    /* Local styles for documentation rendering on this page only */
+    #md { font-size: .95rem; }
+    #md img { 
+      display: block; 
+      max-width: 640px; 
+      width: 100%; 
+      height: auto; 
+      margin: 1rem auto; 
+      border-radius: .5rem; 
+      box-shadow: 0 2px 16px rgba(0,0,0,.12);
+    }
+    #md figure { 
+      margin: 1rem auto; 
+      text-align: center; 
+      max-width: 640px;
+    }
+    #md figcaption { 
+      font-size: .85rem; 
+      color: #6c757d; 
+      margin-top: .25rem; 
+    }
+    #md .screenshot-row { 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 12px; 
+      justify-content: center; 
+      margin: 1rem 0; 
+    }
+    #md .screenshot-row figure { 
+      margin: 0; 
+      max-width: none; 
+      flex: 1 1 320px; 
+    }
+    #md .screenshot-row img { 
+      margin: 0; 
+      max-width: 100%; 
+      width: 100%; 
+    }
+    @media (max-width: 992px) {
+      #md img, #md figure { max-width: 100%; }
+    }
+  </style>
+  <div id="md" class="markdown-body"></div>
+  <div class="mt-3 text-center">
+    <a id="docs-index-btn" href="?doc=README.md" class="btn btn-outline-primary">Список документации</a>
         </div>
-      </div>
-      <div class="mt-3">
-        <div class="fw-semibold mb-1">Ошибки</div>
-        <div id="indexErrors" class="small"></div>
+  <!-- Toast container -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080">
+    <div id="docToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="docToastBody">Ошибка загрузки документации</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
       </div>
     </div>
   </div>
 </section>
-
 {% endblock %}
 
 {% block js %}
-<script src="{{ url_for('static', filename='js/scripts/pages/index.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/lib/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lib/purify.min.js') }}"></script>
+<script>
+  (function() {
+    function showToast(message) {
+      var body = document.getElementById('docToastBody');
+      if (body) body.textContent = message;
+      try {
+        var toastEl = document.getElementById('docToast');
+        if (window.bootstrap && toastEl) {
+          var toast = bootstrap.Toast.getOrCreateInstance(toastEl);
+          toast.show();
+          return;
+        }
+      } catch (e) {}
+      alert(message);
+    }
+
+    function getParam(name, defVal) {
+      var params = new URLSearchParams(window.location.search);
+      return params.get(name) || defVal;
+    }
+
+    var docParam = getParam('doc', 'USER_GUIDE.md');
+  var candidates = [
+      '/static/docs/' + docParam,
+      'static/docs/' + docParam,
+      '/docs/' + docParam,
+      'docs/' + docParam
+    ];
+    function tryFetch(i){
+      if (i >= candidates.length) {
+        showToast('Не удалось загрузить документацию: файл не найден');
+        return;
+      }
+      var url = candidates[i];
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function(md){
+          var html = marked.parse(md);
+          var safe = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+          document.getElementById('md').innerHTML = safe;
+          try { rewriteLinksAndImages(docParam); } catch (e) { /* no-op */ }
+          try { linkifyDocPaths(docParam); } catch (e) { /* no-op */ }
+          try { enhanceScreenshots(); } catch (e) { /* no-op */ }
+          try { groupAdjacentFigures(); } catch (e) { /* no-op */ }
+        })
+        .catch(function(){ tryFetch(i+1); });
+    }
+    tryFetch(0);
+
+    function isExternal(url) {
+      return /^(?:[a-z]+:)?\/\//i.test(url);
+    }
+    function normalizePath(path) {
+      var parts = path.split('/');
+      var stack = [];
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i];
+        if (!part || part === '.') continue;
+        if (part === '..') { if (stack.length) stack.pop(); continue; }
+        stack.push(part);
+      }
+      return stack.join('/');
+    }
+    function joinPath(base, rel) {
+      if (!base) return normalizePath(rel);
+      if (!rel) return normalizePath(base);
+      return normalizePath(base.replace(/\/?$/, '/') + rel);
+    }
+    function getBaseDir(p) {
+      var idx = p.lastIndexOf('/');
+      return idx === -1 ? '' : p.slice(0, idx);
+    }
+    function rewriteLinksAndImages(currentDocPath) {
+      var container = document.getElementById('md');
+      if (!container) return;
+      var baseDir = getBaseDir(currentDocPath);
+      var cacheBust = 't=' + Date.now();
+      // Images
+      var imgs = container.querySelectorAll('img[src]');
+      imgs.forEach(function(img){
+        var src = img.getAttribute('src');
+        if (!src || isExternal(src) || src.startsWith('data:') || src.startsWith('#')) return;
+        if (src.startsWith('/')) {
+          // keep absolute as-is
+          return;
+        }
+        var resolved = joinPath(baseDir, src);
+        var newSrc = '/static/docs/' + resolved;
+        // cache-bust to avoid stale screenshots when names repeat with new timestamps
+        try {
+          if (newSrc.indexOf('?') === -1) newSrc += '?' + cacheBust; else newSrc += '&' + cacheBust;
+        } catch (e) {}
+        img.setAttribute('src', newSrc);
+      });
+      // Links
+      var links = container.querySelectorAll('a[href]');
+      links.forEach(function(a){
+        var href = a.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || isExternal(href)) return;
+        // Already a doc link → leave as-is
+        if (href.startsWith('?doc=')) return;
+        if (href.startsWith('/static/docs/')) {
+          var after = href.replace(/^\/static\/docs\//, '');
+          a.setAttribute('href', '?doc=' + normalizePath(after));
+          return;
+        }
+        if (href.startsWith('/')) {
+          // leave other absolute links
+          return;
+        }
+        var resolved = joinPath(baseDir, href);
+        if (/\.md(?:#.*)?$/i.test(href)) {
+          a.setAttribute('href', '?doc=' + normalizePath(resolved));
+        } else {
+          var assetHref = '/static/docs/' + normalizePath(resolved);
+          try { if (assetHref.indexOf('?') === -1) assetHref += '?' + cacheBust; else assetHref += '&' + cacheBust; } catch (e) {}
+          a.setAttribute('href', assetHref);
+        }
+      });
+    }
+
+    // Convert plain text like "docs/USER_GUIDE.md" or "USER_GUIDE.md" inside paragraphs/lists into clickable links
+    function linkifyDocPaths(currentDocPath) {
+      var container = document.getElementById('md');
+      if (!container) return;
+      var baseDir = getBaseDir(currentDocPath);
+      // Scan only simple text containers to avoid breaking code blocks
+      var candidates = container.querySelectorAll('p, li');
+      var reMd = /(^|[\s,:\-])(?:\.\.\/|\.\/)?(?:docs\/)?([A-Za-z0-9_\-\/]+\.md)(?=$|[\s,.!?)\]])/g;
+      var reImg = /(^|[\s,:\-])(?:\.\.\/|\.\/)?(?:docs\/)?((?:images\/[A-Za-z0-9_\-\/]+)\.(?:png|jpg|jpeg|webp|gif))(?=$|[\s,.!?)\]])/gi;
+      var reDir = /(^|[\s,:\-])(?:\.\.\/|\.\/)?(?:docs\/)?(images\/[A-Za-z0-9_\-\/]+\/)(?=$|[\s,.!?)\]])/gi;
+      candidates.forEach(function(el){
+        var html = el.innerHTML;
+        if (!html) return;
+        var replaced = html;
+        // .md → ?doc=
+        replaced = replaced.replace(reMd, function(match, lead, rel){
+          var resolved = joinPath(baseDir, rel);
+          var href = '?doc=' + normalizePath(resolved);
+          return lead + '<a href="' + href + '">' + rel + '</a>';
+        });
+        // images → /static/docs/
+        replaced = replaced.replace(reImg, function(match, lead, rel){
+          var resolved = joinPath(baseDir, rel);
+          var href = '/static/docs/' + normalizePath(resolved);
+          return lead + '<a href="' + href + '" target="_blank" rel="noopener">' + rel + '</a>';
+        });
+        // directories → /static/docs/
+        replaced = replaced.replace(reDir, function(match, lead, rel){
+          var resolved = joinPath(baseDir, rel);
+          var href = '/static/docs/' + normalizePath(resolved);
+          return lead + '<a href="' + href + '" target="_blank" rel="noopener">' + rel + '</a>';
+        });
+        if (replaced !== html) el.innerHTML = replaced;
+      });
+
+      // Inline code tags like <code>USER_GUIDE.md</code> → clickable links (skip code inside <pre>)
+      var codeNodes = container.querySelectorAll('p code, li code');
+      codeNodes.forEach(function(code){
+        try {
+          if (!code || code.closest('pre')) return; // skip code blocks
+          var text = (code.textContent || '').trim();
+          if (!text) return;
+          var mdMatch = text.match(/^(?:\.\.\/|\.\/)?(?:docs\/)?([A-Za-z0-9_\-\/]+\.md)$/);
+          var imgMatch = text.match(/^(?:\.\.\/|\.\/)?(?:docs\/)?((?:images\/[A-Za-z0-9_\-\/]+)\.(?:png|jpg|jpeg|webp|gif))$/i);
+          var dirMatch = text.match(/^(?:\.\.\/|\.\/)?(?:docs\/)?(images\/[A-Za-z0-9_\-\/]+\/)$/i);
+          var href = null;
+          if (mdMatch) {
+            var rel = mdMatch[1];
+            href = '?doc=' + normalizePath(joinPath(baseDir, rel));
+          } else if (imgMatch) {
+            href = '/static/docs/' + normalizePath(joinPath(baseDir, imgMatch[1]));
+          } else if (dirMatch) {
+            href = '/static/docs/' + normalizePath(joinPath(baseDir, dirMatch[1]));
+          }
+          if (href) {
+            var a = document.createElement('a');
+            a.setAttribute('href', href);
+            if (/^\/static\//.test(href)) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener'); }
+            code.parentNode.insertBefore(a, code);
+            a.appendChild(code);
+          }
+        } catch(e) { /* no-op */ }
+      });
+    }
+
+    function enhanceScreenshots() {
+      var container = document.getElementById('md');
+      if (!container) return;
+      var imgs = Array.prototype.slice.call(container.querySelectorAll('img'));
+      imgs.forEach(function(img){
+        // Skip if already inside a figure
+        if (img.closest('figure')) return;
+        var alt = img.getAttribute('alt') || '';
+        var figure = document.createElement('figure');
+        var captionNeeded = alt && alt.trim().length > 0;
+
+        var parent = img.parentNode;
+        var parentIsP = parent && parent.tagName && parent.tagName.toLowerCase() === 'p';
+        if (parentIsP && parent.parentNode) {
+          // Place figure after the paragraph, move img into figure
+          parent.parentNode.insertBefore(figure, parent.nextSibling);
+          figure.appendChild(img);
+          // Remove paragraph if it became empty (no text or only whitespace)
+          if (!parent.textContent.trim() && parent.childElementCount === 0) {
+            parent.remove();
+          }
+        } else {
+          // Default: insert figure before image and move image inside
+          parent.insertBefore(figure, img);
+          figure.appendChild(img);
+        }
+        if (captionNeeded) {
+          var cap = document.createElement('figcaption');
+          cap.textContent = alt;
+          figure.appendChild(cap);
+        }
+        figure.classList.add('screenshot');
+      });
+    }
+
+    function groupAdjacentFigures() {
+      var container = document.getElementById('md');
+      if (!container) return;
+      // For each parent element, group consecutive sibling figures into rows of two
+      var figures = Array.prototype.slice.call(container.querySelectorAll('figure.screenshot'));
+      if (figures.length < 2) return;
+      // Use a Set to avoid regrouping
+      var grouped = new Set();
+      figures.forEach(function(fig){
+        if (grouped.has(fig)) return;
+        var parent = fig.parentNode;
+        if (!parent) return;
+        // Collect consecutive sibling figures starting from this one
+        var run = [fig];
+        var cursor = fig.nextElementSibling;
+        while (cursor && cursor.tagName && cursor.tagName.toLowerCase() === 'figure' && cursor.classList.contains('screenshot')) {
+          run.push(cursor);
+          cursor = cursor.nextElementSibling;
+        }
+        if (run.length >= 2) {
+          // Process in pairs: [0,1], [2,3], ...
+          for (var i = 0; i < run.length - 1; i += 2) {
+            var f1 = run[i];
+            var f2 = run[i+1];
+            var row = document.createElement('div');
+            row.className = 'screenshot-row';
+            parent.insertBefore(row, f1);
+            row.appendChild(f1);
+            row.appendChild(f2);
+            grouped.add(f1);
+            grouped.add(f2);
+          }
+        }
+      });
+    }
+  })();
+</script>
 {% endblock %}
