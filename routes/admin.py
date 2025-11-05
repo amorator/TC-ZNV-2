@@ -137,12 +137,77 @@ def register(app, socketio=None):
                 lines.append(fmt_row(r))
             text = '\n'.join(lines) + '\n'
 
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime('%Y%m%d-%H%M%S')
             resp = make_response(text)
             resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
-            resp.headers['Content-Disposition'] = 'attachment; filename="users-znf.txt"'
+            resp.headers['Content-Disposition'] = f'attachment; filename="znf-users-{ts}.txt"'
             return resp
         except Exception as e:
             return make_response(f"export error: {e}", 500)
+
+    @app.route('/admin/export/db-sql', methods=['GET'])
+    @require_permissions(ADMIN_VIEW_PAGE)
+    def admin_export_db_sql():
+        """Export entire database SQL dump as attachment (mysqldump if available)."""
+        try:
+            import shutil
+            import subprocess
+            from datetime import datetime as _dt
+            cfg = app._sql.config
+            db = cfg['db']
+            host = db.get('host', '127.0.0.1')
+            port = str(db.get('port', '3306'))
+            user = db.get('user')
+            password = db.get('password')
+            name = db.get('name')
+            ts = _dt.now().strftime('%Y%m%d-%H%M%S')
+            filename = f"znf-{ts}.sql"
+            # Prefer mysqldump
+            mysqldump_path = shutil.which('mysqldump')
+            if mysqldump_path:
+                env = dict(**os.environ)
+                # Use MYSQL_PWD to avoid showing password in args
+                if password:
+                    env['MYSQL_PWD'] = str(password)
+                cmd = [
+                    mysqldump_path,
+                    f"-h{host}",
+                    f"-P{port}",
+                    f"-u{user}",
+                    '--routines', '--events', '--triggers', '--single-transaction', '--quick', '--hex-blob',
+                    name,
+                ]
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+                def generate():
+                    try:
+                        for chunk in iter(lambda: proc.stdout.read(8192), b''):
+                            if not chunk:
+                                break
+                            yield chunk
+                    finally:
+                        try:
+                            proc.stdout.close()
+                        except Exception:
+                            pass
+                        try:
+                            # drain stderr to avoid zombies
+                            proc.stderr.read()
+                            proc.stderr.close()
+                        except Exception:
+                            pass
+                resp = app.response_class(generate(), mimetype='application/sql')
+                resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+                return resp
+            # Fallback: simple SQL export by tables (schema+data) is not implemented
+            return make_response('mysqldump not available on server', 500)
+        except Exception as e:
+            try:
+                app.logger.error(f"DB export error: {e}")
+            except Exception:
+                pass
+            return make_response(f"db export error: {e}", 500)
 
     # --- Unified notification queue helpers (Redis-backed) ---
     def _queue_broadcast_notification(payload: dict) -> None:
