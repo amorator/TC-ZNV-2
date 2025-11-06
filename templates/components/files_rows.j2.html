@@ -15,7 +15,7 @@
         data-note="{{ file.note if file.note else '' }}"
         data-name="{{ file.display_name }}"
         data-file-name="{{ file.real_name if file.real_name else file.file_name }}"
-        data-description="{{ file.description if file.description else '' }}"
+        data-description="{% if '[Регистратор -' in (file.description or '') %}{% set desc = file.description %}{% set start_idx = desc.find('[Регистратор - ') %}{% if start_idx >= 0 %}{% set part1 = desc[:start_idx] %}{% set end_idx = desc.find(']', start_idx) %}{% if end_idx >= 0 %}{{ (part1 + desc[end_idx+1:]).strip() }}{% else %}{{ desc[:start_idx].strip() }}{% endif %}{% else %}{{ file.description }}{% endif %}{% else %}{{ file.description if file.description else '' }}{% endif %}"
         data-exists="{{ 1 if file.exists else 0 }}"
       >
         <td class="table__body_item"><span class="files-page__link">{{ file.display_name }}</span></td>
@@ -90,7 +90,7 @@
         data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"
         data-name="{{ file.display_name }}"
         data-file-name="{{ file.real_name if file.real_name else file.file_name }}"
-        data-description="{{ file.description if file.description else '' }}"
+        data-description="{% if '[Регистратор -' in (file.description or '') %}{% set desc = file.description %}{% set start_idx = desc.find('[Регистратор - ') %}{% if start_idx >= 0 %}{% set part1 = desc[:start_idx] %}{% set end_idx = desc.find(']', start_idx) %}{% if end_idx >= 0 %}{{ (part1 + desc[end_idx+1:]).strip() }}{% else %}{{ desc[:start_idx].strip() }}{% endif %}{% else %}{{ file.description }}{% endif %}{% else %}{{ file.description if file.description else '' }}{% endif %}"
         data-is-ready="0"
         data-exists="{{ 1 if file.exists else 0 }}"
       >

@@ -315,6 +315,21 @@
         </ul>
       </div>
 
+      <script>
+        (function(){
+          // Prevent clicks on registrator badge from triggering description edit or row actions
+          function guard(e){ try { e.preventDefault(); e.stopPropagation(); } catch(_){} }
+          function bind(){
+            try {
+              var els = document.querySelectorAll('.files-page__registrator-type');
+              els.forEach(function(el){ if (!el._regGuard){ el._regGuard = true; el.addEventListener('click', guard, true); el.addEventListener('mousedown', guard, true); } });
+            } catch(_){}
+          }
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+          // Rebind after dynamic table updates
+          document.addEventListener('context-menu-reinit', bind);
+        })();
+      </script>
 
     </div>
   </section>

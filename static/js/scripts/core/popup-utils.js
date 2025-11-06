@@ -37,9 +37,9 @@ function popupValues(form, rowId) {
       if (input.type === "checkbox") {
         input.checked = dataValue === "true" || dataValue === "1";
       } else {
-        // Remove [Регистратор - XXX] from description for editing
-        if (name === "description" && dataValue.includes("[Регистратор - ")) {
-          dataValue = dataValue.replace(/\s*\[Регистратор - [^\]]+\]\s*/, "");
+        // Remove [Регистратор - XXX] marker from description for editing (robust spacing)
+        if (name === "description" && typeof dataValue === 'string') {
+          try { dataValue = dataValue.replace(/\s*\[Регистратор\s*-\s*[^\]]+\]\s*/g, ""); } catch(_) {}
         }
         input.value = dataValue;
       }
