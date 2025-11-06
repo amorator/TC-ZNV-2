@@ -839,6 +839,7 @@
             var btn = this.querySelector('button[data-action="toggle-approved"]');
             var isApproved = btn ? (btn.getAttribute('data-approved') === '1') : false;
             var isExtended = (this.getAttribute('data-extended') === '1');
+            var isFinalized = (this.getAttribute('data-finalized') === '1');
             if (canApproveUI && approveItem && unapproveItem) {
               approveItem.classList.toggle('d-none', isApproved);
               unapproveItem.classList.toggle('d-none', !isApproved);
@@ -846,6 +847,7 @@
             // Business rules:
             // - Completion UI: when approved, rename to "Завершить наряд" and allow only timeline action
             // - After completion (status == done): show only files and note; hide edit/delete/timeline/approve
+            // - If finalized: hide timeline (completion) action completely
             var st = (this.getAttribute('data-status') || '').trim();
             var issued = (this.getAttribute('data-issued') || '').trim();
             var start = (this.getAttribute('data-start') || '').trim();
@@ -859,18 +861,19 @@
             if (st === 'done' && !isAdminOverride) {
               setVis('edit', false);
               setVis('delete', false);
-              // Keep timeline visible even when status is done to allow "Завершить наряд" action
-              setVis('timeline', canTimeline);
+              // If finalized, hide timeline completely; otherwise keep visible if approved
+              if (isFinalized) {
+                setVis('timeline', false);
+              } else {
+                setVis('timeline', canTimeline && isApproved);
+                var tl = menu.querySelector('[data-action="timeline"]');
+                if (tl && isApproved) tl.textContent = 'Завершить наряд';
+              }
               setVis('extend', false);
               setVis('approve', false);
               setVis('unapprove', false);
-              // Keep only files, note, and timeline visible (already set earlier)
-              var tl = menu.querySelector('[data-action="timeline"]');
-              if (tl && isApproved) tl.textContent = 'Завершить наряд';
-              // If not approved, hide completion entry even if done
-              if (!isApproved) setVis('timeline', false);
             } else {
-              if (!isApproved) {
+              if (!isApproved || isFinalized) {
                 setVis('timeline', false);
                 setVis('extend', false);
               } else {
@@ -879,7 +882,7 @@
                   setVis('edit', false);
                   setVis('delete', false);
                 }
-                // Rename timeline action to "Завершить наряд" when approved
+                // Rename timeline action to "Завершить наряд" when approved and not finalized
                 var tl = menu.querySelector('[data-action="timeline"]');
                 if (tl) tl.textContent = 'Завершить наряд';
                 // Hide extend after first extension
