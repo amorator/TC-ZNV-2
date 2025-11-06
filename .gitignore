@@ -3,16 +3,11 @@ __pycache__/
 .venv/
 .vscode/
 .wdm/
-stuff/
-certs/
-logs/
-artifacts/
-ops/
-bak/
 scripts/
 server.sock
 Pipfile.lock
 .coverage
 *.log
 *.log.*
+*.txt
 *.zsh

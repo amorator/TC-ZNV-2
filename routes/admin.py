@@ -283,6 +283,98 @@ def register(app, socketio=None):
         except Exception:
             return sent
 
+    # --- Feedback endpoint: save to logs/problems.txt and notify admins ---
+    @app.route('/api/feedback', methods=['POST'])
+    @login_required
+    def api_feedback_submit():
+        try:
+            data = request.get_json(silent=True) or {}
+            message = str((data.get('message') or '').strip())
+            if not message:
+                return jsonify({ 'ok': False, 'error': 'empty' }), 400
+            # Resolve user identity
+            try:
+                user_login = str(getattr(current_user, 'login', '') or '')
+            except Exception:
+                user_login = ''
+            try:
+                user_name = str(getattr(current_user, 'name', '') or '')
+            except Exception:
+                user_name = ''
+            try:
+                user_gid = int(getattr(current_user, 'gid', 0) or 0)
+            except Exception:
+                user_gid = 0
+            # Resolve group name
+            group_name = ''
+            try:
+                prefix = app._sql.config['db']['prefix']
+                row = app._sql.execute_query(
+                    f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;",
+                    [user_gid]
+                ) or []
+                group_name = str(row[0][0] or '') if row and row[0] else ''
+            except Exception:
+                group_name = ''
+            # Append to logs/problems.txt
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                # routes/ -> project root assumed two levels up; but we know logs lives at /usr/share/znf/logs
+                problems_path = os.path.join('/usr/share/znf', 'logs', 'problems.txt')
+                os.makedirs(os.path.dirname(problems_path), exist_ok=True)
+                ts = dt.now().strftime('%Y-%m-%d %H:%M:%S')
+                line = f"{ts} login={user_login} user={user_name} group={group_name} ip={(request.remote_addr or '')} msg={message}\n"
+                with open(problems_path, 'a', encoding='utf-8') as f:
+                    f.write(line)
+            except Exception:
+                pass
+            # Notify admins: queue per-user and emit to admin room
+            try:
+                # Resolve admin group id from config name
+                admin_gid = None
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    from configparser import ConfigParser
+                    aname = 'Программисты'
+                    if isinstance(cfg, ConfigParser):
+                        aname = cfg.get('admin', 'group', fallback=aname) or aname
+                    elif isinstance(cfg, dict):
+                        admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                        if isinstance(admin, dict) and 'group' in admin:
+                            aname = admin.get('group') or aname
+                        elif 'group' in cfg:
+                            aname = cfg.get('group') or aname
+                    name_norm = (aname or '').strip().lower()
+                    rows = app._sql.execute_query(
+                        f"SELECT id,name FROM {app._sql.config['db']['prefix']}_group"
+                    ) or []
+                    for gid, gname in rows:
+                        if str(gname).strip().lower() == name_norm:
+                            admin_gid = int(gid)
+                            break
+                except Exception:
+                    admin_gid = None
+                payload = {
+                    'title': 'Сообщение о новой ошибке',
+                    'text': f"{dt.now().strftime('%Y-%m-%d %H:%M:%S')} {user_login} {user_name}",
+                    'body': f"{dt.now().strftime('%Y-%m-%d %H:%M:%S')} {user_login} {user_name}",
+                    'type': 'problem',
+                }
+                # Queue per-user delivery for admin group
+                if admin_gid is not None:
+                    _queue_group_notification(admin_gid, payload)
+                # Also emit to admin room for online admins
+                try:
+                    if socketio:
+                        socketio.emit('admin:notification', payload, room='admin')
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return jsonify({ 'ok': True })
+        except Exception:
+            return jsonify({ 'ok': False, 'error': 'server' }), 500
+
     @app.route('/api/pool-status', methods=['GET'])
     @login_required
     @require_permissions(ADMIN_VIEW_PAGE)

@@ -48,6 +48,19 @@
   <script src="{{ url_for('static', filename='js/scripts/core/base.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/table-tooltips.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <!-- passive_poll_seconds removed: replaced by sync_idle_seconds idle-guard -->
+  {% if current_user.is_authenticated and (current_user.has('admin.view') or current_user.has('admin.any')) %}
+  <script>
+    (function(){
+      function joinAdmin(){ try { window.SyncManager && window.SyncManager.joinRoom('admin'); } catch(_) {} }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function(){ joinAdmin(); });
+      } else {
+        joinAdmin();
+      }
+      try { window.addEventListener('socketConnected', function(){ joinAdmin(); }); } catch(_) {}
+    })();
+  </script>
+  {% endif %}
   
   
   
