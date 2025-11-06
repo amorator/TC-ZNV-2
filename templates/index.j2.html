@@ -4,7 +4,7 @@
 <section class="container py-3">
   <style>
     /* Local styles for documentation rendering on this page only */
-    #md { font-size: .95rem; }
+    #md { font-size: .95rem; color: inherit; }
     #md img { 
       display: block; 
       max-width: 640px; 
@@ -40,6 +40,40 @@
       margin: 0; 
       max-width: 100%; 
       width: 100%; 
+    }
+    /* Dark theme support */
+    .theme-dark #md,
+    .theme-dark #md ul,
+    .theme-dark #md ol,
+    .theme-dark #md li,
+    .theme-dark #md p,
+    .theme-dark #md h1,
+    .theme-dark #md h2,
+    .theme-dark #md h3,
+    .theme-dark #md h4,
+    .theme-dark #md h5,
+    .theme-dark #md h6 {
+      color: var(--body-text, #f9fafb);
+    }
+    .theme-dark #md figcaption {
+      color: var(--text-muted, rgba(255, 255, 255, 0.6));
+    }
+    /* High contrast theme support */
+    .theme-dark-hc #md,
+    .theme-dark-hc #md ul,
+    .theme-dark-hc #md ol,
+    .theme-dark-hc #md li,
+    .theme-dark-hc #md p,
+    .theme-dark-hc #md h1,
+    .theme-dark-hc #md h2,
+    .theme-dark-hc #md h3,
+    .theme-dark-hc #md h4,
+    .theme-dark-hc #md h5,
+    .theme-dark-hc #md h6 {
+      color: var(--body-text, #00ff00);
+    }
+    .theme-dark-hc #md figcaption {
+      color: var(--brand-green, #00ff00);
     }
     @media (max-width: 992px) {
       #md img, #md figure { max-width: 100%; }
