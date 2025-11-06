@@ -996,6 +996,51 @@ document.addEventListener('click', function (e) {
   try {
     const a = e.target && e.target.closest && e.target.closest('a[data-page]');
     if (!a) return;
+    // Soft-refresh intercept for Users/Groups paginations
+    try {
+      const li = a.closest('li.page-item');
+      const pagerUsers = a.closest('#users-pagination');
+      if (pagerUsers && li && !li.classList.contains('disabled')) {
+        e.preventDefault(); e.stopPropagation();
+        const page = parseInt(a.getAttribute('data-page') || '1', 10) || 1;
+        if (typeof window.usersPager === 'object' && typeof window.usersPager.renderPage === 'function') {
+          window.usersPager.renderPage(page);
+        } else if (typeof window.softRefreshUsersTable === 'function') {
+          window.softRefreshUsersTable();
+        }
+        // Reflect URL
+        try { const u = new URL(window.location.href); u.searchParams.set('page', String(page)); window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString()); } catch(_) {}
+      }
+    } catch(_) {}
+    // Soft-refresh intercept for Groups page
+    try {
+      const li2 = a.closest('li.page-item');
+      const pagerGroups = a.closest('#groups-pagination');
+      if (pagerGroups && li2 && !li2.classList.contains('disabled')) {
+        e.preventDefault(); e.stopPropagation();
+        const page2 = parseInt(a.getAttribute('data-page') || '1', 10) || 1;
+        // If a page script exposes a renderer, call it; else update URL and let page handlers react
+        if (typeof window.groupsPager === 'object' && typeof window.groupsPager.renderPage === 'function') {
+          window.groupsPager.renderPage(page2);
+        } else {
+          try { const u2 = new URL(window.location.href); u2.searchParams.set('page', String(page2)); window.history.replaceState(null, '', u2.pathname + '?' + u2.searchParams.toString()); } catch(_) {}
+        }
+      }
+    } catch(_) {}
+    // Soft-refresh intercept for Orders page if renderer provided
+    try {
+      const li3 = a.closest('li.page-item');
+      const pagerOrders = a.closest('#orders-pagination');
+      if (pagerOrders && li3 && !li3.classList.contains('disabled')) {
+        e.preventDefault(); e.stopPropagation();
+        const page3 = parseInt(a.getAttribute('data-page') || '1', 10) || 1;
+        if (typeof window.load === 'function') {
+          window.load(page3, { manualPage: true });
+        } else {
+          try { const u3 = new URL(window.location.href); u3.searchParams.set('page', String(page3)); window.history.replaceState(null, '', u3.pathname + '?' + u3.searchParams.toString()); } catch(_) {}
+        }
+      }
+    } catch(_) {}
     const page = parseInt(a.getAttribute('data-page') || '1', 10);
     if (document.querySelector("section[data-testid='users-section']") && a.closest('#users-pagination')) {
       const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");

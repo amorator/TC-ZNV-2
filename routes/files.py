@@ -1202,7 +1202,6 @@ def register(app, media_service, socketio=None) -> None:
             return redirect(url_for('files'))
 
     @app.route('/files/delete/<int:id>', methods=['POST'])
-    @require_permissions(FILES_DELETE_ANY)
     @rate_limit
     def files_delete(id: int):
         """Delete file: remove DB record and any existing media files (.mp4, .webm)."""
@@ -1231,6 +1230,24 @@ def register(app, media_service, socketio=None) -> None:
             except Exception:
                 pass
             app.flash_error('File not found')
+            return redirect(url_for('files'))
+
+        # Permission: allow delete_any or owner of the file
+        try:
+            is_owner = bool(file.owner_id and (file.owner_id == current_user.id))
+        except Exception:
+            is_owner = False
+        can_delete = current_user.has('files.delete_any') or is_owner
+        if not can_delete:
+            try:
+                accept = (request.headers.get('Accept') or '').lower()
+                xrw = (request.headers.get('X-Requested-With') or '').lower()
+                ctype = (request.headers.get('Content-Type') or '').lower()
+                if ('application/json' in accept or ctype == 'application/json' or xrw in ('xmlhttprequest','fetch')):
+                    return jsonify({'status': 'error', 'error': 'forbidden', 'code': 'delete_permission_required'}), 403
+            except Exception:
+                pass
+            app.flash_error('Недостаточно прав для удаления файла')
             return redirect(url_for('files'))
 
         # Set the file path
@@ -1399,7 +1416,7 @@ def register(app, media_service, socketio=None) -> None:
             # Check if user has permission to access this file
             if not (current_user.has('files.edit_any') or
                     (file.owner_id and file.owner_id == current_user.id)):
-                # Check category/subcategory permissions
+                # Check category/subcategory permissions (including subcategory permission store)
                 try:
                     cat = app._sql.category_by_id([file.category_id])
                     sub = app._sql.subcategory_by_id([file.subcategory_id])
@@ -1409,6 +1426,36 @@ def register(app, media_service, socketio=None) -> None:
                     if int(getattr(cat, 'enabled', 1)) != 1 or int(
                             getattr(sub, 'enabled', 1)) != 1:
                         flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                    # Check stored permissions
+                    try:
+                        key = f"subcategory_permissions:{int(file.subcategory_id)}"
+                        raw = app._sql.setting_get(key)
+                        allowed = False
+                        if raw:
+                            import json
+                            perms = json.loads(raw)
+                            gid = int(getattr(current_user, 'gid', 0) or 0)
+                            uid = int(getattr(current_user, 'id', 0) or 0)
+                            gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+                            umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+                            if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                allowed = True
+                            if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                allowed = True
+                            if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
+                                allowed = True
+                            if not allowed:
+                                login = (getattr(current_user, 'login', '') or '').strip()
+                                if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+                                    allowed = True
+                        if not raw:
+                            allowed = False
+                        if not allowed:
+                            flash('Доступ к подкатегории запрещён', 'error')
+                            return redirect(url_for('files'))
+                    except Exception:
+                        flash('Доступ к подкатегории запрещён', 'error')
                         return redirect(url_for('files'))
                 except Exception:
                     flash('Файл недоступен', 'error')
@@ -1536,7 +1583,7 @@ def register(app, media_service, socketio=None) -> None:
             # Check if user has permission to access this file
             if not (current_user.has('files.edit_any') or
                     (file.owner_id and file.owner_id == current_user.id)):
-                # Check category/subcategory permissions
+                # Check category/subcategory permissions (including subcategory permission store)
                 try:
                     cat = app._sql.category_by_id([file.category_id])
                     sub = app._sql.subcategory_by_id([file.subcategory_id])
@@ -1546,6 +1593,36 @@ def register(app, media_service, socketio=None) -> None:
                     if int(getattr(cat, 'enabled', 1)) != 1 or int(
                             getattr(sub, 'enabled', 1)) != 1:
                         flash('Файл недоступен', 'error')
+                        return redirect(url_for('files'))
+                    # Check stored permissions
+                    try:
+                        key = f"subcategory_permissions:{int(file.subcategory_id)}"
+                        raw = app._sql.setting_get(key)
+                        allowed = False
+                        if raw:
+                            import json
+                            perms = json.loads(raw)
+                            gid = int(getattr(current_user, 'gid', 0) or 0)
+                            uid = int(getattr(current_user, 'id', 0) or 0)
+                            gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+                            umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+                            if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                allowed = True
+                            if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                allowed = True
+                            if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
+                                allowed = True
+                            if not allowed:
+                                login = (getattr(current_user, 'login', '') or '').strip()
+                                if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+                                    allowed = True
+                        if not raw:
+                            allowed = False
+                        if not allowed:
+                            flash('Доступ к подкатегории запрещён', 'error')
+                            return redirect(url_for('files'))
+                    except Exception:
+                        flash('Доступ к подкатегории запрещён', 'error')
                         return redirect(url_for('files'))
                 except Exception:
                     flash('Файл недоступен', 'error')

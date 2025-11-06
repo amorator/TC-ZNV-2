@@ -1450,7 +1450,8 @@ function renderPagination(which, resp) {
     a.href = `${cur.pathname}?${cur.searchParams.toString()}${qParam}`;
     a.textContent = label;
     a.setAttribute('data-page', String(targetPage));
-    a.onclick = () => {
+    a.addEventListener('click', (ev) => {
+      try { ev.preventDefault(); ev.stopPropagation(); } catch(_) {}
       if (disabled) return;
       // Persist page per subcategory
       try {
@@ -1475,7 +1476,7 @@ function renderPagination(which, resp) {
         }
         window.history.replaceState(null, '', `${u.pathname}?${u.searchParams.toString()}`);
       } catch(_) {}
-    };
+    }, true);
     li.appendChild(a);
     return li;
   };
