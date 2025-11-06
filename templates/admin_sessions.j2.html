@@ -43,6 +43,7 @@
 
   var tbody = document.getElementById('sessions-tbody');
   var timer = null;
+  var sessionsState = new Map(); // sid -> {data, miss}
 
   async function fetchSessions(){
     try{
@@ -50,11 +51,38 @@
       if(!r.ok) throw new Error('HTTP '+r.status);
       const data = await r.json();
       const items = (data && data.items) || [];
-      if(!items.length){
+      // Mark all as unseen initially
+      sessionsState.forEach(function(v){ v.__seen = false; });
+      // Upsert fetched items
+      items.forEach(function(it){
+        var sid = it && (it.sid || it.session_id);
+        if(!sid) return;
+        var existing = sessionsState.get(sid);
+        if (!existing) {
+          sessionsState.set(sid, { data: it, miss: 0, __seen: true });
+        } else {
+          existing.data = it;
+          existing.miss = 0;
+          existing.__seen = true;
+        }
+      });
+      // Increment miss for unseen; drop after 2 misses to avoid flicker
+      var toDelete = [];
+      sessionsState.forEach(function(v, k){
+        if (!v.__seen) {
+          v.miss = (v.miss||0) + 1;
+          if (v.miss >= 2) toDelete.push(k);
+        }
+      });
+      toDelete.forEach(function(k){ sessionsState.delete(k); });
+      // Build sorted list
+      var list = Array.from(sessionsState.values()).map(function(v){ return v.data; });
+      list.sort(function(a,b){ return (b.last_seen||0) - (a.last_seen||0); });
+      if(!list.length){
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Нет активных сессий</td></tr>';
         return;
       }
-      var rows = items.map(function(it){
+      var rows = list.map(function(it){
         return '<tr>'+
           '<td>'+esc(it.user||('ID:'+ (it.user_id||'')))+'</td>'+
           '<td>'+esc(it.ip)+'</td>'+
@@ -91,6 +119,13 @@
   fetchSessions();
   setInterval(fetchSessions, 5000);
   setInterval(tickTtl, 1000);
+
+  // One-time background backfill to restore beacons after restarts (best-effort)
+  try {
+    fetch('/admin/sessions/backfill', { method: 'POST', headers: { 'Accept': 'application/json' }})
+      .then(function(){ /* no-op */ })
+      .catch(function(){ /* ignore */ });
+  } catch(_) {}
 
   // Force logout handler
   tbody.addEventListener('click', async function(e){

@@ -48,6 +48,34 @@
   <script src="{{ url_for('static', filename='js/scripts/core/base.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <script src="{{ url_for('static', filename='js/scripts/core/table-tooltips.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
   <!-- passive_poll_seconds removed: replaced by sync_idle_seconds idle-guard -->
+  <script>
+    // Enable browser autocomplete suggestions for single-line inputs globally
+    (function(){
+      function enableAutocomplete(){
+        try {
+          var selector = 'input[type="text"], input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input:not([type])';
+          var inputs = document.querySelectorAll(selector);
+          inputs.forEach(function(inp){
+            try {
+              // Skip password fields and hidden inputs
+              var t = (inp.getAttribute('type')||'').toLowerCase();
+              if (t === 'password' || t === 'hidden') return;
+              if (inp.autocomplete === 'off') inp.autocomplete = 'on';
+              // Allow spellcheck for text-like fields
+              if (typeof inp.spellcheck !== 'undefined' && (t === 'text' || t === 'search')) {
+                inp.spellcheck = true;
+              }
+            } catch(_){}
+          });
+          // Also avoid disabling on forms
+          var forms = document.querySelectorAll('form[autocomplete="off"]');
+          forms.forEach(function(f){ try { f.setAttribute('autocomplete','on'); } catch(_){} });
+        } catch(_){}
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', enableAutocomplete);
+      else enableAutocomplete();
+    })();
+  </script>
   {% if current_user.is_authenticated and (current_user.has('admin.view') or current_user.has('admin.any')) %}
   <script>
     (function(){

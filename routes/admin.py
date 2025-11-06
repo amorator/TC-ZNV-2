@@ -39,6 +39,124 @@ def register(app, socketio=None):
         'admin',
         app.rate_limiters.get('default', lambda *args, **kwargs: lambda f: f))
 
+    # --- One-time background backfill of session beacons after startup ---
+    def _backfill_session_beacons(limit: int = 5000) -> dict:
+        stats = {'processed': 0, 'created': 0, 'errors': 0}
+        try:
+            rc = getattr(app, 'redis_client', None)
+            if not rc:
+                return stats
+            try:
+                from datetime import timedelta as _td
+                lifetime_s = 1800
+                cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+                if isinstance(cfg_life, _td):
+                    lifetime_s = int(cfg_life.total_seconds())
+                else:
+                    try:
+                        lifetime_s = int(cfg_life or 1800)
+                    except Exception:
+                        lifetime_s = 1800
+            except Exception:
+                try:
+                    lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+                except Exception:
+                    lifetime_s = 1800
+
+            sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+            # Collect up to limit session store keys
+            keys = []
+            try:
+                if hasattr(rc, 'scan_iter'):
+                    for k in rc.scan_iter(match=f'{sess_prefix}*', count=500):
+                        keys.append(k)
+                        if len(keys) >= limit:
+                            break
+                else:
+                    keys = rc.keys(f'{sess_prefix}*') or []
+                    if len(keys) > limit:
+                        keys = keys[:limit]
+            except Exception:
+                keys = []
+            if not keys:
+                return stats
+            # Pipeline read TTLs and create beacons if missing
+            pipe = rc.pipeline()
+            key_infos = []
+            for skey in keys:
+                try:
+                    kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
+                    if not kstr.startswith(sess_prefix):
+                        continue
+                    sid = kstr[len(sess_prefix):]
+                    if not sid:
+                        continue
+                    stats['processed'] += 1
+                    ttl_store = rc.ttl(kstr)
+                    # Prepare meta and beacon keys
+                    meta_key = f'sessions:cookie:{sid}'
+                    ttl_key = f'sessions:cookie:ttl:{sid}'
+                    key_infos.append((sid, meta_key, ttl_key, ttl_store))
+                except Exception:
+                    stats['errors'] += 1
+                    continue
+            # second stage: write missing meta/beacons
+            for sid, meta_key, ttl_key, ttl_store in key_infos:
+                try:
+                    # Compute effective ttl for beacon
+                    ttl_eff = ttl_store if isinstance(ttl_store, int) and ttl_store >= 0 else lifetime_s
+                    # Ensure meta hash exists (best-effort, minimal fields)
+                    try:
+                        if not rc.exists(meta_key):
+                            rc.hset(meta_key, mapping={
+                                'sid': sid,
+                                'user_id': '',
+                                'user': '',
+                                'ip': '',
+                                'ua': '',
+                                'created_at': '0',
+                                'last_seen': '0',
+                            })
+                            rc.expire(meta_key, ttl_eff)
+                    except Exception:
+                        pass
+                    # Ensure TTL beacon exists
+                    if not rc.exists(ttl_key):
+                        rc.set(ttl_key, '1', ex=max(1, int(ttl_eff)))
+                        rc.sadd('sessions:cookie:index', sid)
+                        stats['created'] += 1
+                except Exception:
+                    stats['errors'] += 1
+                    continue
+        except Exception:
+            stats['errors'] += 1
+        return stats
+
+    # Fire and forget one-time backfill shortly after startup
+    try:
+        import threading, time as _t
+        def _delayed_backfill():
+            try:
+                _t.sleep(2)
+            except Exception:
+                pass
+            try:
+                _backfill_session_beacons(limit=5000)
+            except Exception:
+                pass
+        threading.Thread(target=_delayed_backfill, daemon=True).start()
+    except Exception:
+        pass
+
+    @app.route('/admin/sessions/backfill', methods=['POST'])
+    @require_permissions(ADMIN_MANAGE)
+    def admin_sessions_backfill():
+        try:
+            stats = _backfill_session_beacons(limit=5000)
+            return jsonify({'status': 'success', 'stats': stats})
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
     @app.route('/admin', methods=['GET'])
     @require_permissions(ADMIN_VIEW_PAGE)
     def admin():
@@ -316,11 +434,11 @@ def register(app, socketio=None):
                 group_name = str(row[0][0] or '') if row and row[0] else ''
             except Exception:
                 group_name = ''
-            # Append to logs/problems.txt
+            # Append to logs/_problems.txt
             try:
                 base_dir = os.path.dirname(os.path.abspath(__file__))
                 # routes/ -> project root assumed two levels up; but we know logs lives at /usr/share/znf/logs
-                problems_path = os.path.join('/usr/share/znf', 'logs', 'problems.txt')
+                problems_path = os.path.join('/usr/share/znf', 'logs', '_problems.txt')
                 os.makedirs(os.path.dirname(problems_path), exist_ok=True)
                 ts = dt.now().strftime('%Y-%m-%d %H:%M:%S')
                 line = f"{ts} login={user_login} user={user_name} group={group_name} ip={(request.remote_addr or '')} msg={message}\n"
@@ -359,6 +477,7 @@ def register(app, socketio=None):
                     'text': f"{dt.now().strftime('%Y-%m-%d %H:%M:%S')} {user_login} {user_name}",
                     'body': f"{dt.now().strftime('%Y-%m-%d %H:%M:%S')} {user_login} {user_name}",
                     'type': 'problem',
+                    'icon': '/static/icons/notification_menu.png',
                 }
                 # Queue per-user delivery for admin group
                 if admin_gid is not None:
@@ -478,7 +597,7 @@ def register(app, socketio=None):
             try:
                 files_query = f"""
                     SELECT id, file_name, category_id, subcategory_id 
-                    FROM {db_prefix}_file
+                    FROM {db_prefix}_file 
                 """
                 files_rows = app._sql.execute_query(files_query, [])
 
@@ -1061,13 +1180,28 @@ def register(app, socketio=None):
                 'lastSeen': int(datetime.utcnow().timestamp() * 1000)
             }
             if page and is_real_page(page):
-
                 user_key = f"{user}|{ip}"
-
                 import json
-                app.redis_client.hset('presence:users', user_key,
-                                      json.dumps(user_data))
-                app.redis_client.expire('presence:users', 60)  # TTL 1 minute
+                # Update full payload when page is real and provided
+                app.redis_client.hset('presence:users', user_key, json.dumps(user_data))
+                # Increase TTL to 300 seconds to reduce flapping
+                app.redis_client.expire('presence:users', 300)
+            else:
+                # Only bump lastSeen if an entry already exists; do not overwrite page
+                try:
+                    user_key = f"{user}|{ip}"
+                    raw = app.redis_client.hget('presence:users', user_key)
+                    if raw:
+                        import json
+                        try:
+                            obj = json.loads(raw)
+                        except Exception:
+                            obj = {}
+                        obj['lastSeen'] = user_data.get('lastSeen')
+                        app.redis_client.hset('presence:users', user_key, json.dumps(obj))
+                        app.redis_client.expire('presence:users', 300)
+                except Exception:
+                    pass
 
             # Send real-time update to admin room
             if socketio:
@@ -1090,69 +1224,166 @@ def register(app, socketio=None):
     @app.route('/admin/presence', methods=['GET'])
     @require_permissions(ADMIN_VIEW_PAGE)
     def admin_presence():
-        """Return JSON with currently connected users (Socket.IO sessions)."""
+        """Return JSON with currently connected users.
+
+        Uses a short-lived Redis snapshot to avoid inconsistent views and flapping.
+        """
         try:
-            # Use Redis-based presence if available
-            if hasattr(app, 'presence_manager') and app.presence_manager:
-                items = app.presence_manager.get_active_presence()
-            else:
-                # Fallback to in-memory presence
-                presence = getattr(app, '_presence', {}) or {}
-                presence_hb = getattr(app, '_presence_hb', {}) or {}
-                now_ts = int(datetime.utcnow().timestamp())
-                stale_cutoff = 8  # seconds
+            # Serve recent cached snapshot if available (<=2s)
+            if hasattr(app, 'redis_client') and app.redis_client:
+                rc = app.redis_client
+                try:
+                    import json as _json, time as _time
+                    ts_key = 'presence:view:ts'
+                    snap_key = 'presence:view:snapshot'
+                    ts_v = rc.get(ts_key)
+                    if ts_v is not None:
+                        try:
+                            ts_v = int(ts_v)
+                        except Exception:
+                            ts_v = 0
+                        if int(_time.time()) - int(ts_v or 0) <= 2:
+                            snap = rc.get(snap_key)
+                            if snap:
+                                try:
+                                    payload = _json.loads(snap)
+                                    if isinstance(payload, dict) and 'items' in payload:
+                                        return jsonify(payload)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
+                # Build fresh snapshot from multiple sources
+                now_ms = int(datetime.utcnow().timestamp() * 1000)
                 rows = []
-                for sid, info in presence.items():
-                    try:
-                        if (now_ts - int(info.get('updated_at')
-                                         or 0)) > stale_cutoff:
+                # Source 1: Redis hash presence:users
+                try:
+                    pmap = rc.hgetall('presence:users') or {}
+                    for _, v in pmap.items():
+                        try:
+                            import json
+                            obj = json.loads(v)
+                            if not isinstance(obj, dict):
+                                continue
+                            rows.append({
+                                'user': obj.get('user'),
+                                'ip': obj.get('ip'),
+                                'ua': obj.get('ua'),
+                                'page': obj.get('page'),
+                                'updated_at': int(obj.get('lastSeen') or 0),
+                            })
+                        except Exception:
                             continue
-                    except Exception:
-                        pass
-                    rows.append({
-                        'sid': sid,
-                        'user_id': info.get('user_id'),
-                        'user': info.get('user'),
-                        'ip': info.get('ip'),
-                        'page': info.get('page'),
-                        'ua': info.get('ua'),
-                        'updated_at': info.get('updated_at'),
-                    })
-                # Merge heartbeat-based entries
-                for key, info in presence_hb.items():
-                    try:
-                        if (now_ts - int(info.get('updated_at')
-                                         or 0)) > stale_cutoff:
+                except Exception:
+                    pass
+                # Source 2: in-memory socket presence
+                try:
+                    presence = getattr(app, '_presence', {}) or {}
+                    for _, info in presence.items():
+                        try:
+                            rows.append({
+                                'user': info.get('user'),
+                                'ip': info.get('ip'),
+                                'ua': info.get('ua'),
+                                'page': info.get('page'),
+                                'updated_at': int(info.get('updated_at') or 0),
+                            })
+                        except Exception:
                             continue
-                    except Exception:
-                        pass
-                    rows.append({
-                        'sid': key,
-                        'user_id': info.get('user_id'),
-                        'user': info.get('user'),
-                        'ip': info.get('ip'),
-                        'page': info.get('page'),
-                        'ua': info.get('ua'),
-                        'updated_at': info.get('updated_at'),
-                    })
-                # Deduplicate by user_id+ip+ua (fallback to user+ip+ua) keeping the freshest entry
+                except Exception:
+                    pass
+                # Source 3: in-memory heartbeat buffer
+                try:
+                    presence_hb = getattr(app, '_presence_hb', {}) or {}
+                    for _, info in presence_hb.items():
+                        try:
+                            rows.append({
+                                'user': info.get('user'),
+                                'ip': info.get('ip'),
+                                'ua': info.get('ua'),
+                                'page': info.get('page'),
+                                'updated_at': int(info.get('updated_at') or 0),
+                            })
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+                # Deduplicate by user+ip+ua(short)
                 unique = {}
                 for r in rows:
-                    uid = r.get('user_id')
-                    ip = (r.get('ip') or '').strip()
                     user = (r.get('user') or '').strip()
-                    ua = (r.get('ua') or '').strip()
-                    # normalize UA a bit to avoid overly long keys but keep browser identity
-                    ua_key = ua[:64]
-                    key = f"{uid or user}:{ip}:{ua_key}"
+                    ip = (r.get('ip') or '').strip()
+                    ua = (r.get('ua') or '').strip()[:64]
+                    if not user or not ip:
+                        continue
+                    key = f"{user}:{ip}:{ua}"
                     prev = unique.get(key)
-                    if not prev or int(r.get('updated_at') or 0) >= int(
-                            prev.get('updated_at') or 0):
+                    if (not prev) or int(r.get('updated_at') or 0) >= int(prev.get('updated_at') or 0):
                         unique[key] = r
-                items = list(unique.values())
-                items.sort(key=lambda r: r.get('updated_at') or 0,
-                           reverse=True)
+                items_now = list(unique.values())
+                # Grace period: include items from previous snapshot seen within last 15s
+                try:
+                    import json as _json
+                    prev_snap_raw = rc.get('presence:view:snapshot')
+                    if prev_snap_raw:
+                        prev = _json.loads(prev_snap_raw)
+                        prev_items = prev.get('items') if isinstance(prev, dict) else []
+                        idx = { f"{(r.get('user') or '').strip()}:{(r.get('ip') or '').strip()}:{((r.get('ua') or '').strip()[:64])}": True for r in items_now }
+                        for r in (prev_items or []):
+                            try:
+                                user = (r.get('user') or '').strip()
+                                ip = (r.get('ip') or '').strip()
+                                ua = (r.get('ua') or '').strip()[:64]
+                                key = f"{user}:{ip}:{ua}"
+                                if key in idx:
+                                    continue
+                                ts = int(r.get('updated_at') or 0)
+                                if ts and (now_ms - ts) <= (15 * 1000):
+                                    items_now.append(r)
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+                # Sort and store snapshot
+                items_now.sort(key=lambda r: r.get('updated_at') or 0, reverse=True)
+                payload = {'status': 'success', 'items': items_now}
+                try:
+                    import json as _json, time as _time
+                    rc.set('presence:view:snapshot', _json.dumps(payload, ensure_ascii=False), ex=5)
+                    rc.set('presence:view:ts', int(_time.time()), ex=5)
+                except Exception:
+                    pass
+                return jsonify(payload)
 
+            # Fallback (no Redis): combine in-memory sources with grace
+            presence = getattr(app, '_presence', {}) or {}
+            presence_hb = getattr(app, '_presence_hb', {}) or {}
+            now_ts = int(datetime.utcnow().timestamp())
+            rows = []
+            for _, info in presence.items():
+                try:
+                    rows.append({
+                        'user': info.get('user'), 'ip': info.get('ip'), 'ua': info.get('ua'), 'page': info.get('page'), 'updated_at': int(info.get('updated_at') or 0)
+                    })
+                except Exception:
+                    pass
+            for _, info in presence_hb.items():
+                try:
+                    rows.append({
+                        'user': info.get('user'), 'ip': info.get('ip'), 'ua': info.get('ua'), 'page': info.get('page'), 'updated_at': int(info.get('updated_at') or 0)
+                    })
+                except Exception:
+                    pass
+            # Deduplicate
+            unique = {}
+            for r in rows:
+                key = f"{(r.get('user') or '').strip()}:{(r.get('ip') or '').strip()}:{((r.get('ua') or '').strip()[:64])}"
+                prev = unique.get(key)
+                if (not prev) or int(r.get('updated_at') or 0) >= int(prev.get('updated_at') or 0):
+                    unique[key] = r
+            items = list(unique.values())
+            items.sort(key=lambda r: r.get('updated_at') or 0, reverse=True)
             return jsonify({'status': 'success', 'items': items})
         except Exception as e:
             app.flash_error(e)
@@ -1170,6 +1401,32 @@ def register(app, socketio=None):
             if hasattr(app, 'redis_client') and app.redis_client:
                 try:
                     rc = app.redis_client
+                    # Serve recent cached snapshot to avoid inconsistent scans
+                    try:
+                        import json as _json
+                        import time as _time
+                        ts_key = 'sessions:view:ts'
+                        snap_key = 'sessions:view:snapshot'
+                        ts_v = rc.get(ts_key)
+                        if ts_v is not None:
+                            try:
+                                ts_v = int(ts_v)
+                            except Exception:
+                                ts_v = 0
+                            now_s = int(_time.time())
+                            if now_s - int(ts_v or 0) <= 2:  # 2 seconds cache
+                                snap = rc.get(snap_key)
+                                if snap:
+                                    try:
+                                        payload = _json.loads(snap)
+                                        if isinstance(payload, dict) and 'items' in payload:
+                                            if debug_flag:
+                                                payload['debug'] = {'cached': True}
+                                            return jsonify(payload)
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
                     sids_raw = rc.smembers('sessions:cookie:index') or set()
                     # Normalize to a mutable set of decoded strings
                     sids = set()
@@ -1246,20 +1503,34 @@ def register(app, socketio=None):
                         pass
                     import time as _time
                     items = []
+                    # Fetch meta and TTLs in a single pipeline for reliability/performance
+                    sids_list = []
                     for sid in sids:
-                        try:
-                            # Normalize sid
-                            if isinstance(sid, bytes):
-                                sid = sid.decode('utf-8', errors='ignore')
-                            meta = rc.hgetall(f'sessions:cookie:{sid}') or {}
-                            ttl_cookie = rc.ttl(f'sessions:cookie:ttl:{sid}')
-                            # Also read TTL from Flask-Session key if available to survive restarts
-                            ttl_store = -1
+                        if isinstance(sid, bytes):
                             try:
-                                sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
-                                ttl_store = rc.ttl(f'{sess_prefix}{sid}')
+                                sid = sid.decode('utf-8', errors='ignore')
                             except Exception:
-                                ttl_store = -1
+                                sid = str(sid)
+                        sids_list.append(sid)
+
+                    try:
+                        pipe = rc.pipeline()
+                        sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                        for sid in sids_list:
+                            pipe.hgetall(f'sessions:cookie:{sid}')
+                            pipe.ttl(f'sessions:cookie:ttl:{sid}')
+                            pipe.ttl(f'{sess_prefix}{sid}')
+                        bulk = pipe.execute() if sids_list else []
+                    except Exception:
+                        bulk = []
+
+                    # Build items from pipeline results (triples per sid)
+                    for idx, sid in enumerate(sids_list):
+                        try:
+                            base = idx * 3
+                            meta = (bulk[base] if base < len(bulk) else {}) or {}
+                            ttl_cookie = bulk[base + 1] if (base + 1) < len(bulk) else -1
+                            ttl_store = bulk[base + 2] if (base + 2) < len(bulk) else -1
                             # Normalize types
                             def _ival(v, d=0):
                                 try:
@@ -1336,16 +1607,21 @@ def register(app, socketio=None):
                             items.append(item)
                         except Exception:
                             continue
-                    # If cookie-index is empty, fallback to legacy hash for backward compatibility
-                    if not items:
-                        sessions_data = rc.hgetall('sessions:active')
+                    # Always union with legacy hash for backward compatibility
+                    try:
+                        sessions_data = rc.hgetall('sessions:active') or {}
+                        # Avoid duplicates by sid
+                        present = { (it.get('sid') or it.get('session_id')) for it in items }
                         for key, value in sessions_data.items():
                             try:
                                 import json
                                 session_data = json.loads(value)
+                                sid_legacy = session_data.get('sid', key)
+                                if sid_legacy in present:
+                                    continue
                                 items.append({
-                                    'sid': session_data.get('sid', key),
-                                    'session_id': session_data.get('sid', key),
+                                    'sid': sid_legacy,
+                                    'session_id': sid_legacy,
                                     'user_id': session_data.get('user_id'),
                                     'user': session_data.get('user', 'Неизвестно'),
                                     'ip': session_data.get('ip', 'Неизвестно'),
@@ -1356,60 +1632,71 @@ def register(app, socketio=None):
                                 })
                             except Exception:
                                 continue
-                    # If no items yet, synthesize from session store keys only (after restart)
-                    if not items:
-                        try:
-                            sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
-                            keys = []
-                            if hasattr(rc, 'scan_iter'):
-                                keys = [k for k in rc.scan_iter(match=f'{sess_prefix}*', count=200)]
-                            else:
-                                keys = rc.keys(f'{sess_prefix}*') or []
-                            for skey in keys:
-                                try:
-                                    kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
-                                    if not kstr.startswith(sess_prefix):
-                                        continue
-                                    sid2 = kstr[len(sess_prefix):]
-                                    if not sid2:
-                                        continue
-                                    ttl_s = rc.ttl(kstr)
-                                    # Approximate created_at from ttl if lifetime known
-                                    lifetime_s = 1800
-                                    try:
-                                        from datetime import timedelta as _td
-                                        cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
-                                        if isinstance(cfg_life, _td):
-                                            lifetime_s = int(cfg_life.total_seconds())
-                                        else:
-                                            lifetime_s = int(cfg_life or 1800)
-                                    except Exception:
-                                        try:
-                                            lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
-                                        except Exception:
-                                            lifetime_s = 1800
-                                    created_guess = 0
-                                    try:
-                                        if isinstance(ttl_s, int) and ttl_s >= 0:
-                                            created_guess = int(_time.time()) - max(0, (lifetime_s - ttl_s))
-                                    except Exception:
-                                        created_guess = 0
-                                    items.append({
-                                        'sid': sid2,
-                                        'session_id': sid2,
-                                        'user_id': None,
-                                        'user': 'Неизвестно',
-                                        'ip': 'Неизвестно',
-                                        'ua': 'Неизвестно',
-                                        'created_at': created_guess,
-                                        'last_seen': created_guess,
-                                        'last_activity': created_guess,
-                                        'ttl_seconds': ttl_s if isinstance(ttl_s, int) else -1,
-                                    })
-                                except Exception:
+                    except Exception:
+                        pass
+                    # Always union with Flask-Session store keys (survive restarts)
+                    try:
+                        sess_prefix = app.config.get('SESSION_KEY_PREFIX', 'znf:session:') or 'znf:session:'
+                        keys = []
+                        if hasattr(rc, 'scan_iter'):
+                            keys = [k for k in rc.scan_iter(match=f'{sess_prefix}*', count=200)]
+                        else:
+                            keys = rc.keys(f'{sess_prefix}*') or []
+                        present = { (it.get('sid') or it.get('session_id')) for it in items }
+                        for skey in keys:
+                            try:
+                                kstr = skey.decode('utf-8', errors='ignore') if isinstance(skey, bytes) else str(skey)
+                                if not kstr.startswith(sess_prefix):
                                     continue
-                        except Exception:
-                            pass
+                                sid2 = kstr[len(sess_prefix):]
+                                if not sid2 or sid2 in present:
+                                    continue
+                                ttl_s = rc.ttl(kstr)
+                                # Approximate created_at from ttl if lifetime known
+                                lifetime_s = 1800
+                                try:
+                                    from datetime import timedelta as _td
+                                    cfg_life = app.config.get('PERMANENT_SESSION_LIFETIME')
+                                    if isinstance(cfg_life, _td):
+                                        lifetime_s = int(cfg_life.total_seconds())
+                                    else:
+                                        lifetime_s = int(cfg_life or 1800)
+                                except Exception:
+                                    try:
+                                        lifetime_s = int(app._sql.config.get('web', 'session_lifetime', fallback='1800'))
+                                    except Exception:
+                                        lifetime_s = 1800
+                                created_guess = 0
+                                try:
+                                    if isinstance(ttl_s, int) and ttl_s >= 0:
+                                        created_guess = int(_time.time()) - max(0, (lifetime_s - ttl_s))
+                                except Exception:
+                                    created_guess = 0
+                                # Compute ttl even when store key has no TTL (-1)
+                                try:
+                                    if not (isinstance(ttl_s, int) and ttl_s >= 0):
+                                        if created_guess:
+                                            ttl_s = max(0, int(lifetime_s - (int(_time.time()) - int(created_guess))))
+                                        else:
+                                            ttl_s = max(0, int(lifetime_s))  # best-effort when no timestamps
+                                except Exception:
+                                    ttl_s = -1
+                                items.append({
+                                    'sid': sid2,
+                                    'session_id': sid2,
+                                    'user_id': None,
+                                    'user': 'Неизвестно',
+                                    'ip': 'Неизвестно',
+                                    'ua': 'Неизвестно',
+                                    'created_at': created_guess,
+                                    'last_seen': created_guess,
+                                    'last_activity': created_guess,
+                                    'ttl_seconds': ttl_s if isinstance(ttl_s, int) else -1,
+                                })
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
 
                     # Union with in-memory sessions to avoid dropping inactive-but-unexpired
                     try:
@@ -1450,6 +1737,14 @@ def register(app, socketio=None):
                     payload = {'status': 'success', 'items': items}
                     if debug_flag:
                         payload['debug'] = dbg
+                    # Store snapshot for short time to stabilize view
+                    try:
+                        import json as _json
+                        import time as _time
+                        rc.set('sessions:view:snapshot', _json.dumps(payload, ensure_ascii=False), ex=5)
+                        rc.set('sessions:view:ts', int(_time.time()), ex=5)
+                    except Exception:
+                        pass
                     return jsonify(payload)
                 except Exception as e:
                     _log.warning(f"Redis sessions fallback: {e}")

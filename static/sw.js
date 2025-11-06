@@ -8,7 +8,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 // Service Worker for aggressive caching of static assets
-const CACHE_NAME = "znf-static-v1";
+const CACHE_VERSION = 'v2';
+const CACHE_PREFIX = 'znf-static-';
+const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const STATIC_CACHE_URLS = [
   "/static/js/record.js",
   "/static/js/scripts.js",
@@ -34,7 +36,13 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       try {
+        // Claim clients so the new SW controls pages immediately
         await self.clients.claim();
+        // Remove old versioned caches
+        const keys = await caches.keys();
+        const deletions = keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME)
+          .map((k) => caches.delete(k));
+        await Promise.allSettled(deletions);
       } catch (err) {
         // silent
       }
@@ -94,9 +102,47 @@ self.addEventListener("fetch", (event) => {
 
 // Handle messages from the main thread
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
+  try {
+    const data = event && event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === "SKIP_WAITING") {
+      self.skipWaiting();
+      return;
+    }
+    if (data.type === 'SHOW_NOTIFICATION') {
+      const title = String(data.title || 'Уведомление');
+      const options = Object.assign({
+        body: String(data.body || ''),
+        icon: String(data.icon || '/static/icons/notification_menu.png'),
+        badge: String(data.badge || '/static/icons/notification_menu.png'),
+        tag: String(data.tag || 'znf'),
+        renotify: data.renotify === true,
+        requireInteraction: !!data.requireInteraction,
+        data: { url: String(data.url || '/') }
+      }, data.options || {});
+      event.waitUntil(self.registration.showNotification(title, options));
+    }
+  } catch (_) {}
+});
+
+// Focus tab on notification click
+self.addEventListener('notificationclick', function (event) {
+  try { event.notification && event.notification.close && event.notification.close(); } catch(_) {}
+  const url = (event.notification && event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil((async () => {
+    try {
+      const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of allClients) {
+        try {
+          if (client.url && client.url.indexOf(url) !== -1) {
+            client.focus && client.focus();
+            return;
+          }
+        } catch (_) {}
+      }
+      await self.clients.openWindow(url);
+    } catch (_) {}
+  })());
 });
 
 // Push notification handlers removed (deprecated)

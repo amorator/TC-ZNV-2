@@ -352,19 +352,54 @@ window.SyncManager = (function () {
     });
   }
 
-  // Global Notification helper with graceful fallback
-  function _showGlobalNotification(title, body, icon) {
+  // Global Notification helper with SW-based delivery for better persistence
+  async function _showGlobalNotification(title, body, icon) {
     try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const opts = {};
-        if (body) opts.body = String(body);
-        if (icon) opts.icon = String(icon);
-        const n = new Notification(String(title || 'Уведомление'), opts);
-        setTimeout(function(){ try { n && n.close && n.close(); } catch(_){} }, 5000);
-        return; // avoid duplicate toast when system notification is shown
+      const defaultIcon = '/static/icons/notification_menu.png';
+      const t = String(title || 'Уведомление');
+      const b = body ? String(body) : '';
+
+      // Try Service Worker showNotification for Action Center persistence
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg && Notification && Notification.permission === 'granted') {
+            const opts = {
+              body: b,
+              icon: String(icon || defaultIcon),
+              badge: String(icon || defaultIcon),
+              tag: 'znf',
+              renotify: false,
+              requireInteraction: false,
+              data: { url: '/' }
+            };
+            await reg.showNotification(t, opts);
+            return; // delivered via SW
+          }
+          // If no registration yet, try posting a message to active controller
+          if (navigator.serviceWorker.controller && Notification && Notification.permission === 'granted') {
+            navigator.serviceWorker.controller.postMessage({
+              type: 'SHOW_NOTIFICATION',
+              title: t,
+              body: b,
+              icon: String(icon || defaultIcon),
+              url: '/'
+            });
+            return;
+          }
+        } catch (_) {}
       }
+
+      // Fallback to Window Notification API
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const opts = { body: b, icon: String(icon || defaultIcon) };
+        const n = new Notification(t, opts);
+        setTimeout(function(){ try { n && n.close && n.close(); } catch(_){} }, 5000);
+        return;
+      }
+      // Final fallback to in-page toast
       if (window.showToast) {
-        window.showToast(String(title || 'Уведомление') + (body ? (': ' + String(body)) : ''), 'info');
+        window.showToast(t + (b ? (': ' + b) : ''), 'info');
       }
     } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, 'sync:showNotification');

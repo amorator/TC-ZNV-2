@@ -1,6 +1,6 @@
 """Middleware for request/response logging and access control."""
 
-from flask import request, g
+from flask import request, g, session as _flask_session
 from flask_login import logout_user, current_user
 from time import time
 from datetime import timedelta
@@ -59,6 +59,12 @@ def init_middleware(app):
 			if is_authenticated:
 				cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
 				sid = request.cookies.get(cookie_name) or request.cookies.get('session')
+				# Prefer cookie SID; fallback to Flask-Session SID when cookie missing
+				if not sid:
+					try:
+						sid = getattr(_flask_session, 'sid', None)
+					except Exception:
+						sid = None
 				if sid:
 					uid = getattr(current_user, 'id', None)
 					uname = getattr(current_user, 'name', None)
