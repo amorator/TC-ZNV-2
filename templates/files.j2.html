@@ -13,6 +13,28 @@
 {% if embed %}
 <link rel="stylesheet" href="{{url_for('static',filename='css/pages/files-embed.css')}}?v={{ config.get('VERSION', '1.0.0') }}">
 {% endif %}
+<style>
+  /* Ensure video modal fits viewport without inner scrolling (non-fullscreen) */
+  #popup-view .popup { max-height: 90vh; }
+  #popup-view .popup__body {
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 8px;
+  }
+  #popup-view #player-video {
+    max-width: 100%;
+    max-height: calc(90vh - 160px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  /* Mobile tweak: use nearly full viewport */
+  @media (max-width: 768px) {
+    #popup-view .popup { max-height: 95vh; }
+  }
+</style>
 {% endblock %}
 
 {% block js %}
