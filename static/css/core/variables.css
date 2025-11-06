@@ -244,10 +244,12 @@ ol {
   margin-top: 0;
   margin-bottom: var(--spacing-md);
   padding-left: var(--spacing-lg);
+  color: var(--body-text);
 }
 
 li {
   margin-bottom: var(--spacing-xs);
+  color: var(--body-text);
 }
 
 /* Базовые стили для таблиц */

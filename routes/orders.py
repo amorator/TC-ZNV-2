@@ -917,11 +917,13 @@ def register(app, socketio=None):
 			if not can_change:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'status_change_permission_required' }), 403
 			# Business rules
-			if approved_val != 1 and not _is_admin_group_member() and not current_user.has('admin.any'):
+			# Allow users with ORDERS_STATUS_CHANGE to extend as well (besides admin/admin-group), with standard constraints
+			_hasStatusChange = bool(current_user.has(ORDERS_STATUS_CHANGE))
+			if approved_val != 1 and not (_is_admin_group_member() or current_user.has('admin.any') or _hasStatusChange):
 				return jsonify({ 'ok': False, 'error': 'not_approved', 'reason': 'not_approved' }), 400
-			if current_status == 'done' and not _is_admin_group_member() and not current_user.has('admin.any'):
+			if current_status == 'done' and not (_is_admin_group_member() or current_user.has('admin.any') or _hasStatusChange):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
-			if already_extended and not _is_admin_group_member() and not current_user.has('admin.any'):
+			if already_extended and not (_is_admin_group_member() or current_user.has('admin.any') or _hasStatusChange):
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'already_extended' }), 400
 			# Parse input
 			data = request.get_json(silent=True) or {}
