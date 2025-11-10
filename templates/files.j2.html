@@ -412,7 +412,10 @@
           <select id="reg-picker" class="select form-control__control"></select>
         </div>
         <div class="mb-3">
-          <div class="d-flex flex-column gap-2">
+          <div class="d-none alert alert-danger" id="reg-error-message" role="alert">
+            <strong>Ошибка:</strong> <span id="reg-error-text">Не удалось получить данные регистратора</span>
+          </div>
+          <div class="d-flex flex-column gap-2" id="reg-params-container">
             <div class="d-none" id="reg-param-1-wrap">
               <label class="form-control__label" for="reg-param-1"><span id="reg-param-1-label">—</span></label>
               <select id="reg-param-1" class="select form-control__control" aria-label="Параметр 1"></select>
@@ -434,7 +437,7 @@
               <select id="reg-param-5" class="select form-control__control" aria-label="Параметр 5"></select>
             </div>
           </div>
-          <small class="form-text text-muted">Поля появляются по мере выбора предыдущих.</small>
+          <small class="form-text text-muted" id="reg-params-hint">Поля появляются по мере выбора предыдущих.</small>
         </div>
         <div class="mb-3 d-none" id="reg-files-wrap">
           <div class="form-control__label">Файлы для импорта:</div>

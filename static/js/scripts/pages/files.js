@@ -1286,6 +1286,15 @@ window.openRegistratorImport = function () {
       }
     }
     
+    // Hide error message
+    const errorMsg = document.getElementById('reg-error-message');
+    const errorText = document.getElementById('reg-error-text');
+    const paramsContainer = document.getElementById('reg-params-container');
+    const paramsHint = document.getElementById('reg-params-hint');
+    if (errorMsg) errorMsg.classList.add('d-none');
+    if (paramsContainer) paramsContainer.classList.remove('d-none');
+    if (paramsHint) paramsHint.classList.remove('d-none');
+    
     // Hide and reset files list
     const filesWrap = document.getElementById('reg-files-wrap');
     const filesList = document.getElementById('reg-files-list');
@@ -1332,7 +1341,21 @@ window.openRegistratorImport = function () {
           
           // Set up change handler
           picker.onchange = function() {
-            if (!picker.value) return;
+            if (!picker.value) {
+              // Hide error and parameters when no registrator selected
+              const errorMsg = document.getElementById('reg-error-message');
+              const paramsContainer = document.getElementById('reg-params-container');
+              const paramsHint = document.getElementById('reg-params-hint');
+              if (errorMsg) errorMsg.classList.add('d-none');
+              if (paramsContainer) paramsContainer.classList.remove('d-none');
+              if (paramsHint) paramsHint.classList.remove('d-none');
+              // Hide all parameter fields
+              for (let i = 1; i <= 5; i++) {
+                const wrap = document.getElementById(`reg-param-${i}-wrap`);
+                if (wrap) wrap.classList.add('d-none');
+              }
+              return;
+            }
             loadRegistratorLevel(parseInt(picker.value), 1);
           };
         } else {
@@ -1352,6 +1375,38 @@ window.openRegistratorImport = function () {
     window.ErrorHandler.handleError(error, "openRegistratorImport");
   }
 };
+
+// Show error message and hide parameter fields
+function showRegistratorError(message) {
+  try {
+    const errorMsg = document.getElementById('reg-error-message');
+    const errorText = document.getElementById('reg-error-text');
+    const paramsContainer = document.getElementById('reg-params-container');
+    const paramsHint = document.getElementById('reg-params-hint');
+    
+    // Hide all parameter fields
+    for (let i = 1; i <= 5; i++) {
+      const wrap = document.getElementById(`reg-param-${i}-wrap`);
+      if (wrap) wrap.classList.add('d-none');
+    }
+    
+    // Hide parameters container and hint
+    if (paramsContainer) paramsContainer.classList.add('d-none');
+    if (paramsHint) paramsHint.classList.add('d-none');
+    
+    // Show error message
+    if (errorMsg && errorText) {
+      errorText.textContent = message || 'Не удалось получить параметры регистратора';
+      errorMsg.classList.remove('d-none');
+    }
+    
+    // Hide files list
+    const filesWrap = document.getElementById('reg-files-wrap');
+    if (filesWrap) filesWrap.classList.add('d-none');
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError("Error showing registrator error:", err, "files");
+  }
+}
 
 // Load registrator level
 function loadRegistratorLevel(rid, level) {
@@ -1388,9 +1443,34 @@ function loadRegistratorLevel(rid, level) {
       credentials: 'same-origin'
     })
       .then(function(response) {
+        if (!response.ok) {
+          return response.json().then(function(errData) {
+            throw new Error(errData.message || 'Ошибка при получении параметров');
+          });
+        }
         return response.json();
       })
       .then(function(data) {
+        // Check for error status first
+        if (data.status === 'error') {
+          if (level === 1) {
+            // Show error message and hide all parameter fields
+            showRegistratorError(data.message || 'Не удалось получить данные регистратора');
+          } else {
+            // For deeper levels, just hide the field silently
+            wrap.classList.add('d-none');
+          }
+          return;
+        }
+        
+        // Hide error message if it was shown (only if we have success)
+        const errorMsg = document.getElementById('reg-error-message');
+        const paramsContainer = document.getElementById('reg-params-container');
+        const paramsHint = document.getElementById('reg-params-hint');
+        if (errorMsg) errorMsg.classList.add('d-none');
+        if (paramsContainer) paramsContainer.classList.remove('d-none');
+        if (paramsHint) paramsHint.classList.remove('d-none');
+        
         if (data.status === 'success' && data.entries) {
           // Populate select
           select.innerHTML = '<option value="">Выберите...</option>';
@@ -1406,6 +1486,17 @@ function loadRegistratorLevel(rid, level) {
             option.textContent = entry;
             select.appendChild(option);
           });
+          
+          // If no entries after filtering, show error (especially for first level)
+          if (filteredEntries.length === 0) {
+            if (level === 1) {
+              showRegistratorError('Не удалось получить данные регистратора. Регистратор не доступен.');
+            } else {
+              // For subsequent levels, just hide the field
+              wrap.classList.add('d-none');
+            }
+            return;
+          }
           
           // Show wrapper immediately
           wrap.classList.remove('d-none');
@@ -1466,11 +1557,35 @@ function loadRegistratorLevel(rid, level) {
               };
             }
           }
+        } else if (data.status === 'success' && (!data.entries || data.entries.length === 0)) {
+          // Success status but empty entries - treat as error for first level
+          if (level === 1) {
+            showRegistratorError('Не удалось получить параметры регистратора. Регистратор может быть недоступен.');
+          } else {
+            // For subsequent levels, just hide the field
+            wrap.classList.add('d-none');
+          }
+        } else if (data.status && data.status !== 'success' && data.status !== 'error') {
+          // Unknown status
+          if (level === 1) {
+            showRegistratorError(data.message || 'Неизвестная ошибка при получении параметров');
+          } else {
+            wrap.classList.add('d-none');
+          }
         }
       })
       .catch(function(err) {
         window.ErrorHandler && window.ErrorHandler.handleError("Error loading level:", err, "files");
         window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorLevel");
+        // Show error message and hide all parameter fields
+        if (level === 1) {
+          // Show error message only for the first level
+          const errorText = err.message || 'Ошибка при получении параметров регистратора';
+          showRegistratorError(errorText);
+        } else {
+          // For subsequent levels, hide the field silently
+          wrap.classList.add('d-none');
+        }
       });
   } catch (error) {
     window.ErrorHandler && window.ErrorHandler.handleError("Error in loadRegistratorLevel:", error, "files");
@@ -1509,9 +1624,20 @@ function loadRegistratorFiles(rid) {
       credentials: 'same-origin'
     })
       .then(function(response) {
+        if (!response.ok) {
+          return response.json().then(function(errData) {
+            throw new Error(errData.message || 'Ошибка при получении списка файлов');
+          });
+        }
         return response.json();
       })
       .then(function(data) {
+        if (data.status === 'error') {
+          // Show error message
+          showRegistratorError(data.message || 'Не удалось получить список файлов');
+          return;
+        }
+        
         const filesWrap = document.getElementById('reg-files-wrap');
         const filesList = document.getElementById('reg-files-list');
         
@@ -1565,6 +1691,9 @@ function loadRegistratorFiles(rid) {
       .catch(function(err) {
         window.ErrorHandler && window.ErrorHandler.handleError("Error loading files:", err, "files");
         window.ErrorHandler && window.ErrorHandler.handleError(err, "loadRegistratorFiles");
+        // Show error message
+        const errorText = err.message || 'Ошибка при получении списка файлов';
+        showRegistratorError(errorText);
       });
   } catch (error) {
     window.ErrorHandler && window.ErrorHandler.handleError("Error in loadRegistratorFiles:", error, "files");
