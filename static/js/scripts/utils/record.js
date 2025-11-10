@@ -120,6 +120,11 @@ const BYTES_IN_MB = 1048576;
 /** @type {HTMLInputElement|null} */ let sourceAudio;
 /** @type {HTMLElement|null} */ let audioIndicatorWrap;
 /** @type {HTMLElement|null} */ let audioIndicator;
+/** @type {HTMLDivElement|null} */ let audioMeterBar = null;
+/** @type {AudioContext|null} */ let audioContext = null;
+/** @type {AnalyserNode|null} */ let audioAnalyser = null;
+/** @type {MediaStreamAudioSourceNode|null} */ let audioSourceNode = null;
+/** @type {number|null} */ let audioMeterRaf = null;
 
 // Timer state
 /** @type {number} */ let h = 0;
@@ -140,6 +145,47 @@ const BYTES_IN_MB = 1048576;
 /** @type {boolean} */ let isScreenRecording = false;
 /** @type {boolean} */ let isDualRecording = false;
 /** @type {boolean} */ let isAudioOnly = false;
+/** @type {boolean} */ let hasAnyAudioTrack = false;
+
+/**
+ * Try to get display media with audio; on failure retry without audio.
+ * @param {MediaTrackConstraints|boolean} video
+ * @param {MediaTrackConstraints|boolean} audio
+ * @returns {Promise<MediaStream>}
+ */
+async function getDisplayMediaWithAudioFallback(video, audio) {
+  try {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video, audio });
+    return s;
+  } catch (e) {
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
+      return s;
+    } catch (err) {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Try to get user media with audio; on failure retry without audio.
+ * @param {MediaTrackConstraints|boolean} video
+ * @param {MediaTrackConstraints|boolean} audio
+ * @returns {Promise<MediaStream>}
+ */
+async function getUserMediaWithAudioFallback(video, audio) {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video, audio });
+    return s;
+  } catch (e) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      return s;
+    } catch (err) {
+      throw err;
+    }
+  }
+}
 
 /**
  * Determine if any capture streams are currently active (live tracks).
@@ -810,6 +856,7 @@ function resetAfterSave() {
  */
 function stopCameraStream() {
   try {
+    stopAudioMeter();
     if (currentStreamScreen) {
       try {
         currentStreamScreen.getTracks().forEach((t) => t.stop());
@@ -866,6 +913,99 @@ function stopCameraStream() {
   } catch (err) {
       window.ErrorHandler.handleError(err, "unknown");
     }
+}
+
+/**
+ * Initialize simple horizontal audio meter for a given MediaStream.
+ * Picks best available stream (camera > screen > audio-only).
+ */
+function setupAudioMeterFromBestAvailableStream() {
+  try {
+    // Ensure container visible according to mode
+    updateVideoVisibility();
+  } catch(_) {}
+  try {
+    const stream = (currentStreamCamera && currentStreamCamera.getAudioTracks && currentStreamCamera.getAudioTracks().length > 0)
+      ? currentStreamCamera
+      : ((currentStreamScreen && currentStreamScreen.getAudioTracks && currentStreamScreen.getAudioTracks().length > 0)
+          ? currentStreamScreen
+          : (currentStreamAudio || null));
+    if (!stream) {
+      stopAudioMeter();
+      return;
+    }
+    // Lazy create bar element
+    if (audioIndicator && !audioMeterBar) {
+      try {
+        audioMeterBar = document.createElement('div');
+        audioMeterBar.style.height = '6px';
+        audioMeterBar.style.width = '0%';
+        audioMeterBar.style.background = 'var(--btn-focus, #0d6efd)';
+        audioMeterBar.style.borderRadius = '8px';
+        audioMeterBar.style.transition = 'width 60ms linear';
+        audioMeterBar.setAttribute('aria-label', 'Индикатор громкости');
+        // Clear previous text content once bar is present
+        try { audioIndicator.textContent = ''; } catch(_) {}
+        audioIndicator.appendChild(audioMeterBar);
+      } catch(_) {}
+    }
+    // Create audio context+analyser
+    if (!audioContext) {
+      try { audioContext = new (window.AudioContext || window.webkitAudioContext)(); } catch(_) { audioContext = null; }
+    }
+    if (!audioContext) return;
+    // Recreate nodes
+    try { if (audioSourceNode) { audioSourceNode.disconnect(); audioSourceNode = null; } } catch(_) {}
+    try { if (audioAnalyser) { audioAnalyser.disconnect(); audioAnalyser = null; } } catch(_) {}
+    audioSourceNode = audioContext.createMediaStreamSource(stream);
+    audioAnalyser = audioContext.createAnalyser();
+    audioAnalyser.fftSize = 1024;
+    audioAnalyser.smoothingTimeConstant = 0.5;
+    audioSourceNode.connect(audioAnalyser);
+    // Start RAF loop
+    const bufferLength = audioAnalyser.fftSize;
+    const dataArray = new Uint8Array(bufferLength);
+    function tick() {
+      try {
+        audioAnalyser.getByteTimeDomainData(dataArray);
+        // Compute RMS normalized 0..1
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const v = (dataArray[i] - 128) / 128; // -1..1
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / bufferLength); // 0..~1
+        // Convert to percentage, add small floor for visibility
+        const pct = Math.min(100, Math.max(0, Math.round((rms * 100))));
+        if (audioMeterBar) {
+          audioMeterBar.style.width = Math.max(2, pct) + '%';
+        }
+      } catch(_) {}
+      audioMeterRaf = requestAnimationFrame(tick);
+    }
+    cancelAnimationFrameSafe(audioMeterRaf);
+    audioMeterRaf = requestAnimationFrame(tick);
+  } catch (err) {
+    try { console.warn('[recorder] audio meter setup failed', err); } catch(_) {}
+  }
+}
+
+function cancelAnimationFrameSafe(id){
+  try { if (id != null) cancelAnimationFrame(id); } catch(_) {}
+}
+
+/**
+ * Stop and tear down audio meter.
+ */
+function stopAudioMeter() {
+  try {
+    cancelAnimationFrameSafe(audioMeterRaf);
+    audioMeterRaf = null;
+  } catch(_) {}
+  try { if (audioSourceNode) { audioSourceNode.disconnect(); audioSourceNode = null; } } catch(_) {}
+  try { if (audioAnalyser) { audioAnalyser.disconnect(); audioAnalyser = null; } } catch(_) {}
+  // Keep bar DOM; just reset width
+  try { if (audioMeterBar) audioMeterBar.style.width = '0%'; } catch(_) {}
 }
 
 /**
@@ -938,7 +1078,9 @@ function updateVideoVisibility() {
       videoCamera.style.display = isCameraMode || isBothMode ? "block" : "none";
     }
     if (audioIndicatorWrap) {
-      audioIndicatorWrap.style.display = isAudioMode ? "block" : "none";
+      // Show audio indicator for Audio-only, Camera-only, Screen-only (when available) and Both modes
+      audioIndicatorWrap.style.display =
+        (isAudioMode || isCameraMode || isScreenMode || isBothMode) ? "block" : "none";
     }
 
     // Show/hide labels - find labels by their text content
@@ -1087,6 +1229,7 @@ async function onCameraClick() {
       }
       buttonCamera.textContent = buttonText;
       stopCameraStream();
+      stopAudioMeter();
       // Update buttons after turning off
       try {
         updateButtonStates();
@@ -1113,40 +1256,40 @@ async function onCameraClick() {
         // Dual recording: both screen and camera
         try {
           // Get screen stream
-          currentStreamScreen = await navigator.mediaDevices.getDisplayMedia({
-            video: {
+          currentStreamScreen = await getDisplayMediaWithAudioFallback(
+            {
               width: { ideal: 1920, max: 1920 },
               height: { ideal: 1080, max: 1080 },
               frameRate: { ideal: 30, max: 30 },
             },
-            audio: {
+            {
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
               sampleRate: 48000,
-            },
-          });
+            }
+          );
           attachOnEnded(
             currentStreamScreen,
             "Захват экрана был остановлен. Вы можете сохранить уже записанное."
           );
 
           // Get camera stream
-          currentStreamCamera = await navigator.mediaDevices.getUserMedia({
-            video: {
+          currentStreamCamera = await getUserMediaWithAudioFallback(
+            {
               width: { ideal: 1280, max: 1920 },
               height: { ideal: 720, max: 1080 },
               frameRate: { ideal: 30, max: 30 },
             },
-            audio: {
+            {
               channels: 2,
               autoGainControl: false,
               echoCancellation: false,
               noiseSuppression: false,
               sampleRate: 48000,
               sampleSize: 16,
-            },
-          });
+            }
+          );
           attachOnEnded(
             currentStreamCamera,
             "Камера была отключена. Вы можете сохранить уже записанное."
@@ -1165,6 +1308,7 @@ async function onCameraClick() {
             videoCamera.play();
             videoCamera.style.borderColor = "green";
           }
+          try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
 
           buttonCamera.textContent = "Остановить захват";
           isDualRecording = true;
@@ -1174,28 +1318,25 @@ async function onCameraClick() {
       window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
-          window.showAlertModal(
-            "Невозможно получить доступ к экрану или камере!",
-            "Ошибка"
-          );
+          window.showAlertModal("Невозможно получить доступ к экрану или камере!", "Ошибка");
           return;
         }
       } else if (isScreenMode) {
         // Screen recording only
         try {
-          currentStreamScreen = await navigator.mediaDevices.getDisplayMedia({
-            video: {
+          currentStreamScreen = await getDisplayMediaWithAudioFallback(
+            {
               width: { ideal: 1920, max: 1920 },
               height: { ideal: 1080, max: 1080 },
               frameRate: { ideal: 30, max: 30 },
             },
-            audio: {
+            {
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
               sampleRate: 48000,
-            },
-          });
+            }
+          );
           attachOnEnded(
             currentStreamScreen,
             "Захват экрана был остановлен. Вы можете сохранить уже записанное."
@@ -1207,6 +1348,8 @@ async function onCameraClick() {
             videoScreen.play();
             videoScreen.style.borderColor = "green";
           }
+          // Prefer screen audio if present; else none
+          try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
 
           buttonCamera.textContent = "Остановить захват";
           isScreenRecording = true;
@@ -1216,10 +1359,7 @@ async function onCameraClick() {
       window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
-          window.showAlertModal(
-            "Невозможно получить доступ к экрану!",
-            "Ошибка"
-          );
+          window.showAlertModal("Невозможно получить доступ к экрану!", "Ошибка");
           return;
         }
       } else if (isAudioMode) {
@@ -1243,6 +1383,7 @@ async function onCameraClick() {
             audioIndicator.style.borderColor = "green";
             audioIndicator.textContent = "Микрофон включен";
           }
+          try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
           buttonCamera.textContent = "Выключить микрофон";
           isAudioOnly = true;
           try {
@@ -1260,21 +1401,21 @@ async function onCameraClick() {
       } else {
         // Camera recording only
         try {
-          currentStreamCamera = await navigator.mediaDevices.getUserMedia({
-            video: {
+          currentStreamCamera = await getUserMediaWithAudioFallback(
+            {
               width: { ideal: 1280, max: 1920 },
               height: { ideal: 720, max: 1080 },
               frameRate: { ideal: 30, max: 30 },
             },
-            audio: {
+            {
               channels: 2,
               autoGainControl: false,
               echoCancellation: false,
               noiseSuppression: false,
               sampleRate: 48000,
               sampleSize: 16,
-            },
-          });
+            }
+          );
           attachOnEnded(
             currentStreamCamera,
             "Камера была отключена. Вы можете сохранить уже записанное."
@@ -1286,6 +1427,7 @@ async function onCameraClick() {
             videoCamera.play();
             videoCamera.style.borderColor = "green";
           }
+          try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
 
           buttonCamera.textContent = "Выключить камеру";
           isScreenRecording = false;
@@ -1295,10 +1437,7 @@ async function onCameraClick() {
       window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
-          window.showAlertModal(
-            "Невозможно получить доступ к камере!",
-            "Ошибка"
-          );
+          window.showAlertModal("Невозможно получить доступ к камере!", "Ошибка");
           return;
         }
       }
@@ -1347,6 +1486,14 @@ async function onCameraClick() {
     // Clear previous recorders
     recorderScreen = null;
     recorderCamera = null;
+
+    // Track if any audio track is present to drive UI/meter
+    try {
+      const a1 = currentStreamScreen && currentStreamScreen.getAudioTracks && currentStreamScreen.getAudioTracks().length > 0;
+      const a2 = currentStreamCamera && currentStreamCamera.getAudioTracks && currentStreamCamera.getAudioTracks().length > 0;
+      const a3 = currentStreamAudio && currentStreamAudio.getAudioTracks && currentStreamAudio.getAudioTracks().length > 0;
+      hasAnyAudioTrack = !!(a1 || a2 || a3);
+    } catch(_) { hasAnyAudioTrack = false; }
 
     if (isDualRecording) {
       // Setup screen recorder
