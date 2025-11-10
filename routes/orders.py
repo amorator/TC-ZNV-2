@@ -324,12 +324,7 @@ def register(app, socketio=None):
 				return jsonify({ 'ok': False, 'error': 'dates_required' }), 400
 			if not (issued_dt < start_dt < end_dt):
 				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
-			# issued date must be today or later (ignore time)
-			try:
-				if issued_dt.date() < dt.now().date():
-					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
-			except Exception:
-				pass
+			# Temporarily disabled: allow 'issued' date earlier than today
 			# Enforce service to creator's group (for all users)
 			try:
 				prefix = app._sql.config['db']['prefix']

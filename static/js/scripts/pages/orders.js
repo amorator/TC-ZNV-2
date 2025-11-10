@@ -650,7 +650,7 @@
         if (window.showToast) window.showToast('Заполните обязательные поля', 'warning');
         return;
       }
-      // Validate dates: all required; end > start > issued; issued >= today (date-only)
+        // Validate dates: all required; end > start > issued; (temporary: allow issued < today)
       (function validateCreateDates(){
         var ids = { issued: 'oc-issued', start: 'oc-start', end: 'oc-end' };
         Object.values(ids).forEach(function(id){ var el = document.getElementById(id); if (el) el.classList.remove('is-invalid'); });
@@ -669,10 +669,7 @@
         if (di && ds && di > ds) { mark(ids.issued); mark(ids.start); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Начала работ"', 'warning'); throw new Error('date-seq'); }
         if (ds && de && ds > de) { mark(ids.start); mark(ids.end); if (window.showToast) window.showToast('"Начало работ" должно быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
         if (di && de && di > de) { mark(ids.issued); mark(ids.end); if (window.showToast) window.showToast('"Выдан" должен быть раньше "Окончания"', 'warning'); throw new Error('date-seq'); }
-        // Issued not earlier than today (ignore time)
-        var today = new Date(); today.setHours(0,0,0,0);
-        var diDate = new Date(di.getFullYear(), di.getMonth(), di.getDate());
-        if (diDate < today) { mark(ids.issued); if (window.showToast) window.showToast('Дата "Выдан" не может быть раньше сегодняшнего дня', 'warning'); throw new Error('date-issued'); }
+          // Temporarily disabled: allow "Выдан" earlier than today
       })();
       var payload = {
         number: fields.number.trim(),
@@ -991,7 +988,7 @@
             if (!canCreateUI) return;
             targetInput.value = '0';
             // Hide all items except create
-            ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
+            ['files','edit','timeline','extend','delete','approve','unapprove','note'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
             var createEl = menu.querySelector('[data-action="create"]');
             if (createEl) createEl.classList.remove('d-none');
             showAt(e.clientX, e.clientY);
@@ -1015,7 +1012,7 @@
             var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
             if (!canCreateUI) return;
             targetInput.value = '0';
-            ['files','edit','timeline','delete','approve','unapprove'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
+            ['files','edit','timeline','extend','delete','approve','unapprove','note'].forEach(function(a){ var el = menu.querySelector('[data-action="'+a+'"]'); if (el) el.classList.add('d-none'); });
             var createEl = menu.querySelector('[data-action="create"]');
             if (createEl) createEl.classList.remove('d-none');
             showAt(e.clientX, e.clientY);
