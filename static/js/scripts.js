@@ -140,7 +140,40 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   function (event) {
-    if (!popup) return;
+    function findVisibleOverlay() {
+      try {
+        const overlays = document.querySelectorAll(
+          ".overlay-container.show, .overlay-container.visible"
+        );
+        if (!overlays || !overlays.length) return null;
+        return overlays[overlays.length - 1];
+      } catch (_) {
+        return null;
+      }
+    }
+
+    let currentPopupId = popup;
+    let currentOverlay = null;
+
+    if (currentPopupId) {
+      currentOverlay = document.getElementById(currentPopupId);
+      const isVisible =
+        currentOverlay &&
+        (currentOverlay.classList.contains("show") ||
+          currentOverlay.classList.contains("visible"));
+      if (!isVisible) {
+        currentOverlay = findVisibleOverlay();
+        currentPopupId = currentOverlay ? currentOverlay.id || null : null;
+      }
+    } else {
+      currentOverlay = findVisibleOverlay();
+      currentPopupId = currentOverlay ? currentOverlay.id || null : null;
+    }
+
+    if (!currentPopupId || !currentOverlay) return;
+    try {
+      if (!popup) popup = currentPopupId;
+    } catch (_) {}
 
     const active = document.activeElement;
     const isTyping =
@@ -153,7 +186,7 @@ document.addEventListener(
     if (event.key === "Enter" && !isTyping) {
       event.preventDefault();
 
-      if (popup === "popup-rec") {
+      if (currentPopupId === "popup-rec") {
         const iframe = document.getElementById("rec-iframe");
         if (iframe && iframe.contentWindow) {
           try {
@@ -165,7 +198,8 @@ document.addEventListener(
         return;
       }
 
-      const overlay = document.getElementById(popup);
+      const overlay =
+        currentOverlay || document.getElementById(currentPopupId);
       if (!overlay) return;
 
       // Предпочитаем кнопку отправки формы
@@ -193,9 +227,10 @@ document.addEventListener(
       }
 
       // Защищенное поведение для записи: не закрывать во время записи
-      if (popup === "popup-rec") {
+      if (currentPopupId === "popup-rec") {
         try {
-          const overlay = document.getElementById("popup-rec");
+          const overlay =
+            currentOverlay || document.getElementById("popup-rec");
           if (
             overlay &&
             (overlay.classList.contains("show") ||
@@ -228,10 +263,12 @@ document.addEventListener(
       }
 
       try {
-        popupClose(popup);
+        popupClose(currentPopupId);
       } catch (error) {
         window.ErrorHandler && window.ErrorHandler.handleError(error, "popup-close-escape");
       }
+      // Ensure media stops when closed via Escape as well
+      try { if (typeof stopAllMedia === "function") stopAllMedia(); } catch(_) {}
     }
   },
   true
@@ -440,6 +477,54 @@ document.addEventListener("visibilitychange", function () {
     }
   }
 });
+
+/**
+ * Stop/pause active media players in Files modals
+ * - Pauses video/audio, resets src to stop playback
+ */
+function stopAllMedia() {
+  try {
+    var v = document.getElementById('player-video');
+    if (v) {
+      try { v.pause && v.pause(); } catch(_) {}
+      try { v.currentTime = 0; } catch(_) {}
+      try {
+        // Clear <source> children src to ensure full stop
+        var sources = v.querySelectorAll('source');
+        sources && sources.forEach && sources.forEach(function(s){ try { s.removeAttribute('src'); } catch(_) {} });
+      } catch(_) {}
+      try { v.removeAttribute('src'); } catch(_) {}
+      try { v.load && v.load(); } catch(_) {}
+    }
+  } catch(_) {}
+  try {
+    var a = document.getElementById('player-audio');
+    if (a) {
+      try { a.pause && a.pause(); } catch(_) {}
+      try { a.currentTime = 0; } catch(_) {}
+      try {
+        var asrcs = a.querySelectorAll('source');
+        asrcs && asrcs.forEach && asrcs.forEach(function(s){ try { s.removeAttribute('src'); } catch(_) {} });
+      } catch(_) {}
+      try { a.removeAttribute('src'); } catch(_) {}
+      try { a.load && a.load(); } catch(_) {}
+    }
+  } catch(_) {}
+}
+window.stopAllMedia = stopAllMedia;
+
+// Ensure clicking "Закрыть" in Files media modals also stops media
+document.addEventListener('click', function(e){
+  try {
+    var btn = e.target && e.target.closest && e.target.closest('button');
+    if (!btn) return;
+    var isFilesViewClose = btn.getAttribute('data-testid') === 'files-view-close';
+    var isFilesAudioClose = btn.getAttribute('data-testid') === 'files-audio-close';
+    if (isFilesViewClose || isFilesAudioClose) {
+      try { stopAllMedia(); } catch(_) {}
+    }
+  } catch(_) {}
+}, true);
 
 /**
  * Тестовая функция уведомлений для проверки разрешений браузера

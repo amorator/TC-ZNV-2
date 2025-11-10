@@ -1171,26 +1171,84 @@ def register(app, socketio=None):
 		"""Render print table: orders active for selected date, excluding completed."""
 
 		getter = (request.args if request.method == 'GET' else request.form)
-		date_str = (getter.get('date') or '').strip()
+		date_raw = getter.get('date')
+		date_str = (date_raw or '').strip()
 		resp = (getter.get('responsible') or '').strip()
 		job1 = (getter.get('job1') or '').strip()
 		job2 = (getter.get('job2') or '').strip()
+		def _format_display(raw: str) -> str:
+			if not raw:
+				return ''
+			try:
+				raw = raw.strip()
+			except Exception:
+				pass
+			try:
+				parsed = dt.fromisoformat(raw.replace(' ', 'T'))
+				return parsed.strftime('%d.%m.%Y')
+			except Exception:
+				pass
+			for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%d-%m-%Y', '%Y.%m.%d'):
+				try:
+					return dt.strptime(raw, fmt).strftime('%d.%m.%Y')
+				except Exception:
+					continue
+			try:
+				clean = raw.split('T')[0].split(' ')[0]
+				return dt.strptime(clean.replace('/', '-'), '%Y-%m-%d').strftime('%d.%m.%Y')
+			except Exception:
+				pass
+			return raw.replace('-', '.').replace('/', '.')
 		# Basic validation
 		missing = []
 		if not date_str: missing.append('date')
 		if not resp: missing.append('responsible')
 		if not job1: missing.append('job1')
 		if missing:
-			return render_template('orders_table_print.j2.html', date=(date_str or ''), resp=resp, job=[job1, job2], data=[[], {}])
-		try:
-			day = _dt.strptime(date_str, '%Y-%m-%d').date()
-		except Exception:
-			return jsonify({ 'ok': False, 'error': 'validation', 'missing': ['date'] }), 400
+			return render_template('orders_table_print.j2.html', date=_format_display(date_str), resp=resp, job=[job1, job2], data=[[], {}])
+		def _parse_day(raw: str):
+			if not raw:
+				return None
+			candidates = []
+			try:
+				clean = raw.strip()
+			except Exception:
+				clean = raw
+			if not clean:
+				return None
+			candidates.append(clean)
+			try:
+				candidates.append(clean.replace('/', '-'))
+			except Exception:
+				pass
+			try:
+				if 'T' in clean:
+					candidates.append(clean.split('T')[0])
+				elif ' ' in clean:
+					candidates.append(clean.split(' ')[0])
+			except Exception:
+				pass
+			formats = ('%Y-%m-%d', '%d.%m.%Y', '%d-%m-%Y', '%Y.%m.%d')
+			for candidate in candidates:
+				for fmt in formats:
+					try:
+						return dt.strptime(candidate, fmt).date()
+					except Exception:
+						continue
+				try:
+					return dt.fromisoformat(candidate.replace(' ', 'T')).date()
+				except Exception:
+					continue
+			return None
+		day = _parse_day(date_str)
+		if not day:
+			return render_template('orders_table_print.j2.html', date=_format_display(date_str), resp=resp, job=[job1, job2], data=[[], {}])
+		date_display = day.strftime('%d.%m.%Y')
 		# Load all orders and filter: start <= day <= end, status != 'done'
 		rows = app._sql.order_all() or []
 		def to_dt(x):
 			try:
-				return x if isinstance(x, _dt) else _dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))
+				return x if isinstance(x, dt) else dt.fromisoformat(str(x).split('.')[0].replace(' ', 'T'))
 			except Exception:
 				return None
 		orders = []
@@ -1206,7 +1264,7 @@ def register(app, socketio=None):
 				continue
 			def fmt(v):
 				try:
-					return v.strftime('%Y-%m-%d %H:%M') if isinstance(v, _dt) else str(v)
+					return v.strftime('%Y-%m-%d %H:%M') if isinstance(v, dt) else str(v)
 				except Exception:
 					return str(v)
 			orders.append({
@@ -1222,7 +1280,7 @@ def register(app, socketio=None):
 			name = (o.get('department') or '').strip()
 			if name and name not in deps:
 				deps[name] = name
-		return render_template('orders_table_print.j2.html', date=date_str, resp=resp, job=[job1, job2], data=[orders, deps])
+		return render_template('orders_table_print.j2.html', date=date_display, resp=resp, job=[job1, job2], data=[orders, deps])
 
 	@app.route('/orders/<int:order_id>/files', methods=['GET'])
 	@login_required
