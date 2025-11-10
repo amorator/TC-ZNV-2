@@ -11,6 +11,7 @@ from modules.permissions import (
     ADMIN_ANY,
     ORDERS_FILES_EDIT,
     ORDERS_FILES_VIEW,
+    ORDERS_VIEW_ALL,
 )
 from flask import redirect, url_for
 from modules.logging import log_action
@@ -74,11 +75,38 @@ def register(app, socketio=None):
 					continue
 		except Exception:
 			admin_group_id = None
+		# Check if user is admin group member
+		def is_admin_group_member() -> bool:
+			try:
+				name_norm = (admin_group_name or '').strip().lower()
+				for r in rows:
+					try:
+						if str(r[1]).strip().lower() == name_norm:
+							return int(current_user.gid) == int(r[0])
+					except Exception:
+						continue
+			except Exception:
+				pass
+			return False
+		
+		# Get user's service name if user doesn't have view_all permission
+		user_service_name = None
+		has_view_all = current_user.has('orders.view_all') or current_user.has('admin.any') or is_admin_group_member()
+		if not has_view_all:
+			try:
+				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
+				if row and row[0]:
+					user_service_name = str(row[0][0] or '').strip()
+			except Exception:
+				pass
+		
 		return render_template('orders.j2.html',
 							   title='Наряды — Заявки-Наряды-Файлы',
 							   id=2,
 				   groups=groups,
-				   admin_group_id=admin_group_id)
+				   admin_group_id=admin_group_id,
+				   user_service_name=user_service_name,
+				   has_view_all=has_view_all)
 
 	@app.route('/api/orders', methods=['GET'])
 	@login_required
@@ -93,12 +121,55 @@ def register(app, socketio=None):
 		page = int((request.args.get('page') or '1').strip() or '1')
 		page_size = int((request.args.get('page_size') or '10').strip() or '10')
 		try:
+			# Check if user is admin group member
+			def is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					prefix = app._sql.config['db']['prefix']
+					rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					for gid, gname in rows:
+						if str(gname).strip().lower() == name_norm:
+							return int(current_user.gid) == int(gid)
+				except Exception:
+					return False
+				return False
+			
+			# Check if user has view_all permission (including admin.any and admin group membership)
+			has_view_all = current_user.has('orders.view_all') or current_user.has('admin.any') or is_admin_group_member()
+			
+			# If user doesn't have view_all, enforce service filter to user's group
+			user_service = None
+			if not has_view_all:
+				try:
+					prefix = app._sql.config['db']['prefix']
+					row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
+					if row and row[0]:
+						user_service = (row[0][0] or '').strip().lower()
+				except Exception:
+					pass
+			
 			# Filters: status_in (csv of in_progress,stopped,done), date_from, date_to (YYYY-MM-DD)
 			status_in = set([s.strip().lower() for s in (request.args.get('status_in') or 'in_progress,stopped,done').split(',') if s.strip()])
 			date_from = (request.args.get('date_from') or '').strip()
 			date_to = (request.args.get('date_to') or '').strip()
 			q = (request.args.get('q') or '').strip().lower()
-			service = (request.args.get('service') or '').strip().lower()
+			# If user doesn't have view_all, ignore service parameter and use user's service
+			if has_view_all:
+				service = (request.args.get('service') or '').strip().lower()
+			else:
+				service = user_service if user_service else ''
 			def parse_date(d):
 				try:
 					return dt.strptime(d, '%Y-%m-%d')

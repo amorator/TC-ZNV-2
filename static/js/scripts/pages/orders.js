@@ -125,7 +125,18 @@
       if (document.getElementById('flt-st-done').checked) st.push('done');
       const df = document.getElementById('flt-from').value;
       const dt = document.getElementById('flt-to').value;
-      const service = (document.getElementById('flt-service')?.value || '').trim();
+      // Get service filter, but ignore it if user doesn't have view_all permission or admin group membership
+      const hasViewAll = (window.OrdersPerms && window.OrdersPerms.view_all) || false;
+      let isAdminGroupMember = false;
+      try {
+        const adminGroupId = (window.AdminGroupId !== null && window.AdminGroupId !== undefined) ? window.AdminGroupId : null;
+        const userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+        if (adminGroupId !== null && userGid !== null && parseInt(adminGroupId) === parseInt(userGid)) {
+          isAdminGroupMember = true;
+        }
+      } catch(_) {}
+      const hasAccess = hasViewAll || isAdminGroupMember;
+      const service = hasAccess ? ((document.getElementById('flt-service')?.value || '').trim()) : '';
       const q = (document.getElementById('searchinp')?.value || '').trim();
       // Save search to storage
       saveOrdersSearch(q);
@@ -480,21 +491,39 @@
     const dt = document.getElementById('flt-to');
     if (df && !df.value) df.value = rng.from;
     if (dt && !dt.value) dt.value = rng.to;
-    // Default service filter to user's current group if empty
+    // Block service filter if user doesn't have view_all permission
+    // Also check if user is member of admin group
     try {
       var sel = document.getElementById('flt-service');
-      if (sel && !sel.value) {
-        var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-        var map = window.OrdersGroups || {};
-        var serviceName = null;
-        // find service name with matching gid
-        for (var name in map) {
-          if (!Object.prototype.hasOwnProperty.call(map, name)) continue;
-          if (map[name] === userGid) { serviceName = name; break; }
-        }
-        if (serviceName) {
-          // set exact option value match
-          sel.value = serviceName;
+      if (sel) {
+        var hasViewAll = (window.OrdersPerms && window.OrdersPerms.view_all) || false;
+        var isAdminGroupMember = false;
+        try {
+          var adminGroupId = (window.AdminGroupId !== null && window.AdminGroupId !== undefined) ? window.AdminGroupId : null;
+          var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+          if (adminGroupId !== null && userGid !== null && parseInt(adminGroupId) === parseInt(userGid)) {
+            isAdminGroupMember = true;
+          }
+        } catch(_) {}
+        var hasAccess = hasViewAll || isAdminGroupMember;
+        if (!hasAccess) {
+          // Disable filter
+          sel.disabled = true;
+          // Set to user's service if not already set
+          if (!sel.value) {
+            var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
+            var map = window.OrdersGroups || {};
+            var serviceName = null;
+            // find service name with matching gid
+            for (var name in map) {
+              if (!Object.prototype.hasOwnProperty.call(map, name)) continue;
+              if (map[name] === userGid) { serviceName = name; break; }
+            }
+            if (serviceName) {
+              // set exact option value match
+              sel.value = serviceName;
+            }
+          }
         }
       }
     } catch(_) {}

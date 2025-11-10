@@ -27,10 +27,10 @@
         <input type="date" class="form-control" id="flt-to">
       </div>
       <div class="col-auto">
-        <select class="form-select form-select-sm" id="flt-service">
+        <select class="form-select form-select-sm" id="flt-service" {% if not has_view_all %}disabled{% endif %}>
           <option value="">— Все службы —</option>
           {% for g in (groups or []) %}
-            <option value="{{ g.name }}">{{ g.name }}</option>
+            <option value="{{ g.name }}" {% if not has_view_all and user_service_name and g.name == user_service_name %}selected{% endif %}>{{ g.name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -403,6 +403,7 @@
     delete_any: {{ 'true' if (current_user.has('orders.delete_any') or current_user.has('admin.any')) else 'false' }},
     status_change: {{ 'true' if (current_user.has('orders.status_change') or current_user.has('admin.any')) else 'false' }},
     files_view: {{ 'true' if (current_user.has('orders.files_view') or current_user.has('admin.any')) else 'false' }},
+    view_all: {{ 'true' if (has_view_all) else 'false' }},
     admin: {{ 'true' if current_user.has('admin.any') else 'false' }}
   };
   // current user gid for group matching (service -> group)

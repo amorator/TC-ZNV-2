@@ -25,6 +25,33 @@ def dirs_by_permission(app, page_id: int, perm: str):
     except Exception:
         has_admin_any = False
         has_display_all = False
+    
+    # Check if user is admin group member
+    def is_admin_group_member() -> bool:
+        try:
+            cfg = getattr(app._sql, 'config', {})
+            from configparser import ConfigParser
+            aname = 'Программисты'
+            if isinstance(cfg, ConfigParser):
+                aname = cfg.get('admin', 'group', fallback=aname) or aname
+            else:
+                if isinstance(cfg, dict):
+                    admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                    if isinstance(admin, dict) and 'group' in admin:
+                        aname = admin.get('group') or aname
+                    elif 'group' in cfg:
+                        aname = cfg.get('group') or aname
+            name_norm = (aname or '').strip().lower()
+            prefix = app._sql.config['db']['prefix']
+            rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+            for gid, gname in rows:
+                if str(gname).strip().lower() == name_norm:
+                    return int(current_user.gid) == int(gid)
+        except Exception:
+            pass
+        return False
+    
+    is_admin_group = is_admin_group_member()
 
     # Build fresh directory structure from database instead of using cached app.dirs
     fresh_dirs = []
@@ -42,13 +69,6 @@ def dirs_by_permission(app, page_id: int, perm: str):
                 if folder == 'orders':
                     # full access on Files page or any admin flag
                     is_full = current_user.is_allowed(page_id, 'z') or has_admin_any
-                    # group check: group name contains 'админ' or 'admin'
-                    is_admin_group = False
-                    try:
-                        gn = (group_name or '').strip().lower()
-                        is_admin_group = (gn.startswith('админ') or 'admin' in gn)
-                    except Exception:
-                        pass
                     if not (is_full or is_admin_group):
                         continue
                 # Collect enabled subcategories
@@ -91,6 +111,10 @@ def dirs_by_permission(app, page_id: int, perm: str):
 
     def _has_view_access_for_sub(subcategory_id: int) -> bool:
         """Return True if current user is allowed to view given subcategory via stored permissions."""
+        # Admin group members see all subcategories
+        if is_admin_group:
+            return True
+        
         try:
             key = f"subcategory_permissions:{int(subcategory_id)}"
             raw = app._sql.setting_get(key)
@@ -153,9 +177,9 @@ def dirs_by_permission(app, page_id: int, perm: str):
         # Определим, есть ли включённые подкатегории (уже отфильтрованы при построении fresh_dirs)
         has_enabled_subdirs = any(k for k in entry.keys() if k != root_key)
 
-        # Admin ('z' or admin.any) or explicit display-all ('f' or files.display_all)
+        # Admin ('z' or admin.any) or admin group member or explicit display-all ('f' or files.display_all)
         # or non-group-restricted roots: give full tree (если есть активные подкатегории)
-        if (current_user.is_allowed(page_id, 'z') or has_admin_any
+        if (current_user.is_allowed(page_id, 'z') or has_admin_any or is_admin_group
                 or current_user.is_allowed(page_id, 'f') or has_display_all
                 or not only_group):
             if has_enabled_subdirs:
@@ -163,8 +187,8 @@ def dirs_by_permission(app, page_id: int, perm: str):
             continue
 
         # Group-restricted: include only permitted subdirs from stored permissions
-        # BUT: Admin users see all subcategories regardless of permissions
-        if has_admin_any:
+        # BUT: Admin users and admin group members see all subcategories regardless of permissions
+        if has_admin_any or is_admin_group:
             # Admin sees all subcategories, но пропускаем пустые категории
             if has_enabled_subdirs:
                 dirs.append(entry)
