@@ -350,6 +350,72 @@ window.SyncManager = (function () {
         handleSyncEvent(eventName, data);
       });
     });
+
+    // Force refresh handler - clears service worker cache and hard reloads
+    socket.off('force-refresh');
+    socket.on('force-refresh', function (data) {
+      try {
+        if (debugEnabled) {
+          try { console.log('[sync:force-refresh]', data); } catch(_) {}
+        }
+        // Show notification if provided
+        if (data && data.title && window.showToast) {
+          window.showToast(data.title + (data.body ? ': ' + data.body : ''), 'warning');
+        }
+        // Clear service worker cache and hard reload
+        (async function() {
+          try {
+            // Clear all caches
+            if ('caches' in window) {
+              const cacheNames = await caches.keys();
+              await Promise.all(cacheNames.map(name => caches.delete(name)));
+            }
+            // Unregister service worker if possible
+            if ('serviceWorker' in navigator) {
+              const registration = await navigator.serviceWorker.getRegistration();
+              if (registration) {
+                await registration.unregister();
+              }
+            }
+          } catch (err) {
+            // Continue even if cache clearing fails
+            if (window.ErrorHandler) {
+              window.ErrorHandler.handleError(err, 'force-refresh:cache-clear');
+            }
+          }
+          // Hard reload with cache bypass
+          setTimeout(() => {
+            // Use location.reload() with cache bypass header simulation
+            // Modern browsers ignore the true parameter, so we use a different approach
+            if (window.location.reload) {
+              try {
+                // Try to force a hard reload by adding a timestamp parameter
+                const url = new URL(window.location);
+                url.searchParams.set('_force_refresh', Date.now());
+                window.location.href = url.toString();
+              } catch (err) {
+                // Fallback to simple reload
+                window.location.reload();
+              }
+            } else {
+              window.location.href = window.location.href;
+            }
+          }, 500);
+        })();
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, 'force-refresh');
+        // Fallback to simple reload
+        setTimeout(() => {
+          try {
+            const url = new URL(window.location);
+            url.searchParams.set('_force_refresh', Date.now());
+            window.location.href = url.toString();
+          } catch (err) {
+            window.location.reload();
+          }
+        }, 500);
+      }
+    });
   }
 
   // Global Notification helper with SW-based delivery for better persistence

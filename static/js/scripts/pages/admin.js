@@ -160,7 +160,7 @@ function setupRealtimeListeners(socket) {
       }
     });
 
-    // Force refresh event
+    // Force refresh event - handled globally by SyncManager, but show admin-specific message
     socket.on("force-refresh", (data) => {
       try {
         // Show notification before refresh
@@ -170,13 +170,7 @@ function setupRealtimeListeners(socket) {
             "warning"
           );
         }
-        // Hard refresh the page
-        setTimeout(() => {
-          // Force refresh all pages - use hard refresh for complete reset
-          const url = new URL(window.location);
-          url.searchParams.set("_refresh", Date.now());
-          window.location.href = url.toString();
-        }, 1000);
+        // The actual refresh is handled by SyncManager which clears cache
       } catch (err) {
         window.ErrorHandler && window.ErrorHandler.handleError("Force refresh error:", err, "app");
       }
@@ -885,10 +879,29 @@ function handleForceRefreshAll() {
                 window.showToast("Админ-панель будет обновлена", "warning");
               }
               setTimeout(() => {
-                // Force refresh all pages - use hard refresh for complete reset
-                const url = new URL(window.location);
-                url.searchParams.set("_refresh", Date.now());
-                window.location.href = url.toString();
+                // Force refresh with cache clearing (same logic as SyncManager)
+                (async function() {
+                  try {
+                    // Clear all caches
+                    if ('caches' in window) {
+                      const cacheNames = await caches.keys();
+                      await Promise.all(cacheNames.map(name => caches.delete(name)));
+                    }
+                    // Unregister service worker if possible
+                    if ('serviceWorker' in navigator) {
+                      const registration = await navigator.serviceWorker.getRegistration();
+                      if (registration) {
+                        await registration.unregister();
+                      }
+                    }
+                  } catch (err) {
+                    // Continue even if cache clearing fails
+                  }
+                  // Hard reload
+                  const url = new URL(window.location);
+                  url.searchParams.set('_force_refresh', Date.now());
+                  window.location.href = url.toString();
+                })();
               }, 1000);
             }, 2000);
           }, 500);
