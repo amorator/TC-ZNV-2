@@ -7,17 +7,6 @@
 async function validateForm(element) {
   try {
     const form = element && element.closest ? element.closest("form") : null;
-    try {
-      const dbg = {
-        at: 'validateForm:enter',
-        ts: Date.now(),
-        element: element && { tag: element.tagName, id: element.id, classes: element.className, dataset: element.dataset },
-        formId: form && form.id,
-        action: form && form.action,
-        stack: (new Error()).stack,
-      };
-      console.debug('[form]', dbg);
-    } catch(_) {}
     if (!form) return false;
     // Reentrancy guard to avoid recursive submissions
     if (form._submitting) return false;
@@ -43,7 +32,7 @@ async function validateForm(element) {
         if (!resp.ok || !(data && data.status === 'success')) {
           throw new Error((data && data.message) || `HTTP ${resp.status}: ${resp.statusText}`);
         }
-        try { console.debug('[groups:submit] success'); } catch(_) {}
+        // debug removed
         // Close possible modals
         try { if (document.getElementById('popup-add')) closeModal('popup-add'); } catch(_) {}
         try { if (document.getElementById('popup-edit')) closeModal('popup-edit'); } catch(_) {}
@@ -53,7 +42,6 @@ async function validateForm(element) {
         try { if (typeof window.softRefreshGroupsTable === 'function') window.softRefreshGroupsTable(); } catch(_) {}
         return false;
       } catch (e) {
-        try { console.debug('[groups:submit] error', e && (e.stack || e.message || e)); } catch(_) {}
         window.ErrorHandler && window.ErrorHandler.handleError(e, 'groups-submit');
         return false;
       }
@@ -478,13 +466,11 @@ async function validateForm(element) {
     clearValidationErrors();
     return true;
   } catch (err) {
-    try { console.debug('[form] validateForm:catch', err && (err.stack || err.message || err)); } catch(_) {}
     window.ErrorHandler.handleError(err, "validateForm");
     return false;
   } finally {
     try { if (form) form._submitting = false; } catch(_) {}
     try { if (element) { element.disabled = false; if (element.dataset) delete element.dataset.processing; } } catch(_) {}
-    try { console.debug('[form] validateForm:exit'); } catch(_) {}
   }
 }
 

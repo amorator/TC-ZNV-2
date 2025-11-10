@@ -13,6 +13,17 @@
 - Пользователь: [/static/docs/images/user/](\/static\/docs\/images\/user\/)
 - Разработчик: [/static/docs/images/developer/](\/static\/docs\/images\/developer\/)
 
+#### Генерация скриншотов (Headless Chrome/Chromium)
+1) Установка:
+```
+scripts/install_docs_screens.sh
+```
+2) Съёмка скриншотов (укажите свои доступы):
+```
+ZNF_BASE_URL="http://localhost:8000" ZNF_USER="admin" ZNF_PASS="admin" scripts/run_docs_screens.sh
+```
+Скрины будут сохранены в `static/docs/images/user/` и используются в `USER_GUIDE.md`.
+
 Актуальные примеры:
 - Админ: [/static/docs/images/admin/users_search.png](\/static\/docs\/images\/admin\/users_search.png), [/static/docs/images/admin/categories_dual_search.png](\/static\/docs\/images\/admin\/categories_dual_search.png)
 - Пользователь: [/static/docs/images/user/files.png](\/static\/docs\/images\/user\/files.png)

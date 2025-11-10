@@ -9,10 +9,11 @@
     <link rel="shortcut icon" href="/static/images/favicon/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/images/favicon/apple-touch-icon.png" />
     <link rel="manifest" href="/static/images/favicon/site.webmanifest" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/themes.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/base.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/components/progress.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/record.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/themes.css') }}?v={{ config.get('VERSION', '1.0.0') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/base.css') }}?v={{ config.get('VERSION', '1.0.0') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components/progress.css') }}?v={{ config.get('VERSION', '1.0.0') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/record.css') }}?v={{ config.get('VERSION', '1.0.0') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lib/bootstrap.min.css') }}?v={{ config.get('VERSION', '1.0.0') }}">
   <script>
     // Apply theme ASAP based on URL param before deferred scripts
     (function(){
@@ -132,7 +133,71 @@
 </section>
 
 {% block js %}
-<script src="{{ url_for('static', filename='js/scripts/utils/record.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/lib/bootstrap.bundle.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/utils/alert-modal.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<!-- Local toast container for recorder iframe -->
+<div id="recordToastContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 2000; position: fixed; right: 1rem; top: 1rem; pointer-events: none;">
+  <div id="recToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body" id="recToastBody" style="pointer-events: auto;">Ошибка</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close" style="pointer-events: auto;"></button>
+    </div>
+  </div>
+  <div id="recToastOk" class="toast align-items-center text-bg-success border-0 mt-2" role="alert" aria-live="assertive" aria-atomic="true" style="display:none; pointer-events: auto;">
+    <div class="d-flex">
+      <div class="toast-body" id="recToastOkBody">Готово</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+  <div id="recToastWarn" class="toast align-items-center text-bg-warning border-0 mt-2" role="alert" aria-live="assertive" aria-atomic="true" style="display:none; pointer-events: auto;">
+    <div class="d-flex">
+      <div class="toast-body" id="recToastWarnBody">Предупреждение</div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+  <div id="recToastInfo" class="toast align-items-center text-bg-info border-0 mt-2" role="alert" aria-live="assertive" aria-atomic="true" style="display:none; pointer-events: auto;">
+    <div class="d-flex">
+      <div class="toast-body" id="recToastInfoBody">Информация</div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+<script>
+  (function(){
+    function showToast(message, type) {
+      try {
+        var map = {
+          danger: { id: 'recToast', body: 'recToastBody' },
+          error:  { id: 'recToast', body: 'recToastBody' },
+          success:{ id: 'recToastOk', body: 'recToastOkBody' },
+          warning:{ id: 'recToastWarn', body: 'recToastWarnBody' },
+          info:   { id: 'recToastInfo', body: 'recToastInfoBody' }
+        };
+        var key = (type || 'danger');
+        if (!map[key]) key = 'danger';
+        var cfg = map[key];
+        var el = document.getElementById(cfg.id);
+        var body = document.getElementById(cfg.body);
+        if (body) body.textContent = (message == null ? '' : String(message));
+        if (el && window.bootstrap) {
+          el.style.display = ''; // ensure visible for non-default toasts
+          var inst = bootstrap.Toast.getOrCreateInstance(el, { autohide: true, delay: 4000 });
+          inst.show();
+          return;
+        }
+      } catch(_) {}
+      // Fallback
+      try { console.warn('[recorder-toast]', type||'danger', message); } catch(_) {}
+    }
+    // Expose local toast and map alertModal to toast to avoid modal in iframe
+    window.showToast = showToast;
+    window.showAlertModal = function(message, title){
+      showToast(message || (title || 'Ошибка'), 'error');
+    };
+  })();
+</script>
+<script src="{{ url_for('static', filename='js/scripts/utils/record.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 {% endblock %}
 </body>
 </html>

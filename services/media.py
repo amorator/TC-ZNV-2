@@ -175,7 +175,19 @@ class MediaService:
             ord.attachments.append(path.basename(new))
             self._sql.order_edit_attachments(
                 ['|'.join(ord.attachments), entity_id])
-        remove(old)
+        # Best-effort cleanup of source; ignore if user deleted it meanwhile
+        try:
+            remove(old)
+        except FileNotFoundError:
+            try:
+                self._log.info(f"[media] Source already removed by user: {old}")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                self._log.warning(f"[media] Failed to remove source {old}: {e}")
+            except Exception:
+                pass
 
     def _probe_length_and_size(self, target: str) -> Tuple[int, float]:
         """Probe duration (in seconds) and size (in MB) for a media file using robust strategies.

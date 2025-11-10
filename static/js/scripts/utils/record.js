@@ -51,6 +51,29 @@
     if (data.type === "theme") applyTheme(data.value);
   });
 })();
+
+// Ensure alerts are displayed as toasts in the recorder iframe instead of blocking modals
+(function enforceToastAlerts(){
+  try {
+    window.showAlertModal = function(message, title){
+      try {
+        if (window.showToast) {
+          window.showToast(message || (title || 'Ошибка'), 'error');
+          return;
+        }
+      } catch(_) {}
+      try {
+        if (window.parent && window.parent.showToast) {
+          window.parent.showToast(message || (title || 'Ошибка'), 'error');
+          return;
+        }
+      } catch(_) {}
+      try {
+        alert((title ? (String(title) + '\n\n') : '') + (message == null ? '' : String(message)));
+      } catch(_) {}
+    };
+  } catch(_) {}
+})();
 /**
  * Hide and disable a control if present.
  * @param {HTMLElement|HTMLButtonElement|null} x - Element to disable

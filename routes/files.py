@@ -1414,8 +1414,39 @@ def register(app, media_service, socketio=None) -> None:
                 return redirect(url_for('files'))
 
             # Check if user has permission to access this file
+            def _is_admin_group_member() -> bool:
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    from configparser import ConfigParser
+                    aname = 'Программисты'
+                    if isinstance(cfg, ConfigParser):
+                        aname = cfg.get('admin', 'group', fallback=aname) or aname
+                    else:
+                        if isinstance(cfg, dict):
+                            admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                            if isinstance(admin, dict) and 'group' in admin:
+                                aname = admin.get('group') or aname
+                            elif 'group' in cfg:
+                                aname = cfg.get('group') or aname
+                    name_norm = (aname or '').strip().lower()
+                    prefix = app._sql.config['db']['prefix']
+                    rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+                    for gid, gname in rows:
+                        if str(gname).strip().lower() == name_norm:
+                            return int(current_user.gid) == int(gid)
+                except Exception:
+                    pass
+                return False
+
+            has_global_access = (
+                current_user.has('admin.any') or
+                current_user.has('files.display_all') or
+                _is_admin_group_member()
+            )
+
             if not (current_user.has('files.edit_any') or
-                    (file.owner_id and file.owner_id == current_user.id)):
+                    (file.owner_id and file.owner_id == current_user.id) or
+                    has_global_access):
                 # Check category/subcategory permissions (including subcategory permission store)
                 try:
                     cat = app._sql.category_by_id([file.category_id])
@@ -1581,8 +1612,39 @@ def register(app, media_service, socketio=None) -> None:
                 return redirect(url_for('files'))
 
             # Check if user has permission to access this file
+            def _is_admin_group_member() -> bool:
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    from configparser import ConfigParser
+                    aname = 'Программисты'
+                    if isinstance(cfg, ConfigParser):
+                        aname = cfg.get('admin', 'group', fallback=aname) or aname
+                    else:
+                        if isinstance(cfg, dict):
+                            admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                            if isinstance(admin, dict) and 'group' in admin:
+                                aname = admin.get('group') or aname
+                            elif 'group' in cfg:
+                                aname = cfg.get('group') or aname
+                    name_norm = (aname or '').strip().lower()
+                    prefix = app._sql.config['db']['prefix']
+                    rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+                    for gid, gname in rows:
+                        if str(gname).strip().lower() == name_norm:
+                            return int(current_user.gid) == int(gid)
+                except Exception:
+                    pass
+                return False
+
+            has_global_access = (
+                current_user.has('admin.any') or
+                current_user.has('files.display_all') or
+                _is_admin_group_member()
+            )
+
             if not (current_user.has('files.edit_any') or
-                    (file.owner_id and file.owner_id == current_user.id)):
+                    (file.owner_id and file.owner_id == current_user.id) or
+                    has_global_access):
                 # Check category/subcategory permissions (including subcategory permission store)
                 try:
                     cat = app._sql.category_by_id([file.category_id])
@@ -2137,6 +2199,20 @@ def register(app, media_service, socketio=None) -> None:
     def save(name: str, desc: str, did: int = 0, sdid: int = 1):
         """Save recorded media from the recorder iframe and start conversion."""
         try:
+            # Diagnostics to investigate duplicate submissions/EOF
+            try:
+                req_id = request.headers.get('X-Recorder-Request-Id') or request.headers.get('X-Request-ID') or ''
+                if not req_id:
+                    try:
+                        import uuid as _uuid
+                        req_id = f'gen-{_uuid.uuid4()}'
+                    except Exception:
+                        req_id = 'gen-unknown'
+                ua = request.headers.get('User-Agent', '')
+                clen = request.content_length or -1
+                _log.info(f"[rec-save] request:start id={req_id} ua=\"{ua}\" content_length={clen}")
+            except Exception:
+                pass
             desc = desc[1:]
             # Map did/sdid (indices) to actual folder names like in files page
             _dirs = dirs_by_permission(app, 3, 'f')
@@ -2172,9 +2248,22 @@ def register(app, media_service, socketio=None) -> None:
             except Exception:
                 dir = path.join(app._sql.config['files']['root'], 'files',
                                 root_folder, sub_folder)
-            # Ensure target directory tree exists
-            make_dir(path.join(app._sql.config['files']['root'], 'files'),
-                     root_folder, sub_folder)
+            # Ensure target directory tree exists (both generic and exact dir)
+            try:
+                make_dir(path.join(app._sql.config['files']['root'], 'files'),
+                         root_folder, sub_folder)
+            except Exception:
+                pass
+            try:
+                os.makedirs(dir, exist_ok=True)
+            except Exception:
+                # If dir resolution failed, fall back to generic path
+                try:
+                    dir = path.join(app._sql.config['files']['root'], 'files',
+                                    root_folder or '', sub_folder or '')
+                    os.makedirs(dir, exist_ok=True)
+                except Exception:
+                    pass
             real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') +
                                  str(randint(1000, 9999)))
             fname = path.join(dir, real_name)
@@ -2203,7 +2292,24 @@ def register(app, media_service, socketio=None) -> None:
                                           '.webm') or request.files.get('file')
             if not file_part:
                 raise ValueError('Данные записи не получены')
+            # Ensure final directory exists and writable before saving
+            try:
+                os.makedirs(path.dirname(fname), exist_ok=True)
+                if not os.access(path.dirname(fname), os.W_OK):
+                    raise PermissionError(f"Нет прав записи в каталог: {path.dirname(fname)}")
+            except Exception as e:
+                _log.error(f"[rec-save] cannot prepare directory: dir={path.dirname(fname)} err={e}")
+                raise
             file_part.save(fname + '.webm')
+            try:
+                stat_sz = 0
+                try:
+                    stat_sz = os.stat(fname + '.webm').st_size
+                except Exception:
+                    pass
+                _log.info(f"[rec-save] request:saved id={req_id} path=\"{fname + '.webm'}\" size={stat_sz}")
+            except Exception:
+                pass
             # Choose target extension based on recording type
             if rec_type == 'audio':
                 real_target = real_name + '.m4a'

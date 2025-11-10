@@ -76,7 +76,6 @@ function popupValues(form, rowId) {
   // Reset submission state to allow repeated submits after first success
   try {
     if (form && form._submitting) {
-      try { console.debug('[popup] reset submitting flag for', form.id || form.name || 'form'); } catch(_) {}
       form._submitting = false;
     }
     const btns = form.querySelectorAll('button, [type="submit"]');
