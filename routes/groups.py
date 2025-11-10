@@ -189,12 +189,14 @@ def register(app):
                     return f'<li class="{cls}"><a class="page-link" href="{href}" data-page="{p}">{lab}</a></li>'
                 parts = []
                 parts.append('<ul class="pagination mb-0">')
-                parts.append(page_item(max(1, page - 1), '«', False, page <= 1))
+                parts.append(page_item(1, '⏮', False, page <= 1))
+                parts.append(page_item(max(1, page - 1), '‹', False, page <= 1))
                 start_p = max(1, page - 3)
                 end_p = min(total_pages, page + 3)
                 for p in range(start_p, end_p + 1):
                     parts.append(page_item(p, str(p), p == page, False))
-                parts.append(page_item(min(total_pages, page + 1), '»', False, page >= total_pages))
+                parts.append(page_item(min(total_pages, page + 1), '›', False, page >= total_pages))
+                parts.append(page_item(total_pages, '⏭', False, page >= total_pages))
                 parts.append('</ul>')
                 pager_html = ''.join(parts)
             except Exception:

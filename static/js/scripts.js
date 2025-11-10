@@ -895,13 +895,13 @@ function renderPagination(containerId, page, pageSize, total, scope) {
     }
     const parts = [];
     parts.push('<ul class="pagination mb-0">');
-    parts.push(pageItem(1, '««', false, cur <= 1));
-    parts.push(pageItem(cur - 1, '«', false, cur <= 1));
+    parts.push(pageItem(1, '⏮', false, cur <= 1));
+    parts.push(pageItem(cur - 1, '‹', false, cur <= 1));
     const start = Math.max(1, cur - 3);
     const end = Math.min(totalPages, cur + 3);
     for (let p = start; p <= end; p++) parts.push(pageItem(p, String(p), p === cur, false));
-    parts.push(pageItem(cur + 1, '»', false, cur >= totalPages));
-    parts.push(pageItem(totalPages, '»»', false, cur >= totalPages));
+    parts.push(pageItem(cur + 1, '›', false, cur >= totalPages));
+    parts.push(pageItem(totalPages, '⏭', false, cur >= totalPages));
     parts.push('</ul>');
     container.innerHTML = parts.join('');
   } catch(_) {}
@@ -927,12 +927,26 @@ function ensurePagerLinks(scope) {
         p = (isFinite(num) && num > 0) ? num : 0;
       }
       if (!p) {
-        // For « and » infer from siblings
+        // For navigation buttons infer from text content
         const li = a.closest('li.page-item');
         if (li && a.textContent) {
-          const isPrev = a.textContent.indexOf('«') !== -1 || a.textContent.indexOf('‹') !== -1;
-          const isNext = a.textContent.indexOf('»') !== -1 || a.textContent.indexOf('›') !== -1;
-          if (isPrev || isNext) {
+          const txt = (a.textContent || '').trim();
+          const isFirst = txt.indexOf('⏮') !== -1;
+          const isLast = txt.indexOf('⏭') !== -1;
+          const isPrev = txt.indexOf('«') !== -1 || txt.indexOf('‹') !== -1;
+          const isNext = txt.indexOf('»') !== -1 || txt.indexOf('›') !== -1;
+          if (isFirst) {
+            p = 1;
+          } else if (isLast) {
+            // Get total pages from siblings or estimate
+            const allLinks = Array.from(pager.querySelectorAll('a.page-link'));
+            let maxPage = 1;
+            allLinks.forEach(function(link) {
+              const pageNum = parseInt(link.getAttribute('data-page') || '0', 10) || 0;
+              if (pageNum > maxPage) maxPage = pageNum;
+            });
+            p = maxPage || 1;
+          } else if (isPrev || isNext) {
             const active = pager.querySelector('.page-item.active a.page-link');
             let cur = 1;
             if (active) {
@@ -970,9 +984,23 @@ function ensurePagerLinksForContainer(containerId, lsKey) {
       if (!p) {
         const li = a.closest('li.page-item');
         if (li && a.textContent) {
-          const isPrev = a.textContent.indexOf('«') !== -1 || a.textContent.indexOf('‹') !== -1;
-          const isNext = a.textContent.indexOf('»') !== -1 || a.textContent.indexOf('›') !== -1;
-          if (isPrev || isNext) {
+          const txt = (a.textContent || '').trim();
+          const isFirst = txt.indexOf('⏮') !== -1;
+          const isLast = txt.indexOf('⏭') !== -1;
+          const isPrev = txt.indexOf('«') !== -1 || txt.indexOf('‹') !== -1;
+          const isNext = txt.indexOf('»') !== -1 || txt.indexOf('›') !== -1;
+          if (isFirst) {
+            p = 1;
+          } else if (isLast) {
+            // Get total pages from siblings or estimate
+            const allLinks = Array.from(pager.querySelectorAll('a.page-link'));
+            let maxPage = 1;
+            allLinks.forEach(function(link) {
+              const pageNum = parseInt(link.getAttribute('data-page') || '0', 10) || 0;
+              if (pageNum > maxPage) maxPage = pageNum;
+            });
+            p = maxPage || 1;
+          } else if (isPrev || isNext) {
             const active = pager.querySelector('.page-item.active a.page-link');
             let cur = 1;
             if (active) {

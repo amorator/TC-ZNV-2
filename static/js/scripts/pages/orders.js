@@ -747,7 +747,7 @@
         `<a class="page-link" href="#" data-page="${pageNum}">${text}</a>` +
         `</li>`;
       const items = [];
-      items.push(btn('«', 1, cp === 1));
+      items.push(btn('⏮', 1, cp === 1));
       items.push(btn('‹', Math.max(1, cp - 1), cp === 1));
       items.push(btn('1', 1, false, cp === 1));
       const windowSize = 3;
@@ -760,7 +760,7 @@
       if (end < totalPages - 1) items.push('<li class="page-item disabled"><span class="page-link">…</span></li>');
       if (totalPages > 1) items.push(btn(String(totalPages), totalPages, false, cp === totalPages));
       items.push(btn('›', Math.min(totalPages, cp + 1), cp === totalPages));
-      items.push(btn('»', totalPages, cp === totalPages));
+      items.push(btn('⏭', totalPages, cp === totalPages));
       pagerEl.innerHTML = `<nav><ul class="pagination mb-0">${items.join('')}</ul></nav>`;
     } catch (e) {
       window.ErrorHandler && window.ErrorHandler.handleError(e, 'orders.renderPagination');

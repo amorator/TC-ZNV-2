@@ -1481,7 +1481,7 @@ function renderPagination(which, resp) {
     return li;
   };
 
-  ul.appendChild(mk("«", 1, page === 1));
+  ul.appendChild(mk("⏮", 1, page === 1));
   ul.appendChild(mk("‹", Math.max(1, page - 1), page === 1));
 
   // Always show first page
@@ -1518,7 +1518,7 @@ function renderPagination(which, resp) {
   }
 
   ul.appendChild(mk("›", Math.min(pages, page + 1), page === pages));
-  ul.appendChild(mk("»", pages, page === pages));
+  ul.appendChild(mk("⏭", pages, page === pages));
 }
 
 // Helper functions

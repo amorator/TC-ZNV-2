@@ -3,12 +3,130 @@
  * Основной файл страницы пользователей, использующий модули
  */
 
- 
-
 // Initialize client ID for socket synchronization
 window.__usersClientId =
   window.__usersClientId ||
   `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// Ensure usersPager exists early (before DOMContentLoaded) so click handlers can use it
+// This fallback creates a basic renderPage function that makes AJAX calls
+(function ensureUsersPagerEarly(){
+  try {
+    if (window.usersPager && typeof window.usersPager.renderPage === 'function') return;
+    const pageSize = 10;
+    const render = function(page) {
+      const url = new URL(window.location.origin + "/users/page");
+      url.searchParams.set("page", String(page || 1));
+      url.searchParams.set("page_size", String(pageSize));
+      url.searchParams.set("t", String(Date.now()));
+
+      const table = document.getElementById("maintable");
+      const tbody = table && table.tBodies && table.tBodies[0];
+      const pager = document.getElementById("users-pagination");
+      if (!tbody || !pager) return;
+
+      // Save focus state before updating table
+      const searchInput = document.getElementById("searchinp");
+      const hadFocus = searchInput && document.activeElement === searchInput;
+      
+      fetch(String(url), {
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
+      })
+        .then((r) => (r.ok ? r.json() : { html: "", total: 0, page: 1, pager_html: "" }))
+        .then((j) => {
+          if (!j || typeof j.html !== "string") {
+            // Restore focus even if no data
+            if (hadFocus && searchInput) {
+              setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+            }
+            return;
+          }
+
+          const searchRow = tbody.querySelector("tr#search");
+          const temp = document.createElement("tbody");
+          temp.innerHTML = j.html;
+
+          Array.from(tbody.querySelectorAll("tr")).forEach((tr) => {
+            if (!searchRow || tr !== searchRow) tr.remove();
+          });
+
+          Array.from(temp.children).forEach((tr) => {
+            tbody.appendChild(tr);
+          });
+
+          // Update pagination HTML
+          if (typeof j.pager_html === 'string' && j.pager_html) {
+            pager.innerHTML = j.pager_html;
+            // After updating innerHTML, event listeners are lost, so rebind them
+            pager._clickBound = false;
+          }
+          // Always ensure click handlers are bound
+          if (!pager._clickBound) {
+            const onPagerClick = (e) => {
+              const a = e.target && e.target.closest("[data-page]");
+              if (!a) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const nextPage = parseInt(a.getAttribute("data-page"), 10) || 1;
+              if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+                window.usersPager.renderPage(nextPage);
+              }
+            };
+            pager.addEventListener("click", onPagerClick);
+            pager._clickBound = true;
+          }
+
+          // Update URL
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.set('page', String(j.page || page || 1));
+            u.searchParams.set('page_size', String(j.page_size || pageSize));
+            window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+          } catch(_) {}
+
+          // Reinitialize UI
+          try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+          try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+          try { if (typeof setupTableInteractions === 'function') setupTableInteractions(); } catch(_) {}
+          
+          // Restore focus to search input if it had focus before update
+          if (hadFocus && searchInput) {
+            setTimeout(() => {
+              try {
+                searchInput.focus();
+              } catch(_) {}
+            }, 0);
+          }
+        })
+        .catch((error) => {
+          if (window.ErrorHandler) window.ErrorHandler.handleError(error, "usersPager.render");
+          // Restore focus even on error
+          if (hadFocus && searchInput) {
+            setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+          }
+        });
+    };
+
+    window.usersPager = {
+      renderPage: render,
+      readPage: function(){
+        try {
+          const u = new URL(window.location.href);
+          const p = parseInt(u.searchParams.get('page') || '0', 10) || 0;
+          if (p > 0) return p;
+        } catch(_) {}
+        try {
+          const pagerEl = document.getElementById('users-pagination');
+          const a = pagerEl && pagerEl.querySelector('.page-item.active a[data-page]');
+          const t = a ? (a.getAttribute('data-page') || a.textContent || '1') : '1';
+          const n = parseInt(t, 10) || 1;
+          return n;
+        } catch(_) { return 1; }
+      }
+    };
+  } catch(_) {}
+})();
 
 /**
  * Initialize unified context menu for users page
@@ -165,6 +283,11 @@ function initUsersPagination() {
       const tbody = table && table.tBodies && table.tBodies[0];
       const pager = document.getElementById('users-pagination');
       if (!tbody || !pager) return;
+      
+      // Save focus state before updating table
+      const searchInput = document.getElementById("searchinp");
+      const hadFocus = searchInput && document.activeElement === searchInput;
+      
       const url = new URL(window.location.origin + '/users/page');
       url.searchParams.set('page', String(parseInt(page, 10) || 1));
       url.searchParams.set('page_size', String(pageSize));
@@ -217,11 +340,30 @@ function initUsersPagination() {
             u.searchParams.set('page_size', curS);
             window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
           } catch(_) {}
+          
+          // Restore focus to search input if it had focus before update
+          if (hadFocus && searchInput) {
+            setTimeout(() => {
+              try {
+                searchInput.focus();
+              } catch(_) {}
+            }, 0);
+          }
+        })
+        .catch((error) => {
+          // Restore focus even on error
+          if (hadFocus && searchInput) {
+            setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+          }
         });
     } catch(_) {}
   }
 
   function render(page) {
+    // Save focus state before updating table
+    const searchInput = document.getElementById("searchinp");
+    const hadFocus = searchInput && document.activeElement === searchInput;
+    
     const url = new URL(window.location.origin + "/users/page");
     url.searchParams.set("page", String(page));
     url.searchParams.set("page_size", String(pageSize));
@@ -233,7 +375,13 @@ function initUsersPagination() {
     })
       .then((r) => (r.ok ? r.json() : { html: "", total: 0, page: 1 }))
       .then((j) => {
-        if (!j || typeof j.html !== "string") return;
+        if (!j || typeof j.html !== "string") {
+          // Restore focus even if no data
+          if (hadFocus && searchInput) {
+            setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+          }
+          return;
+        }
 
         const searchRow = tbody.querySelector("tr#search");
         const temp = document.createElement("tbody");
@@ -344,10 +492,23 @@ function initUsersPagination() {
         reinitializeContextMenu();
         if (window.rebindUsersTable) window.rebindUsersTable();
         if (typeof setupTableInteractions === 'function') setupTableInteractions();
+        
+        // Restore focus to search input if it had focus before update
+        if (hadFocus && searchInput) {
+          setTimeout(() => {
+            try {
+              searchInput.focus();
+            } catch(_) {}
+          }, 0);
+        }
       })
-      .catch((error) =>
-        window.ErrorHandler.handleError(error, "usersPager.render")
-      );
+      .catch((error) => {
+        window.ErrorHandler.handleError(error, "usersPager.render");
+        // Restore focus even on error
+        if (hadFocus && searchInput) {
+          setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+        }
+      });
   }
 
   // Ensure usersPager is available even when pager HTML exists initially
@@ -464,42 +625,111 @@ function initUsersPagination() {
 // Fallback usersPager that drives server soft-refresh if the above pager isn't initialized
 (function ensureUsersPagerFallback(){
   try {
-    if (window.usersPager && typeof window.usersPager.renderPage === 'function') return;
-    window.usersPager = {
-      renderPage: function(page){
-        // Persist desired page into tableState so soft refresh picks it up
-        try {
-          const sizeEl = document.querySelector("section[data-testid='users-section'] select[name='page_size']");
-          let pageSize = sizeEl ? parseInt(sizeEl.value || '10', 10) : 10;
-          try { pageSize = parseInt(localStorage.getItem('users:pageSize') || String(pageSize), 10) || pageSize; } catch(_) {}
-          localStorage.setItem('tableState:users', JSON.stringify({ page: parseInt(page, 10) || 1, pageSize: pageSize }));
-        } catch(_) {}
-        // Reflect URL
-        try {
-          const u = new URL(window.location.href);
-          const st = JSON.parse(localStorage.getItem('tableState:users') || 'null') || { page: 1, pageSize: 10 };
-          u.searchParams.set('page', String(st.page || 1));
-          u.searchParams.set('page_size', String(st.pageSize || 10));
-          window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
-        } catch(_) {}
-        // Soft refresh
-        if (typeof window.softRefreshUsersTable === 'function') window.softRefreshUsersTable();
-      },
-      readPage: function(){
-        try {
-          const u = new URL(window.location.href);
-          const p = parseInt(u.searchParams.get('page') || '0', 10) || 0;
-          if (p > 0) return p;
-        } catch(_) {}
-        try {
-          const pagerEl = document.getElementById('users-pagination');
-          const a = pagerEl && pagerEl.querySelector('.page-item.active a[data-page]');
-          const t = a ? (a.getAttribute('data-page') || a.textContent || '1') : '1';
-          const n = parseInt(t, 10) || 1;
-          return n;
-        } catch(_) { return 1; }
-      }
-    };
+    // Always ensure usersPager exists, even if initUsersPagination wasn't called
+    if (!window.usersPager || typeof window.usersPager.renderPage !== 'function') {
+      const pageSize = 10;
+      const render = function(page) {
+        const url = new URL(window.location.origin + "/users/page");
+        url.searchParams.set("page", String(page || 1));
+        url.searchParams.set("page_size", String(pageSize));
+        url.searchParams.set("t", String(Date.now()));
+
+        const table = document.getElementById("maintable");
+        const tbody = table && table.tBodies && table.tBodies[0];
+        const pager = document.getElementById("users-pagination");
+        if (!tbody || !pager) return;
+
+        fetch(String(url), {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
+        })
+          .then((r) => (r.ok ? r.json() : { html: "", total: 0, page: 1 }))
+          .then((j) => {
+            if (!j || typeof j.html !== "string") return;
+
+            const searchRow = tbody.querySelector("tr#search");
+            const temp = document.createElement("tbody");
+            temp.innerHTML = j.html;
+
+            Array.from(tbody.querySelectorAll("tr")).forEach((tr) => {
+              if (!searchRow || tr !== searchRow) tr.remove();
+            });
+
+            Array.from(temp.children).forEach((tr) => {
+              tbody.appendChild(tr);
+            });
+
+            // Update pagination HTML
+            if (typeof j.pager_html === 'string' && j.pager_html) {
+              pager.innerHTML = j.pager_html;
+              // After updating innerHTML, event listeners are lost, so rebind them
+              pager._clickBound = false;
+            }
+            // Always ensure click handlers are bound
+            if (!pager._clickBound) {
+              const onPagerClick = (e) => {
+                const a = e.target && e.target.closest("[data-page]");
+                if (!a) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const nextPage = parseInt(a.getAttribute("data-page"), 10) || 1;
+                if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+                  window.usersPager.renderPage(nextPage);
+                }
+              };
+              pager.addEventListener("click", onPagerClick);
+              pager._clickBound = true;
+            }
+
+            // Update URL
+            try {
+              const u = new URL(window.location.href);
+              u.searchParams.set('page', String(j.page || page || 1));
+              u.searchParams.set('page_size', String(j.page_size || pageSize));
+              window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
+            } catch(_) {}
+
+            // Reinitialize UI
+            try { if (window.rebindUsersTable) window.rebindUsersTable(); } catch(_) {}
+            try { if (typeof reinitializeContextMenu === 'function') reinitializeContextMenu(); } catch(_) {}
+            try { if (typeof setupTableInteractions === 'function') setupTableInteractions(); } catch(_) {}
+            
+            // Restore focus to search input if it had focus before update
+            if (hadFocus && searchInput) {
+              setTimeout(() => {
+                try {
+                  searchInput.focus();
+                } catch(_) {}
+              }, 0);
+            }
+          })
+          .catch((error) => {
+            if (window.ErrorHandler) window.ErrorHandler.handleError(error, "usersPager.render");
+            // Restore focus even on error
+            if (hadFocus && searchInput) {
+              setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+            }
+          });
+      };
+
+      window.usersPager = {
+        renderPage: render,
+        readPage: function(){
+          try {
+            const u = new URL(window.location.href);
+            const p = parseInt(u.searchParams.get('page') || '0', 10) || 0;
+            if (p > 0) return p;
+          } catch(_) {}
+          try {
+            const pagerEl = document.getElementById('users-pagination');
+            const a = pagerEl && pagerEl.querySelector('.page-item.active a[data-page]');
+            const t = a ? (a.getAttribute('data-page') || a.textContent || '1') : '1';
+            const n = parseInt(t, 10) || 1;
+            return n;
+          } catch(_) { return 1; }
+        }
+      };
+    }
   } catch(_) {}
 })();
 
@@ -513,6 +743,11 @@ function initUsersPagination() {
         const tbody = table && table.tBodies && table.tBodies[0];
         const pager = document.getElementById('users-pagination');
         if (!tbody || !pager) return;
+        
+        // Save focus state before updating table
+        const searchInput = document.getElementById("searchinp");
+        const hadFocus = searchInput && document.activeElement === searchInput;
+        
         const ps = (function(){
           try { return parseInt(localStorage.getItem('users:pageSize') || '10', 10) || 10; } catch(_) { return 10; }
         })();
@@ -541,6 +776,21 @@ function initUsersPagination() {
               u.searchParams.set('page_size', String(j.page_size || ps));
               window.history.replaceState(null, '', u.pathname + '?' + u.searchParams.toString());
             } catch(_) {}
+            
+            // Restore focus to search input if it had focus before update
+            if (hadFocus && searchInput) {
+              setTimeout(() => {
+                try {
+                  searchInput.focus();
+                } catch(_) {}
+              }, 0);
+            }
+          })
+          .catch((error) => {
+            // Restore focus even on error
+            if (hadFocus && searchInput) {
+              setTimeout(() => { try { searchInput.focus(); } catch(_) {} }, 0);
+            }
           });
       } catch(_) {}
     };
@@ -563,6 +813,10 @@ if (!window.usersDoFilter) {
     const q = (query || "").trim();
 
     if (q.length === 0) {
+      // Save focus state before updating table
+      const searchInput = document.getElementById("searchinp");
+      const hadFocus = searchInput && document.activeElement === searchInput;
+      
       if (pager) pager.classList.remove("d-none");
       // Remove q from URL and keep existing page/page_size if present; otherwise, fall back to saved/local defaults
       let curPage = 1, curSize = 10;
@@ -577,19 +831,50 @@ if (!window.usersDoFilter) {
         url.searchParams.set('page_size', String(curSize));
         window.history.replaceState(null, '', url.pathname + '?' + url.searchParams.toString());
       } catch(_) {}
+      
+      // Store render function to call after table update
+      const restoreFocus = () => {
+        if (hadFocus && searchInput) {
+          try {
+            searchInput.focus();
+          } catch(_) {}
+        }
+      };
+      
       if (typeof window.__usersServerRender === 'function') {
         // Render exactly the page reflected in URL
-        window.__usersServerRender(curPage);
+        const promise = Promise.resolve(window.__usersServerRender(curPage));
+        promise.then(() => {
+          setTimeout(restoreFocus, 0);
+        }).catch(() => {
+          setTimeout(restoreFocus, 0);
+        });
+        return promise.then(() => true);
       } else if (
         window.usersPager &&
         typeof window.usersPager.renderPage === "function"
       ) {
         // Render exactly the page reflected in URL
-        window.usersPager.renderPage(curPage);
+        try {
+          window.usersPager.renderPage(curPage);
+          // Restore focus after a short delay to allow DOM update
+          setTimeout(restoreFocus, 100);
+        } catch(_) {
+          setTimeout(restoreFocus, 0);
+        }
+        return Promise.resolve(true);
       } else if (typeof window.softRefreshUsersTable === 'function') {
         // Fallback to server-side soft refresh preserving current pagination
-        window.softRefreshUsersTable();
+        try {
+          window.softRefreshUsersTable();
+          // Restore focus after a short delay to allow DOM update
+          setTimeout(restoreFocus, 100);
+        } catch(_) {
+          setTimeout(restoreFocus, 0);
+        }
+        return Promise.resolve(true);
       }
+      setTimeout(restoreFocus, 0);
       return Promise.resolve(true);
     }
 
@@ -1135,8 +1420,29 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     const pager = document.getElementById("users-pagination");
-    if (pager && !pager.innerHTML) {
-      initUsersPagination();
+    // Always initialize pagination, even if HTML exists - need to bind click handlers
+    if (pager) {
+      // If pagination HTML exists, bind click handlers to it
+      if (pager.innerHTML && pager.innerHTML.trim()) {
+        // Bind click handlers to existing pagination
+        if (!pager._clickBound) {
+          const onPagerClick = (e) => {
+            const a = e.target && e.target.closest("[data-page]");
+            if (!a) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const nextPage = parseInt(a.getAttribute("data-page"), 10) || 1;
+            if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+              window.usersPager.renderPage(nextPage);
+            }
+          };
+          pager.addEventListener("click", onPagerClick);
+          pager._clickBound = true;
+        }
+      } else {
+        // Initialize pagination from scratch
+        initUsersPagination();
+      }
     }
 
     setupSocketSync();

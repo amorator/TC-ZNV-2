@@ -434,7 +434,7 @@ function renderFilesPaginationControls(pagerEl, total, currentPage, pageSize) {
     `</li>`;
 
   const items = [];
-  items.push(btn('«', 1, cp === 1));
+  items.push(btn('⏮', 1, cp === 1));
   items.push(btn('‹', Math.max(1, cp - 1), cp === 1));
 
   // Always show page 1
@@ -469,7 +469,7 @@ function renderFilesPaginationControls(pagerEl, total, currentPage, pageSize) {
   }
 
   items.push(btn('›', Math.min(totalPages, cp + 1), cp === totalPages));
-  items.push(btn('»', totalPages, cp === totalPages));
+  items.push(btn('⏭', totalPages, cp === totalPages));
 
     pagerEl.innerHTML = `<nav><ul class=\"pagination mb-0\">${items.join('')}</ul></nav>`;
   } catch (err) {
