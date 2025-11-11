@@ -879,28 +879,30 @@ function handleForceRefreshAll() {
                 window.showToast("Админ-панель будет обновлена", "warning");
               }
               setTimeout(() => {
-                // Force refresh with cache clearing (same logic as SyncManager)
                 (async function() {
                   try {
-                    // Clear all caches
                     if ('caches' in window) {
                       const cacheNames = await caches.keys();
                       await Promise.all(cacheNames.map(name => caches.delete(name)));
                     }
-                    // Unregister service worker if possible
                     if ('serviceWorker' in navigator) {
                       const registration = await navigator.serviceWorker.getRegistration();
                       if (registration) {
                         await registration.unregister();
                       }
                     }
-                  } catch (err) {
-                    // Continue even if cache clearing fails
+                  } catch (_) {
+                    // ignore cache cleanup errors
                   }
-                  // Hard reload
-                  const url = new URL(window.location);
-                  url.searchParams.set('_force_refresh', Date.now());
-                  window.location.href = url.toString();
+                  try {
+                    if (window.location && typeof window.location.reload === 'function') {
+                      window.location.reload();
+                    } else {
+                      window.location.href = window.location.href;
+                    }
+                  } catch (_) {
+                    window.location.href = window.location.href;
+                  }
                 })();
               }, 1000);
             }, 2000);

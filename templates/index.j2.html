@@ -106,8 +106,8 @@
 {% endblock %}
 
 {% block js %}
-<script src="{{ url_for('static', filename='js/lib/marked.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/lib/purify.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lib/marked.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/lib/purify.min.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
   (function() {
     function safeTrim(v){

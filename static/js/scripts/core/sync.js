@@ -383,21 +383,15 @@ window.SyncManager = (function () {
               window.ErrorHandler.handleError(err, 'force-refresh:cache-clear');
             }
           }
-          // Hard reload with cache bypass
+          // Hard reload after cleanup
           setTimeout(() => {
-            // Use location.reload() with cache bypass header simulation
-            // Modern browsers ignore the true parameter, so we use a different approach
-            if (window.location.reload) {
-              try {
-                // Try to force a hard reload by adding a timestamp parameter
-                const url = new URL(window.location);
-                url.searchParams.set('_force_refresh', Date.now());
-                window.location.href = url.toString();
-              } catch (err) {
-                // Fallback to simple reload
+            try {
+              if (window.location && typeof window.location.reload === 'function') {
                 window.location.reload();
+              } else {
+                window.location.href = window.location.href;
               }
-            } else {
+            } catch (_) {
               window.location.href = window.location.href;
             }
           }, 500);
@@ -406,13 +400,7 @@ window.SyncManager = (function () {
         window.ErrorHandler && window.ErrorHandler.handleError(err, 'force-refresh');
         // Fallback to simple reload
         setTimeout(() => {
-          try {
-            const url = new URL(window.location);
-            url.searchParams.set('_force_refresh', Date.now());
-            window.location.href = url.toString();
-          } catch (err) {
-            window.location.reload();
-          }
+          try { window.location.reload(); } catch (_) { window.location.href = window.location.href; }
         }, 500);
       }
     });

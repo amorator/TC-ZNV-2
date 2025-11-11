@@ -1,8 +1,8 @@
 {% extends 'base.j2.html' %}
 {% block css %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}"/>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders.css') }}"/>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders-files-modal.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components/table.css') }}?v={{ config.get('VERSION', '1.0.0') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders.css') }}?v={{ config.get('VERSION', '1.0.0') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/orders-files-modal.css') }}?v={{ config.get('VERSION', '1.0.0') }}"/>
 {% endblock %}
 {% block main %}
 <section class="container-fluid py-3" data-testid="orders-section">
@@ -391,9 +391,9 @@
 </div>
 {% endblock %}
 {% block js %}
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}"></script>
-<script src="{{ url_for('static', filename='js/scripts/core/popup-utils.js') }}"></script>
-<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/files-form-validation.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/modal-manager.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/popup-utils.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/scripts/core/files-form-validation.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
   window.OrdersPerms = {
     create: {{ 'true' if (current_user.has('orders.create') or current_user.has('admin.any')) else 'false' }},
@@ -420,8 +420,8 @@
   } catch(_) { window.OrdersGroups = {}; } })();
   window.ordersDoFilter = function(q, page) { if (typeof load === 'function') return load(page || 1); };
 </script>
-<script src="{{ url_for('static', filename='js/scripts/core/orders-search.js') }}"></script>
-<script src="{{ url_for('static', filename='js/scripts/pages/orders.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/core/orders-search.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts/pages/orders.js') }}?v={{ config.get('VERSION', '1.0.0') }}"></script>
 <script>
 document.addEventListener('modal-closed', function(){
   setTimeout(function() {

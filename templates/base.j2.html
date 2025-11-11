@@ -96,6 +96,19 @@
 </head>
 
   <body>
+    <script>
+      (function(){
+        try {
+          var url = new URL(window.location.href);
+          if (url.searchParams.has('_force_refresh')) {
+            url.searchParams.delete('_force_refresh');
+            var qs = url.searchParams.toString();
+            var cleaned = url.pathname + (qs ? '?' + qs : '') + url.hash;
+            window.history.replaceState(null, document.title, cleaned || url.pathname);
+          }
+        } catch(_) {}
+      })();
+    </script>
     <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1080"></div>
     <script>
       // Render flashed messages as toasts without reload (utils.js defines showToast)
