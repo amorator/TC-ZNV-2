@@ -215,8 +215,16 @@
      */
     configureRowItems(row) {
       const isEnabled = row.dataset.enabled === "1";
-      const canEdit = row.dataset.canEdit === "1";
-      const canDelete = row.dataset.canDelete === "1";
+      // Check both camelCase (dataset) and kebab-case (getAttribute) for compatibility
+      const canEdit = row.dataset.canEdit === "1" || row.getAttribute("data-can-edit") === "1";
+      let canDelete = row.dataset.canDelete === "1" || row.getAttribute("data-can-delete") === "1";
+      // Check if order is completed and user is not admin
+      const orderCompleted = row.dataset.orderCompleted === "1" || row.getAttribute("data-order-completed") === "1";
+      const isAdmin = row.dataset.isAdmin === "1" || row.getAttribute("data-is-admin") === "1";
+      // If order is completed and user is not admin, disable delete
+      if (orderCompleted && !isAdmin) {
+        canDelete = false;
+      }
       const canNote = row.dataset.canNote === "1" && this.options.canNotes;
       const isReady = row.dataset.isReady !== "0";
       const hasDownload = !!row.dataset.download;
@@ -826,12 +834,32 @@
               .then(async (response) => {
                 let data = null;
                 try {
-                  data = await response.json();
+                  const contentType = response.headers.get("content-type") || "";
+                  if (contentType.includes("application/json")) {
+                    data = await response.json();
+                  } else {
+                    // If response is not JSON, read as text and try to parse
+                    const text = await response.text();
+                    // If response starts with '<', it's likely HTML (error page)
+                    if (text.trim().startsWith("<")) {
+                      throw new Error(`Server returned HTML instead of JSON. Status: ${response.status}`);
+                    }
+                    try {
+                      data = JSON.parse(text);
+                    } catch (e) {
+                      throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`);
+                    }
+                  }
                 } catch (err) {
-                  window.ErrorHandler.handleError(err, "refresh");
+                  window.ErrorHandler && window.ErrorHandler.handleError(err, "refresh");
+                  throw new Error(`Failed to parse response: ${err.message}`);
                 }
-                if (!response.ok || data.status !== "success") {
-                  throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+                if (!response.ok) {
+                  const errorMsg = (data && data.message) ? data.message : `HTTP ${response.status}: ${response.statusText}`;
+                  throw new Error(errorMsg);
+                }
+                if (data && data.status && data.status !== "success") {
+                  throw new Error(data.message || "Refresh failed");
                 }
                 if (
                   data &&

@@ -12,6 +12,7 @@ from modules.logging import get_logger, log_access, log_action
 from flask import request, jsonify
 from datetime import datetime
 import time
+import logging
 import threading
 import requests
 import urllib3
@@ -77,6 +78,12 @@ import subprocess
 import json
 
 _log = get_logger(__name__)
+# Ensure logger propagates to root logger (which writes to app.log)
+try:
+    _log.propagate = True
+    _log.setLevel(logging.INFO)
+except Exception:
+    pass
 
 
 def clear_all_uploads_on_startup():
@@ -285,18 +292,6 @@ def register(app, media_service, socketio=None) -> None:
                 pass
 
         return True
-
-    def _is_audio_filename(filename: str, app) -> bool:
-        try:
-            ext = os.path.splitext((filename or '').lower())[1]
-            allowed_extensions = get_allowed_extensions_from_config(app)
-            audio_extensions = {
-                '.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.oga',
-                '.wma', '.mka', '.opus'
-            }
-            return ext in allowed_extensions and ext in audio_extensions
-        except Exception:
-            return False
 
     @app.route('/files/<int:did>/<int:sdid>', methods=['GET'])
     @app.route('/files/<int:did>', methods=['GET'])
@@ -574,11 +569,51 @@ def register(app, media_service, socketio=None) -> None:
                               dirs[0], dirs[sdid])
                 ])
             # Update exists status for all files and sort by date descending (newest first)
+            # Also check order completion status for order files
+            order_completion_cache = {}  # Cache order status to avoid repeated queries
             if files:
                 for file in files:
                     file.update_exists_status()
                     # Update the database with the new exists status
                     app._sql.file_update_exists_status(file.id, file.exists)
+                    # Check if file belongs to a completed order
+                    try:
+                        if file.category_id and file.subcategory_id:
+                            cat = app._sql.category_by_id([file.category_id])
+                            sub = app._sql.subcategory_by_id([file.subcategory_id])
+                            if cat and sub:
+                                cat_folder = getattr(cat, 'folder_name', '') or ''
+                                sub_folder = getattr(sub, 'folder_name', '') or ''
+                                if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                                    order_id_str = str(sub_folder)[len('order-'):]
+                                    try:
+                                        order_id_val = int(order_id_str)
+                                        if order_id_val not in order_completion_cache:
+                                            prefix = app._sql.config['db']['prefix']
+                                            row = app._sql.execute_query(
+                                                f'SELECT status, finalized FROM {prefix}_order WHERE id=%s',
+                                                [order_id_val]
+                                            )
+                                            if row:
+                                                order_status = (row[0][0] or '').strip().lower()
+                                                order_finalized = int(row[0][1]) if row[0][1] is not None else 0
+                                                order_completion_cache[order_id_val] = (
+                                                    order_status in ('done', '1', 'completed') or
+                                                    order_finalized == 1
+                                                )
+                                            else:
+                                                order_completion_cache[order_id_val] = False
+                                        setattr(file, 'order_completed', order_completion_cache[order_id_val])
+                                    except Exception:
+                                        setattr(file, 'order_completed', False)
+                                else:
+                                    setattr(file, 'order_completed', False)
+                            else:
+                                setattr(file, 'order_completed', False)
+                        else:
+                            setattr(file, 'order_completed', False)
+                    except Exception:
+                        setattr(file, 'order_completed', False)
                 # Sort files by robust timestamp (float) to avoid mixed-type comparisons
                 def ts_of(f):
                     try:
@@ -692,6 +727,33 @@ def register(app, media_service, socketio=None) -> None:
             force_can_add = bool(is_admin or can_files_upload)
             force_can_notes = bool(is_admin or can_files_notes)
 
+        # Check if current user is admin or in admin group
+        def _is_admin_group_member() -> bool:
+            try:
+                cfg = getattr(app._sql, 'config', {})
+                from configparser import ConfigParser
+                aname = 'Программисты'
+                if isinstance(cfg, ConfigParser):
+                    aname = cfg.get('admin', 'group', fallback=aname) or aname
+                else:
+                    if isinstance(cfg, dict):
+                        admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                        if isinstance(admin, dict) and 'group' in admin:
+                            aname = admin.get('group') or aname
+                        elif 'group' in cfg:
+                            aname = cfg.get('group') or aname
+                name_norm = (aname or '').strip().lower()
+                prefix = app._sql.config['db']['prefix']
+                rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+                for gid, gname in rows:
+                    if str(gname).strip().lower() == name_norm:
+                        return int(current_user.gid) == int(gid)
+            except Exception:
+                pass
+            return False
+        
+        is_admin_or_admin_group = current_user.has('admin.any') or _is_admin_group_member()
+        
         resp = make_response(
             render_template('files.j2.html',
                             title='Файлы — Заявки-Наряды-Файлы',
@@ -709,7 +771,8 @@ def register(app, media_service, socketio=None) -> None:
                             embed=embed,
                             force_can_manage=force_can_manage,
                             force_can_add=force_can_add,
-                            force_can_notes=force_can_notes))
+                            force_can_notes=force_can_notes,
+                            is_admin_or_admin_group=is_admin_or_admin_group))
         resp.headers[
             'Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         resp.headers['Pragma'] = 'no-cache'
@@ -866,12 +929,19 @@ def register(app, media_service, socketio=None) -> None:
             if not file_part:
                 raise ValueError('Файл не получен')
             file_part.save(fpath + '.webm')
-            _log.info(f"[files] File uploaded (single-phase): path={fpath + '.webm'}, user={current_user.name}")
+            try:
+                _log.info(f"[files] File uploaded (single-phase): path={fpath + '.webm'}, user={current_user.name}, size={os.path.getsize(fpath + '.webm')} bytes")
+            except Exception as log_err:
+                # Fallback to app logger if _log fails
+                try:
+                    app.logger.info(f"[files] File uploaded (single-phase): path={fpath + '.webm'}, user={current_user.name}")
+                except Exception:
+                    pass
             # Get file size from saved .webm
             stat = os.stat(fpath + '.webm')
             size_mb = round(stat.st_size / (1024 * 1024), 1)
-            # Decide target extension by uploaded file type
-            is_audio = _is_audio_filename(file_part.filename or '', app)
+            # Decide target extension by uploaded file type (using media service detection)
+            is_audio = media_service.is_audio_file(fpath + '.webm')
             target_ext = '.m4a' if is_audio else '.mp4'
             # Insert using new schema only
             id = app._sql.file_add2([
@@ -1073,7 +1143,15 @@ def register(app, media_service, socketio=None) -> None:
             
             webm_path = base + '.webm'
             file_part.save(webm_path)
-            _log.info(f"[files] File uploaded: id={id}, path={webm_path}, user={current_user.name}")
+            try:
+                file_size = os.path.getsize(webm_path)
+                _log.info(f"[files] File uploaded: id={id}, path={webm_path}, user={current_user.name}, size={file_size} bytes")
+            except Exception as log_err:
+                # Fallback to app logger if _log fails
+                try:
+                    app.logger.info(f"[files] File uploaded: id={id}, path={webm_path}, user={current_user.name}")
+                except Exception:
+                    pass
             # update size from uploaded file
             try:
                 file_part.seek(0, os.SEEK_END)
@@ -1140,8 +1218,51 @@ def register(app, media_service, socketio=None) -> None:
     def files_edit(id: int):
         """Edit file metadata (name, description). Only owner or privileged users."""
         file = app._sql.file_by_id([id])
-        if not (current_user.has('files.edit_any') or
-                (file.owner_id and file.owner_id == current_user.id)):
+        
+        # Check standard permissions
+        has_standard_permission = (
+            current_user.has('files.edit_any') or
+            (file.owner_id and file.owner_id == current_user.id)
+        )
+        
+        # Check order file permissions (if file belongs to an order)
+        has_order_permission = False
+        if not has_standard_permission:
+            try:
+                cat = app._sql.category_by_id([file.category_id])
+                sub = app._sql.subcategory_by_id([file.subcategory_id])
+                if cat and sub:
+                    cat_folder = getattr(cat, 'folder_name', '') or ''
+                    sub_folder = getattr(sub, 'folder_name', '') or ''
+                    if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                        order_id_str = str(sub_folder)[len('order-'):]
+                        try:
+                            order_id_val = int(order_id_str)
+                            prefix = app._sql.config['db']['prefix']
+                            row = app._sql.execute_query(
+                                f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                [order_id_val]
+                            )
+                            if row:
+                                service = row[0][0] if row[0][0] else ''
+                                creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                service_gid = None
+                                for gid, name in groups:
+                                    if name == service:
+                                        service_gid = int(gid)
+                                        break
+                                user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                    has_order_permission = True
+                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                    has_order_permission = True
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        
+        if not (has_standard_permission or has_order_permission):
             return abort(403)
         try:
             name = (request.form.get('name') or '').strip()
@@ -1238,6 +1359,91 @@ def register(app, media_service, socketio=None) -> None:
         except Exception:
             is_owner = False
         can_delete = current_user.has('files.delete_any') or is_owner
+        
+        # Check order file permissions (if file belongs to an order)
+        order_is_completed = False
+        if not can_delete:
+            try:
+                cat = app._sql.category_by_id([file.category_id])
+                sub = app._sql.subcategory_by_id([file.subcategory_id])
+                if cat and sub:
+                    cat_folder = getattr(cat, 'folder_name', '') or ''
+                    sub_folder = getattr(sub, 'folder_name', '') or ''
+                    if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                        order_id_str = str(sub_folder)[len('order-'):]
+                        try:
+                            order_id_val = int(order_id_str)
+                            prefix = app._sql.config['db']['prefix']
+                            row = app._sql.execute_query(
+                                f'SELECT service, creator_gid, status, finalized FROM {prefix}_order WHERE id=%s',
+                                [order_id_val]
+                            )
+                            if row:
+                                service = row[0][0] if row[0][0] else ''
+                                creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                order_status = (row[0][2] or '').strip().lower() if len(row[0]) > 2 else ''
+                                order_finalized = int(row[0][3]) if len(row[0]) > 3 and row[0][3] is not None else 0
+                                # Check if order is completed
+                                order_is_completed = (
+                                    order_status in ('done', '1', 'completed') or
+                                    order_finalized == 1
+                                )
+                                groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                service_gid = None
+                                for gid, name in groups:
+                                    if name == service:
+                                        service_gid = int(gid)
+                                        break
+                                user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                    can_delete = True
+                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                    can_delete = True
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        
+        # If order is completed, only allow deletion for admin or admin group
+        if order_is_completed and can_delete:
+            def _is_admin_group_member() -> bool:
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    from configparser import ConfigParser
+                    aname = 'Программисты'
+                    if isinstance(cfg, ConfigParser):
+                        aname = cfg.get('admin', 'group', fallback=aname) or aname
+                    else:
+                        if isinstance(cfg, dict):
+                            admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                            if isinstance(admin, dict) and 'group' in admin:
+                                aname = admin.get('group') or aname
+                            elif 'group' in cfg:
+                                aname = cfg.get('group') or aname
+                    name_norm = (aname or '').strip().lower()
+                    prefix = app._sql.config['db']['prefix']
+                    rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+                    for gid, gname in rows:
+                        if str(gname).strip().lower() == name_norm:
+                            return int(current_user.gid) == int(gid)
+                except Exception:
+                    pass
+                return False
+            
+            is_admin = current_user.has('admin.any') or _is_admin_group_member()
+            if not is_admin:
+                can_delete = False
+                try:
+                    accept = (request.headers.get('Accept') or '').lower()
+                    xrw = (request.headers.get('X-Requested-With') or '').lower()
+                    ctype = (request.headers.get('Content-Type') or '').lower()
+                    if ('application/json' in accept or ctype == 'application/json' or xrw in ('xmlhttprequest','fetch')):
+                        return jsonify({'status': 'error', 'error': 'forbidden', 'code': 'order_completed_no_delete'}), 403
+                except Exception:
+                    pass
+                app.flash_error('Нельзя удалять файлы из завершенного наряда')
+                return redirect(url_for('files'))
+        
         if not can_delete:
             try:
                 accept = (request.headers.get('Accept') or '').lower()
@@ -1458,36 +1664,72 @@ def register(app, media_service, socketio=None) -> None:
                             getattr(sub, 'enabled', 1)) != 1:
                         flash('Файл недоступен', 'error')
                         return redirect(url_for('files'))
-                    # Check stored permissions
+                    
+                    # Special handling for order files: check if user's group matches order's service group
+                    has_order_access = False
                     try:
-                        key = f"subcategory_permissions:{int(file.subcategory_id)}"
-                        raw = app._sql.setting_get(key)
-                        allowed = False
-                        if raw:
-                            import json
-                            perms = json.loads(raw)
-                            gid = int(getattr(current_user, 'gid', 0) or 0)
-                            uid = int(getattr(current_user, 'id', 0) or 0)
-                            gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
-                            umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
-                            if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
-                                allowed = True
-                            if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
-                                allowed = True
-                            if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
-                                allowed = True
-                            if not allowed:
-                                login = (getattr(current_user, 'login', '') or '').strip()
-                                if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
-                                    allowed = True
-                        if not raw:
+                        cat_folder = getattr(cat, 'folder_name', '') or ''
+                        sub_folder = getattr(sub, 'folder_name', '') or ''
+                        if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                            order_id_str = str(sub_folder)[len('order-'):]
+                            try:
+                                order_id_val = int(order_id_str)
+                                prefix = app._sql.config['db']['prefix']
+                                row = app._sql.execute_query(
+                                    f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                    [order_id_val]
+                                )
+                                if row:
+                                    service = row[0][0] if row[0][0] else ''
+                                    creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                    groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                    service_gid = None
+                                    for gid, name in groups:
+                                        if name == service:
+                                            service_gid = int(gid)
+                                            break
+                                    user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                    if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                        has_order_access = True
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    
+                    if has_order_access:
+                        # Allow access for order service group members
+                        pass
+                    else:
+                        # Check stored permissions
+                        try:
+                            key = f"subcategory_permissions:{int(file.subcategory_id)}"
+                            raw = app._sql.setting_get(key)
                             allowed = False
-                        if not allowed:
+                            if raw:
+                                import json
+                                perms = json.loads(raw)
+                                gid = int(getattr(current_user, 'gid', 0) or 0)
+                                uid = int(getattr(current_user, 'id', 0) or 0)
+                                gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+                                umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+                                if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                    allowed = True
+                                if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                    allowed = True
+                                if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
+                                    allowed = True
+                                if not allowed:
+                                    login = (getattr(current_user, 'login', '') or '').strip()
+                                    if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+                                        allowed = True
+                            if not raw:
+                                allowed = False
+                            if not allowed:
+                                flash('Доступ к подкатегории запрещён', 'error')
+                                return redirect(url_for('files'))
+                        except Exception:
                             flash('Доступ к подкатегории запрещён', 'error')
                             return redirect(url_for('files'))
-                    except Exception:
-                        flash('Доступ к подкатегории запрещён', 'error')
-                        return redirect(url_for('files'))
                 except Exception:
                     flash('Файл недоступен', 'error')
                     return redirect(url_for('files'))
@@ -1656,36 +1898,72 @@ def register(app, media_service, socketio=None) -> None:
                             getattr(sub, 'enabled', 1)) != 1:
                         flash('Файл недоступен', 'error')
                         return redirect(url_for('files'))
-                    # Check stored permissions
+                    
+                    # Special handling for order files: check if user's group matches order's service group
+                    has_order_access = False
                     try:
-                        key = f"subcategory_permissions:{int(file.subcategory_id)}"
-                        raw = app._sql.setting_get(key)
-                        allowed = False
-                        if raw:
-                            import json
-                            perms = json.loads(raw)
-                            gid = int(getattr(current_user, 'gid', 0) or 0)
-                            uid = int(getattr(current_user, 'id', 0) or 0)
-                            gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
-                            umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
-                            if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
-                                allowed = True
-                            if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
-                                allowed = True
-                            if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
-                                allowed = True
-                            if not allowed:
-                                login = (getattr(current_user, 'login', '') or '').strip()
-                                if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
-                                    allowed = True
-                        if not raw:
+                        cat_folder = getattr(cat, 'folder_name', '') or ''
+                        sub_folder = getattr(sub, 'folder_name', '') or ''
+                        if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                            order_id_str = str(sub_folder)[len('order-'):]
+                            try:
+                                order_id_val = int(order_id_str)
+                                prefix = app._sql.config['db']['prefix']
+                                row = app._sql.execute_query(
+                                    f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                    [order_id_val]
+                                )
+                                if row:
+                                    service = row[0][0] if row[0][0] else ''
+                                    creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                    groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                    service_gid = None
+                                    for gid, name in groups:
+                                        if name == service:
+                                            service_gid = int(gid)
+                                            break
+                                    user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                    if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                        has_order_access = True
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    
+                    if has_order_access:
+                        # Allow access for order service group members
+                        pass
+                    else:
+                        # Check stored permissions
+                        try:
+                            key = f"subcategory_permissions:{int(file.subcategory_id)}"
+                            raw = app._sql.setting_get(key)
                             allowed = False
-                        if not allowed:
+                            if raw:
+                                import json
+                                perms = json.loads(raw)
+                                gid = int(getattr(current_user, 'gid', 0) or 0)
+                                uid = int(getattr(current_user, 'id', 0) or 0)
+                                gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+                                umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+                                if any(int(gmx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                    allowed = True
+                                if not allowed and any(int(umx.get(k, 0)) == 1 for k in ('view_all','view_group','view_own')):
+                                    allowed = True
+                                if not allowed and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
+                                    allowed = True
+                                if not allowed:
+                                    login = (getattr(current_user, 'login', '') or '').strip()
+                                    if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+                                        allowed = True
+                            if not raw:
+                                allowed = False
+                            if not allowed:
+                                flash('Доступ к подкатегории запрещён', 'error')
+                                return redirect(url_for('files'))
+                        except Exception:
                             flash('Доступ к подкатегории запрещён', 'error')
                             return redirect(url_for('files'))
-                    except Exception:
-                        flash('Доступ к подкатегории запрещён', 'error')
-                        return redirect(url_for('files'))
                 except Exception:
                     flash('Файл недоступен', 'error')
                     return redirect(url_for('files'))
@@ -1992,6 +2270,12 @@ def register(app, media_service, socketio=None) -> None:
         try:
             file_rec = app._sql.file_by_id([id])
             if not file_rec:
+                # Return JSON error for AJAX requests
+                if request.headers.get(
+                        'Content-Type'
+                ) == 'application/json' or request.headers.get(
+                        'X-Requested-With') == 'XMLHttpRequest':
+                    return {'status': 'error', 'message': 'File not found'}, 404
                 return abort(404)
 
             # Update file existence status
@@ -2024,6 +2308,12 @@ def register(app, media_service, socketio=None) -> None:
                         and file_rec.owner_id == current_user.id)
             if not (is_owner or current_user.has('files.edit_any')
                     or current_user.has('files.mark_viewed')):
+                # Return JSON error for AJAX requests
+                if request.headers.get(
+                        'Content-Type'
+                ) == 'application/json' or request.headers.get(
+                        'X-Requested-With') == 'XMLHttpRequest':
+                    return {'status': 'error', 'message': 'Forbidden: insufficient permissions'}, 403
                 return abort(403)
 
             # Get the appropriate file path for the current state
@@ -2292,6 +2582,12 @@ def register(app, media_service, socketio=None) -> None:
                                           '.webm') or request.files.get('file')
             if not file_part:
                 raise ValueError('Данные записи не получены')
+            # Get original filename and extension from uploaded file
+            original_filename = file_part.filename or ''
+            original_ext = os.path.splitext(original_filename)[1] if original_filename else '.webm'
+            # Use original extension if present, otherwise default to .webm
+            source_ext = original_ext if original_ext else '.webm'
+            source_path = fname + source_ext
             # Ensure final directory exists and writable before saving
             try:
                 os.makedirs(path.dirname(fname), exist_ok=True)
@@ -2300,18 +2596,25 @@ def register(app, media_service, socketio=None) -> None:
             except Exception as e:
                 _log.error(f"[rec-save] cannot prepare directory: dir={path.dirname(fname)} err={e}")
                 raise
-            file_part.save(fname + '.webm')
+            file_part.save(source_path)
             try:
                 stat_sz = 0
                 try:
-                    stat_sz = os.stat(fname + '.webm').st_size
+                    stat_sz = os.stat(source_path).st_size
                 except Exception:
                     pass
-                _log.info(f"[rec-save] request:saved id={req_id} path=\"{fname + '.webm'}\" size={stat_sz}")
+                _log.info(f"[rec-save] request:saved id={req_id} path=\"{source_path}\" size={stat_sz} original_filename=\"{original_filename}\"")
             except Exception:
                 pass
-            # Choose target extension based on recording type
-            if rec_type == 'audio':
+            # Determine media type using media service (check for video stream presence)
+            # Same approach as file upload: if no video stream, it's audio-only
+            is_audio = media_service.is_audio_file(source_path)
+            if not is_audio:
+                _log.debug(f"[rec-save] Detected video file: {source_path}")
+            else:
+                _log.debug(f"[rec-save] Detected audio file: {source_path}")
+            # Choose target extension based on detected media type
+            if is_audio:
                 real_target = real_name + '.m4a'
                 convert_dst = fname + '.m4a'
             else:
@@ -2332,13 +2635,14 @@ def register(app, media_service, socketio=None) -> None:
                 ])
             except Exception:
                 return {"error": "Не удалось создать запись файла"}, 400
-            media_service.convert_async(fname + '.webm', convert_dst,
+            _log.info(f"[rec-save] Starting conversion: id={id}, from={source_path}, to={convert_dst}, is_audio={is_audio}")
+            media_service.convert_async(source_path, convert_dst,
                                         ('file', id))
-            # Probe duration and size from saved .webm and notify clients immediately
+            # Probe duration and size from saved source file and notify clients immediately
             try:
                 # Size
                 try:
-                    stat = os.stat(fname + '.webm')
+                    stat = os.stat(source_path)
                     size_bytes = stat.st_size
                 except Exception:
                     size_bytes = 0
@@ -2349,7 +2653,7 @@ def register(app, media_service, socketio=None) -> None:
                     p = subprocess.Popen([
                         "ffprobe", "-v", "error", "-show_entries",
                         "format=duration", "-of",
-                        "default=noprint_wrappers=1:nokey=1", fname + '.webm'
+                        "default=noprint_wrappers=1:nokey=1", source_path
                     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                          universal_newlines=True)
                     sout, _ = p.communicate(timeout=10)
@@ -2432,7 +2736,44 @@ def register(app, media_service, socketio=None) -> None:
             except Exception:
                 fs = []
             dirs = dirs_by_permission(app, 3, 'f')
+            # Compute force_can_manage for order files (same logic as in files())
+            force_can_manage = False
+            try:
+                cat = app._sql.category_by_id([cat_id])
+                sub = app._sql.subcategory_by_id([sub_id])
+                if cat and sub:
+                    cat_folder = getattr(cat, 'folder_name', '') or ''
+                    sub_folder = getattr(sub, 'folder_name', '') or ''
+                    if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                        order_id_str = str(sub_folder)[len('order-'):]
+                        try:
+                            order_id_val = int(order_id_str)
+                            prefix = app._sql.config['db']['prefix']
+                            row = app._sql.execute_query(
+                                f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                [order_id_val]
+                            )
+                            if row:
+                                service = row[0][0] if row[0][0] else ''
+                                creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                service_gid = None
+                                for gid, name in groups:
+                                    if name == service:
+                                        service_gid = int(gid)
+                                        break
+                                user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                    force_can_manage = True
+                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                    force_can_manage = True
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             # Update exists status for all files and sort by date descending (newest first)
+            # Also check order completion status for order files
+            order_completion_cache = {}
             if fs:
                 for file in fs:
                     try:
@@ -2441,6 +2782,44 @@ def register(app, media_service, socketio=None) -> None:
                             app._sql.file_update_exists_status(file.id, file.exists)
                         except Exception:
                             pass
+                        # Check if file belongs to a completed order
+                        try:
+                            if file.category_id and file.subcategory_id:
+                                cat = app._sql.category_by_id([file.category_id])
+                                sub = app._sql.subcategory_by_id([file.subcategory_id])
+                                if cat and sub:
+                                    cat_folder = getattr(cat, 'folder_name', '') or ''
+                                    sub_folder = getattr(sub, 'folder_name', '') or ''
+                                    if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                                        order_id_str = str(sub_folder)[len('order-'):]
+                                        try:
+                                            order_id_val = int(order_id_str)
+                                            if order_id_val not in order_completion_cache:
+                                                prefix = app._sql.config['db']['prefix']
+                                                row = app._sql.execute_query(
+                                                    f'SELECT status, finalized FROM {prefix}_order WHERE id=%s',
+                                                    [order_id_val]
+                                                )
+                                                if row:
+                                                    order_status = (row[0][0] or '').strip().lower()
+                                                    order_finalized = int(row[0][1]) if row[0][1] is not None else 0
+                                                    order_completion_cache[order_id_val] = (
+                                                        order_status in ('done', '1', 'completed') or
+                                                        order_finalized == 1
+                                                    )
+                                                else:
+                                                    order_completion_cache[order_id_val] = False
+                                            setattr(file, 'order_completed', order_completion_cache[order_id_val])
+                                        except Exception:
+                                            setattr(file, 'order_completed', False)
+                                    else:
+                                        setattr(file, 'order_completed', False)
+                                else:
+                                    setattr(file, 'order_completed', False)
+                            else:
+                                setattr(file, 'order_completed', False)
+                        except Exception:
+                            setattr(file, 'order_completed', False)
                     except Exception:
                         pass
                 # Robust timestamp extractor to ensure proper ordering
@@ -2476,12 +2855,41 @@ def register(app, media_service, socketio=None) -> None:
             start = (page - 1) * page_size
             end = start + page_size
             files_slice = fs[start:end] if fs else []
+            # Check if current user is admin or in admin group
+            def _is_admin_group_member() -> bool:
+                try:
+                    cfg = getattr(app._sql, 'config', {})
+                    from configparser import ConfigParser
+                    aname = 'Программисты'
+                    if isinstance(cfg, ConfigParser):
+                        aname = cfg.get('admin', 'group', fallback=aname) or aname
+                    else:
+                        if isinstance(cfg, dict):
+                            admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+                            if isinstance(admin, dict) and 'group' in admin:
+                                aname = admin.get('group') or aname
+                            elif 'group' in cfg:
+                                aname = cfg.get('group') or aname
+                    name_norm = (aname or '').strip().lower()
+                    prefix = app._sql.config['db']['prefix']
+                    rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+                    for gid, gname in rows:
+                        if str(gname).strip().lower() == name_norm:
+                            return int(current_user.gid) == int(gid)
+                except Exception:
+                    pass
+                return False
+            
+            is_admin_or_admin_group = current_user.has('admin.any') or _is_admin_group_member()
+            
             try:
                 html = render_template('components/files_rows.j2.html',
                                        files=files_slice,
                                        did=0,
                                        sdid=1,
-                                       dirs=dirs)
+                                       dirs=dirs,
+                                       force_can_manage=force_can_manage,
+                                       is_admin_or_admin_group=is_admin_or_admin_group)
             except Exception:
                 html = ''
             resp = make_response(
@@ -2666,6 +3074,41 @@ def register(app, media_service, socketio=None) -> None:
                     fs.sort(key=ts_of, reverse=True)
                 except Exception:
                     pass
+            # Compute force_can_manage for order files (same logic as in files())
+            force_can_manage = False
+            try:
+                cat = app._sql.category_by_id([cat_id])
+                sub = app._sql.subcategory_by_id([sub_id])
+                if cat and sub:
+                    cat_folder = getattr(cat, 'folder_name', '') or ''
+                    sub_folder = getattr(sub, 'folder_name', '') or ''
+                    if cat_folder == 'orders' and str(sub_folder).startswith('order-'):
+                        order_id_str = str(sub_folder)[len('order-'):]
+                        try:
+                            order_id_val = int(order_id_str)
+                            prefix = app._sql.config['db']['prefix']
+                            row = app._sql.execute_query(
+                                f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                [order_id_val]
+                            )
+                            if row:
+                                service = row[0][0] if row[0][0] else ''
+                                creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
+                                service_gid = None
+                                for gid, name in groups:
+                                    if name == service:
+                                        service_gid = int(gid)
+                                        break
+                                user_gid = int(getattr(current_user, 'gid', 0) or 0)
+                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                    force_can_manage = True
+                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                    force_can_manage = True
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             total = len(fs)
             start = (page - 1) * page_size
             end = start + page_size
@@ -2674,7 +3117,8 @@ def register(app, media_service, socketio=None) -> None:
                                    files=files_slice,
                                    did=0,
                                    sdid=1,
-                                   dirs=dirs)
+                                   dirs=dirs,
+                                   force_can_manage=force_can_manage)
             resp = make_response(
                 jsonify({
                     'html': html,

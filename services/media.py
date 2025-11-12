@@ -2,6 +2,7 @@ from os import path, remove, rename
 from subprocess import Popen, PIPE
 import json
 import os
+import time
 from typing import Tuple, Any, Optional
 
 from modules.threadpool import ThreadPool
@@ -58,7 +59,14 @@ class MediaService:
 		"""
         old, new, entity = args
         etype, entity_id = entity
-        self._log.info(f"[media] Starting conversion: {etype} id={entity_id}, from={old}, to={new}")
+        conversion_start_time = time.time()
+        # Get source file size
+        source_size = 0
+        try:
+            source_size = os.path.getsize(old) if path.exists(old) else 0
+        except Exception:
+            pass
+        self._log.info(f"[media] Starting conversion: {etype} id={entity_id}, from={old}, to={new}, source_size={source_size} bytes")
         # noisy during normal operation; keep only errors in logs
 
         # Check if source file exists
@@ -68,6 +76,7 @@ class MediaService:
                 app.logger.warning("Source file not found: %s", old)
             except Exception:
                 pass
+            self._log.warning(f"[media] Conversion failed: {etype} id={entity_id}, source file not found: {old}")
             if etype == 'file':
                 self._sql.file_ready([entity_id])
             return
@@ -110,6 +119,7 @@ class MediaService:
                             universal_newlines=True)
         try:
             out, err = process.communicate(timeout=300)  # 5 minute timeout
+            conversion_duration = time.time() - conversion_start_time
             if process.returncode != 0:
                 try:
                     from flask import current_app as app
@@ -117,11 +127,19 @@ class MediaService:
                                      new, err)
                 except Exception:
                     pass
+                # Get destination file size if it exists (partial conversion)
+                dest_size = 0
+                try:
+                    dest_size = os.path.getsize(new) if path.exists(new) else 0
+                except Exception:
+                    pass
+                self._log.error(f"[media] Conversion failed: {etype} id={entity_id}, returncode={process.returncode}, duration={conversion_duration:.2f}s, source_size={source_size} bytes, dest_size={dest_size} bytes, error={err[:200] if err else 'unknown'}")
                 # Still mark as ready but with error indication
                 if etype == 'file':
                     self._sql.file_ready([entity_id])
                 return
         except Exception as e:
+            conversion_duration = time.time() - conversion_start_time
             try:
                 from flask import current_app as app
                 app.logger.error("FFmpeg timeout or error for %s -> %s: %s",
@@ -129,13 +147,21 @@ class MediaService:
             except Exception:
                 pass
             process.kill()
+            self._log.error(f"[media] Conversion exception: {etype} id={entity_id}, duration={conversion_duration:.2f}s, source_size={source_size} bytes, error={str(e)}")
             # Mark as ready even on error to prevent hanging
             if etype == 'file':
                 self._sql.file_ready([entity_id])
             return
         # After conversion, probe duration and size (robust ffprobe)
         length_seconds, size_mb = self._probe_length_and_size(new)
-        self._log.info(f"[media] Conversion completed: {etype} id={entity_id}, duration={length_seconds}s, size={size_mb}MB")
+        conversion_duration = time.time() - conversion_start_time
+        # Get destination file size
+        dest_size = 0
+        try:
+            dest_size = os.path.getsize(new) if path.exists(new) else 0
+        except Exception:
+            pass
+        self._log.info(f"[media] Conversion completed successfully: {etype} id={entity_id}, duration={conversion_duration:.2f}s, source_size={source_size} bytes, dest_size={dest_size} bytes, media_duration={length_seconds}s, media_size={size_mb}MB")
         if etype == 'file':
             self._sql.file_ready([entity_id])
             try:
@@ -188,6 +214,37 @@ class MediaService:
                 self._log.warning(f"[media] Failed to remove source {old}: {e}")
             except Exception:
                 pass
+
+    @staticmethod
+    def is_audio_file(file_path: str) -> bool:
+        """Determine if a media file is audio-only by checking for video stream.
+        
+        Args:
+            file_path: Path to the media file to check.
+            
+        Returns:
+            True if file is audio-only (no video stream), False if video file.
+            Defaults to False (video) if probe fails.
+        """
+        if not path.exists(file_path):
+            return False
+        try:
+            # Check if file has video stream by trying to select video stream
+            p = Popen(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_type", "-of",
+                 "default=noprint_wrappers=1:nokey=1", file_path],
+                stdout=PIPE, stderr=PIPE, universal_newlines=True
+            )
+            sout, serr = p.communicate(timeout=10)
+            # If no output or empty output, no video stream exists = audio-only
+            if not sout or not sout.strip():
+                return True
+            # If output contains "video", it's a video file
+            return 'video' not in (sout or '').lower()
+        except Exception:
+            # Default to video if probe fails (safer default)
+            return False
 
     def _probe_length_and_size(self, target: str) -> Tuple[int, float]:
         """Probe duration (in seconds) and size (in MB) for a media file using robust strategies.
