@@ -65,3 +65,7 @@ worker_tmp_dir = "/dev/shm"  # Использование RAM для време�
 
 # PID файл
 pidfile = "/run/znf/znf.pid"
+
+# Hook to ensure logging is properly configured after worker initialization
+# Note: init_logging() is already called in server.py, so these hooks are not needed
+# and would cause duplicate handlers. Removed to prevent duplicate log entries.

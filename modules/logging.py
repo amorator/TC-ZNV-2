@@ -72,19 +72,39 @@ class LoggingConfig:
 		root_logger = logging.getLogger()
 		root_logger.setLevel(logging.DEBUG)
 		
-		# Clear existing handlers
+		# Check if app.log file handler already exists
+		app_log_path = path.abspath(path.join(self.logs_dir, 'app.log'))
+		has_app_log_handler = False
 		for handler in root_logger.handlers[:]:
-			root_logger.removeHandler(handler)
+			# Check if this is a file handler pointing to app.log
+			if isinstance(handler, logging.handlers.RotatingFileHandler):
+				if hasattr(handler, 'baseFilename'):
+					handler_path = path.abspath(handler.baseFilename)
+					if handler_path == app_log_path:
+						has_app_log_handler = True
+						break
 		
-		# Console handler (for systemd)
-		console_handler = logging.StreamHandler()
-		console_handler.setLevel(getattr(logging, self.console_level))
-		console_formatter = logging.Formatter(
-			self.console_format,
-			datefmt=self.date_format
-		)
-		console_handler.setFormatter(console_formatter)
-		root_logger.addHandler(console_handler)
+		# Only clear handlers if we're setting up from scratch (not under gunicorn)
+		# Under gunicorn, we want to preserve existing handlers and just add our file handler
+		if not has_app_log_handler:
+			# Clear existing handlers only if app.log handler doesn't exist
+			# This preserves gunicorn's handlers while ensuring app.log is written
+			for handler in root_logger.handlers[:]:
+				# Don't remove StreamHandler (needed for systemd/gunicorn console output)
+				if not isinstance(handler, logging.StreamHandler):
+					root_logger.removeHandler(handler)
+		
+		# Console handler (for systemd) - add only if not exists
+		has_console_handler = any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers)
+		if not has_console_handler:
+			console_handler = logging.StreamHandler()
+			console_handler.setLevel(getattr(logging, self.console_level))
+			console_formatter = logging.Formatter(
+				self.console_format,
+				datefmt=self.date_format
+			)
+			console_handler.setFormatter(console_formatter)
+			root_logger.addHandler(console_handler)
 		
 		# Write errors to app.log through the root handler only (avoid separate error.log)
 		
@@ -149,37 +169,51 @@ class LoggingConfig:
 		error_logger.propagate = False
 		
 		# File log handler for general application logs
-		file_handler = SafeRotatingFileHandler(
-			path.join(self.logs_dir, 'app.log'),
-			maxBytes=self.max_bytes,
-			backupCount=self.backup_count,
-			encoding='utf-8'
-		)
-		file_handler.setLevel(getattr(logging, self.file_level))
-		file_formatter = logging.Formatter(
-			self.file_format,
-			datefmt=self.date_format
-		)
-		file_handler.setFormatter(file_formatter)
-		root_logger.addHandler(file_handler)
+		# Only add if it doesn't already exist
+		if not has_app_log_handler:
+			file_handler = SafeRotatingFileHandler(
+				path.join(self.logs_dir, 'app.log'),
+				maxBytes=self.max_bytes,
+				backupCount=self.backup_count,
+				encoding='utf-8'
+			)
+			file_handler.setLevel(getattr(logging, self.file_level))
+			file_formatter = logging.Formatter(
+				self.file_format,
+				datefmt=self.date_format
+			)
+			file_handler.setFormatter(file_formatter)
+			root_logger.addHandler(file_handler)
 
 		# Also capture all ERROR+ records into a dedicated error.log from root
 		# This ensures regular logger.error(...) goes to error.log without requiring
 		# callers to use a special 'error' logger.
-		root_error_handler = SafeRotatingFileHandler(
-			path.join(self.logs_dir, 'error.log'),
-			maxBytes=self.max_bytes,
-			backupCount=self.backup_count,
-			encoding='utf-8'
-		)
-		# Capture warnings and above in error.log
-		root_error_handler.setLevel(logging.WARNING)
-		root_error_formatter = logging.Formatter(
-			self.file_format,
-			datefmt=self.date_format
-		)
-		root_error_handler.setFormatter(root_error_formatter)
-		root_logger.addHandler(root_error_handler)
+		# Check if error.log handler already exists
+		error_log_path = path.abspath(path.join(self.logs_dir, 'error.log'))
+		has_error_log_handler = False
+		for handler in root_logger.handlers[:]:
+			if isinstance(handler, logging.handlers.RotatingFileHandler):
+				if hasattr(handler, 'baseFilename'):
+					handler_path = path.abspath(handler.baseFilename)
+					if handler_path == error_log_path:
+						has_error_log_handler = True
+						break
+		
+		if not has_error_log_handler:
+			root_error_handler = SafeRotatingFileHandler(
+				path.join(self.logs_dir, 'error.log'),
+				maxBytes=self.max_bytes,
+				backupCount=self.backup_count,
+				encoding='utf-8'
+			)
+			# Capture warnings and above in error.log
+			root_error_handler.setLevel(logging.WARNING)
+			root_error_formatter = logging.Formatter(
+				self.file_format,
+				datefmt=self.date_format
+			)
+			root_error_handler.setFormatter(root_error_formatter)
+			root_logger.addHandler(root_error_handler)
 
 		# Reduce verbosity of noisy HTTP/server loggers so they don't spam app.log
 		noisy_loggers = [
@@ -298,7 +332,17 @@ def init_logging(config_path: str = "config.ini") -> LoggingConfig:
 		_logging_config = LoggingConfig(config_path)
 	else:
 		# Reconfigure in place to avoid duplicate handlers on reloads
-		_logging_config._setup_loggers()
+		# Only reconfigure if handlers are missing (don't duplicate)
+		root_logger = logging.getLogger()
+		app_log_path = path.abspath(path.join(_logging_config.logs_dir, 'app.log'))
+		has_app_log = any(
+			isinstance(h, logging.handlers.RotatingFileHandler) and 
+			hasattr(h, 'baseFilename') and 
+			path.abspath(h.baseFilename) == app_log_path
+			for h in root_logger.handlers
+		)
+		if not has_app_log:
+			_logging_config._setup_loggers()
 	return _logging_config
 
 
