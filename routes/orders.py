@@ -694,13 +694,11 @@ def register(app, socketio=None):
 				except Exception:
 					continue
 			creator_gid = int(row[0][6]) if (row and len(row[0]) > 6 and row[0][6] is not None) else None
-			# Full-access semantics: status change allowed for admins, explicit permission,
-			# members of service/creator groups, and users with orders.view_all or orders.edit_any
+			# Status change allowed for: admins, explicit status_change permission, or members of service/creator groups
+			# Note: orders.view_all and orders.edit_any are NOT sufficient for status changes
 			can_change = (
 				current_user.has('admin.any') or
 				current_user.has(ORDERS_STATUS_CHANGE) or
-				current_user.has('orders.view_all') or
-				current_user.has('orders.edit_any') or
 				(service_gid and current_user.gid == service_gid) or
 				(creator_gid and current_user.gid == creator_gid)
 			)
