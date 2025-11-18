@@ -1702,6 +1702,156 @@
     modal.addEventListener('click', onOverlay);
   }
 
+  function stopOrderFilesIframePlayback(){
+    try {
+      var iframe = document.getElementById('order-files-iframe');
+      if (!iframe) return;
+      var target = iframe.contentWindow || (iframe.contentDocument && iframe.contentDocument.defaultView);
+      if (target && target.postMessage) {
+        target.postMessage({ type: 'files:stop' }, '*');
+      }
+    } catch(_) {}
+  }
+
+  function closeOrderFilesModalDirect(){
+    try { window.__orderFilesModalForceClose = true; } catch(_) {}
+    try {
+      if (typeof window.closeModal === 'function') {
+        window.closeModal('orderFilesModal');
+      } else {
+        var modal = document.getElementById('orderFilesModal');
+        if (modal && window.bootstrap) {
+          var inst = bootstrap.Modal.getInstance(modal) || bootstrap.Modal.getOrCreateInstance(modal);
+          inst.hide();
+        } else if (modal) {
+          modal.classList.remove('show');
+          modal.style.display = 'none';
+        }
+      }
+    } catch(_) {}
+    setTimeout(function(){ try { window.__orderFilesModalForceClose = false; } catch(_) {} }, 80);
+  }
+
+  function sendOrderFilesIframeMessage(payload){
+    try {
+      var iframe = document.getElementById('order-files-iframe');
+      if (!iframe) return false;
+      var target = iframe.contentWindow || (iframe.contentDocument && iframe.contentDocument.defaultView);
+      if (!target) return false;
+      window.__orderFilesIframeWindow = target;
+      target.postMessage(payload, '*');
+      return true;
+    } catch(_) {
+      return false;
+    }
+  }
+
+  function attemptCloseOrderFilesModal(reason){
+    try {
+      if (window.__orderFilesModalForceClose) { closeOrderFilesModalDirect(); return false; }
+      var modal = document.getElementById('orderFilesModal');
+      if (!modal) { closeOrderFilesModalDirect(); return false; }
+      var isVisible = modal.classList.contains('show') || modal.getAttribute('aria-hidden') === 'false' || modal.style.display === 'block';
+      if (!isVisible) return false;
+      if (!sendOrderFilesIframeMessage({ type: 'files:close-request', reason: reason || 'unknown' })) {
+        closeOrderFilesModalDirect();
+        return false;
+      }
+      window.__orderFilesModalClosePending = true;
+      if (window.__orderFilesModalCloseTimer) { clearTimeout(window.__orderFilesModalCloseTimer); }
+      window.__orderFilesModalCloseTimer = setTimeout(function(){
+        window.__orderFilesModalClosePending = false;
+        closeOrderFilesModalDirect();
+      }, 300);
+      return true;
+    } catch(_) {
+      closeOrderFilesModalDirect();
+      return false;
+    }
+  }
+
+  try {
+    if (!window.__orderFilesIframeMessageBound) {
+      window.__orderFilesIframeMessageBound = true;
+      window.addEventListener('message', function(ev){
+        try {
+          var data = ev && ev.data;
+          if (!data || typeof data !== 'object') return;
+          if (data.type !== 'files:close-response') return;
+          if (window.__orderFilesIframeWindow && ev.source && ev.source !== window.__orderFilesIframeWindow) return;
+          if (window.__orderFilesModalCloseTimer) {
+            clearTimeout(window.__orderFilesModalCloseTimer);
+            window.__orderFilesModalCloseTimer = null;
+          }
+          window.__orderFilesModalClosePending = false;
+          if (data.handled) {
+            return;
+          }
+          closeOrderFilesModalDirect();
+        } catch(_) {}
+      }, true);
+    }
+  } catch(_) {}
+
+  function setupOrderFilesModalCloseGuards(){
+    try {
+      if (window.__orderFilesModalCloseGuardsBound) return;
+      window.__orderFilesModalCloseGuardsBound = true;
+      document.addEventListener('modal-closed', function(ev){
+        try {
+          if (ev && ev.detail && ev.detail.modalId === 'orderFilesModal') {
+            stopOrderFilesIframePlayback();
+          }
+        } catch(_) {}
+      }, true);
+      function bindModalEvents(){
+        var modal = document.getElementById('orderFilesModal');
+        if (!modal) return false;
+        if (modal.__orderFilesStopPlaybackBound) return true;
+        modal.__orderFilesStopPlaybackBound = true;
+        ['hide.bs.modal','hidden.bs.modal'].forEach(function(evt){
+          modal.addEventListener(evt, function(){ stopOrderFilesIframePlayback(); }, true);
+        });
+        if (!modal.__orderFilesBackdropGuard) {
+          modal.__orderFilesBackdropGuard = true;
+          modal.addEventListener('click', function(e){
+            try {
+              if (window.__orderFilesModalForceClose) return;
+              if (e.target !== modal) return;
+              var handled = attemptCloseOrderFilesModal('backdrop');
+              if (handled) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            } catch(_) {}
+          }, true);
+        }
+        return true;
+      }
+      if (!bindModalEvents()) {
+        setTimeout(bindModalEvents, 100);
+        setTimeout(bindModalEvents, 400);
+      }
+      if (!window.__orderFilesModalEscBound) {
+        window.__orderFilesModalEscBound = true;
+        document.addEventListener('keydown', function(ev){
+          try {
+            if (ev.key !== 'Escape') return;
+            var modal = document.getElementById('orderFilesModal');
+            if (!modal) return;
+            var isVisible = modal.classList.contains('show') || modal.getAttribute('aria-hidden') === 'false' || modal.style.display === 'block';
+            if (!isVisible) return;
+            var handled = attemptCloseOrderFilesModal('escape');
+            if (handled) {
+              ev.preventDefault();
+              ev.stopPropagation();
+            }
+          } catch(_) {}
+        }, true);
+      }
+    } catch(_) {}
+  }
+
   
 
   if (document.readyState === 'loading') {
@@ -1713,6 +1863,7 @@
       setupModalOverlayClose('orderDeleteModal');
       setupModalOverlayClose('orderTimelineModal');
       setupModalOverlayClose('orderExtendModal');
+      setupOrderFilesModalCloseGuards();
       var tlBtn = document.getElementById('order-timeline-submit');
       if (tlBtn) tlBtn.addEventListener('click', handleOrderTimelineSubmit);
       var editBtn = document.getElementById('order-edit-submit');
@@ -1730,6 +1881,7 @@
     setupModalOverlayClose('orderDeleteModal');
     setupModalOverlayClose('orderTimelineModal');
     setupModalOverlayClose('orderExtendModal');
+    setupOrderFilesModalCloseGuards();
     var tlBtn2 = document.getElementById('order-timeline-submit');
     if (tlBtn2) tlBtn2.addEventListener('click', handleOrderTimelineSubmit);
     var editBtn2 = document.getElementById('order-edit-submit');

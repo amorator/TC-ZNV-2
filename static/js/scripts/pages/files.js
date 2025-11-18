@@ -122,6 +122,34 @@ function isMediaFileRow(row) {
   return false;
 }
 
+// When embedded, stop playback if parent modal asks to close media
+(function setupEmbedStopListener(){
+  try {
+    if (window.top && window.top !== window) {
+      window.addEventListener('message', function(ev){
+        try {
+          var data = ev && ev.data;
+          if (!data || typeof data !== 'object') return;
+          if (data.type === 'files:stop') {
+            if (typeof window.stopAllMedia === 'function') {
+              window.stopAllMedia();
+            } else {
+              try {
+                var v = document.getElementById('player-video');
+                if (v && v.pause) v.pause();
+              } catch(_) {}
+              try {
+                var a = document.getElementById('player-audio');
+                if (a && a.pause) a.pause();
+              } catch(_) {}
+            }
+          }
+        } catch(_) {}
+      }, false);
+    }
+  } catch(_) {}
+})();
+
 // Open media file in modal player
 function openMediaFile(url) {
   try {
