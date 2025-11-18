@@ -273,10 +273,24 @@
             return hd + '<div>' + wn + '</div>';
           })()}</td>
         <td class="table__body_item">${(function(){
-            // Always render the approve toggle button so everyone sees it;
-            // clicking is only bound for users with approve permission
+            // Three states: 0 = ожидание (pending, gray), 1 = согласовано (approved, green), -1 = не согласовано (rejected, red)
             var disabled = canApprove ? '' : ' disabled';
-            return `<button type="button" class="btn btn-sm ${r.approved ? 'btn-success' : 'btn-danger'}" data-action="toggle-approved" data-id="${r.id}" data-approved="${r.approved ? '1':'0'}"${disabled}>${r.approved ? 'Да' : 'Нет'}</button>`;
+            var approvedVal = parseInt(r.approved || 0);
+            var btnClass, btnText, btnIcon;
+            if (approvedVal === 1) {
+              btnClass = 'btn-success';
+              btnText = 'Согласовано';
+              btnIcon = '✓';
+            } else if (approvedVal === -1) {
+              btnClass = 'btn-danger';
+              btnText = 'Не согласовано';
+              btnIcon = '✗';
+            } else {
+              btnClass = 'btn-secondary';
+              btnText = 'Ожидание';
+              btnIcon = '○';
+            }
+            return `<button type="button" class="btn btn-sm btn-approve-xs ${btnClass}" data-action="toggle-approved" data-id="${r.id}" data-approved="${approvedVal}" title="${btnText}"${disabled}>${btnIcon}</button>`;
           })()}</td>
         <td class="table__body_item">${ (function(){
             var note = (r.note || '').replace(/</g, '&lt;');
@@ -858,18 +872,38 @@
             setVis('delete', canDelete);
             setVis('create', canCreateUI);
             setVis('note', !!(window.OrdersPerms && (window.OrdersPerms.notes || window.OrdersPerms.admin)));
-            setVis('approve', canApproveUI);
-            setVis('unapprove', canApproveUI);
-            var approveItem = menu.querySelector('[data-action="approve"]');
-            var unapproveItem = menu.querySelector('[data-action="unapprove"]');
+            // Three states: 0 = ожидание, 1 = согласовано, -1 = не согласовано
+            // Show approve/unapprove in context menu based on current state
             var btn = this.querySelector('button[data-action="toggle-approved"]');
-            var isApproved = btn ? (btn.getAttribute('data-approved') === '1') : false;
+            var approvedVal = btn ? parseInt(btn.getAttribute('data-approved') || '0') : 0;
+            var isApproved = (approvedVal === 1);
+            var isRejected = (approvedVal === -1);
+            var isPending = (approvedVal === 0);
+            
+            // Show approve/unapprove based on state and permissions
+            if (canApproveUI) {
+              // For pending (0): show both approve and reject
+              // For approved (1): show only reject (unapprove)
+              // For rejected (-1): show only approve
+              if (isPending) {
+                setVis('approve', true);
+                setVis('unapprove', true);
+              } else if (isApproved) {
+                setVis('approve', false);
+                setVis('unapprove', true);
+              } else if (isRejected) {
+                setVis('approve', true);
+                setVis('unapprove', false);
+              } else {
+                setVis('approve', false);
+                setVis('unapprove', false);
+              }
+            } else {
+              setVis('approve', false);
+              setVis('unapprove', false);
+            }
             var isExtended = (this.getAttribute('data-extended') === '1');
             var isFinalized = (this.getAttribute('data-finalized') === '1');
-            if (canApproveUI && approveItem && unapproveItem) {
-              approveItem.classList.toggle('d-none', isApproved);
-              unapproveItem.classList.toggle('d-none', !isApproved);
-            }
             // Business rules:
             // - Completion UI: when approved, rename to "Завершить наряд" and allow only timeline action
             // - After completion (status == done): show only files and note; hide edit/delete/timeline/approve
@@ -896,6 +930,7 @@
                 if (tl && isApproved) tl.textContent = 'Завершить наряд';
               }
               setVis('extend', false);
+              // Hide approve/unapprove for completed orders
               setVis('approve', false);
               setVis('unapprove', false);
             } else {
@@ -957,10 +992,51 @@
               if (id) { if (window.openOrderNoteModal) window.openOrderNoteModal(id); }
               break;
             case 'approve':
+              if (id) {
+                // Установить состояние "согласовано" (1)
+                fetch('/api/orders/' + id + '/approved', {
+                  method: 'POST',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                  body: JSON.stringify({ approved: 1 })
+                }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+                  .then(function(res){
+                    if (!res.ok || !res.body || res.body.ok === false) { 
+                      var t = toastFromError(res, 'Не удалось изменить статус'); 
+                      if (window.showToast) window.showToast(t.msg, t.level); 
+                      return; 
+                    }
+                    // Обновить UI через перезагрузку или обновление строки
+                    if (typeof softReloadOrders === 'function') {
+                      softReloadOrders();
+                    } else if (typeof load === 'function') {
+                      load();
+                    }
+                  }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+              }
+              break;
             case 'unapprove':
               if (id) {
-                var btn = document.querySelector('#order-' + id + ' button[data-action="toggle-approved"]');
-                if (btn) btn.click();
+                // Установить состояние "отказано" (-1)
+                fetch('/api/orders/' + id + '/approved', {
+                  method: 'POST',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                  body: JSON.stringify({ approved: -1 })
+                }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
+                  .then(function(res){
+                    if (!res.ok || !res.body || res.body.ok === false) { 
+                      var t = toastFromError(res, 'Не удалось изменить статус'); 
+                      if (window.showToast) window.showToast(t.msg, t.level); 
+                      return; 
+                    }
+                    // Обновить UI через перезагрузку или обновление строки
+                    if (typeof softReloadOrders === 'function') {
+                      softReloadOrders();
+                    } else if (typeof load === 'function') {
+                      load();
+                    }
+                  }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
               }
               break;
             case 'create':
@@ -1032,23 +1108,34 @@
         btn.dataset.bound = '1';
         btn.addEventListener('click', function(){
           var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
-          var current = this.getAttribute('data-approved') === '1';
-          var next = !current;
           var el = this;
+          // Backend handles cyclic toggle: 0 -> 1 -> -1 -> 0
           fetch('/api/orders/' + id + '/approved', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({ approved: next })
+            body: JSON.stringify({})
           }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
             .then(function(res){
               if (!res.ok || !res.body || res.body.ok === false) { var t = toastFromError(res, 'Не удалось изменить статус'); if (window.showToast) window.showToast(t.msg, t.level); return; }
-              var val = !!res.body.approved;
-              el.setAttribute('data-approved', val ? '1' : '0');
-              el.classList.toggle('btn-success', val);
-              el.classList.toggle('btn-danger', !val);
-              el.textContent = val ? 'Да' : 'Нет';
-              emitOrdersChanged('approve', { id: id, approved: val ? 1 : 0 });
+              var val = parseInt(res.body.approved || 0);
+              el.setAttribute('data-approved', String(val));
+              // Update button appearance based on state
+              el.classList.remove('btn-success', 'btn-danger', 'btn-secondary');
+              if (val === 1) {
+                el.classList.add('btn-success');
+                el.textContent = '✓';
+                el.setAttribute('title', 'Согласовано');
+              } else if (val === -1) {
+                el.classList.add('btn-danger');
+                el.textContent = '✗';
+                el.setAttribute('title', 'Не согласовано');
+              } else {
+                el.classList.add('btn-secondary');
+                el.textContent = '○';
+                el.setAttribute('title', 'Ожидание');
+              }
+              emitOrdersChanged('approve', { id: id, approved: val });
             }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
         });
       });
@@ -1212,7 +1299,8 @@
         try {
           var row = document.getElementById('order-' + orderId);
           var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
-          var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+          var approvedVal = apprBtn ? parseInt(apprBtn.getAttribute('data-approved') || '0') : 0;
+          var isApproved = (approvedVal === 1);
           var titleEl = document.getElementById('orderTimelineModalTitle');
           var submitBtn = document.getElementById('order-timeline-submit');
           var issuedEl = document.getElementById('ot-issued');
@@ -1497,7 +1585,8 @@
           // Enforce client-side rules: only if approved == yes and user has status_change/admin
           var row = this.closest('tr');
           var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
-          var isApproved = apprBtn ? (apprBtn.getAttribute('data-approved') === '1') : false;
+          var approvedVal = apprBtn ? parseInt(apprBtn.getAttribute('data-approved') || '0') : 0;
+          var isApproved = (approvedVal === 1);
           var svc = row ? (row.getAttribute('data-service') || '') : '';
           // Current status value (may be 'stopped' | 'in_progress' | 'done')
           var st = row ? (row.getAttribute('data-status') || '') : '';
@@ -1707,14 +1796,12 @@
         btn.__ordersAugmented = '1';
         btn.addEventListener('click', function onClick(){
           var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
-          var current = this.getAttribute('data-approved') === '1';
-          var next = !current;
           // attach a one-time listener to emit on success by polling attribute change
           var el = this;
-          var prev = el.getAttribute('data-approved');
+          var prev = parseInt(el.getAttribute('data-approved') || '0');
           setTimeout(function(){
-            var now = el.getAttribute('data-approved');
-            if (now !== prev) emitOrdersChanged('approve', { id: id, approved: now === '1' ? 1 : 0 });
+            var now = parseInt(el.getAttribute('data-approved') || '0');
+            if (now !== prev) emitOrdersChanged('approve', { id: id, approved: now });
           }, 250);
         }, true);
       });

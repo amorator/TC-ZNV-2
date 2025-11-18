@@ -230,7 +230,14 @@ def register(app, socketio=None):
 							return d.strftime('%Y-%m-%d %H:%M') if isinstance(d, dt) else str(d or '')
 						except Exception:
 							return str(d or '')
-					approved_txt = 'да' if bool(getattr(o, 'approved', False)) else 'нет'
+					# Three states: 0 = ожидание, 1 = согласовано, -1 = не согласовано
+					approved_val = int(getattr(o, 'approved', 0) or 0)
+					if approved_val == 1:
+						approved_txt = 'согласовано'
+					elif approved_val == -1:
+						approved_txt = 'не согласовано'
+					else:
+						approved_txt = 'ожидание'
 					status_ru = {
 						'in_progress': 'работы ведутся',
 						'stopped': 'работы не ведутся',
@@ -261,7 +268,7 @@ def register(app, socketio=None):
 					'end': (end.isoformat(sep=' ') if end else ''),
 					'responsible': getattr(o, 'responsible', ''),
 					'work_name': getattr(o, 'work_name', ''),
-					'approved': bool(getattr(o, 'approved', False)),
+					'approved': int(getattr(o, 'approved', 0) or 0),
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
@@ -432,7 +439,7 @@ def register(app, socketio=None):
 				end_dt,
 				responsible,
 				work_name,
-				0,
+				0,  # approved default: 0 = ожидание
 			])
 			# Set creator metadata
 			try:
@@ -488,7 +495,7 @@ def register(app, socketio=None):
 				'end': to_iso(row[6]) if row[6] else '',
 				'responsible': str(row[7] or ''),
 				'work_name': str(row[8] or ''),
-				'approved': bool(row[9]),
+				'approved': int(row[9] or 0),
 				'created_by': int(row[10]) if row[10] is not None else None,
 				'creator_gid': int(row[11]) if row[11] is not None else None,
 				'extended': bool(row[12]) if len(row) > 12 else False,
@@ -510,10 +517,12 @@ def register(app, socketio=None):
 				(service_gid and current_user.gid == service_gid) or
 				(creator_gid and current_user.gid == creator_gid)
 			)
-			# Disallow edit if approved or already completed
+			# Disallow edit if approved (1) or rejected (-1) or already completed
+			# Only pending (0) allows editing
 			if str(order.get('status', '')).strip().lower() == 'done':
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
-			if order.get('approved'):
+			approved_val = int(order.get('approved', 0) or 0)
+			if approved_val != 0:  # Block if approved (1) or rejected (-1)
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
 			if not can_edit:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'edit_permission_required' }), 403
@@ -593,41 +602,83 @@ def register(app, socketio=None):
 	@login_required
 	@require_permissions(ORDERS_APPROVE)
 	def api_orders_toggle_approved(order_id: int):
+		"""
+		Установка состояния согласования:
+		- Если в запросе передан 'approved' (1 или -1), устанавливает это значение
+		- Если 'approved' не передан, делает циклическое переключение: 0 -> 1 -> -1 -> 0
+		"""
 		try:
 			data = request.get_json(silent=True) or {}
-			approved = data.get('approved')
-			# normalize to 0/1
-			val = 1 if (str(approved).lower() in ('1','true','yes','on')) else 0
-			# If trying to unapprove, and order is done and all 3 dates filled -> forbid
+			requested_approved = data.get('approved')
+			
 			prefix = app._sql.config['db']['prefix']
+			# Получаем текущее значение approved
 			row = app._sql.execute_query(
-				f"SELECT status, issued, start, end FROM {prefix}_order WHERE id=%s",
+				f"SELECT approved, status, issued, start, end FROM {prefix}_order WHERE id=%s",
 				[order_id]
 			) or []
-			if row:
-				st = str(row[0][0] or '').strip().lower()
-				has_all_dates = (row[0][1] is not None and row[0][2] is not None and row[0][3] is not None)
-				if val == 0 and st == 'done' and has_all_dates:
-					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_with_all_dates_locked' }), 403
+			if not row:
+				return jsonify({ 'ok': False, 'error': 'not_found' }), 404
+			
+			current_approved = int(row[0][0] or 0)
+			st = str(row[0][1] or '').strip().lower()
+			has_all_dates = (row[0][2] is not None and row[0][3] is not None and row[0][4] is not None)
+			
+			# Если запрошено конкретное значение, используем его
+			if requested_approved is not None:
+				try:
+					next_val = int(requested_approved)
+					# Проверяем, что значение валидное
+					if next_val not in (-1, 0, 1):
+						next_val = None  # Будет использовано циклическое переключение
+				except (ValueError, TypeError):
+					next_val = None  # Будет использовано циклическое переключение
+			else:
+				next_val = None
+			
+			# Если конкретное значение не указано, делаем циклическое переключение: 0 -> 1 -> -1 -> 0
+			if next_val is None:
+				if current_approved == 0:
+					next_val = 1  # ожидание -> согласовано
+				elif current_approved == 1:
+					next_val = -1  # согласовано -> не согласовано
+				elif current_approved == -1:
+					next_val = 0  # не согласовано -> ожидание
+				else:
+					# Если значение нестандартное, начинаем с 0
+					next_val = 0
+			
+			# Если пытаемся переключить с согласованного (1) на не согласовано (-1) или ожидание (0),
+			# и наряд завершен со всеми датами -> запретить
+			if current_approved == 1 and next_val != 1 and st == 'done' and has_all_dates:
+				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_with_all_dates_locked' }), 403
+			
 			app._sql.execute_non_query(
 				f"UPDATE {app._sql.config['db']['prefix']}_order SET approved = %s WHERE id = %s;",
-				[val, order_id]
+				[next_val, order_id]
 			)
+			
+			# Логирование
+			state_names = {0: 'ожидание', 1: 'согласовано', -1: 'не согласовано'}
 			try:
-				log_action('ORDER_APPROVE', current_user.name, f'id={order_id} approved={bool(val)}', (request.remote_addr or ''))
+				log_action('ORDER_APPROVE', current_user.name, 
+					f'id={order_id} {state_names.get(current_approved, str(current_approved))} -> {state_names.get(next_val, str(next_val))}', 
+					(request.remote_addr or ''))
 			except Exception:
 				pass
+			
 			# Emit realtime update
 			_sock = socketio if socketio else getattr(app, 'socketio', None)
 			if _sock:
 				payload = {
 					'reason': 'approve',
 					'id': int(order_id),
-					'approved': bool(val),
+					'approved': next_val,
 				}
 				_log.debug(f"[orders] emit orders:changed: {payload}")
 				_sock.emit('orders:changed', payload)
-			return jsonify({ 'ok': True, 'approved': bool(val) })
+			
+			return jsonify({ 'ok': True, 'approved': next_val })
 		except Exception as e:
 			try:
 				app.logger.error(f"Orders approve toggle error: {e}")
@@ -1112,7 +1163,14 @@ def register(app, socketio=None):
 						return d.strftime('%Y-%m-%d %H:%M') if isinstance(d, dt) else str(d or '')
 					except Exception:
 						return str(d or '')
-				approved_txt = 'да' if bool(getattr(o, 'approved', False)) else 'нет'
+				# Three states: 0 = ожидание, 1 = согласовано, -1 = не согласовано
+				approved_val = int(getattr(o, 'approved', 0) or 0)
+				if approved_val == 1:
+					approved_txt = 'согласовано'
+				elif approved_val == -1:
+					approved_txt = 'не согласовано'
+				else:
+					approved_txt = 'ожидание'
 				status_ru = {
 					'in_progress': 'работы ведутся',
 					'stopped': 'работы не ведутся',
@@ -1143,7 +1201,7 @@ def register(app, socketio=None):
 					'end': (end.isoformat(sep=' ') if end else ''),
 					'responsible': getattr(o, 'responsible', ''),
 					'work_name': getattr(o, 'work_name', ''),
-					'approved': bool(getattr(o, 'approved', False)),
+					'approved': int(getattr(o, 'approved', 0) or 0),
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
@@ -1411,8 +1469,37 @@ def register(app, socketio=None):
 			)
 			if not can_delete:
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'delete_permission_required'}), 403
-			# Disallow delete if approved or completed
-			if approved_val == 1 or cur_status == 'done':
+			
+			# Check if user is admin (admin.any or admin group member)
+			def _is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					prefix = app._sql.config['db']['prefix']
+					rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					for gid, gname in rows:
+						if str(gname).strip().lower() == name_norm:
+							return int(current_user.gid) == int(gid)
+				except Exception:
+					return False
+				return False
+			
+			is_admin = current_user.has('admin.any') or _is_admin_group_member()
+			
+			# Disallow delete if approved (1) or rejected (-1) or completed
+			# Only pending (0) allows deletion, except for admins
+			if not is_admin and (approved_val != 0 or cur_status == 'done'):
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'approved_locked'}), 403
 			# Delete order
 			app._sql.execute_non_query(f'DELETE FROM {prefix}_order WHERE id=%s', [order_id])

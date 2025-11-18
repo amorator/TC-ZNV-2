@@ -342,3 +342,25 @@ section[data-testid="orders-section"] {
   width: 115%;
   margin-top: 14px;
 }
+
+/* Уменьшенные кнопки согласования - занимают всю ячейку */
+.orders-page__table .table__body_item:has(button[data-action="toggle-approved"]) {
+  padding: 0 !important;
+  vertical-align: middle !important;
+  text-align: center !important;
+}
+
+.btn-approve-xs {
+  padding: 0.15rem 0.35rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1.2 !important;
+  border-radius: 0.15rem !important;
+  width: 80% !important;
+  height: 40% !important;
+  min-height: 2.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: none !important;
+  margin: 0 auto !important;
+}

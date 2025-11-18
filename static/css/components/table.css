@@ -119,6 +119,7 @@
 
 .theme-dark .table__body_row:hover>.table__body_item {
     background: #203040;
+    color: var(--body-text, #ffffff) !important;
     transition: background .12s;
 }
 
@@ -313,6 +314,11 @@
 /* keep highlight on hover */
 .orders-page__table tbody tr.order-overdue:hover>td {
     background-color: #ffb3b3 !important;
+}
+
+.theme-dark .orders-page__table tbody tr.order-overdue:hover>td {
+    background-color: #4a2a2a !important;
+    color: var(--body-text, #ffffff) !important;
 }
 
 .orders-page__table thead th:nth-child(1),

@@ -1139,6 +1139,7 @@ table th {
 .theme-dark .table-colored tbody tr:first-child:hover>th,
 .theme-dark .table-colored tbody tr:first-child:hover>td {
     background: rgba(255, 255, 255, .08);
+    color: var(--body-text, #ffffff) !important;
 }
 
 /* remove hover animation for the first row */

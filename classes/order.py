@@ -10,7 +10,8 @@ class Order:
 		self.responsible = responsible or ""
 		self.work_name = work_name or ""
 		self.note = note or ""
-		self.approved = bool(approved)
+		# Three states: 0 = ожидание, 1 = согласовано, -1 = не согласовано
+		self.approved = int(approved) if approved is not None else 0
 		self.created_at = created_at
 		self.updated_at = updated_at
 		# Optional flags (may be set after construction by SQLUtils)
