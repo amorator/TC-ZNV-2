@@ -323,7 +323,7 @@
 
 .orders-page__table thead th:nth-child(1),
 .orders-page__table tbody td:nth-child(1) {
-    width: 13% !important;
+    width: 8% !important;
 }
 
 .orders-page__table thead th:nth-child(2),
@@ -358,18 +358,18 @@
 
 .orders-page__table thead th:nth-child(8),
 .orders-page__table tbody td:nth-child(8) {
-    width: 30% !important;
+    width: 33% !important;
 }
 
 .orders-page__table thead th:nth-child(9),
 .orders-page__table tbody td:nth-child(9) {
-    width: 4% !important;
+    width: 7% !important;
     text-align: center;
 }
 
 .orders-page__table thead th:nth-child(10),
 .orders-page__table tbody td:nth-child(10) {
-    width: 10% !important;
+    width: 9% !important;
 }
 
 .orders-page__table tbody td:nth-child(2) button,

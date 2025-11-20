@@ -216,13 +216,14 @@
     configureRowItems(row) {
       const isEnabled = row.dataset.enabled === "1";
       // Check both camelCase (dataset) and kebab-case (getAttribute) for compatibility
-      const canEdit = row.dataset.canEdit === "1" || row.getAttribute("data-can-edit") === "1";
+      let canEdit = row.dataset.canEdit === "1" || row.getAttribute("data-can-edit") === "1";
       let canDelete = row.dataset.canDelete === "1" || row.getAttribute("data-can-delete") === "1";
       // Check if order is completed and user is not admin
       const orderCompleted = row.dataset.orderCompleted === "1" || row.getAttribute("data-order-completed") === "1";
       const isAdmin = row.dataset.isAdmin === "1" || row.getAttribute("data-is-admin") === "1";
-      // If order is completed and user is not admin, disable delete
-      if (orderCompleted && !isAdmin) {
+      const orderLocked = orderCompleted && !isAdmin;
+      if (orderLocked) {
+        canEdit = false;
         canDelete = false;
       }
       const canNote = row.dataset.canNote === "1" && this.options.canNotes;
@@ -230,7 +231,7 @@
       const hasDownload = !!row.dataset.download;
       const isMissing = row.dataset.exists === "0";
       const alreadyViewed = row.dataset.alreadyViewed === "1";
-      const canRefresh = canEdit || canDelete;
+      const canRefresh = (canEdit || canDelete);
 
       // Page-specific configuration
       if (this.options.page === "files") {
@@ -244,6 +245,7 @@
           isMissing,
           alreadyViewed,
           canRefresh,
+          orderLocked,
         });
       } else if (this.options.page === "users") {
         this.configureUsersRowItems(row, {

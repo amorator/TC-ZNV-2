@@ -570,7 +570,7 @@ def register(app, media_service, socketio=None) -> None:
                 ])
             # Update exists status for all files and sort by date descending (newest first)
             # Also check order completion status for order files
-            order_completion_cache = {}  # Cache order status to avoid repeated queries
+            order_completion_cache = {}  # Cache order status/finalization to avoid repeated queries
             if files:
                 for file in files:
                     file.update_exists_status()
@@ -597,23 +597,36 @@ def register(app, media_service, socketio=None) -> None:
                                             if row:
                                                 order_status = (row[0][0] or '').strip().lower()
                                                 order_finalized = int(row[0][1]) if row[0][1] is not None else 0
-                                                order_completion_cache[order_id_val] = (
-                                                    order_status in ('done', '1', 'completed') or
-                                                    order_finalized == 1
-                                                )
+                                                order_completion_cache[order_id_val] = {
+                                                    'completed': (
+                                                        order_status in ('done', '1', 'completed') or
+                                                        order_finalized == 1
+                                                    ),
+                                                    'finalized': bool(order_finalized == 1)
+                                                }
                                             else:
-                                                order_completion_cache[order_id_val] = False
-                                        setattr(file, 'order_completed', order_completion_cache[order_id_val])
+                                                order_completion_cache[order_id_val] = {
+                                                    'completed': False,
+                                                    'finalized': False
+                                                }
+                                        info = order_completion_cache.get(order_id_val, {})
+                                        setattr(file, 'order_completed', bool(info.get('completed')))
+                                        setattr(file, 'order_finalized', bool(info.get('finalized')))
                                     except Exception:
                                         setattr(file, 'order_completed', False)
+                                        setattr(file, 'order_finalized', False)
                                 else:
                                     setattr(file, 'order_completed', False)
+                                    setattr(file, 'order_finalized', False)
                             else:
                                 setattr(file, 'order_completed', False)
+                                setattr(file, 'order_finalized', False)
                         else:
                             setattr(file, 'order_completed', False)
+                            setattr(file, 'order_finalized', False)
                     except Exception:
                         setattr(file, 'order_completed', False)
+                        setattr(file, 'order_finalized', False)
                 # Sort files by robust timestamp (float) to avoid mixed-type comparisons
                 def ts_of(f):
                     try:
@@ -2803,23 +2816,35 @@ def register(app, media_service, socketio=None) -> None:
                                                 if row:
                                                     order_status = (row[0][0] or '').strip().lower()
                                                     order_finalized = int(row[0][1]) if row[0][1] is not None else 0
-                                                    order_completion_cache[order_id_val] = (
-                                                        order_status in ('done', '1', 'completed') or
-                                                        order_finalized == 1
-                                                    )
+                                                    order_completion_cache[order_id_val] = {
+                                                        'completed': bool(order_finalized == 1),
+                                                        'finalized': bool(order_finalized == 1),
+                                                        'status_done': order_status in ('done', '1', 'completed')
+                                                    }
                                                 else:
-                                                    order_completion_cache[order_id_val] = False
-                                            setattr(file, 'order_completed', order_completion_cache[order_id_val])
+                                                    order_completion_cache[order_id_val] = {
+                                                        'completed': False,
+                                                        'finalized': False,
+                                                        'status_done': False
+                                                    }
+                                            info = order_completion_cache.get(order_id_val, {})
+                                            setattr(file, 'order_completed', bool(info.get('completed')))
+                                            setattr(file, 'order_finalized', bool(info.get('finalized')))
                                         except Exception:
                                             setattr(file, 'order_completed', False)
+                                            setattr(file, 'order_finalized', False)
                                     else:
                                         setattr(file, 'order_completed', False)
+                                        setattr(file, 'order_finalized', False)
                                 else:
                                     setattr(file, 'order_completed', False)
+                                    setattr(file, 'order_finalized', False)
                             else:
                                 setattr(file, 'order_completed', False)
+                                setattr(file, 'order_finalized', False)
                         except Exception:
                             setattr(file, 'order_completed', False)
+                            setattr(file, 'order_finalized', False)
                     except Exception:
                         pass
                 # Robust timestamp extractor to ensure proper ordering

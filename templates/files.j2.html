@@ -253,13 +253,17 @@
             {% for file in files %}
               {% if file.ready %}
                 {% set order_completed = 1 if file.order_completed else 0 %}
+                {% set order_finalized = 1 if file.order_finalized else 0 %}
                 {% set is_admin_user = is_admin_or_admin_group if is_admin_or_admin_group is defined else current_user.has('admin.any') %}
+                {% set can_edit_base = 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 %}
+                {% set can_edit = 0 if (order_completed == 1 and not is_admin_user) else can_edit_base %}
                 {% set can_delete_base = 1 if (force_can_manage or current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 %}
                 {% set can_delete = 0 if (order_completed == 1 and not is_admin_user) else can_delete_base %}
                 <tr class="table__body_row" role="row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show_by_id', file_id=file.id) }}" data-download="{{ url_for('files_show_by_id', file_id=file.id, dl=1) }}"
-                  data-can-edit="{{ 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 }}"
+                  data-can-edit="{{ can_edit }}"
                   data-can-delete="{{ can_delete }}"
                   data-order-completed="{{ order_completed }}"
+                  data-order-finalized="{{ order_finalized }}"
                   data-is-admin="{{ 1 if is_admin_user else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
                   data-view-url="{{ url_for('files_view', id=file.id, did=did, sdid=sdid) if current_user.has('files.mark_viewed') else '' }}"
@@ -340,17 +344,21 @@
                   </td>
                 </tr>
               {% else %}
+                {% set order_completed = 1 if file.order_completed else 0 %}
+                {% set order_finalized = 1 if file.order_finalized else 0 %}
+                {% set is_admin_user = is_admin_or_admin_group if is_admin_or_admin_group is defined else current_user.has('admin.any') %}
+                {% set can_edit_base = 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 %}
+                {% set can_edit = 0 if (order_completed == 1 and not is_admin_user) else can_edit_base %}
+                {% set can_delete_base = 1 if (force_can_manage or current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 %}
+                {% set can_delete = 0 if (order_completed == 1 and not is_admin_user) else can_delete_base %}
                 <tr class="table__body_row" role="row" id="{{ file.id }}"
                   data-id="{{ file.id }}"
                   data-url="{{ url_for('files_orig_by_id', file_id=file.id) }}"
                   data-download="{{ url_for('files_orig_by_id', file_id=file.id) }}"
-                  data-can-edit="{{ 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 }}"
-                  {% set order_completed = 1 if file.order_completed else 0 %}
-                  {% set is_admin_user = current_user.has('admin.any') %}
-                  {% set can_delete_base = 1 if (force_can_manage or current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 %}
-                  {% set can_delete = 0 if (order_completed == 1 and not is_admin_user) else can_delete_base %}
+                  data-can-edit="{{ can_edit }}"
                   data-can-delete="{{ can_delete }}"
                   data-order-completed="{{ order_completed }}"
+                  data-order-finalized="{{ order_finalized }}"
                   data-is-admin="{{ 1 if is_admin_user else 0 }}"
                   data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
                   data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"

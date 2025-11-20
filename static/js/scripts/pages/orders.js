@@ -208,6 +208,8 @@
   function render(rows) {
     const tb = document.getElementById('orders-tbody');
     if (!tb) return;
+    hideApproveMenu();
+    hideStatusMenu();
     // Preserve search row at top
     const existingSearch = tb.querySelector('#search');
     const searchHTML = existingSearch ? existingSearch.outerHTML : '';
@@ -290,7 +292,16 @@
               btnText = 'Ожидание';
               btnIcon = '○';
             }
-            return `<button type="button" class="btn btn-sm btn-approve-xs ${btnClass}" data-action="toggle-approved" data-id="${r.id}" data-approved="${approvedVal}" title="${btnText}"${disabled}>${btnIcon}</button>`;
+            return `
+              <button type="button"
+                      class="btn btn-sm btn-approve-xs ${btnClass}"
+                      data-action="toggle-approved"
+                      data-id="${r.id}"
+                      data-approved="${approvedVal}"
+                      title="${btnText}"${disabled}>
+                <span class="orders-approve-icon">${btnIcon}</span>
+                <span class="orders-approve-label">${btnText}</span>
+              </button>`;
           })()}</td>
         <td class="table__body_item">${ (function(){
             var note = (r.note || '').replace(/</g, '&lt;');
@@ -1098,48 +1109,368 @@
     } catch(_) {}
   }
 
+  var APPROVAL_STATE_PRESETS = {
+    '-1': { value: -1, title: 'Не согласовано', icon: '✗', btnClass: 'btn-danger' },
+    '0': { value: 0, title: 'Ожидание', icon: '○', btnClass: 'btn-secondary' },
+    '1': { value: 1, title: 'Согласовано', icon: '✓', btnClass: 'btn-success' }
+  };
+  var approveMenuEl = null;
+  var approveMenuTarget = null;
+  var approveMenuDismissBound = false;
+
+  function getApproveStateMeta(val){
+    var key = String(val);
+    return APPROVAL_STATE_PRESETS.hasOwnProperty(key) ? APPROVAL_STATE_PRESETS[key] : APPROVAL_STATE_PRESETS['0'];
+  }
+
+  function applyApproveStateToButton(btn, val){
+    if (!btn) return;
+    var meta = getApproveStateMeta(val);
+    btn.setAttribute('data-approved', String(meta.value));
+    btn.classList.remove('btn-success', 'btn-danger', 'btn-secondary');
+    btn.classList.add(meta.btnClass);
+    btn.textContent = meta.icon;
+    btn.setAttribute('title', meta.title);
+  }
+
+  function ensureApproveMenu(){
+    if (approveMenuEl) return approveMenuEl;
+    approveMenuEl = document.createElement('div');
+    approveMenuEl.className = 'orders-approve-menu';
+    approveMenuEl.setAttribute('role', 'menu');
+    document.body.appendChild(approveMenuEl);
+    return approveMenuEl;
+  }
+
+  function hideApproveMenu(){
+    if (!approveMenuEl) return;
+    approveMenuEl.classList.remove('show');
+    approveMenuEl.innerHTML = '';
+    approveMenuEl.style.top = '-9999px';
+    approveMenuEl.style.left = '-9999px';
+    approveMenuEl.style.visibility = '';
+    approveMenuTarget = null;
+  }
+
+  function bindApproveMenuDismiss(){
+    if (approveMenuDismissBound) return;
+    approveMenuDismissBound = true;
+    document.addEventListener('click', function(ev){
+      if (!approveMenuEl || !approveMenuEl.classList.contains('show')) return;
+      if (approveMenuEl.contains(ev.target)) return;
+      if (approveMenuTarget && approveMenuTarget.contains(ev.target)) return;
+      hideApproveMenu();
+    }, true);
+    window.addEventListener('resize', hideApproveMenu, true);
+    window.addEventListener('scroll', hideApproveMenu, true);
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape' && approveMenuEl && approveMenuEl.classList.contains('show')) {
+        hideApproveMenu();
+      }
+    }, true);
+  }
+
+  function positionApproveMenu(menu, btn){
+    if (!menu || !btn) return;
+    var rect = btn.getBoundingClientRect();
+    var top = rect.top + (rect.height / 2) + window.scrollY;
+    var left = rect.right + 8 + window.scrollX;
+    var menuRect = menu.getBoundingClientRect();
+    var desiredTop = top - (menuRect.height / 2);
+    var desiredLeft = left;
+    var viewportBottom = window.scrollY + window.innerHeight;
+    var viewportRight = window.scrollX + window.innerWidth;
+    if (desiredLeft + menuRect.width > viewportRight - 8) {
+      desiredLeft = rect.left + window.scrollX - menuRect.width - 8;
+    }
+    if (desiredLeft < window.scrollX + 8) {
+      desiredLeft = window.scrollX + 8;
+    }
+    if (desiredTop + menuRect.height > viewportBottom - 8) {
+      desiredTop = viewportBottom - menuRect.height - 8;
+    }
+    if (desiredTop < window.scrollY + 8) {
+      desiredTop = window.scrollY + 8;
+    }
+    menu.style.left = desiredLeft + 'px';
+    menu.style.top = desiredTop + 'px';
+  }
+
+  function submitApproveChange(btn, targetValue){
+    if (!btn || typeof targetValue === 'undefined') return;
+    var id = parseInt(btn.getAttribute('data-id') || '0', 10) || 0;
+    if (!id) return;
+    if (btn.__approveLoading) return;
+    btn.__approveLoading = true;
+    fetch('/api/orders/' + id + '/approved', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ approved: targetValue })
+    }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) {
+          var t = toastFromError(res, 'Не удалось изменить статус');
+          if (window.showToast) window.showToast(t.msg, t.level);
+          return;
+        }
+        var val = parseInt(res.body.approved ?? targetValue, 10);
+        applyApproveStateToButton(btn, val);
+        emitOrdersChanged('approve', { id: id, approved: val });
+      }).catch(function(){
+        if (window.showToast) window.showToast('Сбой сети', 'danger');
+      }).finally(function(){
+        btn.__approveLoading = false;
+        hideApproveMenu();
+      });
+  }
+
+  function openApproveMenuForButton(btn){
+    if (!btn || btn.disabled) return;
+    bindApproveMenuDismiss();
+    if (approveMenuTarget === btn && approveMenuEl && approveMenuEl.classList.contains('show')) {
+      hideApproveMenu();
+      return;
+    }
+    approveMenuTarget = btn;
+    var menu = ensureApproveMenu();
+    menu.innerHTML = '';
+    var current = parseInt(btn.getAttribute('data-approved') || '0', 10);
+    [-1, 0, 1].forEach(function(val){
+      if (val === current) return;
+      var meta = getApproveStateMeta(val);
+      var option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'btn btn-sm btn-approve-xs orders-approve-menu__option ' + meta.btnClass;
+      option.setAttribute('data-value', String(meta.value));
+      option.setAttribute('title', meta.title);
+      var icon = document.createElement('span');
+      icon.className = 'orders-approve-menu__icon';
+      icon.textContent = meta.icon;
+      var label = document.createElement('span');
+      label.textContent = meta.title;
+      option.appendChild(icon);
+      option.appendChild(label);
+      option.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        submitApproveChange(btn, meta.value);
+      });
+      menu.appendChild(option);
+    });
+    menu.style.visibility = 'hidden';
+    menu.classList.add('show');
+    requestAnimationFrame(function(){
+      positionApproveMenu(menu, btn);
+      menu.style.visibility = '';
+    });
+  }
+
   function bindApprovedToggles(){
     try {
-      if (!(window.OrdersPerms && window.OrdersPerms.approve)) return;
+      hideApproveMenu();
       var tb = document.getElementById('orders-tbody');
       if (!tb) return;
-      tb.querySelectorAll('button[data-action="toggle-approved"]').forEach(function(btn){
-        if (btn.dataset.bound === '1') return;
-        btn.dataset.bound = '1';
-        btn.addEventListener('click', function(){
-          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
-          var el = this;
-          // Backend handles cyclic toggle: 0 -> 1 -> -1 -> 0
-          fetch('/api/orders/' + id + '/approved', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({})
-          }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
-            .then(function(res){
-              if (!res.ok || !res.body || res.body.ok === false) { var t = toastFromError(res, 'Не удалось изменить статус'); if (window.showToast) window.showToast(t.msg, t.level); return; }
-              var val = parseInt(res.body.approved || 0);
-              el.setAttribute('data-approved', String(val));
-              // Update button appearance based on state
-              el.classList.remove('btn-success', 'btn-danger', 'btn-secondary');
-              if (val === 1) {
-                el.classList.add('btn-success');
-                el.textContent = '✓';
-                el.setAttribute('title', 'Согласовано');
-              } else if (val === -1) {
-                el.classList.add('btn-danger');
-                el.textContent = '✗';
-                el.setAttribute('title', 'Не согласовано');
-              } else {
-                el.classList.add('btn-secondary');
-                el.textContent = '○';
-                el.setAttribute('title', 'Ожидание');
-              }
-              emitOrdersChanged('approve', { id: id, approved: val });
-            }).catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+      if (!(window.OrdersPerms && window.OrdersPerms.approve)) return;
+      // Always clone buttons to remove all old event listeners and ensure clean state
+      var buttons = Array.from(tb.querySelectorAll('button[data-action="toggle-approved"]'));
+      buttons.forEach(function(oldBtn){
+        var parent = oldBtn.parentNode;
+        if (!parent) return;
+        // Clone node to remove all event listeners
+        var newBtn = oldBtn.cloneNode(true);
+        newBtn.dataset.bound = '1';
+        // Replace old button with cloned one
+        parent.replaceChild(newBtn, oldBtn);
+        // Add new event listener to the fresh button
+        newBtn.addEventListener('click', function(ev){
+          ev.preventDefault();
+          ev.stopPropagation();
+          ev.stopImmediatePropagation();
+          openApproveMenuForButton(this);
         });
       });
     } catch(_) {}
+  }
+
+  var STATUS_STATE_PRESETS = {
+    'stopped': { value: 'stopped', title: 'Работы не ведутся', text: 'Работы не ведутся', btnClass: 'btn-danger' },
+    'in_progress': { value: 'in_progress', title: 'Работы ведутся', text: 'Работы ведутся', btnClass: 'btn-success' },
+    'done': { value: 'done', title: 'Работы завершены', text: 'Работы завершены', btnClass: 'btn-info' }
+  };
+  var statusMenuEl = null;
+  var statusMenuTarget = null;
+  var statusMenuDismissBound = false;
+
+  function getStatusStateMeta(val){
+    var key = String(val || '').trim().toLowerCase();
+    return STATUS_STATE_PRESETS[key] || STATUS_STATE_PRESETS['stopped'];
+  }
+
+  function applyStatusStateToButton(btn, val){
+    if (!btn) return;
+    var meta = getStatusStateMeta(val);
+    btn.setAttribute('data-status', meta.value);
+    btn.classList.remove('btn-danger','btn-success','btn-info','btn-warning','btn-secondary');
+    btn.classList.add(meta.btnClass);
+    btn.textContent = meta.text;
+    btn.setAttribute('title', meta.title);
+  }
+
+  function ensureStatusMenu(){
+    if (statusMenuEl) return statusMenuEl;
+    statusMenuEl = document.createElement('div');
+    statusMenuEl.className = 'orders-status-menu';
+    statusMenuEl.setAttribute('role', 'menu');
+    document.body.appendChild(statusMenuEl);
+    return statusMenuEl;
+  }
+
+  function hideStatusMenu(){
+    if (!statusMenuEl) return;
+    statusMenuEl.classList.remove('show');
+    statusMenuEl.innerHTML = '';
+    statusMenuEl.style.top = '-9999px';
+    statusMenuEl.style.left = '-9999px';
+    statusMenuEl.style.visibility = '';
+    statusMenuTarget = null;
+  }
+
+  function bindStatusMenuDismiss(){
+    if (statusMenuDismissBound) return;
+    statusMenuDismissBound = true;
+    document.addEventListener('click', function(ev){
+      if (!statusMenuEl || !statusMenuEl.classList.contains('show')) return;
+      if (statusMenuEl.contains(ev.target)) return;
+      if (statusMenuTarget && statusMenuTarget.contains(ev.target)) return;
+      hideStatusMenu();
+    }, true);
+    window.addEventListener('resize', hideStatusMenu, true);
+    window.addEventListener('scroll', hideStatusMenu, true);
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape' && statusMenuEl && statusMenuEl.classList.contains('show')) {
+        hideStatusMenu();
+      }
+    }, true);
+  }
+
+  function positionStatusMenu(menu, btn){
+    if (!menu || !btn) return;
+    var rect = btn.getBoundingClientRect();
+    var top = rect.top + (rect.height / 2) + window.scrollY;
+    var left = rect.right + 8 + window.scrollX;
+    var menuRect = menu.getBoundingClientRect();
+    var desiredTop = top - (menuRect.height / 2);
+    var desiredLeft = left;
+    var viewportBottom = window.scrollY + window.innerHeight;
+    var viewportRight = window.scrollX + window.innerWidth;
+    if (desiredLeft + menuRect.width > viewportRight - 8) {
+      desiredLeft = rect.left + window.scrollX - menuRect.width - 8;
+    }
+    if (desiredLeft < window.scrollX + 8) {
+      desiredLeft = window.scrollX + 8;
+    }
+    if (desiredTop + menuRect.height > viewportBottom - 8) {
+      desiredTop = viewportBottom - menuRect.height - 8;
+    }
+    if (desiredTop < window.scrollY + 8) {
+      desiredTop = window.scrollY + 8;
+    }
+    menu.style.left = desiredLeft + 'px';
+    menu.style.top = desiredTop + 'px';
+  }
+
+  function ensureStatusChangeAllowed(btn, silent){
+    var row = btn && btn.closest && btn.closest('tr.table__body_row');
+    if (!row) return { ok: false };
+    var apprBtn = row.querySelector('button[data-action="toggle-approved"]');
+    var approvedVal = apprBtn ? parseInt(apprBtn.getAttribute('data-approved') || '0', 10) : 0;
+    if (approvedVal !== 1) {
+      if (!silent && window.showToast) window.showToast('Недостаточно прав или не согласовано', 'warning');
+      return { ok: false };
+    }
+    var svc = row.getAttribute('data-service') || '';
+    if (!canEditStatusFor(svc)) {
+      if (!silent && window.showToast) window.showToast('Недостаточно прав или не согласовано', 'warning');
+      return { ok: false };
+    }
+    return { ok: true, row: row };
+  }
+
+  function submitStatusChange(btn, targetValue){
+    if (!btn) return;
+    var id = parseInt(btn.getAttribute('data-id') || '0', 10) || 0;
+    if (!id) return;
+    var check = ensureStatusChangeAllowed(btn, true);
+    if (!check.ok) { hideStatusMenu(); return; }
+    if (btn.__statusLoading) return;
+    btn.__statusLoading = true;
+    fetch('/api/orders/' + id + '/status', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ status: targetValue })
+    }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok: r.ok, body: j }; }); })
+      .then(function(res){
+        if (!res.ok || !res.body || res.body.ok === false) {
+          var t = toastFromError(res, 'Не удалось изменить состояние');
+          if (window.showToast) window.showToast(t.msg, t.level);
+          return;
+        }
+        var val = String((res.body && res.body.status) || targetValue || '').trim().toLowerCase();
+        applyStatusStateToButton(btn, val);
+        var row = check.row || btn.closest('tr.table__body_row');
+        if (row) row.setAttribute('data-status', val);
+        emitOrdersChanged && emitOrdersChanged('status', { id: id, status: val });
+      }).catch(function(){
+        if (window.showToast) window.showToast('Сбой сети', 'danger');
+      }).finally(function(){
+        btn.__statusLoading = false;
+        hideStatusMenu();
+      });
+  }
+
+  function openStatusMenuForButton(btn){
+    if (!btn || btn.disabled) return;
+    var allowed = ensureStatusChangeAllowed(btn);
+    if (!allowed.ok) return;
+    bindStatusMenuDismiss();
+    if (statusMenuTarget === btn && statusMenuEl && statusMenuEl.classList.contains('show')) {
+      hideStatusMenu();
+      return;
+    }
+    statusMenuTarget = btn;
+    var menu = ensureStatusMenu();
+    menu.innerHTML = '';
+    var current = String(btn.getAttribute('data-status') || '').trim().toLowerCase();
+    Object.keys(STATUS_STATE_PRESETS).forEach(function(key){
+      if (key === current) return;
+      var meta = STATUS_STATE_PRESETS[key];
+      var option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'btn btn-sm orders-status-menu__option ' + meta.btnClass;
+      option.setAttribute('data-value', meta.value);
+      option.setAttribute('title', meta.title);
+      var label = document.createElement('span');
+      label.textContent = meta.text;
+      option.appendChild(label);
+      option.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        submitStatusChange(btn, meta.value);
+      });
+      menu.appendChild(option);
+    });
+    if (!menu.children.length) {
+      hideStatusMenu();
+      return;
+    }
+    menu.style.visibility = 'hidden';
+    menu.classList.add('show');
+    requestAnimationFrame(function(){
+      positionStatusMenu(menu, btn);
+      menu.style.visibility = '';
+    });
   }
 
   function canEditStatusFor(serviceName){
@@ -1575,46 +1906,21 @@
 
   function bindStatusToggles(){
     try {
+      hideStatusMenu();
       var tb = document.getElementById('orders-tbody');
       if (!tb) return;
-      tb.querySelectorAll('button[data-action="toggle-status"]').forEach(function(btn){
-        if (btn.dataset.bound === '1') return;
-        btn.dataset.bound = '1';
-        btn.addEventListener('click', function(){
-          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
-          // Enforce client-side rules: only if approved == yes and user has status_change/admin
-          var row = this.closest('tr');
-          var apprBtn = row ? row.querySelector('button[data-action="toggle-approved"]') : null;
-          var approvedVal = apprBtn ? parseInt(apprBtn.getAttribute('data-approved') || '0') : 0;
-          var isApproved = (approvedVal === 1);
-          var svc = row ? (row.getAttribute('data-service') || '') : '';
-          // Current status value (may be 'stopped' | 'in_progress' | 'done')
-          var st = row ? (row.getAttribute('data-status') || '') : '';
-          var issued = row ? (row.getAttribute('data-issued') || '') : '';
-          var start = row ? (row.getAttribute('data-start') || '') : '';
-          var end = row ? (row.getAttribute('data-end') || '') : '';
-          // Do not block on client when completed; let server enforce locks
-          if (!isApproved || !canEditStatusFor(svc)) {
-            if (window.showToast) window.showToast('Недостаточно прав или не согласовано', 'warning');
-            return;
-          }
-          // Cycle on server; we just POST without payload
-          fetch('/api/orders/' + id + '/status', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            body: JSON.stringify({})
-          }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, body: j }; }); })
-            .then(function(res){
-              if (!res.ok || !res.body || res.body.ok === false) { if (window.showToast) window.showToast('Не удалось изменить состояние', 'danger'); return; }
-              var st = res.body.status || 'stopped';
-              // Update button text/class optimistically
-              btn.setAttribute('data-status', st);
-              btn.textContent = statusText(st);
-              btn.classList.remove('btn-danger','btn-warning','btn-success','btn-secondary','btn-info');
-              btn.classList.add(statusBtnClass(st));
-            })
-            .catch(function(){ if (window.showToast) window.showToast('Сбой сети', 'danger'); });
+      var buttons = Array.from(tb.querySelectorAll('button[data-action="toggle-status"]'));
+      buttons.forEach(function(oldBtn){
+        var parent = oldBtn.parentNode;
+        if (!parent) return;
+        var newBtn = oldBtn.cloneNode(true);
+        newBtn.dataset.bound = '1';
+        parent.replaceChild(newBtn, oldBtn);
+        newBtn.addEventListener('click', function(ev){
+          ev.preventDefault();
+          ev.stopPropagation();
+          ev.stopImmediatePropagation();
+          openStatusMenuForButton(this);
         });
       });
     } catch(_) {}
@@ -1934,31 +2240,6 @@
     __origHandleOrderCreateSubmit.apply(this, arguments);
     // emit after slight delay to ensure backend commit
     setTimeout(function(){ emitOrdersChanged('create'); }, 150);
-  };
-
-  // Approve toggle augmentation happens inside bindApprovedToggles success
-  var __origBindApprovedToggles = bindApprovedToggles;
-  bindApprovedToggles = function(){
-    try {
-      if (!(window.OrdersPerms && window.OrdersPerms.approve)) return __origBindApprovedToggles();
-      var tb = document.getElementById('orders-tbody');
-      if (!tb) return __origBindApprovedToggles();
-      tb.querySelectorAll('button[data-action="toggle-approved"]').forEach(function(btn){
-        if (btn.__ordersAugmented === '1') return;
-        btn.__ordersAugmented = '1';
-        btn.addEventListener('click', function onClick(){
-          var id = parseInt(this.getAttribute('data-id') || '0', 10) || 0;
-          // attach a one-time listener to emit on success by polling attribute change
-          var el = this;
-          var prev = parseInt(el.getAttribute('data-approved') || '0');
-          setTimeout(function(){
-            var now = parseInt(el.getAttribute('data-approved') || '0');
-            if (now !== prev) emitOrdersChanged('approve', { id: id, approved: now });
-          }, 250);
-        }, true);
-      });
-    } catch(_) {}
-    return __origBindApprovedToggles();
   };
 
   var __origHandleOrderEditSubmit = handleOrderEditSubmit;
