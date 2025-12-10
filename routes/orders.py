@@ -12,6 +12,7 @@ from modules.permissions import (
     ORDERS_FILES_EDIT,
     ORDERS_FILES_VIEW,
     ORDERS_VIEW_ALL,
+    ORDERS_EDIT_APPROVED,
 )
 from flask import redirect, url_for
 from modules.logging import log_action
@@ -518,12 +519,18 @@ def register(app, socketio=None):
 				(creator_gid and current_user.gid == creator_gid)
 			)
 			# Disallow edit if approved (1) or rejected (-1) or already completed
-			# Only pending (0) allows editing
+			# Only pending (0) allows editing, unless user has orders.edit_approved for approved (1)
 			if str(order.get('status', '')).strip().lower() == 'done':
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
 			approved_val = int(order.get('approved', 0) or 0)
 			if approved_val != 0:  # Block if approved (1) or rejected (-1)
-				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
+				# Allow editing approved orders (1) if user has orders.edit_approved permission
+				if approved_val == 1 and current_user.has('orders.edit_approved'):
+					pass  # Allow editing approved orders
+				elif approved_val == -1:  # Rejected orders cannot be edited
+					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
+				else:  # approved_val == 1 but no permission
+					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
 			if not can_edit:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'edit_permission_required' }), 403
 			data = request.get_json(silent=True) or {}

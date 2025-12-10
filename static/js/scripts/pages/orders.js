@@ -859,7 +859,9 @@
             targetInput.value = id;
             // Permissions-based show/hide
             var svc = this.getAttribute('data-service') || '';
-            var canEdit = canEditOrderFor(svc);
+            var btn = this.querySelector('button[data-action="toggle-approved"]');
+            var approvedVal = btn ? parseInt(btn.getAttribute('data-approved') || '0') : 0;
+            var canEdit = canEditOrderFor(svc, approvedVal);
             var canTimeline = canEditStatusFor(svc);
             var canDelete = canDeleteOrderFor(svc);
             var canApproveUI = !!(window.OrdersPerms && window.OrdersPerms.approve);
@@ -885,8 +887,7 @@
             setVis('note', !!(window.OrdersPerms && (window.OrdersPerms.notes || window.OrdersPerms.admin)));
             // Three states: 0 = ожидание, 1 = согласовано, -1 = не согласовано
             // Show approve/unapprove in context menu based on current state
-            var btn = this.querySelector('button[data-action="toggle-approved"]');
-            var approvedVal = btn ? parseInt(btn.getAttribute('data-approved') || '0') : 0;
+            // btn and approvedVal already defined above
             var isApproved = (approvedVal === 1);
             var isRejected = (approvedVal === -1);
             var isPending = (approvedVal === 0);
@@ -1489,8 +1490,14 @@
     return false;
   }
 
-  function canEditOrderFor(serviceName){
+  function canEditOrderFor(serviceName, approvedVal){
     var perms = window.OrdersPerms || {};
+    // If order is approved (1), require orders.edit_approved permission
+    if (approvedVal === 1) {
+      if (perms.admin || perms.edit_approved) return true;
+      return false;
+    }
+    // For pending (0) or rejected (-1) orders, or if approvedVal is undefined, use standard permission logic
     if (perms.admin || perms.edit_any) return true;
     var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
     var map = window.OrdersGroups || {};

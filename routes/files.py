@@ -7,7 +7,7 @@ from utils.common import make_dir, hash_str
 from utils.dir_utils import validate_directory_params
 from services.permissions import dirs_by_permission
 from modules.SQLUtils import SQLUtils
-from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES
+from modules.permissions import require_permissions, FILES_VIEW_PAGE, FILES_UPLOAD, FILES_EDIT_ANY, FILES_DELETE_ANY, FILES_MARK_VIEWED, FILES_NOTES, ORDERS_EDIT_APPROVED
 from modules.logging import get_logger, log_access, log_action
 from flask import request, jsonify
 from datetime import datetime
@@ -591,27 +591,31 @@ def register(app, media_service, socketio=None) -> None:
                                         if order_id_val not in order_completion_cache:
                                             prefix = app._sql.config['db']['prefix']
                                             row = app._sql.execute_query(
-                                                f'SELECT status, finalized FROM {prefix}_order WHERE id=%s',
+                                                f'SELECT status, finalized, approved FROM {prefix}_order WHERE id=%s',
                                                 [order_id_val]
                                             )
                                             if row:
                                                 order_status = (row[0][0] or '').strip().lower()
                                                 order_finalized = int(row[0][1]) if row[0][1] is not None else 0
+                                                order_approved = int(row[0][2]) if len(row[0]) > 2 and row[0][2] is not None else 0
                                                 order_completion_cache[order_id_val] = {
                                                     'completed': (
                                                         order_status in ('done', '1', 'completed') or
                                                         order_finalized == 1
                                                     ),
-                                                    'finalized': bool(order_finalized == 1)
+                                                    'finalized': bool(order_finalized == 1),
+                                                    'approved': int(order_approved)
                                                 }
                                             else:
                                                 order_completion_cache[order_id_val] = {
                                                     'completed': False,
-                                                    'finalized': False
+                                                    'finalized': False,
+                                                    'approved': 0
                                                 }
                                         info = order_completion_cache.get(order_id_val, {})
                                         setattr(file, 'order_completed', bool(info.get('completed')))
                                         setattr(file, 'order_finalized', bool(info.get('finalized')))
+                                        setattr(file, 'order_approved', int(info.get('approved', 0)))
                                     except Exception:
                                         setattr(file, 'order_completed', False)
                                         setattr(file, 'order_finalized', False)
@@ -1253,12 +1257,14 @@ def register(app, media_service, socketio=None) -> None:
                             order_id_val = int(order_id_str)
                             prefix = app._sql.config['db']['prefix']
                             row = app._sql.execute_query(
-                                f'SELECT service, creator_gid FROM {prefix}_order WHERE id=%s',
+                                f'SELECT service, creator_gid, approved, finalized FROM {prefix}_order WHERE id=%s',
                                 [order_id_val]
                             )
                             if row:
                                 service = row[0][0] if row[0][0] else ''
                                 creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
+                                order_approved = int(row[0][2]) if (row and len(row[0]) > 2 and row[0][2] is not None) else 0
+                                order_finalized = int(row[0][3]) if (row and len(row[0]) > 3 and row[0][3] is not None) else 0
                                 groups = app._sql.execute_query(f'SELECT id,name FROM {prefix}_group') or []
                                 service_gid = None
                                 for gid, name in groups:
@@ -1266,10 +1272,22 @@ def register(app, media_service, socketio=None) -> None:
                                         service_gid = int(gid)
                                         break
                                 user_gid = int(getattr(current_user, 'gid', 0) or 0)
-                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
-                                    has_order_permission = True
-                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
-                                    has_order_permission = True
+                                # Check if order is finalized - if so, only admin can edit
+                                if order_finalized == 1:
+                                    # Only admin can edit finalized orders
+                                    if current_user.has('admin.any'):
+                                        has_order_permission = True
+                                # Check if order is approved (1) - require orders.edit_approved permission
+                                elif order_approved == 1:
+                                    # For approved orders, require orders.edit_approved permission
+                                    if current_user.has('admin.any') or current_user.has('orders.edit_approved'):
+                                        has_order_permission = True
+                                else:
+                                    # For pending (0) or rejected (-1) orders, use standard order permission logic
+                                    if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                        has_order_permission = True
+                                    elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                        has_order_permission = True
                         except Exception:
                             pass
             except Exception:
@@ -1388,7 +1406,7 @@ def register(app, media_service, socketio=None) -> None:
                             order_id_val = int(order_id_str)
                             prefix = app._sql.config['db']['prefix']
                             row = app._sql.execute_query(
-                                f'SELECT service, creator_gid, status, finalized FROM {prefix}_order WHERE id=%s',
+                                f'SELECT service, creator_gid, status, finalized, approved FROM {prefix}_order WHERE id=%s',
                                 [order_id_val]
                             )
                             if row:
@@ -1396,6 +1414,7 @@ def register(app, media_service, socketio=None) -> None:
                                 creator_gid = int(row[0][1]) if (row and row[0][1] is not None) else None
                                 order_status = (row[0][2] or '').strip().lower() if len(row[0]) > 2 else ''
                                 order_finalized = int(row[0][3]) if len(row[0]) > 3 and row[0][3] is not None else 0
+                                order_approved = int(row[0][4]) if len(row[0]) > 4 and row[0][4] is not None else 0
                                 # Check if order is completed
                                 order_is_completed = (
                                     order_status in ('done', '1', 'completed') or
@@ -1408,10 +1427,22 @@ def register(app, media_service, socketio=None) -> None:
                                         service_gid = int(gid)
                                         break
                                 user_gid = int(getattr(current_user, 'gid', 0) or 0)
-                                if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
-                                    can_delete = True
-                                elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
-                                    can_delete = True
+                                # Check if order is finalized - if so, only admin can delete
+                                if order_finalized == 1:
+                                    # Only admin can delete files from finalized orders
+                                    if current_user.has('admin.any'):
+                                        can_delete = True
+                                # Check if order is approved (1) - require orders.edit_approved permission
+                                elif order_approved == 1:
+                                    # For approved orders, require orders.edit_approved permission
+                                    if current_user.has('admin.any') or current_user.has('orders.edit_approved'):
+                                        can_delete = True
+                                else:
+                                    # For pending (0) or rejected (-1) orders, use standard order permission logic
+                                    if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
+                                        can_delete = True
+                                    elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
+                                        can_delete = True
                         except Exception:
                             pass
             except Exception:
@@ -2810,26 +2841,30 @@ def register(app, media_service, socketio=None) -> None:
                                             if order_id_val not in order_completion_cache:
                                                 prefix = app._sql.config['db']['prefix']
                                                 row = app._sql.execute_query(
-                                                    f'SELECT status, finalized FROM {prefix}_order WHERE id=%s',
+                                                    f'SELECT status, finalized, approved FROM {prefix}_order WHERE id=%s',
                                                     [order_id_val]
                                                 )
                                                 if row:
                                                     order_status = (row[0][0] or '').strip().lower()
                                                     order_finalized = int(row[0][1]) if row[0][1] is not None else 0
+                                                    order_approved = int(row[0][2]) if len(row[0]) > 2 and row[0][2] is not None else 0
                                                     order_completion_cache[order_id_val] = {
                                                         'completed': bool(order_finalized == 1),
                                                         'finalized': bool(order_finalized == 1),
-                                                        'status_done': order_status in ('done', '1', 'completed')
+                                                        'status_done': order_status in ('done', '1', 'completed'),
+                                                        'approved': int(order_approved)
                                                     }
                                                 else:
                                                     order_completion_cache[order_id_val] = {
                                                         'completed': False,
                                                         'finalized': False,
-                                                        'status_done': False
+                                                        'status_done': False,
+                                                        'approved': 0
                                                     }
                                             info = order_completion_cache.get(order_id_val, {})
                                             setattr(file, 'order_completed', bool(info.get('completed')))
                                             setattr(file, 'order_finalized', bool(info.get('finalized')))
+                                            setattr(file, 'order_approved', int(info.get('approved', 0)))
                                         except Exception:
                                             setattr(file, 'order_completed', False)
                                             setattr(file, 'order_finalized', False)

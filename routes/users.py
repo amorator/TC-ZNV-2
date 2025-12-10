@@ -445,8 +445,8 @@ def register(app):
                     parts.append('')
                 is_z = any(('z' in (seg or '')) for seg in parts)
                 if is_z:
-                    # Use 7-segment full-access string including extended Orders rights (status change)
-                    permission_value = 'aef,abcdefglmn,abcdflm,ab,ab,ab,abcd'
+                    # Use 7-segment full-access string including extended Orders rights (status change, edit approved)
+                    permission_value = 'aef,abcdefghlmn,abcdflm,ab,ab,ab,abcd'
             except Exception:
                 pass
 

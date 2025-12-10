@@ -18,6 +18,7 @@ ORDERS_STATUS_CHANGE = 'orders.status_change'
 ORDERS_NOTES = 'orders.notes'
 ORDERS_FILES_VIEW = 'orders.files_view'
 ORDERS_FILES_EDIT = 'orders.files_edit'
+ORDERS_EDIT_APPROVED = 'orders.edit_approved'
 USERS_VIEW_PAGE = 'users.view'
 USERS_MANAGE = 'users.manage'
 GROUPS_VIEW_PAGE = 'groups.view'
@@ -120,6 +121,7 @@ PERMISSION_LABELS = {
 	ORDERS_NOTES: 'Наряды: примечания',
 	ORDERS_FILES_VIEW: 'Наряды: просмотр файлов',
 	ORDERS_FILES_EDIT: 'Наряды: изменение файлов',
+	ORDERS_EDIT_APPROVED: 'Наряды: редактирование согласованных',
 
 	USERS_VIEW_PAGE: 'Пользователи: просмотр',
 	USERS_MANAGE: 'Пользователи: управление',

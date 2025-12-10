@@ -400,6 +400,7 @@
     approve: {{ 'true' if (current_user.has('orders.approve') or current_user.has('admin.any')) else 'false' }},
     notes: {{ 'true' if (current_user.has('orders.notes') or current_user.has('admin.any')) else 'false' }},
     edit_any: {{ 'true' if (current_user.has('orders.edit_any') or current_user.has('admin.any')) else 'false' }},
+    edit_approved: {{ 'true' if (current_user.has('orders.edit_approved') or current_user.has('admin.any')) else 'false' }},
     delete_any: {{ 'true' if (current_user.has('orders.delete_any') or current_user.has('admin.any')) else 'false' }},
     status_change: {{ 'true' if (current_user.has('orders.status_change') or current_user.has('admin.any')) else 'false' }},
     files_view: {{ 'true' if (current_user.has('orders.files_view') or current_user.has('admin.any')) else 'false' }},

@@ -8,7 +8,7 @@
     {% set is_admin_group = (user_group_name|lower == admin_group_name|lower) %}
     {% set perm_str = (user.permission_string() or '')|trim %}
     {% set perm_labels = user.permission_labels() %}
-    {% set full_legacy = (perm_str == 'aef,abcdefglmn,abcdflm,ab,ab,ab,abcd') %}
+    {% set full_legacy = (perm_str == 'aef,abcdefghlmn,abcdflm,ab,ab,ab,abcd') %}
     {% set has_z = 'z' in perm_str %}
     {% set is_admin_login = (user.login|lower == 'admin') %}
     {% set is_admin = is_admin_login or user.has('admin.any') or full_legacy or has_z %}
