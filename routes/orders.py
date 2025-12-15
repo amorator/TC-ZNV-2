@@ -512,39 +512,42 @@ def register(app, socketio=None):
 					service_gid = int(gid)
 					break
 			creator_gid = order.get('creator_gid')
-			can_edit = (
-				current_user.has('admin.any') or
-				current_user.has('orders.edit_any') or
-				(service_gid and current_user.gid == service_gid) or
-				(creator_gid and current_user.gid == creator_gid)
-			)
-			# Disallow edit if approved (1) or rejected (-1) or already completed
-			# Only pending (0) allows editing, unless user has orders.edit_approved for approved (1)
+			finalized = int(order.get('finalized', 0) or 0)
+			approved_val = int(order.get('approved', 0) or 0)
+			
+			# If finalized=1, only admin can edit
+			if finalized == 1:
+				if not current_user.has('admin.any'):
+					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'finalized_locked' }), 403
+			
+			# Check if user has edit_approved permission - allows editing all orders regardless of approved status
+			has_edit_approved = current_user.has('orders.edit_approved')
+			
+			if has_edit_approved:
+				# With edit_approved permission, can edit all orders (except finalized=1, already checked above)
+				can_edit = True
+			else:
+				# Without edit_approved, can only edit when approved != 1 (i.e., pending (0) or rejected (-1))
+				if approved_val == 1:
+					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
+				# Standard edit permission logic for pending/rejected orders
+				can_edit = (
+					current_user.has('admin.any') or
+					current_user.has('orders.edit_any') or
+					current_user.has('orders.view_all') or
+					(service_gid and current_user.gid == service_gid) or
+					(creator_gid and current_user.gid == creator_gid)
+				)
+			
 			if str(order.get('status', '')).strip().lower() == 'done':
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'done_locked' }), 403
-			approved_val = int(order.get('approved', 0) or 0)
-			if approved_val != 0:  # Block if approved (1) or rejected (-1)
-				# Allow editing approved orders (1) if user has orders.edit_approved permission
-				if approved_val == 1 and current_user.has('orders.edit_approved'):
-					pass  # Allow editing approved orders
-				elif approved_val == -1:  # Rejected orders cannot be edited
-					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
-				else:  # approved_val == 1 but no permission
-					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
+			
 			if not can_edit:
 				return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'edit_permission_required' }), 403
 			data = request.get_json(silent=True) or {}
 			number = (data.get('number') or '').strip()
 			responsible = (data.get('responsible') or '').strip()
-			# Ignore incoming service; always set to current user's group name
-			service = order['service']
-			try:
-				row2 = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
-				cgname = (row2[0][0] or '') if row2 and row2[0] else ''
-				if cgname:
-					service = str(cgname)
-			except Exception:
-				pass
+			# Service should not be changed when editing an order
 			work_name = (data.get('work_name') or '').strip()
 			issued = (data.get('issued') or '').strip() or None
 			start = (data.get('start') or '').strip() or None
@@ -566,8 +569,8 @@ def register(app, socketio=None):
 			start_dt = norm_dt(start)
 			end_dt = norm_dt(end)
 			app._sql.execute_non_query(
-				f"UPDATE {prefix}_order SET service=%s, number=%s, responsible=%s, work_name=%s, issued=%s, start=%s, end=%s WHERE id=%s;",
-				[service, number, responsible, work_name, issued_dt, start_dt, end_dt, order_id]
+				f"UPDATE {prefix}_order SET number=%s, responsible=%s, work_name=%s, issued=%s, start=%s, end=%s WHERE id=%s;",
+				[number, responsible, work_name, issued_dt, start_dt, end_dt, order_id]
 			)
 			# Ensure/refresh files subcategory for this order (keep folder, update display to reflect number)
 			try:

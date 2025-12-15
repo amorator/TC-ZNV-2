@@ -1277,17 +1277,18 @@ def register(app, media_service, socketio=None) -> None:
                                     # Only admin can edit finalized orders
                                     if current_user.has('admin.any'):
                                         has_order_permission = True
-                                # Check if order is approved (1) - require orders.edit_approved permission
-                                elif order_approved == 1:
-                                    # For approved orders, require orders.edit_approved permission
-                                    if current_user.has('admin.any') or current_user.has('orders.edit_approved'):
-                                        has_order_permission = True
-                                else:
+                                # Check if user has edit_approved permission - allows editing all orders regardless of approved status
+                                elif current_user.has('orders.edit_approved'):
+                                    # With edit_approved permission, can edit all orders (except finalized=1, already checked above)
+                                    has_order_permission = True
+                                # Without edit_approved, can only edit when approved != 1
+                                elif order_approved != 1:
                                     # For pending (0) or rejected (-1) orders, use standard order permission logic
                                     if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
                                         has_order_permission = True
                                     elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
                                         has_order_permission = True
+                                # If approved == 1 and no edit_approved permission, cannot edit
                         except Exception:
                             pass
             except Exception:
@@ -1432,17 +1433,18 @@ def register(app, media_service, socketio=None) -> None:
                                     # Only admin can delete files from finalized orders
                                     if current_user.has('admin.any'):
                                         can_delete = True
-                                # Check if order is approved (1) - require orders.edit_approved permission
-                                elif order_approved == 1:
-                                    # For approved orders, require orders.edit_approved permission
-                                    if current_user.has('admin.any') or current_user.has('orders.edit_approved'):
-                                        can_delete = True
-                                else:
+                                # Check if user has edit_approved permission - allows deleting from all orders regardless of approved status
+                                elif current_user.has('orders.edit_approved'):
+                                    # With edit_approved permission, can delete from all orders (except finalized=1, already checked above)
+                                    can_delete = True
+                                # Without edit_approved, can only delete when approved != 1
+                                elif order_approved != 1:
                                     # For pending (0) or rejected (-1) orders, use standard order permission logic
                                     if (service_gid and user_gid == service_gid) or (creator_gid and user_gid == creator_gid):
                                         can_delete = True
                                     elif current_user.has('admin.any') or current_user.has('orders.files_edit'):
                                         can_delete = True
+                                # If approved == 1 and no edit_approved permission, cannot delete
                         except Exception:
                             pass
             except Exception:
@@ -1485,7 +1487,7 @@ def register(app, media_service, socketio=None) -> None:
                         return jsonify({'status': 'error', 'error': 'forbidden', 'code': 'order_completed_no_delete'}), 403
                 except Exception:
                     pass
-                app.flash_error('Нельзя удалять файлы из завершенного наряда')
+                app.flash_error('Нельзя удалять файлы из закрытого наряда')
                 return redirect(url_for('files'))
         
         if not can_delete:

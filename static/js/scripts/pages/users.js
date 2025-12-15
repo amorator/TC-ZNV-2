@@ -196,7 +196,7 @@ function setupUserManagement() {
     }
   }
 
-  // Setup permission form
+  // Setup permission form - use AJAX like orders page
   const permForm = document.getElementById("perm");
   if (permForm) {
     const submitButton = permForm.querySelector(
@@ -207,9 +207,99 @@ function setupUserManagement() {
       submitButton.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        if (window.validateForm) {
-          window.validateForm(this);
+        
+        // Get user ID from form action
+        const actionUrl = permForm.action || '';
+        const idMatch = actionUrl.match(/\/users\/edit\/(\d+)/);
+        const userId = idMatch ? parseInt(idMatch[1], 10) : 0;
+        if (!userId) {
+          if (window.showToast) window.showToast('Ошибка: не найден ID пользователя', 'danger');
+          return;
         }
+        
+        // Get permission string from hidden field
+        const permInput = document.getElementById('perm-string-perm');
+        if (!permInput) {
+          if (window.showToast) window.showToast('Ошибка: не найдено поле разрешений', 'danger');
+          return;
+        }
+        const permission = permInput.value || '';
+        
+        // Get existing user data from hidden fields to preserve them
+        // These fields are filled by popupValues when modal opens
+        const login = permForm.querySelector('input[name="login"]')?.value || '';
+        const name = permForm.querySelector('input[name="name"]')?.value || '';
+        const group = permForm.querySelector('input[name="group"]')?.value || '';
+        const enabledInput = permForm.querySelector('input[name="enabled"]');
+        const enabled = enabledInput ? (enabledInput.value || (enabledInput.checked ? '1' : '')) : '';
+        
+        // Prepare form data
+        const formData = new FormData();
+        if (login) formData.append('login', login);
+        if (name) formData.append('name', name);
+        if (group) formData.append('group', group);
+        if (enabled) formData.append('enabled', enabled);
+        formData.append('permission', permission);
+        
+        // Submit via AJAX
+        fetch(`/users/edit/${userId}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+          body: formData
+        })
+        .then(function(r) { 
+          return r.json().then(function(j) { 
+            return { ok: r.ok, status: r.status, body: j }; 
+          }); 
+        })
+        .then(function(res) {
+          if (!res.ok || !res.body || res.body.status === 'error') {
+            if (window.showToast) window.showToast(res.body?.message || 'Ошибка сохранения разрешений', 'danger');
+            return;
+          }
+          if (window.closeModal) window.closeModal('popup-perm');
+          if (window.showToast) window.showToast('Разрешения обновлены', 'success');
+          // Refresh table preserving current page - use usersPager if available
+          try {
+            if (window.usersPager && typeof window.usersPager.renderPage === 'function') {
+              // Get current page from URL, pagination, or use readPage method
+              let currentPage = 1;
+              try {
+                const url = new URL(window.location.href);
+                currentPage = parseInt(url.searchParams.get('page') || '0', 10);
+              } catch(_) {}
+              if (!currentPage || currentPage < 1) {
+                try {
+                  currentPage = window.usersPager.readPage ? window.usersPager.readPage() : 1;
+                } catch(_) {
+                  currentPage = 1;
+                }
+              }
+              window.usersPager.renderPage(currentPage);
+            } else if (window.softRefreshUsersTable) {
+              window.softRefreshUsersTable();
+            } else {
+              // Fallback to page reload if nothing available
+              window.location.reload();
+            }
+          } catch(err) {
+            if (window.ErrorHandler) window.ErrorHandler.handleError(err, 'users-perm-refresh');
+            // Fallback to page reload on error
+            try {
+              if (window.softRefreshUsersTable) {
+                window.softRefreshUsersTable();
+              } else {
+                window.location.reload();
+              }
+            } catch(_) {
+              window.location.reload();
+            }
+          }
+        })
+        .catch(function() { 
+          if (window.showToast) window.showToast('Сбой сети при сохранении', 'danger'); 
+        });
       });
     }
   }

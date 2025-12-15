@@ -19,6 +19,30 @@ _log = get_logger(__name__)
 def register(app):
     # Get rate limiter from app
     # Socket.IO room join for users page
+    
+    def _get_page_params_from_request():
+        """Extract page and page_size from request.args, request.form, or referer URL."""
+        # First try request.args (for GET redirects)
+        page = request.args.get('page', type=int)
+        page_size = request.args.get('page_size', type=int)
+        # Then try request.form (for POST requests with hidden fields)
+        if not page:
+            page = request.form.get('page', type=int)
+        if not page_size:
+            page_size = request.form.get('page_size', type=int)
+        # Finally try referer URL (for POST requests without form fields)
+        if not page and not page_size:
+            try:
+                referer = request.headers.get('Referer', '')
+                if referer:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(referer)
+                    params = parse_qs(parsed.query)
+                    page = int(params.get('page', [None])[0]) if params.get('page') else None
+                    page_size = int(params.get('page_size', [None])[0]) if params.get('page_size') else None
+            except Exception:
+                pass
+        return page, page_size
     if hasattr(app, 'socketio') and app.socketio:
 
         @app.socketio.on('users:join')
@@ -296,13 +320,9 @@ def register(app):
                 'Невозможно создать или переименовать пользователя admin через интерфейс'
             )
             # Preserve page in redirect when available
-            try:
-                page = request.args.get('page', type=int)
-                page_size = request.args.get('page_size', type=int)
-                if page or page_size:
-                    return redirect(url_for('users', page=page, page_size=page_size))
-            except Exception:
-                pass
+            page, page_size = _get_page_params_from_request()
+            if page or page_size:
+                return redirect(url_for('users', page=page, page_size=page_size))
             return redirect(url_for('users'))
         ok = True
         error_message = ''
@@ -394,13 +414,9 @@ def register(app):
                         'status': 'error',
                         'message': error_message or 'Failed to create user'
                     }, 400
-            try:
-                page = request.args.get('page', type=int)
-                page_size = request.args.get('page_size', type=int)
-                if page or page_size:
-                    return redirect(url_for('users', page=page, page_size=page_size))
-            except Exception:
-                pass
+            page, page_size = _get_page_params_from_request()
+            if page or page_size:
+                return redirect(url_for('users', page=page, page_size=page_size))
             return redirect(url_for('users'))
 
     @app.route('/users/edit/<id>', methods=['POST'])
@@ -412,13 +428,9 @@ def register(app):
         user = app._sql.user_by_id([id])
         if user and user.login and user.login.strip().lower() == 'admin':
             app.flash_error('Разрешено только изменение пароля администратора')
-            try:
-                page = request.args.get('page', type=int)
-                page_size = request.args.get('page_size', type=int)
-                if page or page_size:
-                    return redirect(url_for('users', page=page, page_size=page_size))
-            except Exception:
-                pass
+            page, page_size = _get_page_params_from_request()
+            if page or page_size:
+                return redirect(url_for('users', page=page, page_size=page_size))
             return redirect(url_for('users'))
         ok = True
         error_message = ''
@@ -514,13 +526,9 @@ def register(app):
                         'status': 'error',
                         'message': error_message or 'Failed to update user'
                     }, 400
-            try:
-                page = request.args.get('page', type=int)
-                page_size = request.args.get('page_size', type=int)
-                if page or page_size:
-                    return redirect(url_for('users', page=page, page_size=page_size))
-            except Exception:
-                pass
+            page, page_size = _get_page_params_from_request()
+            if page or page_size:
+                return redirect(url_for('users', page=page, page_size=page_size))
             return redirect(url_for('users'))
 
     @app.route('/users/reset/<id>', methods=['POST'])

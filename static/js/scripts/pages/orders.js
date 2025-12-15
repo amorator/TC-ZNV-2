@@ -259,7 +259,7 @@
             var st = (r.status || 'stopped');
             var text = statusText(st);
             var cls = statusBtnClass(st);
-            var badge = r.finalized ? '<div class="mb-0 text-center p-0" style="margin:0;padding:0;"><span class="badge bg-info text-dark text-lowercase d-inline-block" style="font-size:.75rem;padding:.15rem .4rem;border-radius:.2rem;margin-left:0;">завершен</span></div>' : '';
+            var badge = r.finalized ? '<div class="mb-0 text-center p-0" style="margin:0;padding:0;"><span class="badge bg-info text-dark text-lowercase d-inline-block" style="font-size:.75rem;padding:.15rem .4rem;border-radius:.2rem;margin-left:0;">закрыт</span></div>' : '';
             return badge + `<button type="button" class="btn btn-sm ${cls}" data-action="toggle-status" data-id="${r.id}" data-status="${st}">${text}</button>`;
           })() }</td>
         <td class="table__body_item">${(r.number || '').replace(/</g, '&lt;')}</td>
@@ -1492,13 +1492,18 @@
 
   function canEditOrderFor(serviceName, approvedVal){
     var perms = window.OrdersPerms || {};
-    // If order is approved (1), require orders.edit_approved permission
+    // If user has edit_approved permission, can edit all orders regardless of approved status
+    if (perms.admin || perms.edit_approved) {
+      return true;
+    }
+    // Without edit_approved, can only edit when approved != 1 (pending or rejected)
     if (approvedVal === 1) {
-      if (perms.admin || perms.edit_approved) return true;
       return false;
     }
-    // For pending (0) or rejected (-1) orders, or if approvedVal is undefined, use standard permission logic
-    if (perms.admin || perms.edit_any) return true;
+    // Standard permission logic for pending (0) or rejected (-1) orders
+    if (perms.edit_any || perms.view_all) {
+      return true;
+    }
     var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
     var map = window.OrdersGroups || {};
     var srv = String(serviceName || '').trim();
