@@ -1874,6 +1874,11 @@ function onStopClick() {
  * Save recording. If still recording, ensures recorder is stopped first.
  */
 function onSaveClick() {
+  // Show notification about saving start
+  if (window.showToast) {
+    window.showToast('Сохранение начато, дождитесь автоматического закрытия окна', 'info');
+  }
+  
   // If recording, stop first to flush data
   const isRecording =
     (recorderScreen && recorderScreen.state === "recording") ||
@@ -1886,10 +1891,22 @@ function onSaveClick() {
     // Always stop to flush data before saving
     return stopRecorder().then(() => onSaveClick());
   }
+  
+  // Block save button during upload
+  if (buttonSave) {
+    buttonSave.disabled = true;
+  }
+  
   saveFile()
     .then((response) => {})
-    .catch((e) => window.showAlertModal(e, "Ошибка"));
-  if (buttonSave.disabled) {
+    .catch((e) => {
+      // Unblock save button on error
+      if (buttonSave) {
+        buttonSave.disabled = false;
+      }
+      window.showAlertModal(e, "Ошибка");
+    });
+  if (buttonSave && buttonSave.disabled) {
     recordedScreen = [];
     recordedCamera = [];
     recordedAudio = [];
@@ -2222,6 +2239,10 @@ async function saveFile() {
       }
     }, 100);
   } catch (e) {
+    // Unblock save button on error
+    if (buttonSave) {
+      buttonSave.disabled = false;
+    }
     window.showAlertModal("Сохранить видео не удалось (" + e + ")!", "Ошибка");
   }
 }
@@ -2241,10 +2262,20 @@ function uploadFile(formData, url) {
       if (xhr.status >= 200 && xhr.status < 400) {
         resolve();
       } else {
+        // Unblock save button on error
+        if (buttonSave) {
+          buttonSave.disabled = false;
+        }
         reject(new Error(`Upload failed with status ${xhr.status}`));
       }
     });
-    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+    xhr.addEventListener("error", () => {
+      // Unblock save button on network error
+      if (buttonSave) {
+        buttonSave.disabled = false;
+      }
+      reject(new Error("Upload failed"));
+    });
 
     xhr.open("POST", url);
     try {
@@ -2341,6 +2372,12 @@ function progressHandler(event) {
 function loadHandler(event) {
   const ok = event.target.status >= 200 && event.target.status < 400;
   if (uploadProgressBar) uploadProgressBar.style.width = ok ? "100%" : "0%";
+  
+  // Unblock save button if upload failed
+  if (!ok && buttonSave) {
+    buttonSave.disabled = false;
+  }
+  
   // Notify parent and auto-close on success
   if (ok && window.parent) {
     // Ensure modal has correct z-index before closing

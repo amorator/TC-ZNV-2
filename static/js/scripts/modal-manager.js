@@ -867,16 +867,69 @@
 
       // Add cat_id and sub_id for files add form
       if (form.action.includes("/files/add")) {
-        // Get category and subcategory IDs
-        // First try from window variables (set by server template)
-        let catId = window.current_category_id;
-        let subId = window.current_subcategory_id;
+        // Get category and subcategory IDs - prefer body data attributes (set by server template)
+        let catId = null;
+        let subId = null;
         
-        // If not available or invalid, don't send (let server handle it)
-        if (catId && subId && typeof catId === 'number' && typeof subId === 'number') {
+        // First priority: body data attributes (set by server template, always correct)
+        if (document.body) {
+          try {
+            const bodyCatId = document.body.getAttribute('data-current-category-id');
+            const bodySubId = document.body.getAttribute('data-current-subcategory-id');
+            if (bodyCatId && bodySubId) {
+              const parsedCatId = parseInt(bodyCatId, 10);
+              const parsedSubId = parseInt(bodySubId, 10);
+              if (!isNaN(parsedCatId) && !isNaN(parsedSubId) && parsedCatId > 0 && parsedSubId > 0) {
+                catId = parsedCatId;
+                subId = parsedSubId;
+              }
+            }
+          } catch(_) {}
+        }
+        
+        // Fallback to window variables (may be outdated)
+        if ((!catId || !subId || isNaN(catId) || isNaN(subId)) && 
+            window.current_category_id && window.current_subcategory_id) {
+          try {
+            const winCatId = parseInt(window.current_category_id, 10);
+            const winSubId = parseInt(window.current_subcategory_id, 10);
+            if (!isNaN(winCatId) && !isNaN(winSubId) && winCatId > 0 && winSubId > 0) {
+              catId = winCatId;
+              subId = winSubId;
+            }
+          } catch(_) {}
+        }
+        
+        // Last fallback: URL parameters (may not exist when using did/sdid navigation)
+        if ((!catId || !subId || isNaN(catId) || isNaN(subId))) {
+          try {
+            const url = new URL(window.location.href);
+            const urlCatId = url.searchParams.get('cat_id');
+            const urlSubId = url.searchParams.get('sub_id');
+            if (urlCatId && urlSubId) {
+              const parsedCatId = parseInt(urlCatId, 10);
+              const parsedSubId = parseInt(urlSubId, 10);
+              if (!isNaN(parsedCatId) && !isNaN(parsedSubId) && parsedCatId > 0 && parsedSubId > 0) {
+                catId = parsedCatId;
+                subId = parsedSubId;
+              }
+            }
+          } catch(_) {}
+        }
+        
+        // If available and valid, append to form data
+        if (catId && subId && !isNaN(catId) && !isNaN(subId) && catId > 0 && subId > 0) {
           formData.append("cat_id", catId);
           formData.append("sub_id", subId);
+          // Log for debugging
+          try {
+            console.log('[modal-manager] Adding cat_id/sub_id to formData:', { catId, subId, formAction: form.action, bodyCatId: document.body?.getAttribute('data-current-category-id'), bodySubId: document.body?.getAttribute('data-current-subcategory-id'), windowCatId: window.current_category_id, windowSubId: window.current_subcategory_id });
+          } catch(_) {}
         } else {
+          // Log when values are missing
+          try {
+            console.warn('[modal-manager] Missing cat_id/sub_id:', { catId, subId, bodyCatId: document.body?.getAttribute('data-current-category-id'), bodySubId: document.body?.getAttribute('data-current-subcategory-id'), windowCatId: window.current_category_id, windowSubId: window.current_subcategory_id, formAction: form.action });
+          } catch(_) {}
         }
       }
 

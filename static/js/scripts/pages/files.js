@@ -434,6 +434,35 @@ function fetchFilesPage(page, ids) {
         const cur = new URL(window.location);
         cur.searchParams.set('page', String(data.page || 1));
         cur.searchParams.set('page_size', String(ps));
+        
+        // Update window variables and body attributes with current category IDs
+        // Prefer values from data attributes (set by server template) over URL params
+        // because URL params may not exist when using did/sdid navigation
+        try {
+          const bodyCatId = document.body.getAttribute('data-current-category-id');
+          const bodySubId = document.body.getAttribute('data-current-subcategory-id');
+          if (bodyCatId && bodySubId) {
+            window.current_category_id = parseInt(bodyCatId, 10);
+            window.current_subcategory_id = parseInt(bodySubId, 10);
+          } else {
+            // Fallback to URL params if body attributes not set
+            const urlCatId = cur.searchParams.get('cat_id');
+            const urlSubId = cur.searchParams.get('sub_id');
+            if (urlCatId && urlSubId) {
+              window.current_category_id = parseInt(urlCatId, 10);
+              window.current_subcategory_id = parseInt(urlSubId, 10);
+              if (document.body) {
+                document.body.setAttribute('data-current-category-id', String(window.current_category_id));
+                document.body.setAttribute('data-current-subcategory-id', String(window.current_subcategory_id));
+              }
+            }
+          }
+          // Ensure body attributes are always set if we have values
+          if (window.current_category_id && window.current_subcategory_id && document.body) {
+            document.body.setAttribute('data-current-category-id', String(window.current_category_id));
+            document.body.setAttribute('data-current-subcategory-id', String(window.current_subcategory_id));
+          }
+        } catch(_) {}
         window.history.pushState({}, '', cur.pathname + cur.search);
 
         // Rebind handlers

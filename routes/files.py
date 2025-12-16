@@ -495,7 +495,6 @@ def register(app, media_service, socketio=None) -> None:
                 pass
             return k
 
-        dirs = [_unsuffix(k) for k in dirs]
         # Guard: if no subdirectories present, render with empty file list
         if not dirs or len(dirs) <= 1:
             resp = make_response(
@@ -515,6 +514,20 @@ def register(app, media_service, socketio=None) -> None:
             resp.headers['Expires'] = '0'
             return resp
 
+        # Normalize potential duplicate-protected keys back to real folder names
+        def _unsuffix(k: str) -> str:
+            try:
+                if isinstance(k, str) and k.endswith(')') and '__dup_' in k:
+                    # not expected format; fallback
+                    return k
+                if isinstance(k, str) and '__dup_' in k:
+                    return k.split('__dup_')[0]
+            except Exception:
+                pass
+            return k
+
+        dirs = [_unsuffix(k) for k in dirs]
+        
         # Safe access to subdir index
         files = None
         current_category_id = None
@@ -525,16 +538,41 @@ def register(app, media_service, socketio=None) -> None:
             current_subcategory_id = request.args.get('sub_id', type=int)
             if current_category_id and current_subcategory_id:
                 files = app._sql.file_by_category_and_subcategory([int(current_category_id), int(current_subcategory_id)])
-        elif 1 <= sdid < len(dirs):
+        elif 1 <= sdid < len(dirs) and did is not None and did < len(_dirs):
             # Prefer new schema when available
             try:
-                cat_id = app._sql.category_id_by_folder(dirs[0]) if hasattr(
-                    app._sql, 'category_id_by_folder') else None
-                sub_id = app._sql.subcategory_id_by_folder(
-                    cat_id, dirs[sdid]) if (cat_id and hasattr(
-                        app._sql, 'subcategory_id_by_folder')) else None
+                # Get root key from selected category (did), not from first category
+                dirs_keys = list(_dirs[did].keys()) if _dirs and did < len(_dirs) else []
+                if dirs_keys:
+                    root_key = dirs_keys[0]
+                    root_key_clean = _unsuffix(root_key)
+                    cat_id = app._sql.category_id_by_folder(root_key_clean) if hasattr(
+                        app._sql, 'category_id_by_folder') else None
+                    # Get subcategory key from selected subcategory (sdid) from original _dirs structure
+                    if sdid < len(dirs_keys):
+                        sub_key = dirs_keys[sdid]
+                        sub_key_clean = _unsuffix(sub_key)
+                        sub_id = app._sql.subcategory_id_by_folder(
+                            cat_id, sub_key_clean) if (cat_id and hasattr(
+                                app._sql, 'subcategory_id_by_folder')) else None
+                    else:
+                        sub_id = None
+                else:
+                    cat_id = None
+                    sub_id = None
                 current_category_id = cat_id
                 current_subcategory_id = sub_id
+                # Log determined IDs for debugging
+                try:
+                    # Log _dirs structure to understand ordering
+                    dirs_debug = []
+                    for idx, d in enumerate(_dirs[:min(5, len(_dirs))]):
+                        keys_list = list(d.keys())
+                        if keys_list:
+                            dirs_debug.append(f"{idx}:{keys_list[0]}")
+                    _log.info(f"[files] Determined IDs: did={did}, sdid={sdid}, cat_id={cat_id}, sub_id={sub_id}, root_key={root_key_clean if 'root_key_clean' in locals() else 'N/A'}, sub_key={sub_key_clean if 'sub_key_clean' in locals() else 'N/A'}, dirs_preview={','.join(dirs_debug)}, user={current_user.name}")
+                except Exception:
+                    pass
                 # Block access to disabled subcategory
                 try:
                     if sub_id:
@@ -909,6 +947,25 @@ def register(app, media_service, socketio=None) -> None:
                 raise ValueError(
                     'Не удалось определить категорию/подкатегорию для загрузки'
                 )
+            # Verify subcategory belongs to the specified category
+            try:
+                sub = app._sql.subcategory_by_id([sub_id])
+                if sub:
+                    sub_cat_id = int(getattr(sub, 'category_id', 0))
+                    if sub_cat_id != int(cat_id):
+                        # Log the mismatch for debugging
+                        try:
+                            _log.warning(f"[files/add] Category mismatch detected: provided cat_id={cat_id}, sub_id={sub_id}, but sub.category_id={sub_cat_id}. Using correct category_id.")
+                            app.logger.warning(f"[files/add] Category mismatch: cat_id={cat_id}, sub_id={sub_id}, sub.category_id={sub_cat_id}, user={current_user.name}")
+                        except Exception:
+                            pass
+                        # Use the correct category_id from the subcategory
+                        cat_id = sub_cat_id
+            except Exception as e:
+                try:
+                    _log.error(f"[files/add] Error verifying subcategory: {e}")
+                except Exception:
+                    pass
             try:
                 dir = app._sql.get_file_storage_path(cat_id, sub_id)
             except Exception:
@@ -1061,13 +1118,92 @@ def register(app, media_service, socketio=None) -> None:
         try:
             log_action('FILE_UPLOAD_INIT_START', current_user.name,
                        f'start init upload', (request.remote_addr or ''))
-            cat_id = request.args.get('cat_id', type=int)
-            sub_id = request.args.get('sub_id', type=int)
+            # Get category/subcategory IDs from args (URL) or form (POST body)
+            cat_id_from_args = request.args.get('cat_id', type=int)
+            sub_id_from_args = request.args.get('sub_id', type=int)
+            cat_id_from_form = request.form.get('cat_id', type=int)
+            sub_id_from_form = request.form.get('sub_id', type=int)
+            cat_id = cat_id_from_args or cat_id_from_form
+            sub_id = sub_id_from_args or sub_id_from_form
+            
+            # Log received values for debugging
+            try:
+                referer = request.headers.get('Referer', '')
+                request_url = request.url
+                _log.info(f"[files/add/init] Received cat_id: args={cat_id_from_args}, form={cat_id_from_form}, final={cat_id}; sub_id: args={sub_id_from_args}, form={sub_id_from_form}, final={sub_id}, user={current_user.name}, referer={referer}, request_url={request_url}")
+            except Exception:
+                pass
+            
+            # Extract did/sdid from referer URL and resolve to cat_id/sub_id
+            referer = request.headers.get('Referer', '')
+            if referer and ('/files/' in referer):
+                try:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(referer)
+                    path_parts = [p for p in parsed.path.split('/') if p]
+                    if len(path_parts) >= 3 and path_parts[0] == 'files':
+                        try:
+                            did = int(path_parts[1])
+                            sdid = int(path_parts[2])
+                            # Build _dirs structure for current user (same as in files() route)
+                            _dirs = dirs_by_permission(app, 3, 'f')
+                            # Adjust did if 'orders' category is present at position 0 (hidden in files() but may appear here)
+                            did_adjusted = did
+                            try:
+                                if _dirs and len(_dirs) > 0:
+                                    first_dir_keys = list(_dirs[0].keys())
+                                    if first_dir_keys and first_dir_keys[0] == 'orders':
+                                        did_adjusted = did + 1
+                            except Exception:
+                                pass
+                            if did_adjusted < len(_dirs):
+                                dirs_keys = list(_dirs[did_adjusted].keys())
+                                if dirs_keys and sdid < len(dirs_keys):
+                                    root_key = dirs_keys[0]
+                                    if '__dup_' in root_key:
+                                        root_key = root_key.split('__dup_')[0]
+                                    resolved_cat_id = app._sql.category_id_by_folder(root_key)
+                                    if resolved_cat_id:
+                                        sub_key = dirs_keys[sdid]
+                                        if '__dup_' in sub_key:
+                                            sub_key = sub_key.split('__dup_')[0]
+                                        resolved_sub_id = app._sql.subcategory_id_by_folder(resolved_cat_id, sub_key)
+                                        if resolved_sub_id:
+                                            cat_id = resolved_cat_id
+                                            sub_id = resolved_sub_id
+                        except (ValueError, IndexError, TypeError):
+                            pass
+                except Exception:
+                    pass
+            
             if not (cat_id and sub_id):
                 return {
                     'error':
                     'Не удалось определить категорию/подкатегорию для загрузки'
                 }, 400
+            # Verify subcategory belongs to the specified category
+            try:
+                sub = app._sql.subcategory_by_id([sub_id])
+                if sub:
+                    sub_cat_id = int(getattr(sub, 'category_id', 0))
+                    if sub_cat_id != int(cat_id):
+                        # Log the mismatch for debugging
+                        try:
+                            _log.warning(f"[files/add/init] Category mismatch detected: provided cat_id={cat_id}, sub_id={sub_id}, but sub.category_id={sub_cat_id}. Using correct category_id. user={current_user.name}")
+                            app.logger.warning(f"[files/add/init] Category mismatch: cat_id={cat_id}, sub_id={sub_id}, sub.category_id={sub_cat_id}, user={current_user.name}")
+                        except Exception:
+                            pass
+                        # Use the correct category_id from the subcategory
+                        cat_id = sub_cat_id
+                        try:
+                            _log.info(f"[files/add/init] Corrected cat_id to {cat_id} for sub_id={sub_id}, user={current_user.name}")
+                        except Exception:
+                            pass
+            except Exception as e:
+                try:
+                    _log.error(f"[files/add/init] Error verifying subcategory: {e}")
+                except Exception:
+                    pass
             try:
                 dir = app._sql.get_file_storage_path(cat_id, sub_id)
             except Exception:
