@@ -356,6 +356,44 @@ function reinitializeContextMenu() {
   // Enforce media-info layout before other initialization
   enforceMediaInfoColumnLayout();
 
+  // ИСПРАВЛЕНО: Переинициализируем контекстное меню после обновления таблицы
+  try {
+    // Используем глобальную функцию reinitializeContextMenu из files.js, если она доступна
+    if (window.reinitializeContextMenu && typeof window.reinitializeContextMenu === 'function') {
+      window.reinitializeContextMenu();
+    } else if (window.contextMenu && typeof window.contextMenu.reinitialize === 'function') {
+      // Используем метод reinitialize из context-menu.js
+      window.contextMenu.reinitialize();
+    } else if (window.contextMenu && typeof window.contextMenu.init === 'function') {
+      // Переинициализируем через init, если reinitialize недоступен
+      const table = document.getElementById("maintable");
+      if (table) {
+        const canManage = table.getAttribute("data-can-manage") === "1";
+        const canAdd = table.getAttribute("data-can-add") === "1";
+        const canMarkView = table.getAttribute("data-can-mark-view") === "1";
+        const canNotes = table.getAttribute("data-can-notes") === "1";
+        const qs = new URLSearchParams(location.search || "");
+        const disableMove = qs.get('no_move') === '1' || qs.get('embed') === '1';
+        
+        window.contextMenu.init({
+          page: "files",
+          canManage: canManage,
+          canAdd: canAdd,
+          canMarkView: canMarkView,
+          canNotes: canNotes,
+          disableMove: disableMove,
+        });
+      }
+    }
+    // Также отправляем событие для других слушателей
+    try {
+      const event = new CustomEvent('context-menu-reinit', { detail: { timestamp: Date.now() } });
+      document.dispatchEvent(event);
+    } catch(_) {}
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, "reinitializeContextMenu");
+  }
+
   if (window.requestIdleCallback) {
     window.requestIdleCallback(
       () => {

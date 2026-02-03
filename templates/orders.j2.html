@@ -400,12 +400,12 @@
     approve: {{ 'true' if (current_user.has('orders.approve') or current_user.has('admin.any')) else 'false' }},
     notes: {{ 'true' if (current_user.has('orders.notes') or current_user.has('admin.any')) else 'false' }},
     edit_any: {{ 'true' if (current_user.has('orders.edit_any') or current_user.has('admin.any')) else 'false' }},
-    edit_approved: {{ 'true' if (current_user.has('orders.edit_approved') or current_user.has('admin.any')) else 'false' }},
+    edit_approved: {{ (current_user.has('orders.edit_approved') or current_user.has('admin.any'))|tojson }},
     delete_any: {{ 'true' if (current_user.has('orders.delete_any') or current_user.has('admin.any')) else 'false' }},
     status_change: {{ 'true' if (current_user.has('orders.status_change') or current_user.has('admin.any')) else 'false' }},
     files_view: {{ 'true' if (current_user.has('orders.files_view') or current_user.has('admin.any')) else 'false' }},
     view_all: {{ 'true' if (has_view_all) else 'false' }},
-    admin: {{ 'true' if current_user.has('admin.any') else 'false' }}
+    admin: {{ current_user.has('admin.any')|tojson }}
   };
   // current user gid for group matching (service -> group)
   window.CurrentUser = { gid: {{ current_user.gid|int }} };
@@ -473,7 +473,47 @@ document.addEventListener('modal-closed', function(){
         }
       } catch(_) {}
       var ifr = document.getElementById('order-files-iframe');
-      if (ifr) ifr.src = url;
+      if (ifr) {
+        // ИСПРАВЛЕНО: Добавляем обработчик загрузки iframe для переинициализации контекстного меню
+        ifr.onload = function() {
+          try {
+            // Даем время iframe на полную загрузку
+            setTimeout(function() {
+              try {
+                var iframeDoc = ifr.contentDocument || ifr.contentWindow.document;
+                if (iframeDoc) {
+                  // Вызываем переинициализацию контекстного меню в iframe
+                  var iframeWindow = ifr.contentWindow;
+                  if (iframeWindow && iframeWindow.reinitializeContextMenu) {
+                    iframeWindow.reinitializeContextMenu();
+                  } else if (iframeWindow && iframeWindow.contextMenu) {
+                    // Переинициализируем через init, если reinitialize недоступен
+                    var table = iframeDoc.getElementById("maintable");
+                    if (table && iframeWindow.contextMenu && iframeWindow.contextMenu.init) {
+                      var canManage = table.getAttribute("data-can-manage") === "1";
+                      var canAdd = table.getAttribute("data-can-add") === "1";
+                      var canMarkView = table.getAttribute("data-can-mark-view") === "1";
+                      var canNotes = table.getAttribute("data-can-notes") === "1";
+                      iframeWindow.contextMenu.init({
+                        page: "files",
+                        canManage: canManage,
+                        canAdd: canAdd,
+                        canMarkView: canMarkView,
+                        canNotes: canNotes,
+                        disableMove: true, // В embed режиме всегда отключаем перемещение
+                      });
+                    }
+                  }
+                }
+              } catch(e) {
+                // Игнорируем ошибки cross-origin, если iframe еще не загружен
+                console.warn("[orders] Could not access iframe content:", e);
+              }
+            }, 500);
+          } catch(_) {}
+        };
+        ifr.src = url;
+      }
       if (window.openModal) window.openModal('orderFilesModal');
     };
   </script>

@@ -7,19 +7,35 @@
       <tr class="table__body_row" id="{{ file.id }}" data-id="{{ file.id }}" data-url="{{ url_for('files_show_by_id', file_id=file.id) }}" data-download="{{ url_for('files_show_by_id', file_id=file.id, dl=1) }}"
         {% set order_completed = 1 if file.order_completed else 0 %}
         {% set order_finalized = 1 if file.order_finalized else 0 %}
-        {% set order_approved = file.order_approved if file.order_approved is defined else 0 %}
+        {% set order_approved = (file.order_approved | int) if file.order_approved is defined else 0 %}
         {% set is_admin_user = is_admin_or_admin_group %}
         {% set has_edit_approved_perm = current_user.has('orders.edit_approved') or current_user.has('admin.any') %}
         {% set can_edit_base = 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 %}
-        {% set can_edit = 0 if (order_completed == 1 and not is_admin_user) else (0 if (order_approved == 1 and order_finalized == 0 and not has_edit_approved_perm) else can_edit_base) %}
+        {% if order_completed == 1 and not is_admin_user %}
+          {% set can_edit = 0 %}
+        {% elif order_approved == 1 and order_finalized == 0 %}
+          {# ИСПРАВЛЕНО: В embed режиме (force_can_manage) разрешаем редактирование согласованных нарядов #}
+          {% set can_edit = 1 if (force_can_manage or has_edit_approved_perm) else 0 %}
+        {% else %}
+          {% set can_edit = can_edit_base %}
+        {% endif %}
         {% set can_delete_base = 1 if (force_can_manage or current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 %}
-        {% set can_delete = 0 if (order_completed == 1 and not is_admin_user) else (0 if (order_approved == 1 and order_finalized == 0 and not has_edit_approved_perm) else can_delete_base) %}
+        {% if order_completed == 1 and not is_admin_user %}
+          {% set can_delete = 0 %}
+        {% elif order_approved == 1 and order_finalized == 0 %}
+          {# ИСПРАВЛЕНО: В embed режиме (force_can_manage) разрешаем удаление согласованных нарядов #}
+          {% set can_delete = 1 if (force_can_manage or has_edit_approved_perm) else 0 %}
+        {% else %}
+          {% set can_delete = can_delete_base %}
+        {% endif %}
         data-can-edit="{{ can_edit }}"
         data-can-delete="{{ can_delete }}"
         data-order-completed="{{ order_completed }}"
         data-order-finalized="{{ order_finalized }}"
         data-order-approved="{{ order_approved }}"
         data-is-admin="{{ 1 if is_admin_user else 0 }}"
+        data-has-edit-approved-perm="{{ 1 if has_edit_approved_perm else 0 }}"
+        data-can-edit-base="{{ can_edit_base }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
         data-view-url="{{ url_for('files_view', id=file.id) if current_user.has('files.mark_viewed') else '' }}"
         data-viewed="{{ 1 if file.viewed else 0 }}"
@@ -100,19 +116,35 @@
         data-download="{{ url_for('files_orig_by_id', file_id=file.id) }}"
         {% set order_completed = 1 if file.order_completed else 0 %}
         {% set order_finalized = 1 if file.order_finalized else 0 %}
-        {% set order_approved = file.order_approved if file.order_approved is defined else 0 %}
+        {% set order_approved = (file.order_approved | int) if file.order_approved is defined else 0 %}
         {% set is_admin_user = is_admin_or_admin_group %}
         {% set has_edit_approved_perm = current_user.has('orders.edit_approved') or current_user.has('admin.any') %}
         {% set can_edit_base = 1 if (force_can_manage or (file.owner_id and file.owner_id == current_user.id) or current_user.has('files.edit_any')) else 0 %}
-        {% set can_edit = 0 if (order_completed == 1 and not is_admin_user) else (0 if (order_approved == 1 and order_finalized == 0 and not has_edit_approved_perm) else can_edit_base) %}
+        {% if order_completed == 1 and not is_admin_user %}
+          {% set can_edit = 0 %}
+        {% elif order_approved == 1 and order_finalized == 0 %}
+          {# ИСПРАВЛЕНО: В embed режиме (force_can_manage) разрешаем редактирование согласованных нарядов #}
+          {% set can_edit = 1 if (force_can_manage or has_edit_approved_perm) else 0 %}
+        {% else %}
+          {% set can_edit = can_edit_base %}
+        {% endif %}
         {% set can_delete_base = 1 if (force_can_manage or current_user.has('files.delete_any') or (file.owner_id and file.owner_id == current_user.id)) else 0 %}
-        {% set can_delete = 0 if (order_completed == 1 and not is_admin_user) else (0 if (order_approved == 1 and order_finalized == 0 and not has_edit_approved_perm) else can_delete_base) %}
+        {% if order_completed == 1 and not is_admin_user %}
+          {% set can_delete = 0 %}
+        {% elif order_approved == 1 and order_finalized == 0 %}
+          {# ИСПРАВЛЕНО: В embed режиме (force_can_manage) разрешаем удаление согласованных нарядов #}
+          {% set can_delete = 1 if (force_can_manage or has_edit_approved_perm) else 0 %}
+        {% else %}
+          {% set can_delete = can_delete_base %}
+        {% endif %}
         data-can-edit="{{ can_edit }}"
         data-can-delete="{{ can_delete }}"
         data-order-completed="{{ order_completed }}"
         data-order-finalized="{{ order_finalized }}"
         data-order-approved="{{ order_approved }}"
         data-is-admin="{{ 1 if is_admin_user else 0 }}"
+        data-has-edit-approved-perm="{{ 1 if has_edit_approved_perm else 0 }}"
+        data-can-edit-base="{{ can_edit_base }}"
         data-can-note="{{ 1 if current_user.has('files.notes') else 0 }}"
         data-root="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) %}{{ (dirs[did].values() | list)[0] }}{% else %}{% endif %}"
         data-sub="{% if dirs and (dirs | length) > 0 and did is not none and did < (dirs | length) and (dirs[did].keys() | length) > sdid %}{{ (dirs[did].values() | list)[sdid] }}{% else %}{% endif %}"

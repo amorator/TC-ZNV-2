@@ -81,7 +81,9 @@
 
       // Context menu trigger
       document.addEventListener("contextmenu", (e) => {
-        if (!this.isInitialized) return;
+        if (!this.isInitialized) {
+          return;
+        }
         this.handleContextMenuEvent(e);
       });
 
@@ -216,8 +218,13 @@
     configureRowItems(row) {
       const isEnabled = row.dataset.enabled === "1";
       // Check both camelCase (dataset) and kebab-case (getAttribute) for compatibility
-      let canEdit = row.dataset.canEdit === "1" || row.getAttribute("data-can-edit") === "1";
-      let canDelete = row.dataset.canDelete === "1" || row.getAttribute("data-can-delete") === "1";
+      // Read canEdit/canDelete from data attributes (already computed correctly in template with approved file logic)
+      // ИСПРАВЛЕНО: Правильно читаем атрибуты, учитывая что они могут быть строками "0" или "1"
+      const canEditAttr = row.getAttribute("data-can-edit");
+      const canDeleteAttr = row.getAttribute("data-can-delete");
+      let canEdit = canEditAttr === "1" || canEditAttr === 1 || canEditAttr === true;
+      let canDelete = canDeleteAttr === "1" || canDeleteAttr === 1 || canDeleteAttr === true;
+      
       // Check if order is completed and user is not admin
       const orderCompleted = row.dataset.orderCompleted === "1" || row.getAttribute("data-order-completed") === "1";
       const isAdmin = row.dataset.isAdmin === "1" || row.getAttribute("data-is-admin") === "1";
@@ -226,6 +233,8 @@
         canEdit = false;
         canDelete = false;
       }
+      // Note: Approved files logic is already handled in template (data-can-edit attribute)
+      // which checks: order_approved == 1 && order_finalized == 0 && !has_edit_approved_perm -> can_edit = 0
       const canNote = row.dataset.canNote === "1" && this.options.canNotes;
       const isReady = row.dataset.isReady !== "0";
       const hasDownload = !!row.dataset.download;
@@ -280,6 +289,9 @@
         canRefresh,
       } = permissions;
 
+
+      // ИСПРАВЛЕНО: Упрощаем логику - пункт "Удалить" показывается всегда, если canDelete = true
+      // независимо от состояния файла (missing, ready, processing)
       if (isMissing) {
         // Only allow refresh and delete when file missing
         this.toggleItem("open", false);
@@ -290,24 +302,8 @@
         this.toggleItem("note", false);
         this.toggleItem("mark-viewed", false);
         this.toggleItem("refresh", canRefresh);
-      } else {
-        this.toggleItem("open", isReady);
-        this.toggleItem("download", hasDownload || isReady);
-        this.toggleItem("edit", canEdit);
-        // Disable move when requested by options (embed orders)
-        const allowMove = !this.options.disableMove && isReady && canEdit;
-        this.toggleItem("move", allowMove);
-        this.toggleItem("delete", canDelete);
-        this.toggleItem(
-          "mark-viewed",
-          isReady && this.options.canMarkView && !alreadyViewed
-        );
-        this.toggleItem("note", isReady && canNote);
-        this.toggleItem("refresh", canRefresh);
-      }
-
-      // For processing files
-      if (!isMissing && !isReady) {
+      } else if (!isReady) {
+        // For processing files (not ready yet)
         this.toggleItem("open", false);
         this.toggleItem("download", hasDownload);
         this.toggleItem("move", false);
@@ -315,6 +311,23 @@
         this.toggleItem("note", false);
         this.toggleItem("mark-viewed", false);
         this.toggleItem("edit", false);
+        this.toggleItem("refresh", canRefresh);
+      } else {
+        // Ready files
+        this.toggleItem("open", isReady);
+        this.toggleItem("download", hasDownload || isReady);
+        this.toggleItem("edit", canEdit);
+        // Disable move when requested by options (embed orders)
+        const allowMove = !this.options.disableMove && isReady && canEdit;
+        this.toggleItem("move", allowMove);
+        // ИСПРАВЛЕНО: Всегда показываем пункт "Удалить", если canDelete = true
+        this.toggleItem("delete", canDelete);
+        this.toggleItem(
+          "mark-viewed",
+          isReady && this.options.canMarkView && !alreadyViewed
+        );
+        this.toggleItem("note", isReady && canNote);
+        this.toggleItem("refresh", canRefresh);
       }
 
       this.toggleItem("add", this.options.canAdd);

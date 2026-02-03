@@ -5,7 +5,12 @@
 function initFilesContextMenu() {
   try {
     const table = document.getElementById("maintable");
-    if (!table) return;
+    if (!table) {
+      setTimeout(function() {
+        initFilesContextMenu();
+      }, 200);
+      return;
+    }
 
     // Get table permissions
     const canManage = table.getAttribute("data-can-manage") === "1";
@@ -292,6 +297,39 @@ function initFilesPage() {
   try {
     // Initialize context menu for files page
     initFilesContextMenu();
+    
+    // ИСПРАВЛЕНО: Переинициализируем контекстное меню после небольшой задержки,
+    // чтобы убедиться, что таблица загружена (особенно важно для iframe в embed режиме)
+    setTimeout(function() {
+      try {
+        const table = document.getElementById("maintable");
+        if (table && table.tBodies && table.tBodies[0] && table.tBodies[0].querySelectorAll("tr.table__body_row").length > 0) {
+          // Таблица загружена, переинициализируем контекстное меню
+          if (window.reinitializeContextMenu) {
+            window.reinitializeContextMenu();
+          } else if (window.contextMenu && window.contextMenu.init) {
+            // Переинициализируем через init
+            const canManage = table.getAttribute("data-can-manage") === "1";
+            const canAdd = table.getAttribute("data-can-add") === "1";
+            const canMarkView = table.getAttribute("data-can-mark-view") === "1";
+            const canNotes = table.getAttribute("data-can-notes") === "1";
+            const qs = new URLSearchParams(location.search || "");
+            const disableMove = qs.get('no_move') === '1' || qs.get('embed') === '1';
+            
+            window.contextMenu.init({
+              page: "files",
+              canManage: canManage,
+              canAdd: canAdd,
+              canMarkView: canMarkView,
+              canNotes: canNotes,
+              disableMove: disableMove,
+            });
+          }
+        }
+      } catch(err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "initFilesPage delayed reinit");
+      }
+    }, 500);
 
     // Setup file upload forms
     setupFileUploadForms();
@@ -467,7 +505,10 @@ function fetchFilesPage(page, ids) {
 
         // Rebind handlers
         setupFilesPaginationClickHandler();
-        reinitializeContextMenu();
+        // ИСПРАВЛЕНО: Переинициализируем контекстное меню после обновления таблицы
+        setTimeout(function() {
+          reinitializeContextMenu();
+        }, 100);
         if (window.rebindFilesTable) window.rebindFilesTable();
       })
       .catch((err) => {
@@ -889,6 +930,7 @@ function renameFile(fileId) {
 
 // Initialize page when DOM is ready
 document.addEventListener("DOMContentLoaded", function () {
+  
   try {
     initFilesPage();
     
@@ -903,9 +945,37 @@ document.addEventListener("DOMContentLoaded", function () {
       }, 100);
     }
     
-    // Setup MutationObserver to enforce styles when table content changes
+    // ИСПРАВЛЕНО: Добавляем MutationObserver для переинициализации контекстного меню при изменении таблицы
     const table = document.getElementById("maintable");
     if (table) {
+      // Отслеживаем изменения в tbody для переинициализации контекстного меню
+      const tbody = table.tBodies && table.tBodies[0];
+      if (tbody) {
+        const menuObserver = new MutationObserver((mutations) => {
+          let shouldReinit = false;
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+              // Проверяем, добавлены ли новые строки таблицы
+              for (let node of mutation.addedNodes) {
+                if (node.nodeType === 1 && (node.tagName === 'TR' || node.querySelector && node.querySelector('tr.table__body_row'))) {
+                  shouldReinit = true;
+                  break;
+                }
+              }
+            }
+          });
+          if (shouldReinit) {
+            // Переинициализируем контекстное меню после небольшой задержки
+            setTimeout(() => {
+              if (window.reinitializeContextMenu) {
+                window.reinitializeContextMenu();
+              }
+            }, 100);
+          }
+        });
+        menuObserver.observe(tbody, { childList: true, subtree: true });
+      }
+      
       const observer = new MutationObserver((mutations) => {
         let shouldEnforce = false;
         mutations.forEach((mutation) => {
@@ -1156,6 +1226,46 @@ window.reinitFilesDoubleClick = function () {
 // Alias for rebindFilesTable (for consistency with other pages)
 window.rebindFilesTable = window.reinitFilesDoubleClick;
 
+// ИСПРАВЛЕНО: Функция для переинициализации контекстного меню после обновления таблицы
+function reinitializeContextMenu() {
+  try {
+    // Переинициализируем контекстное меню
+    if (window.contextMenu && typeof window.contextMenu.reinitialize === 'function') {
+      window.contextMenu.reinitialize();
+    } else if (window.contextMenu && typeof window.contextMenu.init === 'function') {
+      // Если reinitialize недоступен, переинициализируем через init
+      const table = document.getElementById("maintable");
+      if (table) {
+        const canManage = table.getAttribute("data-can-manage") === "1";
+        const canAdd = table.getAttribute("data-can-add") === "1";
+        const canMarkView = table.getAttribute("data-can-mark-view") === "1";
+        const canNotes = table.getAttribute("data-can-notes") === "1";
+        const qs = new URLSearchParams(location.search || "");
+        const disableMove = qs.get('no_move') === '1' || qs.get('embed') === '1';
+        
+        window.contextMenu.init({
+          page: "files",
+          canManage: canManage,
+          canAdd: canAdd,
+          canMarkView: canMarkView,
+          canNotes: canNotes,
+          disableMove: disableMove,
+        });
+      }
+    }
+    // Также отправляем событие для других слушателей
+    try {
+      const event = new CustomEvent('context-menu-reinit', { detail: { timestamp: Date.now() } });
+      document.dispatchEvent(event);
+    } catch(_) {}
+  } catch (err) {
+    window.ErrorHandler && window.ErrorHandler.handleError(err, "reinitializeContextMenu");
+  }
+}
+
+// Экспортируем функцию глобально
+window.reinitializeContextMenu = reinitializeContextMenu;
+
 /**
  * Setup socket synchronization for files page
  */
@@ -1330,6 +1440,54 @@ window.markViewedAjax = function (fileId) {
 // Open registrator import modal
 window.openRegistratorImport = function () {
   try {
+    // ИСПРАВЛЕНО: Сохраняем cat_id и sub_id в момент открытия модального окна
+    // Это предотвращает проблему, когда пользователь переключается на другую страницу
+    // между открытием модального окна и отправкой запроса
+    var catId = 0;
+    var subId = 0;
+    
+    // Приоритет 1: URL параметры текущей страницы
+    try {
+      var urlParams = new URLSearchParams(window.location.search);
+      var urlCatId = urlParams.get("cat_id");
+      var urlSubId = urlParams.get("sub_id");
+      if (urlCatId && urlSubId) {
+        catId = parseInt(urlCatId, 10) || 0;
+        subId = parseInt(urlSubId, 10) || 0;
+      }
+    } catch (e) {
+    }
+    
+    // Приоритет 2: data-атрибуты body
+    if (!catId || !subId) {
+      try {
+        var bodyCatId = document.body.getAttribute('data-current-category-id');
+        var bodySubId = document.body.getAttribute('data-current-subcategory-id');
+        if (bodyCatId && bodySubId) {
+          catId = parseInt(bodyCatId, 10) || 0;
+          subId = parseInt(bodySubId, 10) || 0;
+        }
+      } catch (e) {
+      }
+    }
+    
+    // Приоритет 3: глобальные переменные
+    if (!catId || !subId) {
+      try {
+        catId = catId || (window.current_category_id ? parseInt(window.current_category_id, 10) : 0) || 0;
+        subId = subId || (window.current_subcategory_id ? parseInt(window.current_subcategory_id, 10) : 0) || 0;
+      } catch (e) {
+      }
+    }
+    
+    // Сохраняем значения в data-атрибуты модального окна
+    var modal = document.getElementById('popup-import-registrator');
+    if (modal && catId && subId) {
+      modal.setAttribute('data-cat-id', String(catId));
+      modal.setAttribute('data-sub-id', String(subId));
+    } else if (modal) {
+    }
+    
     // Open the modal
     openModal('popup-import-registrator');
     
@@ -1939,35 +2097,73 @@ function proceedWithUpload(
   registratorId
 ) {
   try {
-    // Get category and subcategory IDs
-    var catId = window.current_category_id || 0;
-    var subId = window.current_subcategory_id || 0;
-
-    // If not set, try to get from URL parameters
-    if (!catId || !subId) {
-      var urlParams = new URLSearchParams(window.location.search);
-      catId = catId || parseInt(urlParams.get("cat_id")) || 0;
-      subId = subId || parseInt(urlParams.get("sub_id")) || 0;
+    // ИСПРАВЛЕНО: Используем cat_id и sub_id, сохраненные при открытии модального окна
+    // Это предотвращает проблему, когда пользователь переключается на другую страницу
+    // между открытием модального окна и отправкой запроса
+    
+    var catId = 0;
+    var subId = 0;
+    
+    // Приоритет 1: data-атрибуты модального окна (сохранены при открытии)
+    var modal = document.getElementById("popup-import-registrator");
+    if (modal) {
+      try {
+        var modalCatId = modal.getAttribute('data-cat-id');
+        var modalSubId = modal.getAttribute('data-sub-id');
+        if (modalCatId && modalSubId) {
+          catId = parseInt(modalCatId, 10) || 0;
+          subId = parseInt(modalSubId, 10) || 0;
+        }
+      } catch (e) {
+      }
     }
-
-    // If still not set, try to get from data attributes
+    
+    // Приоритет 2: URL параметры текущей страницы (fallback, если модальное окно не сохранило)
     if (!catId || !subId) {
-      var modal = document.getElementById("popup-import-registrator");
-      if (modal) {
-        catId = catId || parseInt(modal.dataset.catId) || 0;
-        subId = subId || parseInt(modal.dataset.subId) || 0;
+      try {
+        var urlParams = new URLSearchParams(window.location.search);
+        var urlCatId = urlParams.get("cat_id");
+        var urlSubId = urlParams.get("sub_id");
+        if (urlCatId && urlSubId) {
+          catId = parseInt(urlCatId, 10) || 0;
+          subId = parseInt(urlSubId, 10) || 0;
+        }
+      } catch (e) {
+      }
+    }
+    
+    // Приоритет 3: data-атрибуты body
+    if (!catId || !subId) {
+      try {
+        var bodyCatId = document.body.getAttribute('data-current-category-id');
+        var bodySubId = document.body.getAttribute('data-current-subcategory-id');
+        if (bodyCatId && bodySubId) {
+          catId = parseInt(bodyCatId, 10) || 0;
+          subId = parseInt(bodySubId, 10) || 0;
+        }
+      } catch (e) {
+      }
+    }
+    
+    // Приоритет 4: глобальные переменные (последний fallback)
+    if (!catId || !subId) {
+      try {
+        catId = catId || (window.current_category_id ? parseInt(window.current_category_id, 10) : 0) || 0;
+        subId = subId || (window.current_subcategory_id ? parseInt(window.current_subcategory_id, 10) : 0) || 0;
+      } catch (e) {
       }
     }
 
     if (!catId || !subId) {
       if (window.showToast) {
         window.showToast(
-          "Не удалось определить категорию и подкатегорию для загрузки",
+          "Не удалось определить категорию и подкатегорию для загрузки. Закройте модальное окно и откройте его заново на странице нужного наряда.",
           "error"
         );
       }
       return;
     }
+    
 
     // Start background upload asynchronously to avoid blocking UI
     setTimeout(() => {

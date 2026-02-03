@@ -3398,6 +3398,43 @@ def register(app, media_service, socketio=None) -> None:
             ]):
                 return jsonify({'error': 'Missing required parameters'}), 400
 
+            # ИСПРАВЛЕНО: Проверка несоответствия referer и payload
+            # Это помогает выявить случаи, когда фронтенд отправляет неправильные значения
+            referer = request.headers.get('Referer', '')
+            referer_cat_id = None
+            referer_sub_id = None
+            
+            if referer and '/files' in referer:
+                try:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(referer)
+                    params = parse_qs(parsed.query)
+                    referer_cat_id = params.get('cat_id', [None])[0]
+                    referer_sub_id = params.get('sub_id', [None])[0]
+                    if referer_cat_id:
+                        referer_cat_id = int(referer_cat_id)
+                    if referer_sub_id:
+                        referer_sub_id = int(referer_sub_id)
+                except Exception as e:
+                    _log.warning(f"[registrator-upload] Error parsing referer: {e}")
+            
+            # Логируем несоответствие, если обнаружено
+            if referer_cat_id and referer_sub_id:
+                if referer_cat_id != cat_id or referer_sub_id != sub_id:
+                    _log.warning(
+                        f"[registrator-upload] MISMATCH DETECTED: "
+                        f"payload cat_id={cat_id}, sub_id={sub_id} "
+                        f"vs referer cat_id={referer_cat_id}, sub_id={referer_sub_id} "
+                        f"user={current_user.name}, ip={request.remote_addr or ''}, "
+                        f"referer={referer}"
+                    )
+                    # Не блокируем загрузку, но логируем для анализа
+                else:
+                    _log.info(
+                        f"[registrator-upload] Values match: cat_id={cat_id}, sub_id={sub_id}, "
+                        f"user={current_user.name}"
+                    )
+
             # Check parallel upload limit using atomic Redis operation
             can_start, active_uploads, max_parallel = can_start_new_upload(current_user.id)
 
@@ -3445,16 +3482,19 @@ def register(app, media_service, socketio=None) -> None:
             # Save upload job to Redis
             save_upload_job(upload_job)
 
-            # Log detailed start information
-            _log.info(f"Starting registrator import from {registrator_name}, {len(file_urls)} files")
+            # Log detailed start information with cat_id/sub_id
+            _log.info(
+                f"Starting registrator import from {registrator_name}, {len(file_urls)} files, "
+                f"cat_id={cat_id}, sub_id={sub_id}, user={current_user.name}"
+            )
 
-            # Start background upload
-            start_background_upload(upload_job)
+            # Start background upload (передаем app через замыкание)
+            start_background_upload(upload_job, app)
 
-            # Log start
+            # Log start with cat_id/sub_id in details
             log_action(
                 'REGISTRATOR_IMPORT_START', current_user.name,
-                f'started background import of {len(file_urls)} files from registrator "{registrator_name}"',
+                f'started background import of {len(file_urls)} files from registrator "{registrator_name}" to cat_id={cat_id} sub_id={sub_id}',
                 (request.remote_addr or ''))
 
             return jsonify({
@@ -4128,13 +4168,24 @@ def increment_upload_error(upload_id):
         _log.error(f"Error incrementing upload job error_count: {e}")
 
 
-def start_background_upload(upload_job):
-    """Start background upload in separate thread."""
+def start_background_upload(upload_job, app=None):
+    """Start background upload in separate thread.
+    
+    Args:
+        upload_job: Dictionary with upload job data
+        app: Flask application instance (optional, will use current_app if not provided)
+    """
 
     def background_upload_worker():
         try:
             upload_id = upload_job['id']
             _log.info(f"Starting background upload {upload_id}")
+            
+            # Используем переданный app для доступа к SQL в фоновом потоке
+            # app всегда должен быть передан из api_registrator_upload
+            app_instance = app
+            if app_instance is None:
+                _log.warning(f"[registrator-upload] No app instance provided for {upload_id}, validation will be skipped")
 
             completed_files_count = 0  # Track actual completed files count
             for i, (file_url, file_name) in enumerate(
@@ -4267,6 +4318,54 @@ def start_background_upload(upload_job):
                         
                         try:
                             upload_start_time = time.time()
+                            
+                            # ИСПРАВЛЕНО: Валидация на момент фактической загрузки
+                            # Проверяем, что cat_id и sub_id все еще валидны и доступны пользователю
+                            upload_cat_id = upload_job['cat_id']
+                            upload_sub_id = upload_job['sub_id']
+                            
+                            # Валидация категории и подкатегории
+                            # Используем app_instance, полученный в начале функции
+                            if app_instance is not None:
+                                try:
+                                    # Проверяем существование категории
+                                    cat_row = app_instance._sql.execute_scalar(
+                                        f"SELECT id FROM {app_instance._sql.config['db']['prefix']}_file_category WHERE id=%s;",
+                                        [upload_cat_id])
+                                    if not cat_row:
+                                        _log.error(
+                                            f"[registrator-upload] Category {upload_cat_id} not found when uploading {file_name}, "
+                                            f"upload_id={upload_id}, user_id={upload_job['user_id']}"
+                                        )
+                                        raise Exception(f'Category {upload_cat_id} not found')
+                                    
+                                    # Проверяем существование подкатегории и её принадлежность категории
+                                    sub_row = app_instance._sql.execute_scalar(
+                                        f"SELECT id FROM {app_instance._sql.config['db']['prefix']}_file_subcategory WHERE id=%s AND category_id=%s;",
+                                        [upload_sub_id, upload_cat_id])
+                                    if not sub_row:
+                                        _log.error(
+                                            f"[registrator-upload] Subcategory {upload_sub_id} not found or doesn't belong to category {upload_cat_id} "
+                                            f"when uploading {file_name}, upload_id={upload_id}, user_id={upload_job['user_id']}"
+                                        )
+                                        raise Exception(f'Subcategory {upload_sub_id} not found or invalid for category {upload_cat_id}')
+                                    
+                                    _log.info(
+                                        f"[registrator-upload] Validated: uploading {file_name} to cat_id={upload_cat_id}, sub_id={upload_sub_id}, "
+                                        f"upload_id={upload_id}"
+                                    )
+                                except Exception as validation_error:
+                                    _log.error(
+                                        f"[registrator-upload] Validation failed for {file_name}: {validation_error}, "
+                                        f"cat_id={upload_cat_id}, sub_id={upload_sub_id}, upload_id={upload_id}"
+                                    )
+                                    raise
+                            else:
+                                # Если app_instance недоступен, пропускаем валидацию, но логируем предупреждение
+                                _log.warning(
+                                    f"[registrator-upload] Skipping validation for {file_name} (no app context), "
+                                    f"cat_id={upload_cat_id}, sub_id={upload_sub_id}, upload_id={upload_id}"
+                                )
 
                             # Use HTTP POST with streaming from file
                             with open(temp_file_path, 'rb') as f:
@@ -4281,6 +4380,13 @@ def start_background_upload(upload_job):
                                     'cat_id': str(upload_job['cat_id']),
                                     'sub_id': str(upload_job['sub_id'])
                                 }
+
+                                # ИСПРАВЛЕНО: Логирование фактических cat_id/sub_id при загрузке каждого файла
+                                _log.info(
+                                    f"[registrator-upload] Uploading file {file_name} to cat_id={upload_job['cat_id']}, "
+                                    f"sub_id={upload_job['sub_id']}, upload_id={upload_id}, "
+                                    f"file_index={i+1}/{len(upload_job['file_urls'])}"
+                                )
 
                                 # Get current server URL dynamically
                                 base_url = upload_job.get('base_url', 'https://localhost:8080')

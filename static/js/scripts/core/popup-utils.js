@@ -132,28 +132,40 @@ function popupValues(form, rowId) {
 
   // Special handling for delete modal - update file name
   if (form.id === "delete") {
+    // ИСПРАВЛЕНО: Обновляем имя файла в модальном окне удаления
+    // Получаем имя файла из data-атрибутов строки
+    const fileName = row.getAttribute("data-name") || 
+                    row.getAttribute("data-file-name") || 
+                    "неизвестный";
+    
+    // Обновляем элемент delete-file-name (основной элемент для файлов)
     const fileNameElement = document.getElementById("delete-file-name");
     if (fileNameElement) {
-      const fileName =
-        row.getAttribute("data-name") ||
-        row.getAttribute("data-file-name") ||
-        "неизвестный";
       fileNameElement.textContent = fileName;
     }
     
-    // Find the modal popup container
-    const modal = form.closest(".overlay-container");
+    // ИСПРАВЛЕНО: Ищем модальное окно по ID, а не через closest
+    // так как форма может быть вне модального окна в момент вызова
+    const modal = document.getElementById("popup-delete");
     if (modal) {
       // Find the bold element with placeholder text in the modal body
       const nameElement = modal.querySelector(".popup__body p b");
       if (nameElement) {
-        // Determine modal type by checking the modal ID or title
-        const modalId = modal.id;
+        // Determine modal type by checking the modal title
         const modalTitle = modal.querySelector(".popup__title");
         const titleText = modalTitle ? modalTitle.textContent.trim() : "";
         
+        // ИСПРАВЛЕНО: Handle files delete modal (приоритет - первым проверяем файлы)
+        if (titleText.includes("файл")) {
+          nameElement.textContent = fileName;
+          // Также обновляем элемент delete-file-name, если он существует
+          if (fileNameElement) {
+            fileNameElement.textContent = fileName;
+          }
+        }
+        
         // Handle users delete modal
-        if (modalId === "popup-delete" && titleText.includes("пользователя")) {
+        else if (titleText.includes("пользователя")) {
           const userName = row.getAttribute("data-name") || "";
           const userLogin = row.getAttribute("data-login") || "";
           if (userName && userLogin) {
@@ -164,19 +176,19 @@ function popupValues(form, rowId) {
         }
         
         // Handle groups delete modal
-        else if (modalId === "popup-delete" && titleText.includes("группу")) {
+        else if (titleText.includes("группу")) {
           const groupName = row.getAttribute("data-name") || "неизвестная";
           nameElement.textContent = groupName;
         }
         
         // Handle requests delete modal (placeholder is "rname")
-        else if (modalId === "popup-delete" && titleText.includes("заявку")) {
+        else if (titleText.includes("заявку")) {
           const requestName = row.getAttribute("data-name") || "неизвестный";
           nameElement.textContent = requestName;
         }
         
         // Handle orders delete modal (placeholder is "ordname")
-        else if (modalId === "popup-delete" && titleText.includes("заказ")) {
+        else if (titleText.includes("заказ")) {
           const orderName = row.getAttribute("data-name") || "неизвестный";
           nameElement.textContent = orderName;
         }
@@ -185,7 +197,15 @@ function popupValues(form, rowId) {
         else {
           const placeholder = nameElement.textContent.trim();
           
-          if (placeholder === "uname") {
+          // ИСПРАВЛЕНО: Обработка для файлов (placeholder "?" или "неизвестный")
+          if (placeholder === "?" || placeholder === "неизвестный") {
+            nameElement.textContent = fileName;
+            // Также обновляем элемент delete-file-name
+            if (fileNameElement) {
+              fileNameElement.textContent = fileName;
+            }
+          }
+          else if (placeholder === "uname") {
             const userName = row.getAttribute("data-name") || "";
             const userLogin = row.getAttribute("data-login") || "";
             if (userName && userLogin) {

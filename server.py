@@ -275,7 +275,7 @@ if redis_client:
 # Re-enable presence and force-logout (disabled during testing)
 app.config['PRESENCE_DISABLED'] = False
 app.config['FORCE_LOGOUT_DISABLED'] = False
-app.config['VERSION'] = '1.4.0'
+app.config['VERSION'] = '1.4.2'
 # Only log presence features once across all workers
 temp_redis = _create_redis_client_for_logging()
 if temp_redis and temp_redis.set(
