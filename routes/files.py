@@ -562,17 +562,7 @@ def register(app, media_service, socketio=None) -> None:
                     sub_id = None
                 current_category_id = cat_id
                 current_subcategory_id = sub_id
-                # Log determined IDs for debugging
-                try:
-                    # Log _dirs structure to understand ordering
-                    dirs_debug = []
-                    for idx, d in enumerate(_dirs[:min(5, len(_dirs))]):
-                        keys_list = list(d.keys())
-                        if keys_list:
-                            dirs_debug.append(f"{idx}:{keys_list[0]}")
-                    _log.info(f"[files] Determined IDs: did={did}, sdid={sdid}, cat_id={cat_id}, sub_id={sub_id}, root_key={root_key_clean if 'root_key_clean' in locals() else 'N/A'}, sub_key={sub_key_clean if 'sub_key_clean' in locals() else 'N/A'}, dirs_preview={','.join(dirs_debug)}, user={current_user.name}")
-                except Exception:
-                    pass
+                # Log determined IDs disabled to reduce log noise
                 # Block access to disabled subcategory
                 try:
                     if sub_id:
@@ -4177,9 +4167,17 @@ def start_background_upload(upload_job, app=None):
     """
 
     def background_upload_worker():
+        import traceback
+        start_time = time.time()  # Define before try block for error handling
         try:
             upload_id = upload_job['id']
-            _log.info(f"Starting background upload {upload_id}")
+            _log.info(
+                f"[registrator-upload] Starting background upload {upload_id}, "
+                f"user={upload_job.get('user_name', 'unknown')}, "
+                f"total_files={len(upload_job.get('file_urls', []))}, "
+                f"cat_id={upload_job.get('cat_id')}, sub_id={upload_job.get('sub_id')}, "
+                f"registrator={upload_job.get('registrator_name', 'unknown')}"
+            )
             
             # Используем переданный app для доступа к SQL в фоновом потоке
             # app всегда должен быть передан из api_registrator_upload
@@ -4188,8 +4186,14 @@ def start_background_upload(upload_job, app=None):
                 _log.warning(f"[registrator-upload] No app instance provided for {upload_id}, validation will be skipped")
 
             completed_files_count = 0  # Track actual completed files count
+            failed_files_count = 0
             for i, (file_url, file_name) in enumerate(
                     zip(upload_job['file_urls'], upload_job['file_names'])):
+                file_start_time = time.time()
+                _log.info(
+                    f"[registrator-upload] Processing file {i+1}/{len(upload_job['file_urls'])}: "
+                    f"name={file_name}, url={file_url}, upload_id={upload_id}"
+                )
                 # Check for shutdown signal
                 if shutdown_flag.is_set():
                     _log.info(f"Shutdown signal received, stopping upload {upload_id}")
@@ -4223,7 +4227,8 @@ def start_background_upload(upload_job, app=None):
 
                     # Download file directly from registrator
                     _log.info(
-                        f"Downloading directly from registrator: {file_url}")
+                        f"[registrator-upload] Downloading file from registrator: "
+                        f"file={file_name}, url={file_url}, upload_id={upload_id}")
 
                     # Try different approaches for downloading
                     headers = {
@@ -4236,19 +4241,30 @@ def start_background_upload(upload_job, app=None):
                         'Connection': 'keep-alive'
                     }
 
-                    _log.info(f"Starting download of {file_name} from {file_url}")
-
-                    import time
-                    start_time = time.time()
-
-                    response = requests.get(file_url,
-                                            timeout=300,
-                                            verify=False,
-                                            stream=True,
-                                            headers=headers)
-
-                    _log.info(
-                        f"Download response status: {response.status_code}")
+                    download_start_time = time.time()
+                    try:
+                        response = requests.get(file_url,
+                                                timeout=300,
+                                                verify=False,
+                                                stream=True,
+                                                headers=headers)
+                        _log.info(
+                            f"[registrator-upload] Download response received: "
+                            f"file={file_name}, status={response.status_code}, "
+                            f"headers={dict(response.headers)}, upload_id={upload_id}"
+                        )
+                    except requests.exceptions.Timeout as e:
+                        _log.error(
+                            f"[registrator-upload] Download timeout: file={file_name}, "
+                            f"url={file_url}, timeout=300s, upload_id={upload_id}, error={e}"
+                        )
+                        raise
+                    except requests.exceptions.RequestException as e:
+                        _log.error(
+                            f"[registrator-upload] Download request failed: file={file_name}, "
+                            f"url={file_url}, upload_id={upload_id}, error={e}, error_type={type(e).__name__}"
+                        )
+                        raise
 
 
                     if response.status_code == 200:
@@ -4259,7 +4275,11 @@ def start_background_upload(upload_job, app=None):
                         content_length = int(
                             response.headers.get('content-length', 0))
 
-                        _log.info(f"Starting to download {file_name}, content-length: {content_length}")
+                        _log.info(
+                            f"[registrator-upload] Starting file download: "
+                            f"file={file_name}, content_length={content_length} bytes "
+                            f"({content_length / 1024 / 1024:.2f} MB), upload_id={upload_id}"
+                        )
 
 
                         # Create temporary file
@@ -4311,6 +4331,24 @@ def start_background_upload(upload_job, app=None):
                         download_speed = (
                             downloaded_size / 1024 /
                             1024) / download_time if download_time > 0 else 0
+                        
+                        _log.info(
+                            f"[registrator-upload] File downloaded successfully: "
+                            f"file={file_name}, size={downloaded_size} bytes ({downloaded_size / 1024 / 1024:.2f} MB), "
+                            f"time={download_time:.2f}s, speed={download_speed:.2f} MB/s, "
+                            f"upload_id={upload_id}"
+                        )
+                        
+                        # Verify file was written correctly
+                        if not os.path.exists(temp_file_path):
+                            raise Exception(f"Temporary file was not created: {temp_file_path}")
+                        actual_file_size = os.path.getsize(temp_file_path)
+                        if actual_file_size != downloaded_size:
+                            _log.warning(
+                                f"[registrator-upload] File size mismatch: "
+                                f"file={file_name}, expected={downloaded_size}, actual={actual_file_size}, "
+                                f"upload_id={upload_id}"
+                            )
 
 
                         # Upload file via HTTP but with optimized settings
@@ -4404,19 +4442,46 @@ def start_background_upload(upload_job, app=None):
                                     _log.info(f"Cancellation detected before upload for {upload_id}")
                                     raise Exception('cancelled')
 
-                                upload_response = requests.post(
-                                    upload_url,
-                                    files=files,
-                                    data=data,
-                                    cookies=cookies_dict,  # Use saved cookies for authentication
-                                    timeout=300,
-                                    headers={
-                                        'Connection': 'keep-alive',  # Keep connection alive
-                                        'X-Requested-With': 'XMLHttpRequest',  # Ensure JSON response
-                                        'Accept': 'application/json'  # Request JSON response
-                                    },
-                                    verify=False  # Disable SSL verification for self-signed certificates
+                                _log.info(
+                                    f"[registrator-upload] Sending upload request: "
+                                    f"file={file_name}, url={upload_url}, "
+                                    f"cat_id={upload_job['cat_id']}, sub_id={upload_job['sub_id']}, "
+                                    f"file_size={os.path.getsize(temp_file_path)} bytes, upload_id={upload_id}"
                                 )
+                                
+                                try:
+                                    upload_response = requests.post(
+                                        upload_url,
+                                        files=files,
+                                        data=data,
+                                        cookies=cookies_dict,  # Use saved cookies for authentication
+                                        timeout=300,
+                                        headers={
+                                            'Connection': 'keep-alive',  # Keep connection alive
+                                            'X-Requested-With': 'XMLHttpRequest',  # Ensure JSON response
+                                            'Accept': 'application/json'  # Request JSON response
+                                        },
+                                        verify=False  # Disable SSL verification for self-signed certificates
+                                    )
+                                    _log.info(
+                                        f"[registrator-upload] Upload response received: "
+                                        f"file={file_name}, status={upload_response.status_code}, "
+                                        f"upload_id={upload_id}"
+                                    )
+                                except requests.exceptions.Timeout as e:
+                                    _log.error(
+                                        f"[registrator-upload] Upload timeout: "
+                                        f"file={file_name}, url={upload_url}, timeout=300s, "
+                                        f"upload_id={upload_id}, error={e}"
+                                    )
+                                    raise
+                                except requests.exceptions.RequestException as e:
+                                    _log.error(
+                                        f"[registrator-upload] Upload request failed: "
+                                        f"file={file_name}, url={upload_url}, "
+                                        f"upload_id={upload_id}, error={e}, error_type={type(e).__name__}"
+                                    )
+                                    raise
                         finally:
                             # Clean up temporary file
                             try:
@@ -4425,22 +4490,65 @@ def start_background_upload(upload_job, app=None):
                                 pass
 
                         upload_time = time.time() - upload_start_time
-                        _log.info(f"Upload completed in {upload_time:.2f}s")
+                        _log.info(
+                            f"[registrator-upload] Upload request completed: "
+                            f"file={file_name}, time={upload_time:.2f}s, "
+                            f"status={upload_response.status_code}, upload_id={upload_id}"
+                        )
 
                         if upload_response.status_code == 200:
-                            _log.info(f"Successfully uploaded {file_name}")
+                            _log.info(
+                                f"[registrator-upload] Upload successful: "
+                                f"file={file_name}, upload_id={upload_id}"
+                            )
                             
                             # Extract file ID from response
                             try:
                                 response_data = upload_response.json()
                                 uploaded_file_id = response_data.get('id')
+                                _log.info(
+                                    f"[registrator-upload] File created in DB: "
+                                    f"file={file_name}, file_id={uploaded_file_id}, "
+                                    f"upload_id={upload_id}"
+                                )
+                            except ValueError as e:
+                                uploaded_file_id = None
+                                response_text_preview = upload_response.text[:500] if upload_response.text else "(empty)"
+                                _log.error(
+                                    f"[registrator-upload] Failed to parse JSON response: "
+                                    f"file={file_name}, error={e}, error_type={type(e).__name__}, "
+                                    f"status={upload_response.status_code}, "
+                                    f"response_preview={response_text_preview}, upload_id={upload_id}"
+                                )
+                                _log.error(
+                                    f"[registrator-upload] Full response headers: "
+                                    f"{dict(upload_response.headers)}, upload_id={upload_id}"
+                                )
                             except Exception as e:
                                 uploaded_file_id = None
-                                _log.error(f"Failed to parse response JSON: {e}")
-                                _log.error(f"Response text: {upload_response.text[:200]}")
+                                response_text_preview = upload_response.text[:500] if hasattr(upload_response, 'text') and upload_response.text else "(no text)"
+                                _log.error(
+                                    f"[registrator-upload] Unexpected error parsing response: "
+                                    f"file={file_name}, error={e}, error_type={type(e).__name__}, "
+                                    f"traceback={traceback.format_exc()}, upload_id={upload_id}"
+                                )
                             
                             # Update upload job with completed files count and uploaded file info
-                            completed_files_count += 1  # Increment completed files count
+                            if uploaded_file_id:
+                                completed_files_count += 1  # Increment completed files count
+                                file_total_time = time.time() - file_start_time
+                                _log.info(
+                                    f"[registrator-upload] File processing completed successfully: "
+                                    f"file={file_name}, file_id={uploaded_file_id}, "
+                                    f"total_time={file_total_time:.2f}s, upload_id={upload_id}"
+                                )
+                            else:
+                                failed_files_count += 1
+                                _log.warning(
+                                    f"[registrator-upload] File uploaded but no ID returned: "
+                                    f"file={file_name}, upload_id={upload_id}"
+                                )
+                            
                             update_data = {
                                 'completed_files': completed_files_count,
                                 'current_file_progress': 100
@@ -4464,40 +4572,71 @@ def start_background_upload(upload_job, app=None):
                             
                             update_upload_job(upload_id, update_data)
                         else:
+                            failed_files_count += 1
+                            response_text_preview = upload_response.text[:500] if hasattr(upload_response, 'text') and upload_response.text else "(no text)"
                             _log.error(
-                                f"Failed to upload {file_name}: {upload_response.status_code}"
+                                f"[registrator-upload] Upload failed: "
+                                f"file={file_name}, status={upload_response.status_code}, "
+                                f"response_preview={response_text_preview}, "
+                                f"headers={dict(upload_response.headers)}, upload_id={upload_id}"
                             )
                             increment_upload_error(upload_id)
                     else:
+                        failed_files_count += 1
+                        response_text_preview = response.text[:500] if hasattr(response, 'text') and response.text else "(no text)"
                         _log.error(
-                            f"Failed to download {file_url}: {response.status_code}"
+                            f"[registrator-upload] Download failed: "
+                            f"file={file_name}, url={file_url}, status={response.status_code}, "
+                            f"response_preview={response_text_preview}, "
+                            f"headers={dict(response.headers)}, upload_id={upload_id}"
                         )
                         increment_upload_error(upload_id)
 
                 except Exception as e:
-                    _log.error(f"Error processing file {file_name}: {e}")
+                    failed_files_count += 1
+                    file_total_time = time.time() - file_start_time
+                    _log.error(
+                        f"[registrator-upload] Error processing file: "
+                        f"file={file_name}, error={e}, error_type={type(e).__name__}, "
+                        f"time={file_total_time:.2f}s, upload_id={upload_id}, "
+                        f"traceback={traceback.format_exc()}"
+                    )
                     increment_upload_error(upload_id)
 
             # Mark as completed
             total_time = time.time() - start_time
+            total_files = upload_job['total_files']
+            success_rate = (completed_files_count / total_files * 100) if total_files > 0 else 0
+            
+            _log.info(
+                f"[registrator-upload] Background upload completed: "
+                f"upload_id={upload_id}, total_files={total_files}, "
+                f"completed={completed_files_count}, failed={failed_files_count}, "
+                f"success_rate={success_rate:.1f}%, total_time={total_time:.2f}s"
+            )
+            
             update_upload_job(
                 upload_id, {
                     'status': 'completed',
-                    'completed_files': upload_job['total_files'],
+                    'completed_files': completed_files_count,
+                    'failed_files': failed_files_count,
                     'end_time': time.time()
                 })
 
             # Log completion with performance summary
             log_action(
                 'REGISTRATOR_IMPORT_END', upload_job['user_name'],
-                f'completed background import of {upload_job["total_files"]} files from registrator "{upload_job["registrator_name"]}"',
+                f'completed background import of {completed_files_count}/{total_files} files from registrator "{upload_job["registrator_name"]}" (failed: {failed_files_count})',
                 upload_job['ip'])
 
-            _log.info(f"Completed background upload {upload_id}")
-            # Removed verbose performance summary logging
-
         except Exception as e:
-            _log.error(f"Background upload error: {e}")
+            total_time = time.time() - start_time
+            _log.error(
+                f"[registrator-upload] Background upload failed: "
+                f"upload_id={upload_job.get('id', 'unknown')}, error={e}, "
+                f"error_type={type(e).__name__}, time={total_time:.2f}s, "
+                f"traceback={traceback.format_exc()}"
+            )
             update_upload_job(upload_job['id'], {
                 'status': 'failed',
                 'error': str(e),
