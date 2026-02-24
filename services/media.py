@@ -66,7 +66,14 @@ class MediaService:
             source_size = os.path.getsize(old) if path.exists(old) else 0
         except Exception:
             pass
-        self._log.info(f"[media] Starting conversion: {etype} id={entity_id}, from={old}, to={new}, source_size={source_size} bytes")
+        conversion_timeout = 1800
+        try:
+            v = (getattr(self._sql, 'config', None) or {}).get('videos') or {}
+            conversion_timeout = int(v.get('conversion_timeout_seconds', 1800))
+            conversion_timeout = max(60, min(7200, conversion_timeout))
+        except Exception:
+            pass
+        self._log.info(f"[media] Starting conversion: {etype} id={entity_id}, from={old}, to={new}, source_size={source_size} bytes, timeout={conversion_timeout}s")
         # noisy during normal operation; keep only errors in logs
 
         # Check if source file exists
@@ -118,7 +125,7 @@ class MediaService:
                             stderr=PIPE,
                             universal_newlines=True)
         try:
-            out, err = process.communicate(timeout=300)  # 5 minute timeout
+            out, err = process.communicate(timeout=conversion_timeout)
             conversion_duration = time.time() - conversion_start_time
             if process.returncode != 0:
                 try:

@@ -247,6 +247,22 @@ except Exception as e:
 app = Server(path.dirname(path.realpath(__file__)), redis_client=redis_client)
 # No adapter: use ConfigParser (config.ini) only
 
+# Use files storage for multipart temp dir to avoid "Disk quota exceeded" (Errno 122) on /tmp
+# Werkzeug writes uploaded files to temp before our code runs; Python uses TMPDIR for that.
+# Path from config.ini [files] tmp_dir, fallback: {files.root}/tmp/upload
+try:
+    _files_cfg = app._sql.config['files']
+    _upload_tmp = (_files_cfg.get('tmp_dir') or '').strip()
+    if not _upload_tmp:
+        _root = _files_cfg.get('root') or ''
+        _upload_tmp = path.join(_root, 'tmp', 'upload') if _root else ''
+    if _upload_tmp:
+        os.makedirs(_upload_tmp, mode=0o700, exist_ok=True)
+        os.environ['TMPDIR'] = _upload_tmp
+        _log.info("TMPDIR set to %s for multipart upload temp files", _upload_tmp)
+except Exception as _e:
+    _log.warning("Could not set TMPDIR for uploads: %s", _e)
+
 # Initialize Redis-based components
 rate_limiters = create_rate_limiter(redis_client) if redis_client else {}
 presence_manager = RedisPresenceManager(redis_client) if redis_client else None
