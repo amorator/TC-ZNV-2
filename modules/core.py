@@ -21,7 +21,7 @@ class Config:
 	
 	def __init__(self, config: str = 'config.ini') -> None:
 		self.config = ConfigParser()
-		cfg_path = getenv('ZNF_BETA_CONFIG', config)
+		cfg_path = getenv('ZNF_CONFIG', config)
 		read_ok = False
 		for enc in ('utf-8', 'cp1251'):
 			try:

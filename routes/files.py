@@ -3701,7 +3701,7 @@ def register(app, media_service, socketio=None) -> None:
             import configparser
             import os
             config = configparser.ConfigParser()
-            cfg_path = os.environ.get('ZNF_BETA_CONFIG', 'config.ini')
+            cfg_path = os.environ.get('ZNF_CONFIG', 'config.ini')
             config.read(cfg_path)
 
             # Convert config to dictionary

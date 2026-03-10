@@ -55,7 +55,7 @@ http://localhost:5000/
 
 ```bash
 source .venv/bin/activate
-export ZNF_BETA_CONFIG=/usr/share/znf-beta/config.ini
+export ZNF_CONFIG=/usr/share/znf/config.ini
 gunicorn -w 1 -k gevent --bind 0.0.0.0:5000 server:app
 ```
 
@@ -65,7 +65,7 @@ Socket.IO поддерживается через gevent. Для несколь�
 
 ### Конфигурация
 
-Приложение читает `config.ini` из рабочей директории. Путь можно переопределить переменной окружения `ZNF_BETA_CONFIG`.
+Приложение читает `config.ini` из рабочей директории. Путь можно переопределить переменными окружения `ZNV2_CONFIG` или `LOG_CONFIG`.
 
 Ключевые секции:
 

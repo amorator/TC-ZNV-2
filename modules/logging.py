@@ -20,7 +20,7 @@ class LoggingConfig:
 		"""Initialize logging configuration from config file."""
 		from os import environ
 		# Allow overriding config path via env var for deployments
-		env_cfg = environ.get('ZNF_BETA_CONFIG')
+		env_cfg = environ.get('ZNF_CONFIG') or environ.get('LOG_CONFIG')
 		cfg_path = env_cfg if env_cfg else config_path
 		self.config = ConfigParser()
 		self.config.read(cfg_path, encoding='utf-8')
