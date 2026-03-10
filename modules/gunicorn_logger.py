@@ -7,18 +7,20 @@ from gunicorn.glogging import Logger
 
 
 class RotatingLogger(Logger):
-    """Custom Gunicorn logger with rotation support."""
+    """Custom Gunicorn logger with time-based rotation support."""
 
     def __init__(self, cfg):
         super().__init__(cfg)
 
-        # Setup rotating file handler for error log
+        # Setup time-based rotating file handler for error log
         if cfg.errorlog and cfg.errorlog != "-":
-            error_handler = logging.handlers.RotatingFileHandler(
+            error_handler = logging.handlers.TimedRotatingFileHandler(
                 cfg.errorlog,
-                maxBytes=50 * 1024 * 1024,  # 50MB
+                when="midnight",
+                interval=1,
                 backupCount=5,
-                encoding='utf-8')
+                encoding='utf-8',
+                utc=False)
             error_handler.setLevel(logging.INFO)
             error_formatter = logging.Formatter(
                 '%(asctime)s [%(process)d] [%(levelname)s] %(message)s',
@@ -29,13 +31,15 @@ class RotatingLogger(Logger):
             self.error_log.handlers.clear()
             self.error_log.addHandler(error_handler)
 
-        # Setup rotating file handler for access log
+        # Setup time-based rotating file handler for access log
         if cfg.accesslog and cfg.accesslog != "-":
-            access_handler = logging.handlers.RotatingFileHandler(
+            access_handler = logging.handlers.TimedRotatingFileHandler(
                 cfg.accesslog,
-                maxBytes=50 * 1024 * 1024,  # 50MB
+                when="midnight",
+                interval=1,
                 backupCount=5,
-                encoding='utf-8')
+                encoding='utf-8',
+                utc=False)
             access_handler.setLevel(logging.INFO)
             access_formatter = logging.Formatter('%(asctime)s %(message)s',
                                                  datefmt='%Y-%m-%d %H:%M:%S')

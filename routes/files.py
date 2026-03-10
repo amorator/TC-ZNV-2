@@ -23,6 +23,7 @@ import redis
 import re
 import tempfile
 from flask import current_app
+from modules.core import Config
 
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -49,6 +50,58 @@ def signal_handler(signum, frame):
 # Register signal handlers for graceful shutdown
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
+
+def _create_redis_from_config():
+    """Create a low-level Redis client using application config (for one-off tasks)."""
+    try:
+        temp_config = Config()
+        redis_config = {}
+
+        # Try dict-style access first
+        try:
+            redis_config = temp_config.config['redis']
+        except Exception:
+            # Fallback to ConfigParser-style access
+            try:
+                redis_config = {
+                    'server': temp_config.config.get('redis', 'server', fallback=None),
+                    'port': temp_config.config.get('redis', 'port', fallback=6379),
+                    'password': temp_config.config.get('redis', 'password', fallback=None),
+                    'socket': temp_config.config.get('redis', 'socket', fallback=None),
+                    'db': temp_config.config.get('redis', 'db', fallback=0),
+                }
+                # Convert port to int
+                try:
+                    redis_config['port'] = int(redis_config['port'])
+                except (ValueError, TypeError):
+                    redis_config['port'] = 6379
+            except Exception:
+                redis_config = {}
+
+        if not redis_config:
+            return None
+
+        # Prefer unix socket if available
+        if redis_config.get('socket'):
+            if redis_config.get('password'):
+                url = f"unix://:{redis_config['password']}@{redis_config['socket']}?db={redis_config.get('db', 0)}"
+            else:
+                url = f"unix://{redis_config['socket']}?db={redis_config.get('db', 0)}"
+        else:
+            host = redis_config.get('server', 'localhost')
+            port = redis_config.get('port', 6379)
+            password = redis_config.get('password')
+            db = redis_config.get('db', 0)
+
+            if password:
+                url = f"redis://:{password}@{host}:{port}/{db}"
+            else:
+                url = f"redis://{host}:{port}/{db}"
+
+        return redis.from_url(url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
+    except Exception:
+        return None
 
 def get_file_location_info(file, app):
     """Get category and subcategory names for file logging."""
@@ -89,11 +142,9 @@ except Exception:
 def clear_all_uploads_on_startup():
     """Clear all upload jobs from Redis on server startup."""
     try:
-        # moved imports to top
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+		redis_client = _create_redis_from_config()
+		if not redis_client:
+			return
 
         # Clear all upload jobs and active uploads set
         keys = redis_client.keys('upload_job:*')
@@ -3561,11 +3612,9 @@ def register(app, media_service, socketio=None) -> None:
     def api_cancel_upload(upload_id):
         """Cancel an active upload and delete uploaded files."""
         try:
-            import redis
-            redis_client = redis.Redis(
-                unix_socket_path='/var/run/redis/redis.sock',
-                password='znf25!',
-                db=0)
+            redis_client = _create_redis_from_config()
+            if not redis_client:
+                return jsonify({'success': False, 'error': 'Redis not configured'}), 500
 
             # Get upload job data
             job_key = f"upload_job:{upload_id}"
@@ -3650,8 +3699,10 @@ def register(app, media_service, socketio=None) -> None:
         """Get application configuration for frontend."""
         try:
             import configparser
+            import os
             config = configparser.ConfigParser()
-            config.read('/usr/share/znf/config.ini')
+            cfg_path = os.environ.get('ZNF_BETA_CONFIG', 'config.ini')
+            config.read(cfg_path)
 
             # Convert config to dictionary
             config_dict = {}
@@ -3668,11 +3719,9 @@ def register(app, media_service, socketio=None) -> None:
     def api_cleanup_uploads():
         """Clean up inactive upload jobs from Redis."""
         try:
-            import redis
-            redis_client = redis.Redis(
-                unix_socket_path='/var/run/redis/redis.sock',
-                password='znf25!',
-                db=0)
+            redis_client = _create_redis_from_config()
+            if not redis_client:
+                return jsonify({'success': False, 'error': 'Redis not configured'}), 500
 
             keys = redis_client.keys('upload_job:*')
             cleaned_count = 0
@@ -3722,11 +3771,9 @@ def register(app, media_service, socketio=None) -> None:
     def api_cleanup_inactive_uploads():
         """Clean up inactive upload jobs from Redis (alias for cleanup-uploads)."""
         try:
-            import redis
-            redis_client = redis.Redis(
-                unix_socket_path='/var/run/redis/redis.sock',
-                password='znf25!',
-                db=0)
+            redis_client = _create_redis_from_config()
+            if not redis_client:
+                return jsonify({'error': 'Redis not configured'}), 500
 
             keys = redis_client.keys('upload_job:*')
             cleaned_count = 0
@@ -3827,11 +3874,9 @@ def register(app, media_service, socketio=None) -> None:
 def get_active_upload_count(user_id=None):
     """Get count of active uploads from Redis for specific user."""
     try:
-        import redis
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return 0
 
         # If no user_id provided, get from current user
         if user_id is None:
@@ -3893,12 +3938,10 @@ def get_active_upload_count(user_id=None):
 def save_upload_job(upload_job):
     """Save upload job to Redis and add to active uploads set."""
     try:
-        import redis
         import json
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return
 
         # Save job data
         redis_client.setex(f"upload_job:{upload_job['id']}", 3600,
@@ -3917,12 +3960,10 @@ def save_upload_job(upload_job):
 def get_upload_job(upload_id):
     """Get upload job from Redis."""
     try:
-        import redis
         import json
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return None
         job_data = redis_client.get(f"upload_job:{upload_id}")
         if job_data:
             try:
@@ -3945,12 +3986,10 @@ def get_upload_job(upload_id):
 def update_upload_job(upload_id, updates):
     """Update upload job in Redis and manage active uploads set."""
     try:
-        import redis
         import json
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return None
         job_data = redis_client.get(f"upload_job:{upload_id}")
         if not job_data:
             return
@@ -3980,11 +4019,9 @@ def update_upload_job(upload_id, updates):
 def can_start_new_upload(user_id=None):
     """Atomically check if we can start a new upload (respects max_parallel_uploads per user)."""
     try:
-        import redis
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return False, 0, 0
 
         # Get max parallel uploads from config (default to 3)
         from flask import current_app
@@ -4071,11 +4108,9 @@ def can_start_new_upload(user_id=None):
 def get_active_upload_list():
     """Get list of active uploads with details."""
     try:
-        import redis
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return []
 
         active_uploads_set = redis_client.smembers(
             'active_uploads')  # type: ignore
@@ -4141,12 +4176,10 @@ def get_active_upload_list():
 def increment_upload_error(upload_id):
     """Atomically increment error_count for an upload job."""
     try:
-        import redis
         import json
-        redis_client = redis.Redis(
-            unix_socket_path='/var/run/redis/redis.sock',
-            password='znf25!',
-            db=0)
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return
         job_key = f"upload_job:{upload_id}"
         job_data = redis_client.get(job_key)
         if job_data and isinstance(job_data, bytes):

@@ -21,7 +21,7 @@ class Config:
 	
 	def __init__(self, config: str = 'config.ini') -> None:
 		self.config = ConfigParser()
-		cfg_path = getenv('ZNF_CONFIG', config)
+		cfg_path = getenv('ZNF_BETA_CONFIG', config)
 		read_ok = False
 		for enc in ('utf-8', 'cp1251'):
 			try:
@@ -38,14 +38,51 @@ class Config:
 
 	def _log_config_once(self, cfg_path: str) -> None:
 		"""Log config loading only once across all workers using Redis."""
-		redis_client = redis.Redis(
-			unix_socket_path='/var/run/redis/redis.sock',
-			password='znf25!',
-			db=0
-		)
-		# Use Redis SET with NX (only if not exists) and EX (expire in 20 seconds)
-		if redis_client.set('config_loaded_logged', '1', nx=True, ex=20):
-			_log.info(f"Configuration loaded from {cfg_path}")
+		try:
+			redis_config = {}
+			# Try dict-style access first
+			try:
+				redis_config = self.config['redis']
+			except Exception:
+				# Fallback to ConfigParser-style access
+				try:
+					redis_config = {
+						'server': self.config.get('redis', 'server', fallback=None),
+						'port': self.config.get('redis', 'port', fallback=6379),
+						'password': self.config.get('redis', 'password', fallback=None),
+						'socket': self.config.get('redis', 'socket', fallback=None),
+						'db': self.config.get('redis', 'db', fallback=0),
+					}
+					try:
+						redis_config['port'] = int(redis_config['port'])
+					except (ValueError, TypeError):
+						redis_config['port'] = 6379
+				except Exception:
+					redis_config = {}
+
+			if not redis_config:
+				return
+
+			if redis_config.get('socket'):
+				redis_client = redis.Redis(
+					unix_socket_path=redis_config.get('socket'),
+					password=redis_config.get('password'),
+					db=redis_config.get('db', 0),
+				)
+			else:
+				redis_client = redis.Redis(
+					host=redis_config.get('server', 'localhost'),
+					port=redis_config.get('port', 6379),
+					password=redis_config.get('password'),
+					db=redis_config.get('db', 0),
+				)
+
+			# Use Redis SET with NX (only if not exists) and EX (expire in 20 seconds)
+			if redis_client.set('config_loaded_logged', '1', nx=True, ex=20):
+				_log.info(f"Configuration loaded from {cfg_path}")
+		except Exception:
+			# Failing to log config load should not break application startup
+			return
 
 	def _apply_env_overrides(self) -> None:
 		"""Apply environment variable overrides for common sections."""

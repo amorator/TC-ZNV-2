@@ -20,7 +20,7 @@ class LoggingConfig:
 		"""Initialize logging configuration from config file."""
 		from os import environ
 		# Allow overriding config path via env var for deployments
-		env_cfg = environ.get('ZNF_CONFIG') or environ.get('LOG_CONFIG')
+		env_cfg = environ.get('ZNF_BETA_CONFIG')
 		cfg_path = env_cfg if env_cfg else config_path
 		self.config = ConfigParser()
 		self.config.read(cfg_path, encoding='utf-8')
@@ -38,9 +38,11 @@ class LoggingConfig:
 		self.actions_level = self.config.get('logging', 'actions_level', fallback='INFO')
 		self.access_level = self.config.get('logging', 'access_level', fallback='INFO')
 		
-		# Rotation settings
-		self.max_bytes = self.config.getint('logging', 'max_bytes', fallback=10*1024*1024)  # 10MB
+		# Rotation settings (time-based)
 		self.backup_count = self.config.getint('logging', 'backup_count', fallback=5)
+		self.rotation_when = self.config.get('logging', 'rotation_when', fallback='midnight')
+		self.rotation_interval = self.config.getint('logging', 'rotation_interval', fallback=1)
+		self.rotation_utc = self.config.getboolean('logging', 'rotation_utc', fallback=False)
 
 		# Formats
 		self.console_format = self.config.get(
@@ -68,6 +70,16 @@ class LoggingConfig:
 						open(self.baseFilename, 'a').close()
 					except Exception:
 						pass
+		# Time-based safe handler using TimedRotatingFileHandler
+		class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+			def doRollover(self):
+				try:
+					super().doRollover()
+				except (FileNotFoundError, PermissionError):
+					try:
+						open(self.baseFilename, 'a').close()
+					except Exception:
+						pass
 		# Root logger
 		root_logger = logging.getLogger()
 		root_logger.setLevel(logging.DEBUG)
@@ -77,7 +89,7 @@ class LoggingConfig:
 		has_app_log_handler = False
 		for handler in root_logger.handlers[:]:
 			# Check if this is a file handler pointing to app.log
-			if isinstance(handler, logging.handlers.RotatingFileHandler):
+			if isinstance(handler, logging.handlers.BaseRotatingHandler):
 				if hasattr(handler, 'baseFilename'):
 					handler_path = path.abspath(handler.baseFilename)
 					if handler_path == app_log_path:
@@ -113,11 +125,13 @@ class LoggingConfig:
 		access_logger.setLevel(logging.INFO)
 		for h in access_logger.handlers[:]:
 			access_logger.removeHandler(h)
-		access_handler = SafeRotatingFileHandler(
+		access_handler = SafeTimedRotatingFileHandler(
 			path.join(self.logs_dir, 'access.log'),
-			maxBytes=self.max_bytes,
+			when=self.rotation_when,
+			interval=self.rotation_interval,
 			backupCount=self.backup_count,
-			encoding='utf-8'
+			encoding='utf-8',
+			utc=self.rotation_utc,
 		)
 		access_handler.setLevel(getattr(logging, self.access_level))
 		access_formatter = logging.Formatter(
@@ -133,11 +147,13 @@ class LoggingConfig:
 		actions_logger.setLevel(logging.INFO)
 		for h in actions_logger.handlers[:]:
 			actions_logger.removeHandler(h)
-		actions_handler = SafeRotatingFileHandler(
+		actions_handler = SafeTimedRotatingFileHandler(
 			path.join(self.logs_dir, 'actions.log'),
-			maxBytes=self.max_bytes,
+			when=self.rotation_when,
+			interval=self.rotation_interval,
 			backupCount=self.backup_count,
-			encoding='utf-8'
+			encoding='utf-8',
+			utc=self.rotation_utc,
 		)
 		actions_handler.setLevel(getattr(logging, self.actions_level))
 		actions_formatter = logging.Formatter(
@@ -153,11 +169,13 @@ class LoggingConfig:
 		error_logger.setLevel(logging.ERROR)
 		for h in error_logger.handlers[:]:
 			error_logger.removeHandler(h)
-		error_handler = SafeRotatingFileHandler(
+		error_handler = SafeTimedRotatingFileHandler(
 			path.join(self.logs_dir, 'error.log'),
-			maxBytes=self.max_bytes,
+			when=self.rotation_when,
+			interval=self.rotation_interval,
 			backupCount=self.backup_count,
-			encoding='utf-8'
+			encoding='utf-8',
+			utc=self.rotation_utc,
 		)
 		error_handler.setLevel(logging.ERROR)
 		error_formatter = logging.Formatter(
@@ -171,11 +189,13 @@ class LoggingConfig:
 		# File log handler for general application logs
 		# Only add if it doesn't already exist
 		if not has_app_log_handler:
-			file_handler = SafeRotatingFileHandler(
+			file_handler = SafeTimedRotatingFileHandler(
 				path.join(self.logs_dir, 'app.log'),
-				maxBytes=self.max_bytes,
+				when=self.rotation_when,
+				interval=self.rotation_interval,
 				backupCount=self.backup_count,
-				encoding='utf-8'
+				encoding='utf-8',
+				utc=self.rotation_utc,
 			)
 			file_handler.setLevel(getattr(logging, self.file_level))
 			file_formatter = logging.Formatter(
@@ -192,7 +212,7 @@ class LoggingConfig:
 		error_log_path = path.abspath(path.join(self.logs_dir, 'error.log'))
 		has_error_log_handler = False
 		for handler in root_logger.handlers[:]:
-			if isinstance(handler, logging.handlers.RotatingFileHandler):
+			if isinstance(handler, logging.handlers.BaseRotatingHandler):
 				if hasattr(handler, 'baseFilename'):
 					handler_path = path.abspath(handler.baseFilename)
 					if handler_path == error_log_path:
@@ -200,11 +220,13 @@ class LoggingConfig:
 						break
 		
 		if not has_error_log_handler:
-			root_error_handler = SafeRotatingFileHandler(
+			root_error_handler = SafeTimedRotatingFileHandler(
 				path.join(self.logs_dir, 'error.log'),
-				maxBytes=self.max_bytes,
+				when=self.rotation_when,
+				interval=self.rotation_interval,
 				backupCount=self.backup_count,
-				encoding='utf-8'
+				encoding='utf-8',
+				utc=self.rotation_utc,
 			)
 			# Capture warnings and above in error.log
 			root_error_handler.setLevel(logging.WARNING)
@@ -336,7 +358,7 @@ def init_logging(config_path: str = "config.ini") -> LoggingConfig:
 		root_logger = logging.getLogger()
 		app_log_path = path.abspath(path.join(_logging_config.logs_dir, 'app.log'))
 		has_app_log = any(
-			isinstance(h, logging.handlers.RotatingFileHandler) and 
+			isinstance(h, logging.handlers.BaseRotatingHandler) and 
 			hasattr(h, 'baseFilename') and 
 			path.abspath(h.baseFilename) == app_log_path
 			for h in root_logger.handlers
