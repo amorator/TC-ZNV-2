@@ -11,3 +11,4 @@ Pipfile.lock
 *.log.*
 *.txt
 *.zsh
+win_client/
