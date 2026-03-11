@@ -55,10 +55,12 @@
       <div class="record-page__video">
         <span class="record-page__video-label">Экран</span>
         <video class="video" autoplay playsinline id="video-screen"></video>
+        <div id="audio-indicator-screen" class="audio-indicator" aria-label="Индикатор громкости экрана"></div>
       </div>
       <div class="record-page__video">
         <span class="record-page__video-label">Камера</span>
         <video class="video" autoplay playsinline id="video-camera"></video>
+        <div id="audio-indicator-camera" class="audio-indicator" aria-label="Индикатор громкости камеры"></div>
       </div>
       <div class="record-page__video" id="audio-indicator-wrap" style="display:none;">
         <span class="record-page__video-label">Микрофон</span>
@@ -75,6 +77,10 @@
           <label class="record-page__source-label">
             <input type="radio" name="source" value="screen" id="source-screen">
             <span>Только экран</span>
+          </label>
+          <label class="record-page__source-label">
+            <input type="radio" name="source" value="screen-mic" id="source-screen-mic">
+            <span>Экран + микрофон</span>
           </label>
           <label class="record-page__source-label">
             <input type="radio" name="source" value="both" id="source-both">
@@ -117,16 +123,8 @@
             autocomplete="off"
           ></textarea>
         </div>
-        <button class="button" id="save">Сохранить</button>
         <input style="display: none" value="{{ did }}" id="did" />
         <input style="display: none" value="{{ sdid }}" id="sdid" />
-        <div class="progress" id="uploadProgress" style="display:none;">
-          <div class="progress-bar" id="uploadProgressBar" role="progressbar" style="width:0%"></div>
-        </div>
-        <div class="upload__container" style="display:none;">
-          <span class="upload__status" id="uploadForm_Status"></span>
-          <span id="uploadForm_Size"></span>
-        </div>
       </div>
     </div>
   </div>

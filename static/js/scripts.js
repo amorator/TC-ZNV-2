@@ -186,18 +186,6 @@ document.addEventListener(
     if (event.key === "Enter" && !isTyping) {
       event.preventDefault();
 
-      if (currentPopupId === "popup-rec") {
-        const iframe = document.getElementById("rec-iframe");
-        if (iframe && iframe.contentWindow) {
-          try {
-            iframe.contentWindow.postMessage({ type: "rec:save" }, "*");
-          } catch (error) {
-            window.ErrorHandler && window.ErrorHandler.handleError(error, "recorder-save");
-          }
-        }
-        return;
-      }
-
       const overlay =
         currentOverlay || document.getElementById(currentPopupId);
       if (!overlay) return;

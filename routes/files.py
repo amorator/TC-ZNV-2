@@ -2884,7 +2884,7 @@ def register(app, media_service, socketio=None) -> None:
             _log.info(f"[rec-chunk] finalize id={id} from={source_path} is_audio={is_audio}")
             media_service.convert_async(source_path, convert_dst, ('file', id))
             log_action('RECORD_CONVERT', current_user.name,
-                       f'file_id={id} is_audio={is_audio} queued',
+                       f'file_id={id} name={name} is_audio={is_audio} queued',
                        (request.remote_addr or ''), True)
             try:
                 stat = os.stat(source_path)
@@ -2945,6 +2945,12 @@ def register(app, media_service, socketio=None) -> None:
             except Exception as e:
                 _log.error(f"[rec-discard] move {src} -> {dst}: {e}")
                 return jsonify({'error': 'move failed'}), 500
+            rec_name = (request.form.get('name') or '').strip() or None
+            details = f'temp_name={temp_basename} (moved to Trash)'
+            if rec_name:
+                details = f'name={rec_name} ' + details
+            log_action('RECORD_DISCARD', current_user.name,
+                       details, (request.remote_addr or ''), True)
             return jsonify({'ok': True})
         except Exception as e:
             _log.exception(e)

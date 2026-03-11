@@ -126,6 +126,15 @@ let streamUploadActiveTypes = [];
 /** Resolve/reject when all active streams have finalized (used after Stop). */
 let streamUploadAllFinalizedSettle = null;
 
+/** Current recording file name (from input or default). */
+function getRecordFileName() {
+  try {
+    return (fileName && fileName.value ? fileName.value : (typeof name === "function" ? name() : "")) || "rec";
+  } catch (e) {
+    return "rec";
+  }
+}
+
 /** Send action to server for actions.log (fire-and-forget). */
 function logRecordAction(action, details, status) {
   try {
@@ -172,28 +181,28 @@ function hideSavingOverlay() {
 /** @type {HTMLButtonElement|null} */ let buttonStart;
 /** @type {HTMLButtonElement|null} */ let buttonPause;
 /** @type {HTMLButtonElement|null} */ let buttonStop;
-/** @type {HTMLButtonElement|null} */ let buttonSave;
 /** @type {HTMLVideoElement|null} */ let videoScreen;
 /** @type {HTMLVideoElement|null} */ let videoCamera;
 /** @type {HTMLInputElement|null} */ let fileName;
 /** @type {HTMLElement|null} */ let dirName;
 /** @type {HTMLTextAreaElement|null} */ let fileText;
-/** @type {HTMLElement|null} */ let sizeText;
-/** @type {HTMLElement|null} */ let statusText;
-/** @type {HTMLElement|null} */ let progressBar;
-/** @type {HTMLElement|null} */ let uploadProgress;
-/** @type {HTMLElement|null} */ let uploadProgressBar;
 /** @type {HTMLInputElement|null} */ let sourceCamera;
 /** @type {HTMLInputElement|null} */ let sourceScreen;
+/** @type {HTMLInputElement|null} */ let sourceScreenMic;
 /** @type {HTMLInputElement|null} */ let sourceBoth;
 /** @type {HTMLInputElement|null} */ let sourceAudio;
 /** @type {HTMLElement|null} */ let audioIndicatorWrap;
 /** @type {HTMLElement|null} */ let audioIndicator;
-/** @type {HTMLDivElement|null} */ let audioMeterBar = null;
+/** @type {HTMLElement|null} */ let audioIndicatorScreen;
+/** @type {HTMLElement|null} */ let audioIndicatorCamera;
 /** @type {AudioContext|null} */ let audioContext = null;
-/** @type {AnalyserNode|null} */ let audioAnalyser = null;
-/** @type {MediaStreamAudioSourceNode|null} */ let audioSourceNode = null;
 /** @type {number|null} */ let audioMeterRaf = null;
+// Per-stream meters (separate; do NOT mix)
+let audioMeters = {
+  screen: { bar: null, analyser: null, source: null },
+  camera: { bar: null, analyser: null, source: null },
+  audio: { bar: null, analyser: null, source: null },
+};
 
 // Timer state
 /** @type {number} */ let h = 0;
@@ -211,10 +220,15 @@ function hideSavingOverlay() {
 /** @type {MediaStream|null} */ let currentStreamScreen = null;
 /** @type {MediaStream|null} */ let currentStreamCamera = null;
 /** @type {MediaStream|null} */ let currentStreamAudio = null;
+/** @type {MediaStream|null} */ let currentStreamScreenMicMixed = null;
 /** @type {boolean} */ let isScreenRecording = false;
 /** @type {boolean} */ let isDualRecording = false;
 /** @type {boolean} */ let isAudioOnly = false;
+/** @type {boolean} */ let isScreenMicRecording = false;
 /** @type {boolean} */ let hasAnyAudioTrack = false;
+
+// Separate audio mixing context for "screen + mic" (do not share with meters)
+let screenMicMix = { ctx: null, dest: null, srcScreen: null, srcMic: null };
 
 /**
  * Try to get display media with audio; on failure retry without audio.
@@ -294,6 +308,11 @@ function setSourceControlsEnabled(enabled) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
+    if (sourceScreenMic) sourceScreenMic.disabled = !enabled;
+  } catch (err) {
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
+    }
+  try {
     if (sourceBoth) sourceBoth.disabled = !enabled;
   } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
@@ -314,6 +333,9 @@ function attachOnEnded(stream, reason) {
   try {
     if (!stream || !stream.getTracks) return;
     const notify = function () {
+      try {
+        if (window.__recIntentionalStop) return;
+      } catch (_) {}
       handleCaptureRevoked(reason);
     };
     stream.getTracks().forEach(function (t) {
@@ -385,9 +407,8 @@ function handleCaptureRevoked(message) {
     // Update state flags
     recState.recording = false;
     recState.paused = false;
-    // Reflect UI and enable save if any data was collected
+    // Reflect UI
     setStoppedUI();
-    updateSaveButtonVisibility();
     // Stop streams to free devices
     stopCameraStream();
     // Disable source switches until user re-enables manually
@@ -544,47 +565,38 @@ document.addEventListener("DOMContentLoaded", function () {
   buttonStart = document.getElementById("start");
   buttonPause = document.getElementById("pause");
   buttonStop = document.getElementById("stop");
-  buttonSave = document.getElementById("save");
   videoScreen = document.getElementById("video-screen");
   videoCamera = document.getElementById("video-camera");
   audioIndicatorWrap = document.getElementById("audio-indicator-wrap");
   audioIndicator = document.getElementById("audio-indicator");
+  audioIndicatorScreen = document.getElementById("audio-indicator-screen");
+  audioIndicatorCamera = document.getElementById("audio-indicator-camera");
   fileName = document.getElementById("name");
   dirName = document.getElementById("type");
   fileText = document.getElementById("desc");
   sourceCamera = document.getElementById("source-camera");
   sourceScreen = document.getElementById("source-screen");
+  sourceScreenMic = document.getElementById("source-screen-mic");
   sourceBoth = document.getElementById("source-both");
   sourceAudio = document.getElementById("source-audio");
 
-  sizeText = document.getElementById("uploadForm_Size");
-  statusText = document.getElementById("uploadForm_Status");
-  progressBar = document.getElementById("progressBar");
-  uploadProgress = document.getElementById("uploadProgress");
-  uploadProgressBar = document.getElementById("uploadProgressBar");
+  // legacy upload status UI removed
+  // progress UI removed
 
   disable(buttonStart);
   disable(buttonPause);
   disable(buttonStop);
-  if (buttonSave) {
-    buttonSave.disabled = true;
-    try {
-      buttonSave.style.display = "none";
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-  }
   if (fileName) fileName.value = name();
 
   if (buttonCamera) buttonCamera.onclick = onCameraClick;
   if (buttonStart) buttonStart.onclick = onStartClick;
   if (buttonPause) buttonPause.onclick = onPauseClick;
   if (buttonStop) buttonStop.onclick = onStopClick;
-  if (buttonSave) buttonSave.onclick = onSaveClick;
 
   // Source selection change handlers
   if (sourceCamera) sourceCamera.addEventListener("change", onSourceChange);
   if (sourceScreen) sourceScreen.addEventListener("change", onSourceChange);
+  if (sourceScreenMic) sourceScreenMic.addEventListener("change", onSourceChange);
   if (sourceBoth) sourceBoth.addEventListener("change", onSourceChange);
   if (sourceAudio) sourceAudio.addEventListener("change", onSourceChange);
 
@@ -610,7 +622,7 @@ document.addEventListener("DOMContentLoaded", function () {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // Ensure correct initial background/app state in parent
-  // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
+  // Hotkeys inside iframe: Esc to stop
   /**
    * Handle keyboard shortcuts in the recorder iframe.
    * @param {KeyboardEvent} event - Keyboard event
@@ -619,23 +631,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const handleKey = function (event) {
     const isTextarea =
       document.activeElement && document.activeElement.tagName === "TEXTAREA";
-    if (event.key === "Enter" && !isTextarea) {
-      event.preventDefault();
-      try {
-        if (
-          (recorderScreen && recorderScreen.state === "recording") ||
-          (recorderCamera && recorderCamera.state === "recording")
-        ) {
-          stopRecorder().then(() => {
-            onSaveClick();
-          });
-        } else {
-          onSaveClick();
-        }
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-    } else if (event.key === "Escape") {
+    if (event.key === "Escape") {
       // Delegate ESC to parent for guarded close logic
       try {
         event.preventDefault();
@@ -796,8 +792,6 @@ function setStoppedUI() {
   } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
-  // Update save button visibility based on recorded data
-  updateSaveButtonVisibility();
   // Don't reset timer when stopping - keep the recorded time visible
 }
 
@@ -806,16 +800,7 @@ function setStoppedUI() {
  * @returns {void}
  */
 function resetAfterSave() {
-  try {
-    if (uploadProgress) uploadProgress.style.display = "none";
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-  try {
-    if (uploadProgressBar) uploadProgressBar.style.width = "0%";
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
+  // progress UI removed
   try {
     if (videoScreen) videoScreen.style.borderColor = "gray";
   } catch (err) {
@@ -853,14 +838,6 @@ function resetAfterSave() {
     }
   try {
     disable(buttonStop);
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-  try {
-    if (buttonSave) {
-      buttonSave.disabled = true;
-      buttonSave.style.display = "none";
-    }
   } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
@@ -913,7 +890,6 @@ function resetAfterSave() {
   if (buttonStart) buttonStart.onclick = onStartClick;
   if (buttonPause) buttonPause.onclick = onPauseClick;
   if (buttonStop) buttonStop.onclick = onStopClick;
-  if (buttonSave) buttonSave.onclick = onSaveClick;
 
   // Reinitialize source selection handlers
   if (sourceCamera) {
@@ -937,50 +913,63 @@ function resetAfterSave() {
 }
 
 /**
- * Stop all media tracks and clear video srcObject.
+ * Stop a single stream: stop every track and release.
+ * @param {MediaStream|null} stream
+ */
+function stopStream(stream) {
+  if (!stream || !stream.getTracks) return;
+  try {
+    stream.getTracks().forEach(function (t) {
+      try {
+        try { t.onended = null; } catch (_) {}
+        if (t.readyState === "live") t.stop();
+      } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+/**
+ * Stop all media tracks and clear video srcObject. Ensures devices are released on all code paths.
  * @returns {void}
  */
 function stopCameraStream() {
   try {
     stopAudioMeter();
-    if (currentStreamScreen) {
-      try {
-        currentStreamScreen.getTracks().forEach((t) => t.stop());
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
+  } catch (_) {}
+  // Stop and reset screen+mic audio mixer (if used)
+  try {
+    currentStreamScreenMicMixed = null;
+  } catch (_) {}
+  try {
+    if (screenMicMix && screenMicMix.ctx && screenMicMix.ctx.state !== "closed") {
+      screenMicMix.ctx.close().catch(function () {});
     }
-      currentStreamScreen = null;
-    }
-    if (currentStreamCamera) {
-      try {
-        currentStreamCamera.getTracks().forEach((t) => t.stop());
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      currentStreamCamera = null;
-    }
-    if (currentStreamAudio) {
-      try {
-        currentStreamAudio.getTracks().forEach((t) => t.stop());
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      currentStreamAudio = null;
-    }
-    if (videoScreen && videoScreen.srcObject) {
-      videoScreen.srcObject = null;
-    }
-    if (videoCamera && videoCamera.srcObject) {
-      videoCamera.srcObject = null;
-    }
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
+  } catch (_) {}
+  screenMicMix = { ctx: null, dest: null, srcScreen: null, srcMic: null };
+  var screen = currentStreamScreen;
+  var camera = currentStreamCamera;
+  var audio = currentStreamAudio;
+  currentStreamScreen = null;
+  currentStreamCamera = null;
+  currentStreamAudio = null;
+  if (videoScreen && videoScreen.srcObject) {
+    try { videoScreen.srcObject = null; } catch (_) {}
+  }
+  if (videoCamera && videoCamera.srcObject) {
+    try { videoCamera.srcObject = null; } catch (_) {}
+  }
+  try { window.__recIntentionalStop = true; } catch (_) {}
+  stopStream(screen);
+  stopStream(camera);
+  stopStream(audio);
+  try { setTimeout(function(){ try { window.__recIntentionalStop = false; } catch (_) {} }, 0); } catch (_) {}
   try {
     let buttonText = "Включить камеру";
     if (isDualRecording) {
       buttonText = "Включить захват";
     } else if (isScreenRecording) {
+      buttonText = "Включить захват";
+    } else if (isScreenMicRecording) {
       buttonText = "Включить захват";
     } else if (isAudioOnly) {
       buttonText = "Включить микрофон";
@@ -991,6 +980,7 @@ function stopCameraStream() {
     }
   isScreenRecording = false;
   isDualRecording = false;
+  isScreenMicRecording = false;
   isAudioOnly = false;
   // If no streams left and not recording/paused, re-enable source controls
   try {
@@ -1002,70 +992,91 @@ function stopCameraStream() {
 }
 
 /**
- * Initialize simple horizontal audio meter for a given MediaStream.
- * Picks best available stream (camera > screen > audio-only).
+ * Initialize horizontal audio meters (separate per stream; do NOT mix).
+ * - `audio-indicator-screen`: screen stream audio
+ * - `audio-indicator-camera`: camera stream audio
+ * - `audio-indicator` (wrap): audio-only stream
  */
 function setupAudioMeterFromBestAvailableStream() {
+  try { updateVideoVisibility(); } catch(_) {}
   try {
-    // Ensure container visible according to mode
-    updateVideoVisibility();
-  } catch(_) {}
-  try {
-    const stream = (currentStreamCamera && currentStreamCamera.getAudioTracks && currentStreamCamera.getAudioTracks().length > 0)
-      ? currentStreamCamera
-      : ((currentStreamScreen && currentStreamScreen.getAudioTracks && currentStreamScreen.getAudioTracks().length > 0)
-          ? currentStreamScreen
-          : (currentStreamAudio || null));
-    if (!stream) {
+    const hasScreen = currentStreamScreen && currentStreamScreen.getAudioTracks && currentStreamScreen.getAudioTracks().length > 0;
+    const hasCamera = currentStreamCamera && currentStreamCamera.getAudioTracks && currentStreamCamera.getAudioTracks().length > 0;
+    const hasAudio = currentStreamAudio && currentStreamAudio.getAudioTracks && currentStreamAudio.getAudioTracks().length > 0;
+    if (!hasScreen && !hasCamera && !hasAudio) {
       stopAudioMeter();
       return;
     }
-    // Lazy create bar element
-    if (audioIndicator && !audioMeterBar) {
+
+    function ensureBar(container, key) {
+      if (!container) return null;
+      if (!audioMeters[key].bar) {
+        try {
+          const b = document.createElement('div');
+          b.style.height = '6px';
+          b.style.width = '0%';
+          b.style.background = 'var(--btn-focus, #0d6efd)';
+          b.style.borderRadius = '8px';
+          b.style.transition = 'width 60ms linear';
+          b.setAttribute('aria-label', 'Индикатор громкости');
+          audioMeters[key].bar = b;
+        } catch(_) {}
+      }
       try {
-        audioMeterBar = document.createElement('div');
-        audioMeterBar.style.height = '6px';
-        audioMeterBar.style.width = '0%';
-        audioMeterBar.style.background = 'var(--btn-focus, #0d6efd)';
-        audioMeterBar.style.borderRadius = '8px';
-        audioMeterBar.style.transition = 'width 60ms linear';
-        audioMeterBar.setAttribute('aria-label', 'Индикатор громкости');
-        // Clear previous text content once bar is present
-        try { audioIndicator.textContent = ''; } catch(_) {}
-        audioIndicator.appendChild(audioMeterBar);
+        if (audioMeters[key].bar && !container.contains(audioMeters[key].bar)) {
+          try { container.textContent = ''; } catch(_) {}
+          container.appendChild(audioMeters[key].bar);
+        }
       } catch(_) {}
+      return audioMeters[key].bar;
     }
-    // Create audio context+analyser
+
     if (!audioContext) {
       try { audioContext = new (window.AudioContext || window.webkitAudioContext)(); } catch(_) { audioContext = null; }
     }
     if (!audioContext) return;
-    // Recreate nodes
-    try { if (audioSourceNode) { audioSourceNode.disconnect(); audioSourceNode = null; } } catch(_) {}
-    try { if (audioAnalyser) { audioAnalyser.disconnect(); audioAnalyser = null; } } catch(_) {}
-    audioSourceNode = audioContext.createMediaStreamSource(stream);
-    audioAnalyser = audioContext.createAnalyser();
-    audioAnalyser.fftSize = 1024;
-    audioAnalyser.smoothingTimeConstant = 0.5;
-    audioSourceNode.connect(audioAnalyser);
-    // Start RAF loop
-    const bufferLength = audioAnalyser.fftSize;
-    const dataArray = new Uint8Array(bufferLength);
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().catch(function() {});
+    }
+
+    function setupOne(stream, key, container) {
+      if (!stream) return;
+      ensureBar(container, key);
+      try { if (audioMeters[key].source) { audioMeters[key].source.disconnect(); } } catch(_) {}
+      try { if (audioMeters[key].analyser) { audioMeters[key].analyser.disconnect(); } } catch(_) {}
+      audioMeters[key].source = null;
+      audioMeters[key].analyser = null;
+      try {
+        audioMeters[key].source = audioContext.createMediaStreamSource(stream);
+        audioMeters[key].analyser = audioContext.createAnalyser();
+        audioMeters[key].analyser.fftSize = 1024;
+        audioMeters[key].analyser.smoothingTimeConstant = 0.5;
+        audioMeters[key].source.connect(audioMeters[key].analyser);
+      } catch(_) {}
+    }
+
+    if (hasScreen) setupOne(currentStreamScreen, 'screen', audioIndicatorScreen);
+    if (hasCamera) setupOne(currentStreamCamera, 'camera', audioIndicatorCamera);
+    if (hasAudio) setupOne(currentStreamAudio, 'audio', audioIndicator);
+
     function tick() {
       try {
-        audioAnalyser.getByteTimeDomainData(dataArray);
-        // Compute RMS normalized 0..1
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          const v = (dataArray[i] - 128) / 128; // -1..1
-          sum += v * v;
-        }
-        const rms = Math.sqrt(sum / bufferLength); // 0..~1
-        // Convert to percentage, add small floor for visibility
-        const pct = Math.min(100, Math.max(0, Math.round((rms * 100))));
-        if (audioMeterBar) {
-          audioMeterBar.style.width = Math.max(2, pct) + '%';
-        }
+        ['screen', 'camera', 'audio'].forEach(function (k) {
+          const an = audioMeters[k].analyser;
+          const bar = audioMeters[k].bar;
+          if (!an || !bar) return;
+          const bufferLength = an.fftSize;
+          const data = new Uint8Array(bufferLength);
+          an.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / bufferLength);
+          const pct = Math.min(100, Math.max(0, Math.round((rms * 100))));
+          bar.style.width = Math.max(2, pct) + '%';
+        });
       } catch(_) {}
       audioMeterRaf = requestAnimationFrame(tick);
     }
@@ -1081,17 +1092,28 @@ function cancelAnimationFrameSafe(id){
 }
 
 /**
- * Stop and tear down audio meter.
+ * Stop and tear down audio meter. Closes AudioContext so next setup gets a fresh one (fixes meter after mode switch).
  */
 function stopAudioMeter() {
   try {
     cancelAnimationFrameSafe(audioMeterRaf);
     audioMeterRaf = null;
   } catch(_) {}
-  try { if (audioSourceNode) { audioSourceNode.disconnect(); audioSourceNode = null; } } catch(_) {}
-  try { if (audioAnalyser) { audioAnalyser.disconnect(); audioAnalyser = null; } } catch(_) {}
-  // Keep bar DOM; just reset width
-  try { if (audioMeterBar) audioMeterBar.style.width = '0%'; } catch(_) {}
+  try {
+    ['screen', 'camera', 'audio'].forEach(function (k) {
+      try { if (audioMeters[k].source) audioMeters[k].source.disconnect(); } catch(_) {}
+      try { if (audioMeters[k].analyser) audioMeters[k].analyser.disconnect(); } catch(_) {}
+      audioMeters[k].source = null;
+      audioMeters[k].analyser = null;
+      try { if (audioMeters[k].bar) audioMeters[k].bar.style.width = '0%'; } catch(_) {}
+    });
+  } catch(_) {}
+  try {
+    if (audioContext && audioContext.state !== "closed") {
+      audioContext.close().catch(function() {});
+    }
+    audioContext = null;
+  } catch(_) {}
 }
 
 /**
@@ -1106,14 +1128,20 @@ function updateButtonStates() {
       (buttonCamera.textContent.includes("Выключить") ||
         buttonCamera.textContent.includes("Остановить"));
 
-    // Check if we have active camera stream
+    // Check if we have any active capture stream (camera or screen)
     const hasActiveStream =
-      videoCamera &&
-      videoCamera.srcObject &&
-      videoCamera.srcObject.getTracks &&
-      videoCamera.srcObject
-        .getTracks()
-        .some((track) => track.readyState === "live");
+      ((videoCamera &&
+        videoCamera.srcObject &&
+        videoCamera.srcObject.getTracks &&
+        videoCamera.srcObject
+          .getTracks()
+          .some((track) => track.readyState === "live")) ||
+        (videoScreen &&
+          videoScreen.srcObject &&
+          videoScreen.srcObject.getTracks &&
+          videoScreen.srcObject
+            .getTracks()
+            .some((track) => track.readyState === "live")));
 
     // Update start button based on camera state
     if (buttonStart) {
@@ -1128,15 +1156,6 @@ function updateButtonStates() {
     if (buttonPause) disable(buttonPause);
     if (buttonStop) disable(buttonStop);
 
-    // Hide save button on initialization
-    if (buttonSave) {
-      buttonSave.disabled = true;
-      try {
-        buttonSave.style.display = "none";
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-    }
   } catch (e) {
     // Silent fail - ensure buttons are in safe state
     if (buttonStart) disable(buttonStart);
@@ -1152,32 +1171,38 @@ function updateButtonStates() {
 function updateVideoVisibility() {
   try {
     const isScreenMode = sourceScreen && sourceScreen.checked;
+    const isScreenMicMode = sourceScreenMic && sourceScreenMic.checked;
     const isBothMode = sourceBoth && sourceBoth.checked;
     const isCameraMode = sourceCamera && sourceCamera.checked;
     const isAudioMode = sourceAudio && sourceAudio.checked;
 
     // Show/hide video elements based on mode
     if (videoScreen) {
-      videoScreen.style.display = isScreenMode || isBothMode ? "block" : "none";
+      videoScreen.style.display = isScreenMode || isScreenMicMode || isBothMode ? "block" : "none";
     }
     if (videoCamera) {
       videoCamera.style.display = isCameraMode || isBothMode ? "block" : "none";
     }
     if (audioIndicatorWrap) {
-      // Show audio indicator for Audio-only, Camera-only, Screen-only (when available) and Both modes
-      audioIndicatorWrap.style.display =
-        (isAudioMode || isCameraMode || isScreenMode || isBothMode) ? "block" : "none";
+      // Audio-only meter lives in this block; other modes have their own meters under screen/camera videos
+      audioIndicatorWrap.style.display = (isAudioMode || isScreenMicMode) ? "block" : "none";
+    }
+    if (audioIndicatorScreen) {
+      audioIndicatorScreen.style.display = (isScreenMode || isScreenMicMode || isBothMode) ? "block" : "none";
+    }
+    if (audioIndicatorCamera) {
+      audioIndicatorCamera.style.display = (isCameraMode || isBothMode) ? "block" : "none";
     }
 
     // Show/hide labels - find labels by their text content
     const videoLabels = document.querySelectorAll(".record-page__video-label");
     videoLabels.forEach((label) => {
       if (label.textContent.includes("Экран")) {
-        label.style.display = isScreenMode || isBothMode ? "block" : "none";
+        label.style.display = isScreenMode || isScreenMicMode || isBothMode ? "block" : "none";
       } else if (label.textContent.includes("Камера")) {
         label.style.display = isCameraMode || isBothMode ? "block" : "none";
       } else if (label.textContent.includes("Микрофон")) {
-        label.style.display = isAudioMode ? "block" : "none";
+        label.style.display = (isAudioMode || isScreenMicMode) ? "block" : "none";
       }
     });
 
@@ -1200,31 +1225,6 @@ function updateVideoVisibility() {
 // Removed selected-state visuals to match backup styling
 
 /**
- * Update save button visibility based on recorded data
- * @returns {void}
- */
-function updateSaveButtonVisibility() {
-  try {
-    if (buttonSave) {
-      const hasRecordedData =
-        recordedScreen.length > 0 ||
-        recordedCamera.length > 0 ||
-        recordedAudio.length > 0;
-      const canShow = hasRecordedData && !recState.recording; // show only when paused or stopped
-      if (canShow) {
-        buttonSave.disabled = false;
-        buttonSave.style.display = "inline-block";
-      } else {
-        buttonSave.disabled = true;
-        buttonSave.style.display = "none";
-      }
-    }
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-}
-
-/**
  * Handle source selection change (camera/screen/both).
  * @returns {void}
  */
@@ -1242,21 +1242,31 @@ function onSourceChange() {
     if (sourceBoth && sourceBoth.checked) {
       isDualRecording = true;
       isScreenRecording = false;
+      isScreenMicRecording = false;
       isAudioOnly = false;
       buttonCamera.textContent = "Включить захват";
     } else if (sourceScreen && sourceScreen.checked) {
       isScreenRecording = true;
       isDualRecording = false;
+      isScreenMicRecording = false;
+      isAudioOnly = false;
+      buttonCamera.textContent = "Включить захват";
+    } else if (sourceScreenMic && sourceScreenMic.checked) {
+      isScreenRecording = false;
+      isDualRecording = false;
+      isScreenMicRecording = true;
       isAudioOnly = false;
       buttonCamera.textContent = "Включить захват";
     } else if (sourceAudio && sourceAudio.checked) {
       isScreenRecording = false;
       isDualRecording = false;
+      isScreenMicRecording = false;
       isAudioOnly = true;
       buttonCamera.textContent = "Включить микрофон";
     } else {
       isScreenRecording = false;
       isDualRecording = false;
+      isScreenMicRecording = false;
       isAudioOnly = false;
       buttonCamera.textContent = "Включить камеру";
     }
@@ -1275,14 +1285,6 @@ function onSourceChange() {
     disable(buttonStart);
     disable(buttonPause);
     disable(buttonStop);
-    if (buttonSave) {
-      buttonSave.disabled = true;
-      try {
-        buttonSave.style.display = "none";
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-    }
     if (videoScreen) videoScreen.style.borderColor = "gray";
     if (videoCamera) videoCamera.style.borderColor = "gray";
     if (audioIndicator) audioIndicator.style.borderColor = "#000000";
@@ -1316,7 +1318,7 @@ async function onCameraClick() {
       buttonCamera.textContent = buttonText;
       stopCameraStream();
       stopAudioMeter();
-      // Update buttons after turning off
+      enable(buttonCamera);
       try {
         updateButtonStates();
       } catch (err) {
@@ -1335,6 +1337,7 @@ async function onCameraClick() {
     }
       // Check current source selection
       const isScreenMode = sourceScreen && sourceScreen.checked;
+      const isScreenMicMode = sourceScreenMic && sourceScreenMic.checked;
       const isBothMode = sourceBoth && sourceBoth.checked;
       const isAudioMode = sourceAudio && sourceAudio.checked;
 
@@ -1448,6 +1451,60 @@ async function onCameraClick() {
           window.showAlertModal("Невозможно получить доступ к экрану!", "Ошибка");
           return;
         }
+      } else if (isScreenMicMode) {
+        // Screen + microphone: one video file, audio mixed (screen audio + mic)
+        try {
+          currentStreamScreen = await getDisplayMediaWithAudioFallback(
+            {
+              width: { ideal: 1920, max: 1920 },
+              height: { ideal: 1080, max: 1080 },
+              frameRate: { ideal: 30, max: 30 },
+            },
+            {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              sampleRate: 48000,
+            }
+          );
+          attachOnEnded(
+            currentStreamScreen,
+            "Захват экрана был остановлен. Вы можете сохранить уже записанное."
+          );
+
+          currentStreamAudio = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channels: 2,
+              autoGainControl: false,
+              echoCancellation: false,
+              noiseSuppression: false,
+              sampleRate: 48000,
+              sampleSize: 16,
+            },
+          });
+          attachOnEnded(
+            currentStreamAudio,
+            "Микрофон был отключён. Вы можете сохранить уже записанное."
+          );
+
+          if (videoScreen) {
+            videoScreen.srcObject = currentStreamScreen;
+            videoScreen.muted = true;
+            videoScreen.play();
+            videoScreen.style.borderColor = "green";
+          }
+          if (audioIndicator) {
+            audioIndicator.style.borderColor = "green";
+          }
+          try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
+
+          buttonCamera.textContent = "Остановить захват";
+          isScreenMicRecording = true;
+          try { updateButtonStates(); } catch (_) {}
+        } catch (error) {
+          window.showAlertModal("Невозможно получить доступ к экрану или микрофону!", "Ошибка");
+          return;
+        }
       } else if (isAudioMode) {
         // Audio-only recording
         try {
@@ -1467,7 +1524,6 @@ async function onCameraClick() {
           );
           if (audioIndicator) {
             audioIndicator.style.borderColor = "green";
-            audioIndicator.textContent = "Микрофон включен";
           }
           try { setupAudioMeterFromBestAvailableStream(); } catch (_) {}
           buttonCamera.textContent = "Выключить микрофон";
@@ -1543,7 +1599,9 @@ async function onCameraClick() {
       currentStreamScreen && currentStreamScreen.getAudioTracks().length > 0;
     const hasCameraAudio =
       currentStreamCamera && currentStreamCamera.getAudioTracks().length > 0;
-    const needsAudio = !!(hasScreenAudio || hasCameraAudio);
+    const hasMicAudio =
+      currentStreamAudio && currentStreamAudio.getAudioTracks && currentStreamAudio.getAudioTracks().length > 0;
+    const needsAudio = !!(hasScreenAudio || hasCameraAudio || hasMicAudio);
     let candidates = [];
     if (needsAudio) {
       candidates = [
@@ -1572,6 +1630,7 @@ async function onCameraClick() {
     // Clear previous recorders
     recorderScreen = null;
     recorderCamera = null;
+    recorderAudio = null;
 
     // Track if any audio track is present to drive UI/meter
     try {
@@ -1581,7 +1640,62 @@ async function onCameraClick() {
       hasAnyAudioTrack = !!(a1 || a2 || a3);
     } catch(_) { hasAnyAudioTrack = false; }
 
-    if (isDualRecording) {
+    if (isScreenMicRecording) {
+      // Mix audio: screen audio (if present) + mic into one track, record as a single screen video file
+      currentStreamScreenMicMixed = null;
+      try {
+        if (screenMicMix && screenMicMix.ctx && screenMicMix.ctx.state !== 'closed') {
+          screenMicMix.ctx.close().catch(function(){});
+        }
+      } catch (_) {}
+      screenMicMix = { ctx: null, dest: null, srcScreen: null, srcMic: null };
+      try {
+        const mixCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const dest = mixCtx.createMediaStreamDestination();
+        screenMicMix.ctx = mixCtx;
+        screenMicMix.dest = dest;
+        try {
+          if (currentStreamScreen && currentStreamScreen.getAudioTracks && currentStreamScreen.getAudioTracks().length > 0) {
+            screenMicMix.srcScreen = mixCtx.createMediaStreamSource(currentStreamScreen);
+            screenMicMix.srcScreen.connect(dest);
+          }
+        } catch (_) {}
+        try {
+          if (currentStreamAudio && currentStreamAudio.getAudioTracks && currentStreamAudio.getAudioTracks().length > 0) {
+            screenMicMix.srcMic = mixCtx.createMediaStreamSource(currentStreamAudio);
+            screenMicMix.srcMic.connect(dest);
+          }
+        } catch (_) {}
+        try { if (mixCtx.state === 'suspended') mixCtx.resume().catch(function(){}); } catch(_) {}
+
+        currentStreamScreenMicMixed = new MediaStream();
+        try {
+          (currentStreamScreen && currentStreamScreen.getVideoTracks ? currentStreamScreen.getVideoTracks() : []).forEach(function (t) {
+            try { currentStreamScreenMicMixed.addTrack(t); } catch(_) {}
+          });
+        } catch(_) {}
+        try {
+          (dest.stream && dest.stream.getAudioTracks ? dest.stream.getAudioTracks() : []).forEach(function (t) {
+            try { currentStreamScreenMicMixed.addTrack(t); } catch(_) {}
+          });
+        } catch(_) {}
+      } catch (_) {
+        currentStreamScreenMicMixed = null;
+      }
+
+      const recordStream = currentStreamScreenMicMixed || currentStreamScreen;
+      if (recordStream) {
+        try {
+          recorderScreen = new MediaRecorder(recordStream, {
+            mimeType: mime,
+            videoBitsPerSecond: 8000000,
+            audioBitsPerSecond: 192000,
+          });
+        } catch (_) {
+          try { recorderScreen = new MediaRecorder(recordStream, { mimeType: mime }); } catch (_) {}
+        }
+      }
+    } else if (isDualRecording) {
       // Setup screen recorder
       if (currentStreamScreen) {
         try {
@@ -1748,7 +1862,6 @@ async function onCameraClick() {
         if (recordedScreen.length > 0 || streamUploadState.screen.uploadId) {
           recState.hasData = true;
           postState();
-          updateSaveButtonVisibility();
         }
       });
       recorderScreen.addEventListener("stop", function () {
@@ -1756,7 +1869,6 @@ async function onCameraClick() {
           var doFinalize = function () { return streamUploadChunk("screen", null, true); };
           (streamPendingChunk.screen || Promise.resolve()).then(doFinalize, doFinalize);
         }
-        updateSaveButtonVisibility();
       });
     }
 
@@ -1771,7 +1883,6 @@ async function onCameraClick() {
         if (recordedCamera.length > 0 || streamUploadState.camera.uploadId) {
           recState.hasData = true;
           postState();
-          updateSaveButtonVisibility();
         }
       });
       recorderCamera.addEventListener("stop", function () {
@@ -1779,7 +1890,6 @@ async function onCameraClick() {
           var doFinalize = function () { return streamUploadChunk("camera", null, true); };
           (streamPendingChunk.camera || Promise.resolve()).then(doFinalize, doFinalize);
         }
-        updateSaveButtonVisibility();
       });
     }
     if (recorderAudio) {
@@ -1793,7 +1903,6 @@ async function onCameraClick() {
         if (recordedAudio.length > 0 || streamUploadState.audio.uploadId) {
           recState.hasData = true;
           postState();
-          updateSaveButtonVisibility();
         }
       });
       recorderAudio.addEventListener("stop", function () {
@@ -1801,7 +1910,6 @@ async function onCameraClick() {
           var doFinalize = function () { return streamUploadChunk("audio", null, true); };
           (streamPendingChunk.audio || Promise.resolve()).then(doFinalize, doFinalize);
         }
-        updateSaveButtonVisibility();
       });
     }
 
@@ -1910,25 +2018,15 @@ function onStartClick() {
   if (videoCamera) videoCamera.style.borderColor = "red";
   if (audioIndicator) audioIndicator.style.borderColor = "red";
 
-  if (uploadProgress) uploadProgress.style.display = "block";
-  if (uploadProgressBar) uploadProgressBar.style.width = "0%";
+  // progress UI removed
   disable(buttonCamera);
   disable(buttonStart);
   enable(buttonPause);
   enable(buttonStop);
-  // Hide save while actively recording
-  try {
-    if (buttonSave) {
-      buttonSave.style.display = "none";
-      buttonSave.disabled = true;
-    }
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
   recState.recording = true;
   recState.paused = false;
   postState();
-  logRecordAction("RECORD_START", "start recording", "SUCCESS");
+  logRecordAction("RECORD_START", "start recording name=" + getRecordFileName(), "SUCCESS");
 }
 
 /**
@@ -1948,8 +2046,6 @@ function onPauseClick() {
   if (audioIndicator) audioIndicator.style.borderColor = "green";
   enable(buttonStart);
   disable(buttonPause);
-  // Show save when paused and data exists
-  updateSaveButtonVisibility();
   recState.recording = false;
   recState.paused = true;
   postState();
@@ -1965,7 +2061,7 @@ function onPauseClick() {
  * When streaming, waits for all chunk finalizes then closes modal on success.
  */
 function onStopClick() {
-  logRecordAction("RECORD_STOP", "stop recording", "SUCCESS");
+  logRecordAction("RECORD_STOP", "stop recording name=" + getRecordFileName(), "SUCCESS");
   var hadStreaming = streamUploadActiveTypes.length > 0;
   var finalizePromise = null;
   if (hadStreaming) {
@@ -2008,7 +2104,6 @@ function onStopClick() {
 
   // Update UI with current data state
   setStoppedUI();
-  updateSaveButtonVisibility();
   postState();
 
   if (hadStreaming && finalizePromise) {
@@ -2026,48 +2121,6 @@ function onStopClick() {
         window.showAlertModal("Ошибка сохранения: " + (err && err.message ? err.message : err), "Ошибка");
       } catch (_) {}
     });
-  }
-}
-
-/**
- * Save recording. If still recording, ensures recorder is stopped first.
- */
-function onSaveClick() {
-  // If recording, stop first to flush data
-  const isRecording =
-    (recorderScreen && recorderScreen.state === "recording") ||
-    (recorderCamera && recorderCamera.state === "recording");
-  const isPaused =
-    !isRecording &&
-    ((recorderScreen && recorderScreen.state === "paused") ||
-      (recorderCamera && recorderCamera.state === "paused"));
-  if (isRecording || isPaused) {
-    // Always stop to flush data before saving
-    return stopRecorder().then(() => onSaveClick());
-  }
-  
-  // Block save button during upload
-  if (buttonSave) {
-    buttonSave.disabled = true;
-  }
-  logRecordAction("RECORD_SAVE_CLICK", "save recording", "SUCCESS");
-  showSavingOverlay();
-
-  saveFile()
-    .then(function () {
-      hideSavingOverlay();
-    })
-    .catch(function (e) {
-      hideSavingOverlay();
-      if (buttonSave) {
-        buttonSave.disabled = false;
-      }
-      window.showAlertModal(e, "Ошибка");
-    });
-  if (buttonSave && buttonSave.disabled) {
-    recordedScreen = [];
-    recordedCamera = [];
-    recordedAudio = [];
   }
 }
 
@@ -2114,298 +2167,6 @@ function name() {
 }
 
 /**
- * Upload recorded data to the backend and provide download links.
- * @returns {Promise<void>}
- */
-async function saveFile() {
-  var buttonSave = document.getElementById("save");
-  try {
-    if (fileName.value.search(/[/\\:*?"<>|]/g) != -1) {
-      throw "Указано недопустимое имя файла!";
-    }
-
-    const settings = document.getElementsByClassName(
-      "record-page__settings"
-    )[0];
-    if (!settings) return;
-
-    // Clear existing download links
-    const existingLinks = settings.querySelectorAll(".download-record-link");
-    existingLinks.forEach((link) => link.remove());
-
-    // Create a container for download links to avoid DOM conflicts
-    let downloadContainer = document.getElementById("download-container");
-    if (!downloadContainer) {
-      downloadContainer = document.createElement("div");
-      downloadContainer.id = "download-container";
-      downloadContainer.className = "record-download-container";
-      settings.appendChild(downloadContainer);
-    }
-
-    let uploadPromises = [];
-
-    // Save screen recording if available
-    if (recorderScreen && recordedScreen && recordedScreen.length > 0) {
-      const screenBlob = new Blob(recordedScreen, { type: "video/webm" });
-      const screenFileName = fileName.value + "_screen.webm";
-
-      // Create download link for screen
-      const screenDownloadLink = document.createElement("a");
-      screenDownloadLink.className = "download-record-link btn btn-primary";
-      try {
-        if (
-          screenDownloadLink.href &&
-          screenDownloadLink.href.indexOf("blob:") === 0
-        ) {
-          URL.revokeObjectURL(screenDownloadLink.href);
-        }
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      screenDownloadLink.href = URL.createObjectURL(screenBlob);
-      screenDownloadLink.download = screenFileName;
-      screenDownloadLink.textContent = "Скачать запись экрана";
-      downloadContainer.appendChild(screenDownloadLink);
-      try {
-        screenDownloadLink.addEventListener(
-          "click",
-          function () {
-            var href = screenDownloadLink.href;
-            setTimeout(function () {
-              try {
-                if (href && href.indexOf("blob:") === 0)
-                  URL.revokeObjectURL(href);
-              } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-            }, 3000);
-          },
-          { once: true }
-        );
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-
-      // Upload screen recording
-      const screenData = new FormData();
-      screenData.append(screenFileName, screenBlob);
-      const screenUrl = generateUrlString(
-        fileName.value + "_screen",
-        fileText.value,
-        document.getElementById("did"),
-        document.getElementById("sdid")
-      );
-
-      uploadPromises.push(uploadFile(screenData, screenUrl));
-    }
-
-    // Save audio recording if available (audio-only or from camera/screen if present)
-    if (recordedAudio && recordedAudio.length > 0) {
-      // Get the actual MIME type from the recorder
-      const audioMimeType = recorderAudio
-        ? recorderAudio.mimeType
-        : "audio/webm";
-      const audioBlob = new Blob(recordedAudio, { type: audioMimeType });
-
-      // Determine file extension based on MIME type
-      let audioExtension = "webm";
-      if (audioMimeType.includes("mp4")) {
-        audioExtension = "m4a";
-      } else if (audioMimeType.includes("wav")) {
-        audioExtension = "wav";
-      }
-
-      const audioFileName = fileName.value + "_audio." + audioExtension;
-      // Create download link for audio
-      const audioDownloadLink = document.createElement("a");
-      audioDownloadLink.className = "download-record-link btn btn-primary";
-      try {
-        if (
-          audioDownloadLink.href &&
-          audioDownloadLink.href.indexOf("blob:") === 0
-        ) {
-          URL.revokeObjectURL(audioDownloadLink.href);
-        }
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      audioDownloadLink.href = URL.createObjectURL(audioBlob);
-      audioDownloadLink.download = audioFileName;
-      audioDownloadLink.textContent = "Скачать аудио";
-      downloadContainer.appendChild(audioDownloadLink);
-      try {
-        audioDownloadLink.addEventListener(
-          "click",
-          function () {
-            var href = audioDownloadLink.href;
-            setTimeout(function () {
-              try {
-                if (href && href.indexOf("blob:") === 0)
-                  URL.revokeObjectURL(href);
-              } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-            }, 3000);
-          },
-          { once: true }
-        );
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      // Upload audio
-      const audioData = new FormData();
-      audioData.append(audioFileName, audioBlob);
-      const audioUrl = generateUrlString(
-        fileName.value + "_audio",
-        fileText.value,
-        document.getElementById("did"),
-        document.getElementById("sdid")
-      );
-      uploadPromises.push(uploadFile(audioData, audioUrl));
-    }
-
-    // Save camera recording if available
-    if (recorderCamera && recordedCamera && recordedCamera.length > 0) {
-      const cameraBlob = new Blob(recordedCamera, { type: "video/webm" });
-      const cameraFileName = fileName.value + "_cam.webm";
-
-      // Create download link for camera
-      const cameraDownloadLink = document.createElement("a");
-      cameraDownloadLink.className = "download-record-link btn btn-primary";
-      try {
-        if (
-          cameraDownloadLink.href &&
-          cameraDownloadLink.href.indexOf("blob:") === 0
-        ) {
-          URL.revokeObjectURL(cameraDownloadLink.href);
-        }
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      cameraDownloadLink.href = URL.createObjectURL(cameraBlob);
-      cameraDownloadLink.download = cameraFileName;
-      cameraDownloadLink.textContent = "Скачать запись камеры";
-      downloadContainer.appendChild(cameraDownloadLink);
-      try {
-        cameraDownloadLink.addEventListener(
-          "click",
-          function () {
-            var href = cameraDownloadLink.href;
-            setTimeout(function () {
-              try {
-                if (href && href.indexOf("blob:") === 0)
-                  URL.revokeObjectURL(href);
-              } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-            }, 3000);
-          },
-          { once: true }
-        );
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-
-      // Upload camera recording
-      const cameraData = new FormData();
-      cameraData.append(cameraFileName, cameraBlob);
-      const cameraUrl = generateUrlString(
-        fileName.value + "_cam",
-        fileText.value,
-        document.getElementById("did"),
-        document.getElementById("sdid")
-      );
-
-      uploadPromises.push(uploadFile(cameraData, cameraUrl));
-    }
-
-    if (uploadPromises.length === 0) {
-      throw "Нет записанных данных";
-    }
-
-    // Wait for all uploads to complete
-    await Promise.all(uploadPromises);
-
-    // Simulate successful upload event to trigger modal close
-    const mockEvent = {
-      target: { status: 200 },
-    };
-    loadHandler(mockEvent);
-
-    // Don't modify parent window elements to avoid blocking issues
-
-    // Immediately try to fix any blocking elements
-    setTimeout(() => {
-      // Remove any elements that might be blocking clicks
-      const potentialBlockers = document.querySelectorAll(
-        '[style*="position: absolute"], [style*="position: fixed"]'
-      );
-      potentialBlockers.forEach((element) => {
-        const rect = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        const zIndex = parseInt(style.zIndex) || 0;
-
-        // If element covers screen and has high z-index, disable pointer events
-        if (
-          zIndex > 0 &&
-          rect.width > window.innerWidth * 0.5 &&
-          rect.height > window.innerHeight * 0.5
-        ) {
-          element.style.pointerEvents = "none";
-          element.style.zIndex = "-1";
-          element.style.display = "none";
-        }
-      });
-
-      // Also check for any elements with high z-index
-      const allElements = document.querySelectorAll("*");
-      allElements.forEach((element) => {
-        const style = getComputedStyle(element);
-        const zIndex = parseInt(style.zIndex) || 0;
-        const rect = element.getBoundingClientRect();
-
-        if (
-          zIndex > 0 &&
-          rect.width > window.innerWidth * 0.3 &&
-          rect.height > window.innerHeight * 0.3
-        ) {
-          element.style.pointerEvents = "none";
-          element.style.zIndex = "-1";
-          element.style.display = "none";
-        }
-      });
-    }, 50);
-
-    // Re-verify event handlers are still working after DOM changes
-    setTimeout(() => {
-      // Reattach event listeners to ensure they work
-      if (sourceCamera) {
-        sourceCamera.removeEventListener("change", onSourceChange);
-        sourceCamera.addEventListener("change", onSourceChange);
-      }
-      if (sourceScreen) {
-        sourceScreen.removeEventListener("change", onSourceChange);
-        sourceScreen.addEventListener("change", onSourceChange);
-      }
-      if (sourceBoth) {
-        sourceBoth.removeEventListener("change", onSourceChange);
-        sourceBoth.addEventListener("change", onSourceChange);
-      }
-      if (sourceAudio) {
-        sourceAudio.removeEventListener("change", onSourceChange);
-        sourceAudio.addEventListener("change", onSourceChange);
-      }
-    }, 100);
-  } catch (e) {
-    // Unblock save button on error
-    if (buttonSave) {
-      buttonSave.disabled = false;
-    }
-    window.showAlertModal("Сохранить видео не удалось (" + e + ")!", "Ошибка");
-  }
-}
-
-/**
  * Upload one chunk or finalize for streaming record. Retries on failure.
  * @param {string} streamType - 'screen' | 'camera' | 'audio'
  * @param {Blob|null} blob - chunk data, or null for finalize-only
@@ -2422,7 +2183,13 @@ function streamUploadChunk(streamType, blob, isFinal) {
   const params = new URLSearchParams(window.location.search || "");
   const catId = params.get("cat_id") || "";
   const subId = params.get("sub_id") || "";
-  const recName = (fileName && fileName.value ? fileName.value : name()) + (streamType === "screen" ? "_screen" : streamType === "camera" ? "_cam" : "_audio");
+  const recName =
+    (fileName && fileName.value ? fileName.value : name()) +
+    (streamType === "screen"
+      ? (isScreenMicRecording ? "_screenmic" : "_screen")
+      : streamType === "camera"
+        ? "_cam"
+        : "_audio");
   const desc = (fileText && fileText.value ? fileText.value : "");
 
   function doSend() {
@@ -2498,136 +2265,13 @@ function streamUploadChunk(streamType, blob, isFinal) {
 }
 
 /**
- * Upload a single file to the backend.
- * @param {FormData} formData
- * @param {string} url
- * @returns {Promise<void>}
- */
-function uploadFile(formData, url) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener("progress", progressHandler, false);
-    xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 400) {
-        resolve();
-      } else {
-        // Unblock save button on error
-        if (buttonSave) {
-          buttonSave.disabled = false;
-        }
-        reject(new Error(`Upload failed with status ${xhr.status}`));
-      }
-    });
-    xhr.addEventListener("error", () => {
-      // Unblock save button on network error
-      if (buttonSave) {
-        buttonSave.disabled = false;
-      }
-      reject(new Error("Upload failed"));
-    });
-
-    xhr.open("POST", url);
-    try {
-      xhr.withCredentials = true;
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-    try {
-      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-    try {
-      xhr.setRequestHeader("Accept", "application/json");
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-    try {
-      var cid =
-        (window.parent && window.parent.__filesClientId) ||
-        window.__filesClientId ||
-        "";
-      if (cid) xhr.setRequestHeader("X-Client-Id", cid);
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-    // Ensure server finds the file even if it expects generic 'file'
-    try {
-      var firstKey = null;
-      try {
-        firstKey = formData.keys().next().value;
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-      if (firstKey && firstKey !== "file") {
-        var blob = formData.get(firstKey);
-        if (blob) formData.append("file", blob);
-      }
-    } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
-    }
-    xhr.send(formData);
-  });
-}
-
-/**
- * Build save URL from form values.
- * @param {string} fileName
- * @param {string} fileText
- * @param {HTMLInputElement} did
- * @param {HTMLInputElement} sdid
- * @returns {string}
- */
-function generateUrlString(fileName, fileText, did, sdid) {
-  const name = encodeURIComponent(fileName);
-  const desc = encodeURIComponent(fileText || "");
-  const base = window.location.origin;
-  // Prefer explicit category/subcategory IDs if provided via iframe query
-  try {
-    const params = new URLSearchParams(window.location.search || "");
-    const catId = params.get("cat_id");
-    const subId = params.get("sub_id");
-    if (catId && subId) {
-      return `${base}/files/rec/save/${name}/q${desc}?cat_id=${encodeURIComponent(
-        catId
-      )}&sub_id=${encodeURIComponent(subId)}`;
-    }
-  } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-  // Fallback also uses simplified route; if iframe lacks cat_id/sub_id, server will map via legacy folders
-  return `${base}/files/rec/save/${name}/q${desc}`;
-}
-
-/**
- * XHR progress handler for upload.
- * @param {ProgressEvent} event
- */
-function progressHandler(event) {
-  const loadedMB = (event.loaded / BYTES_IN_MB).toFixed(1);
-  const totalSizeMb = event.total
-    ? (event.total / BYTES_IN_MB).toFixed(1)
-    : "0";
-  const percentLoaded = event.total
-    ? Math.round((event.loaded / event.total) * 100)
-    : 0;
-  if (uploadProgressBar) uploadProgressBar.style.width = `${percentLoaded}%`;
-}
-
-/**
  * XHR load handler: close modal and inform parent on success.
  * @param {ProgressEvent} event
  */
 function loadHandler(event) {
   const ok = event.target.status >= 200 && event.target.status < 400;
-  if (uploadProgressBar) uploadProgressBar.style.width = ok ? "100%" : "0%";
-  
-  // Unblock save button if upload failed
-  if (!ok && buttonSave) {
-    buttonSave.disabled = false;
-  }
-  
+  // progress UI removed
+
   // Notify parent and auto-close on success
   if (ok && window.parent) {
     // Ensure modal has correct z-index before closing
@@ -2756,15 +2400,6 @@ window.addEventListener("message", function (ev) {
     } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
-  } else if (msg.type === "rec:save") {
-    // Ensure recorder fully stops so dataavailable fires before saving
-    stopRecorder().then(() => {
-      try {
-        onSaveClick();
-      } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-    });
   } else if (msg.type === "rec:discard") {
     try {
       var baseUrl = window.location.origin;
@@ -2774,6 +2409,7 @@ window.addEventListener("message", function (ev) {
         if (state && state.tempName) {
           var form = new FormData();
           form.append("temp_name", state.tempName);
+          form.append("name", getRecordFileName());
           discardPromises.push(
             fetch(baseUrl + "/files/rec/discard", {
               method: "POST",
@@ -2790,7 +2426,6 @@ window.addEventListener("message", function (ev) {
       recordedScreen = [];
       recordedCamera = [];
       recordedAudio = [];
-      if (buttonSave) buttonSave.disabled = true;
       disable(buttonPause);
       disable(buttonStop);
       enable(buttonCamera);
@@ -2818,59 +2453,29 @@ window.addEventListener("message", function (ev) {
     }
   } else if (msg.type === "rec:close") {
     try {
-      // Ensure everything is stopped and UI is reset when parent closes
-      stopRecorder().then(() => {
+      // Stop all streams immediately so devices are released (microphone/camera)
+      stopCameraStream();
+      stopRecorder().then(function () {
+        try { resetAfterSave(); } catch (_) {}
         try {
-          stopCameraStream();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-        try {
-          resetAfterSave();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-        try {
-          recState = {
-            recording: false,
-            paused: false,
-            hasData:
-              recordedScreen.length > 0 ||
-              recordedCamera.length > 0 ||
-              recordedAudio.length > 0,
-          };
+          recState = { recording: false, paused: false, hasData: !!(recordedScreen.length || recordedCamera.length || recordedAudio.length) };
           postState();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      });
+        } catch (_) {}
+      }).catch(function () {});
     } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   } else if (msg.type === "rec:reset") {
     try {
-      // Reset all recording state
-      stopRecorder().then(() => {
-        try {
-          stopCameraStream();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-        try {
-          resetAfterSave();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
+      stopCameraStream();
+      stopRecorder().then(function () {
+        try { resetAfterSave(); } catch (_) {}
         try {
           recState = { recording: false, paused: false, hasData: false };
           postState();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
+        } catch (_) {}
         try {
-          // Reset UI to initial state
           if (buttonStart) buttonStart.textContent = "Начать запись";
-          if (buttonSave) buttonSave.disabled = true;
           disable(buttonPause);
           disable(buttonStop);
           enable(buttonCamera);
@@ -2883,14 +2488,21 @@ window.addEventListener("message", function (ev) {
           }
           resetTimer(true);
           updateVideoVisibility();
-        } catch (err) {
-      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
-    }
-      });
+        } catch (_) {}
+      }).catch(function () {});
     } catch (err) {
       window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
+});
+
+document.addEventListener("visibilitychange", function () {
+  try {
+    if (document.hidden) stopCameraStream();
+  } catch (_) {}
+});
+window.addEventListener("pagehide", function () {
+  try { stopCameraStream(); } catch (_) {}
 });
 
 /**
