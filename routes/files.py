@@ -168,6 +168,56 @@ def clear_all_uploads_on_startup():
         _log.error(f"Error clearing uploads on startup: {e}")
 
 
+def cleanup_rec_tmp_dir(app):
+    """Remove orphan temp recording files in tmp_dir older than 24 hours (e.g. after tab refresh during record)."""
+    try:
+        files_root = app._sql.config['files'].get('root', '')
+        tmp_dir = app._sql.config['files'].get('tmp_dir') or path.join(files_root, 'tmp', 'upload')
+        if not path.isdir(tmp_dir):
+            return
+        now = time.time()
+        max_age_sec = 24 * 3600
+        removed = 0
+        for name in os.listdir(tmp_dir):
+            if not re.match(r'^\d+_\d+_\d+_\d+\.webm$', name):
+                continue
+            full = path.join(tmp_dir, name)
+            try:
+                if path.isfile(full) and (now - os.path.getmtime(full)) > max_age_sec:
+                    os.remove(full)
+                    removed += 1
+            except Exception as e:
+                _log.warning(f"[rec-cleanup] remove {full}: {e}")
+        if removed:
+            _log.info(f"[rec-cleanup] removed {removed} old temp recording(s) from {tmp_dir}")
+    except Exception as e:
+        _log.warning(f"[rec-cleanup] {e}")
+
+
+def cleanup_trash_dir(app):
+    """Remove files in Trash (discarded recordings) older than 24 hours."""
+    try:
+        files_root = app._sql.config['files'].get('root', '')
+        trash_dir = path.join(files_root, 'Trash')
+        if not path.isdir(trash_dir):
+            return
+        now = time.time()
+        max_age_sec = 24 * 3600
+        removed = 0
+        for name in os.listdir(trash_dir):
+            full = path.join(trash_dir, name)
+            try:
+                if path.isfile(full) and (now - os.path.getmtime(full)) > max_age_sec:
+                    os.remove(full)
+                    removed += 1
+            except Exception as e:
+                _log.warning(f"[rec-cleanup] remove {full}: {e}")
+        if removed:
+            _log.info(f"[rec-cleanup] removed {removed} old file(s) from Trash")
+    except Exception as e:
+        _log.warning(f"[rec-cleanup] trash: {e}")
+
+
 def register(app, media_service, socketio=None) -> None:
     """Регистрация всех маршрутов `/files`.
 
@@ -185,6 +235,10 @@ def register(app, media_service, socketio=None) -> None:
 	"""
     # Clear all uploads on server startup
     clear_all_uploads_on_startup()
+    # Remove temp recording files older than 24h (orphans after tab refresh, etc.)
+    cleanup_rec_tmp_dir(app)
+    # Remove files in Trash older than 24h
+    cleanup_trash_dir(app)
 
     # validate_directory_params импортирован из utils.dir_utils
 
@@ -2704,6 +2758,197 @@ def register(app, media_service, socketio=None) -> None:
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
         return resp
+
+    # Streaming record: write to tmp_dir as {user_id}_{cat_id}_{sub_id}_{timestamp}.webm;
+    # on save move to category folder with standard name, DB, convert; on discard move to Trash
+    @app.route('/files/rec/chunk', methods=['POST'])
+    @require_permissions(FILES_UPLOAD)
+    @rate_limit
+    def rec_chunk():
+        """Accept a single chunk; temp file in tmp_dir as {user_id}_{cat_id}_{sub_id}_{timestamp}.webm. Finalize: move to category dir with standard name, DB, convert."""
+        try:
+            upload_id = (request.form.get('upload_id') or '').strip()
+            if not upload_id or len(upload_id) > 128:
+                _log.warning("[rec-chunk] 400: invalid upload_id upload_id=%r", upload_id or "(empty)")
+                return jsonify({'error': 'invalid upload_id'}), 400
+            try:
+                chunk_index = int(request.form.get('chunk_index', 0))
+            except (TypeError, ValueError):
+                chunk_index = 0
+            is_final = request.form.get('is_final', '').lower() in ('1', 'true', 'yes')
+            name = (request.form.get('name') or '').strip() or 'rec'
+            desc = (request.form.get('desc') or '').strip()
+            cat_id = request.form.get('cat_id', type=int)
+            sub_id = request.form.get('sub_id', type=int)
+            temp_name = (request.form.get('temp_name') or '').strip()
+            file_part = request.files.get('file') or request.files.get('chunk')
+
+            files_root = app._sql.config['files'].get('root', '')
+            tmp_dir = app._sql.config['files'].get('tmp_dir') or path.join(files_root, 'tmp', 'upload')
+            try:
+                os.makedirs(tmp_dir, exist_ok=True)
+            except Exception as e:
+                _log.error(f"[rec-chunk] makedirs {tmp_dir}: {e}")
+                return jsonify({'error': 'server temp dir'}), 500
+
+            if not is_final:
+                if not file_part or not file_part.filename:
+                    _log.warning("[rec-chunk] 400: missing chunk data chunk_index=%s is_final=%s", chunk_index, is_final)
+                    return jsonify({'error': 'missing chunk data'}), 400
+                if chunk_index == 0:
+                    if not (cat_id and sub_id):
+                        _log.warning("[rec-chunk] 400: cat_id/sub_id required for first chunk cat_id=%s sub_id=%s", cat_id, sub_id)
+                        return jsonify({'error': 'cat_id and sub_id required for first chunk'}), 400
+                    ts_ms = int(time.time() * 1000)
+                    temp_basename = f"{current_user.id}_{cat_id}_{sub_id}_{ts_ms}.webm"
+                    temp_path = path.join(tmp_dir, temp_basename)
+                    try:
+                        with open(temp_path, 'wb') as f:
+                            f.write(file_part.read())
+                    except Exception as e:
+                        _log.error(f"[rec-chunk] write {temp_path}: {e}")
+                        return jsonify({'error': 'write failed'}), 500
+                    return jsonify({'ok': True, 'chunk_index': 0, 'temp_name': temp_basename})
+                if not temp_name or '..' in temp_name or '/' in temp_name or '\\' in temp_name:
+                    _log.warning("[rec-chunk] 400: temp_name required for subsequent chunks chunk_index=%s temp_name=%r", chunk_index, temp_name or "(empty)")
+                    return jsonify({'error': 'temp_name required for subsequent chunks'}), 400
+                temp_basename = path.basename(temp_name)
+                if not temp_basename.endswith('.webm'):
+                    temp_basename = temp_basename + '.webm' if '.' not in temp_basename else temp_basename
+                temp_path = path.join(tmp_dir, temp_basename)
+                if not path.isfile(temp_path):
+                    _log.warning("[rec-chunk] 400: temp file not found chunk_index=%s temp_path=%s", chunk_index, temp_path)
+                    return jsonify({'error': 'temp file not found'}), 400
+                try:
+                    with open(temp_path, 'ab') as f:
+                        f.write(file_part.read())
+                except Exception as e:
+                    _log.error(f"[rec-chunk] append {temp_path}: {e}")
+                    return jsonify({'error': 'write failed'}), 500
+                return jsonify({'ok': True, 'chunk_index': chunk_index})
+
+            # is_final: move from tmp_dir to category folder with standard name, DB, convert
+            if not temp_name or '..' in temp_name or '/' in temp_name or '\\' in temp_name:
+                _log.warning("[rec-chunk] 400: temp_name required for finalize temp_name=%r", temp_name or "(empty)")
+                return jsonify({'error': 'temp_name required for finalize'}), 400
+            temp_basename = path.basename(temp_name)
+            if not temp_basename.endswith('.webm'):
+                temp_basename = temp_basename + '.webm' if '.' not in temp_basename else temp_basename
+            temp_path = path.join(tmp_dir, temp_basename)
+            if not path.isfile(temp_path):
+                _log.warning("[rec-chunk] 400: no data received (temp file missing on finalize) temp_path=%s", temp_path)
+                return jsonify({'error': 'no data received'}), 400
+            if not (cat_id and sub_id):
+                try:
+                    _dirs = dirs_by_permission(app, 3, 'f')
+                    if _dirs:
+                        values_list = list(_dirs[0].values())
+                        root_folder = values_list[0] if values_list else ''
+                        sub_folder = values_list[1] if len(values_list) > 1 else ''
+                        cat_id = app._sql.category_id_by_folder(root_folder)
+                        sub_id = app._sql.subcategory_id_by_folder(cat_id, sub_folder) if cat_id else None
+                except Exception:
+                    pass
+            if not (cat_id and sub_id):
+                _log.warning("[rec-chunk] 400: category/subcategory required for finalize cat_id=%s sub_id=%s", cat_id, sub_id)
+                return jsonify({'error': 'category/subcategory required'}), 400
+            try:
+                dir = app._sql.get_file_storage_path(cat_id, sub_id)
+            except Exception:
+                dir = path.join(files_root, 'files', '', '')
+            try:
+                os.makedirs(dir, exist_ok=True)
+            except Exception:
+                pass
+            real_name = hash_str(dt.now().strftime('%Y-%m-%d_%H:%M:%S.f') + str(randint(1000, 9999)))
+            fname = path.join(dir, real_name)
+            source_path = fname + '.webm'
+            try:
+                import shutil
+                shutil.move(temp_path, source_path)
+            except Exception as e:
+                _log.error(f"[rec-chunk] move to {source_path}: {e}")
+                return jsonify({'error': 'move failed'}), 500
+            is_audio = media_service.is_audio_file(source_path)
+            real_target = real_name + ('.m4a' if is_audio else '.mp4')
+            convert_dst = fname + ('.m4a' if is_audio else '.mp4')
+            try:
+                id = app._sql.file_add2([
+                    name, real_target, cat_id, sub_id, current_user.id, desc, None, 0, 0, 0.0
+                ])
+            except Exception:
+                return jsonify({'error': 'DB insert failed'}), 400
+            log_action('RECORD_SAVE', current_user.name,
+                       f'file_id={id} cat_id={cat_id} sub_id={sub_id} name={name}',
+                       (request.remote_addr or ''), True)
+            _log.info(f"[rec-chunk] finalize id={id} from={source_path} is_audio={is_audio}")
+            media_service.convert_async(source_path, convert_dst, ('file', id))
+            log_action('RECORD_CONVERT', current_user.name,
+                       f'file_id={id} is_audio={is_audio} queued',
+                       (request.remote_addr or ''), True)
+            try:
+                stat = os.stat(source_path)
+                size_bytes = stat.st_size
+            except Exception:
+                size_bytes = 0
+            size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else 0
+            length_seconds = 0
+            try:
+                p = subprocess.Popen([
+                    'ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of',
+                    'default=noprint_wrappers=1:nokey=1', source_path
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                sout, _ = p.communicate(timeout=10)
+                length_seconds = int(float((sout or '0').strip()) or 0)
+            except Exception:
+                pass
+            app._sql.file_update_metadata([length_seconds, size_mb, id])
+            if socketio:
+                try:
+                    origin = (request.headers.get('X-Client-Id') or '').strip()
+                    emit_files_changed(app.socketio, 'metadata', id=id, originClientId=origin, meta={'length': length_seconds, 'size': size_mb})
+                    emit_files_changed(app.socketio, 'recorded', id=id, originClientId=origin)
+                except Exception:
+                    pass
+            return jsonify({'ok': True, 'id': id})
+        except Exception as e:
+            _log.exception(e)
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/files/rec/discard', methods=['POST'])
+    @require_permissions(FILES_UPLOAD)
+    @rate_limit
+    def rec_discard():
+        """Move temp recording to Trash (user chose not to save)."""
+        try:
+            temp_name = (request.form.get('temp_name') or '').strip()
+            if not temp_name or '..' in temp_name or '/' in temp_name or '\\' in temp_name:
+                return jsonify({'error': 'temp_name required'}), 400
+            temp_basename = path.basename(temp_name)
+            if not temp_basename.endswith('.webm'):
+                temp_basename = temp_basename + '.webm' if '.' not in temp_basename else temp_basename
+            files_root = app._sql.config['files'].get('root', '')
+            tmp_dir = app._sql.config['files'].get('tmp_dir') or path.join(files_root, 'tmp', 'upload')
+            trash_dir = path.join(files_root, 'Trash')
+            try:
+                os.makedirs(trash_dir, exist_ok=True)
+            except Exception as e:
+                _log.error(f"[rec-discard] makedirs {trash_dir}: {e}")
+                return jsonify({'error': 'Trash dir'}), 500
+            src = path.join(tmp_dir, temp_basename)
+            if not path.isfile(src):
+                return jsonify({'ok': True})
+            dst = path.join(trash_dir, temp_basename)
+            try:
+                import shutil
+                shutil.move(src, dst)
+            except Exception as e:
+                _log.error(f"[rec-discard] move {src} -> {dst}: {e}")
+                return jsonify({'error': 'move failed'}), 500
+            return jsonify({'ok': True})
+        except Exception as e:
+            _log.exception(e)
+            return jsonify({'error': str(e)}), 500
 
     # New simplified route: no did/sdid in path; prefer cat_id/sub_id via query
     @app.route('/files/rec/save/<name>/<desc>', methods=['POST'])

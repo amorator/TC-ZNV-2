@@ -96,7 +96,76 @@ function enable(x) {
 
 window.onbeforeunload = null;
 
+/** Safe error report: never throws (e.g. in iframe/beforeunload ErrorHandler may be missing). */
+function safeReportError(err, ctx) {
+  try {
+    if (typeof window !== "undefined" && window.ErrorHandler && typeof window.ErrorHandler.handleError === "function")
+      window.ErrorHandler.handleError(err, ctx || "unknown");
+  } catch (_) {}
+}
+
 const BYTES_IN_MB = 1048576;
+
+/** Stream upload: send chunks to server to avoid OOM. Chunk interval (ms). */
+const RECORD_STREAM_TIMESLICE_MS = 10000;
+/** Max retries per chunk/finalize request. */
+const RECORD_STREAM_MAX_RETRIES = 5;
+/** Base backoff (ms) for retries. */
+const RECORD_STREAM_RETRY_BASE_MS = 1000;
+
+/** Per-stream state for streaming upload (uploadId, chunkIndex, tempName, finalized). */
+const streamUploadState = {
+  screen: { uploadId: null, chunkIndex: 0, tempName: null, finalized: false },
+  camera: { uploadId: null, chunkIndex: 0, tempName: null, finalized: false },
+  audio: { uploadId: null, chunkIndex: 0, tempName: null, finalized: false },
+};
+/** Pending chunk upload promise per stream: wait for it before sending finalize so last chunk (<10s) is not lost. */
+let streamPendingChunk = { screen: null, camera: null, audio: null };
+/** Set of stream types that are active this session (so we know how many finalizes to wait for). */
+let streamUploadActiveTypes = [];
+/** Resolve/reject when all active streams have finalized (used after Stop). */
+let streamUploadAllFinalizedSettle = null;
+
+/** Send action to server for actions.log (fire-and-forget). */
+function logRecordAction(action, details, status) {
+  try {
+    var baseUrl = window.location.origin;
+    fetch(baseUrl + "/api/log-action", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({ action: action, details: details || "", status: status || "SUCCESS" }),
+    }).catch(function () {});
+  } catch (e) {}
+}
+
+/** Saving overlay: show "Сохранение... Ожидайте" popup, hide when done. */
+var savingOverlayEl = null;
+function getOrCreateSavingOverlay() {
+  if (savingOverlayEl && document.body.contains(savingOverlayEl)) return savingOverlayEl;
+  var el = document.createElement("div");
+  el.id = "rec-saving-overlay";
+  el.setAttribute("aria-live", "polite");
+  el.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;";
+  var box = document.createElement("div");
+  box.style.cssText = "background:var(--modal-bg, #fff);color:var(--body-text, #000);padding:24px 32px;border-radius:8px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);";
+  box.innerHTML = "<div style=\"font-size:1.25rem;margin-bottom:8px;\">Сохранение...</div><div style=\"font-size:0.95rem;opacity:0.9;\">Ожидайте</div>";
+  el.appendChild(box);
+  document.body.appendChild(el);
+  savingOverlayEl = el;
+  return el;
+}
+function showSavingOverlay() {
+  try {
+    var el = getOrCreateSavingOverlay();
+    el.style.display = "flex";
+  } catch (e) {}
+}
+function hideSavingOverlay() {
+  try {
+    if (savingOverlayEl) savingOverlayEl.style.display = "none";
+  } catch (e) {}
+}
 
 // UI elements populated on DOMContentLoaded
 /** @type {HTMLButtonElement|null} */ let buttonCamera;
@@ -217,22 +286,22 @@ function setSourceControlsEnabled(enabled) {
   try {
     if (sourceCamera) sourceCamera.disabled = !enabled;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (sourceScreen) sourceScreen.disabled = !enabled;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (sourceBoth) sourceBoth.disabled = !enabled;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (sourceAudio) sourceAudio.disabled = !enabled;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -251,11 +320,11 @@ function attachOnEnded(stream, reason) {
       try {
         t.onended = notify;
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     });
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -268,7 +337,7 @@ function handleCaptureRevoked(message) {
     if (window.__recNotifiedRevoked) return;
     window.__recNotifiedRevoked = true;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     // If recording, transition to stopped UI and allow saving available data
@@ -276,42 +345,42 @@ function handleCaptureRevoked(message) {
       if (recorderScreen && recorderScreen.state === "recording")
         recorderScreen.pause();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (recorderCamera && recorderCamera.state === "recording")
         recorderCamera.pause();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (recorderAudio && recorderAudio.state === "recording") {
         try {
           recorderAudio.pause && recorderAudio.pause();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (recorderScreen && recorderScreen.state !== "inactive")
         recorderScreen.stop();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (recorderCamera && recorderCamera.state !== "inactive")
         recorderCamera.stop();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (recorderAudio && recorderAudio.state !== "inactive")
         recorderAudio.stop();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     // Update state flags
     recState.recording = false;
@@ -324,7 +393,7 @@ function handleCaptureRevoked(message) {
     // Disable source switches until user re-enables manually
     setSourceControlsEnabled(false);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     window.showAlertModal(
@@ -333,7 +402,7 @@ function handleCaptureRevoked(message) {
       "Предупреждение"
     );
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // allow further notifications after short cooldown
   try {
@@ -341,7 +410,7 @@ function handleCaptureRevoked(message) {
       window.__recNotifiedRevoked = false;
     }, 1000);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -381,7 +450,7 @@ function handleCaptureRevoked(message) {
           (dstRoot.className ? dstRoot.className + " " : "") + src.join(" ");
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
   /**
@@ -393,13 +462,13 @@ function handleCaptureRevoked(message) {
         applyThemeFrom(window.parent.document.documentElement);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
   try {
     document.addEventListener("DOMContentLoaded", syncOnce, { once: true });
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // Avoid perpetual intervals; rely on event-driven sync only
   try {
@@ -436,7 +505,7 @@ function handleCaptureRevoked(message) {
                     : "") + ev.data.className;
               }
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           } else {
             syncOnce();
@@ -448,7 +517,7 @@ function handleCaptureRevoked(message) {
     }
     window.addEventListener("message", onThemeMessage);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 })();
 
@@ -462,7 +531,7 @@ function postState() {
       window.parent.postMessage({ type: "rec:state", state: recState }, "*");
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -502,7 +571,7 @@ document.addEventListener("DOMContentLoaded", function () {
     try {
       buttonSave.style.display = "none";
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
   if (fileName) fileName.value = name();
@@ -534,11 +603,11 @@ document.addEventListener("DOMContentLoaded", function () {
       try {
         updateVideoVisibility();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     });
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // Ensure correct initial background/app state in parent
   // Hotkeys inside iframe: Enter to save (except textarea), Esc to stop
@@ -564,19 +633,19 @@ document.addEventListener("DOMContentLoaded", function () {
           onSaveClick();
         }
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     } else if (event.key === "Escape") {
       // Delegate ESC to parent for guarded close logic
       try {
         event.preventDefault();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         window.parent && window.parent.postMessage({ type: "rec:esc" }, "*");
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       return;
     }
@@ -584,12 +653,12 @@ document.addEventListener("DOMContentLoaded", function () {
   try {
     window.addEventListener("keydown", handleKey, true);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     document.addEventListener("keydown", handleKey, true);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 });
 
@@ -599,17 +668,17 @@ try {
     try {
       stopRecorder();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
     try {
       stopCameraStream();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
     try {
       stopScreenStream && stopScreenStream();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
     try {
       recState = {
@@ -622,7 +691,7 @@ try {
       };
       postState();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
     try {
       if (window.__recSyncInterval) {
@@ -630,13 +699,13 @@ try {
         window.__recSyncInterval = null;
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
   }
   window.addEventListener("beforeunload", __recCleanup);
   window.addEventListener("pagehide", __recCleanup);
 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      safeReportError(err);
     }
 
 // Pause/cleanup on tab/iframe hidden to avoid camera left on in background
@@ -647,54 +716,54 @@ try {
         if (recorderScreen && recorderScreen.state === "recording")
           recorderScreen.pause();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         if (recorderCamera && recorderCamera.state === "recording")
           recorderCamera.pause();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         if (recorderAudio && recorderAudio.state === "recording")
           try {
             recorderAudio.pause && recorderAudio.pause();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         disable(buttonPause);
         enable(buttonStart);
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         if (videoScreen) videoScreen.style.borderColor = "green";
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         if (videoCamera) videoCamera.style.borderColor = "green";
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         if (audioIndicator) audioIndicator.style.borderColor = "green";
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       try {
         postState();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     }
   });
 } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
 /**
@@ -705,27 +774,27 @@ function setStoppedUI() {
   try {
     if (videoScreen) videoScreen.style.borderColor = "green";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (videoCamera) videoCamera.style.borderColor = "green";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     buttonStart.textContent = "Начать запись";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     disable(buttonPause);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     disable(buttonStop);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // Update save button visibility based on recorded data
   updateSaveButtonVisibility();
@@ -740,52 +809,52 @@ function resetAfterSave() {
   try {
     if (uploadProgress) uploadProgress.style.display = "none";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (uploadProgressBar) uploadProgressBar.style.width = "0%";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (videoScreen) videoScreen.style.borderColor = "gray";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (videoCamera) videoCamera.style.borderColor = "gray";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (audioIndicator) audioIndicator.style.borderColor = "#000000";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     buttonStart.textContent = "Начать запись";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     enable(buttonCamera);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     enable(buttonStart);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     disable(buttonPause);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     disable(buttonStop);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (buttonSave) {
@@ -793,17 +862,34 @@ function resetAfterSave() {
       buttonSave.style.display = "none";
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   resetTimer(true);
   recordedScreen = [];
   recordedCamera = [];
   recordedAudio = [];
+  streamUploadActiveTypes = [];
+  streamUploadState.screen.uploadId = null;
+  streamUploadState.screen.chunkIndex = 0;
+  streamUploadState.screen.tempName = null;
+  streamUploadState.screen.finalized = false;
+  streamUploadState.camera.uploadId = null;
+  streamUploadState.camera.chunkIndex = 0;
+  streamUploadState.camera.tempName = null;
+  streamUploadState.camera.finalized = false;
+  streamUploadState.audio.uploadId = null;
+  streamUploadState.audio.chunkIndex = 0;
+  streamUploadState.audio.tempName = null;
+  streamUploadState.audio.finalized = false;
+  streamUploadAllFinalizedSettle = null;
+  streamPendingChunk.screen = null;
+  streamPendingChunk.camera = null;
+  streamPendingChunk.audio = null;
   // Fully stop camera and reset state
   try {
     stopCameraStream();
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   recorderScreen = null;
   recorderCamera = null;
@@ -819,7 +905,7 @@ function resetAfterSave() {
   try {
     setSourceControlsEnabled(true);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
   // Reinitialize button handlers to ensure they work
@@ -861,7 +947,7 @@ function stopCameraStream() {
       try {
         currentStreamScreen.getTracks().forEach((t) => t.stop());
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       currentStreamScreen = null;
     }
@@ -869,7 +955,7 @@ function stopCameraStream() {
       try {
         currentStreamCamera.getTracks().forEach((t) => t.stop());
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       currentStreamCamera = null;
     }
@@ -877,7 +963,7 @@ function stopCameraStream() {
       try {
         currentStreamAudio.getTracks().forEach((t) => t.stop());
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       currentStreamAudio = null;
     }
@@ -888,7 +974,7 @@ function stopCameraStream() {
       videoCamera.srcObject = null;
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     let buttonText = "Включить камеру";
@@ -901,7 +987,7 @@ function stopCameraStream() {
     }
     buttonCamera.textContent = buttonText;
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   isScreenRecording = false;
   isDualRecording = false;
@@ -911,7 +997,7 @@ function stopCameraStream() {
     if (!areAnyStreamsActive() && !recState.recording && !recState.paused)
       setSourceControlsEnabled(true);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -1048,7 +1134,7 @@ function updateButtonStates() {
       try {
         buttonSave.style.display = "none";
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     }
   } catch (e) {
@@ -1104,10 +1190,10 @@ function updateVideoVisibility() {
       );
       document.body.style.setProperty("overflow-y", "auto", "important");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -1134,7 +1220,7 @@ function updateSaveButtonVisibility() {
       }
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -1150,7 +1236,7 @@ function onSourceChange() {
       return;
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   try {
     if (sourceBoth && sourceBoth.checked) {
@@ -1194,7 +1280,7 @@ function onSourceChange() {
       try {
         buttonSave.style.display = "none";
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     }
     if (videoScreen) videoScreen.style.borderColor = "gray";
@@ -1202,7 +1288,7 @@ function onSourceChange() {
     if (audioIndicator) audioIndicator.style.borderColor = "#000000";
     resetTimer(true);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -1234,7 +1320,7 @@ async function onCameraClick() {
       try {
         updateButtonStates();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       if (videoScreen) videoScreen.style.borderColor = "gray";
       if (videoCamera) videoCamera.style.borderColor = "gray";
@@ -1245,7 +1331,7 @@ async function onCameraClick() {
       try {
         setSourceControlsEnabled(false);
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       // Check current source selection
       const isScreenMode = sourceScreen && sourceScreen.checked;
@@ -1315,7 +1401,7 @@ async function onCameraClick() {
           try {
             updateButtonStates();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
           window.showAlertModal("Невозможно получить доступ к экрану или камере!", "Ошибка");
@@ -1356,7 +1442,7 @@ async function onCameraClick() {
           try {
             updateButtonStates();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
           window.showAlertModal("Невозможно получить доступ к экрану!", "Ошибка");
@@ -1389,7 +1475,7 @@ async function onCameraClick() {
           try {
             updateButtonStates();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
           window.showAlertModal(
@@ -1434,7 +1520,7 @@ async function onCameraClick() {
           try {
             updateButtonStates();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         } catch (error) {
           window.showAlertModal("Невозможно получить доступ к камере!", "Ошибка");
@@ -1503,11 +1589,11 @@ async function onCameraClick() {
             try {
               t.contentHint = "motion";
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           });
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recorderScreen = new MediaRecorder(currentStreamScreen, {
@@ -1532,11 +1618,11 @@ async function onCameraClick() {
             try {
               t.contentHint = "motion";
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           });
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recorderCamera = new MediaRecorder(currentStreamCamera, {
@@ -1561,11 +1647,11 @@ async function onCameraClick() {
             try {
               t.contentHint = "motion";
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           });
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recorderScreen = new MediaRecorder(currentStreamScreen, {
@@ -1624,11 +1710,11 @@ async function onCameraClick() {
             try {
               t.contentHint = "motion";
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           });
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recorderCamera = new MediaRecorder(currentStreamCamera, {
@@ -1647,48 +1733,74 @@ async function onCameraClick() {
       }
     }
 
-    // Setup event listeners for recorders
+    // Setup event listeners for recorders (streaming: upload chunks to avoid OOM)
+    streamPendingChunk.screen = null;
+    streamPendingChunk.camera = null;
+    streamPendingChunk.audio = null;
     if (recorderScreen) {
       recorderScreen.addEventListener("dataavailable", function (e) {
-        recordedScreen.push(e.data);
-        if (recordedScreen.length > 0) {
+        if (streamUploadState.screen.uploadId && e.data && e.data.size > 0) {
+          var p = streamUploadChunk("screen", e.data, false);
+          streamPendingChunk.screen = (streamPendingChunk.screen || Promise.resolve()).then(function () { return p; });
+        } else if (!streamUploadState.screen.uploadId) {
+          recordedScreen.push(e.data);
+        }
+        if (recordedScreen.length > 0 || streamUploadState.screen.uploadId) {
           recState.hasData = true;
           postState();
-          // Update save button when we have data
           updateSaveButtonVisibility();
         }
       });
       recorderScreen.addEventListener("stop", function () {
-        // Update UI when recording is actually stopped
+        if (streamUploadState.screen.uploadId) {
+          var doFinalize = function () { return streamUploadChunk("screen", null, true); };
+          (streamPendingChunk.screen || Promise.resolve()).then(doFinalize, doFinalize);
+        }
         updateSaveButtonVisibility();
       });
     }
 
     if (recorderCamera) {
       recorderCamera.addEventListener("dataavailable", function (e) {
-        recordedCamera.push(e.data);
-        if (recordedCamera.length > 0) {
+        if (streamUploadState.camera.uploadId && e.data && e.data.size > 0) {
+          var p = streamUploadChunk("camera", e.data, false);
+          streamPendingChunk.camera = (streamPendingChunk.camera || Promise.resolve()).then(function () { return p; });
+        } else if (!streamUploadState.camera.uploadId) {
+          recordedCamera.push(e.data);
+        }
+        if (recordedCamera.length > 0 || streamUploadState.camera.uploadId) {
           recState.hasData = true;
           postState();
-          // Update save button when we have data
           updateSaveButtonVisibility();
         }
       });
       recorderCamera.addEventListener("stop", function () {
-        // Update UI when recording is actually stopped
+        if (streamUploadState.camera.uploadId) {
+          var doFinalize = function () { return streamUploadChunk("camera", null, true); };
+          (streamPendingChunk.camera || Promise.resolve()).then(doFinalize, doFinalize);
+        }
         updateSaveButtonVisibility();
       });
     }
     if (recorderAudio) {
       recorderAudio.addEventListener("dataavailable", function (e) {
-        recordedAudio.push(e.data);
-        if (recordedAudio.length > 0) {
+        if (streamUploadState.audio.uploadId && e.data && e.data.size > 0) {
+          var p = streamUploadChunk("audio", e.data, false);
+          streamPendingChunk.audio = (streamPendingChunk.audio || Promise.resolve()).then(function () { return p; });
+        } else if (!streamUploadState.audio.uploadId) {
+          recordedAudio.push(e.data);
+        }
+        if (recordedAudio.length > 0 || streamUploadState.audio.uploadId) {
           recState.hasData = true;
           postState();
           updateSaveButtonVisibility();
         }
       });
       recorderAudio.addEventListener("stop", function () {
+        if (streamUploadState.audio.uploadId) {
+          var doFinalize = function () { return streamUploadChunk("audio", null, true); };
+          (streamPendingChunk.audio || Promise.resolve()).then(doFinalize, doFinalize);
+        }
         updateSaveButtonVisibility();
       });
     }
@@ -1699,6 +1811,27 @@ async function onCameraClick() {
     timerInterval = setInterval(timer, 1000);
     recordedScreen = [];
     recordedCamera = [];
+    streamUploadActiveTypes = [];
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      if (recorderScreen) {
+        streamUploadState.screen.uploadId = crypto.randomUUID();
+        streamUploadState.screen.chunkIndex = 0;
+        streamUploadState.screen.finalized = false;
+        streamUploadActiveTypes.push("screen");
+      }
+      if (recorderCamera) {
+        streamUploadState.camera.uploadId = crypto.randomUUID();
+        streamUploadState.camera.chunkIndex = 0;
+        streamUploadState.camera.finalized = false;
+        streamUploadActiveTypes.push("camera");
+      }
+      if (recorderAudio) {
+        streamUploadState.audio.uploadId = crypto.randomUUID();
+        streamUploadState.audio.chunkIndex = 0;
+        streamUploadState.audio.finalized = false;
+        streamUploadActiveTypes.push("audio");
+      }
+    }
     enable(buttonStart);
     disable(buttonPause);
     disable(buttonStop);
@@ -1708,7 +1841,7 @@ async function onCameraClick() {
     try {
       if (!areAnyStreamsActive()) setSourceControlsEnabled(true);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "onCameraClick");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "onCameraClick");
     }
   } catch (error) {
     window.showAlertModal("Ошибка при настройке записи!", "Ошибка");
@@ -1720,9 +1853,9 @@ async function onCameraClick() {
  */
 function onStartClick() {
   if (buttonStart.textContent == "Начать запись") {
-    // Start recording
+    // Start recording (with timeslice to stream chunks and avoid OOM)
     try {
-      if (recorderScreen) recorderScreen.start();
+      if (recorderScreen) recorderScreen.start(RECORD_STREAM_TIMESLICE_MS);
     } catch (e) {
       handleCaptureRevoked(
         "Невозможно начать запись: источник экрана недоступен."
@@ -1730,13 +1863,13 @@ function onStartClick() {
       return;
     }
     try {
-      if (recorderCamera) recorderCamera.start();
+      if (recorderCamera) recorderCamera.start(RECORD_STREAM_TIMESLICE_MS);
     } catch (e) {
       handleCaptureRevoked("Невозможно начать запись: камера недоступна.");
       return;
     }
     try {
-      if (recorderAudio) recorderAudio.start();
+      if (recorderAudio) recorderAudio.start(RECORD_STREAM_TIMESLICE_MS);
     } catch (e) {
       handleCaptureRevoked("Невозможно начать запись: микрофон недоступен.");
       return;
@@ -1744,7 +1877,7 @@ function onStartClick() {
     try {
       setSourceControlsEnabled(false);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "onStartClick");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "onStartClick");
     }
     buttonStart.textContent = "Продолжить";
     try {
@@ -1752,7 +1885,7 @@ function onStartClick() {
         timerInterval = setInterval(timer, 1000);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "onStartClick");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "onStartClick");
     }
   } else {
     // Resume recording
@@ -1762,14 +1895,14 @@ function onStartClick() {
       try {
         recorderAudio.resume && recorderAudio.resume();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "onStartClick");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "onStartClick");
     }
     try {
       if (!timerInterval) {
         timerInterval = setInterval(timer, 1000);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "onStartClick");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "onStartClick");
     }
   }
 
@@ -1790,11 +1923,12 @@ function onStartClick() {
       buttonSave.disabled = true;
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   recState.recording = true;
   recState.paused = false;
   postState();
+  logRecordAction("RECORD_START", "start recording", "SUCCESS");
 }
 
 /**
@@ -1807,7 +1941,7 @@ function onPauseClick() {
     try {
       recorderAudio.pause && recorderAudio.pause();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   if (videoScreen) videoScreen.style.borderColor = "green";
   if (videoCamera) videoCamera.style.borderColor = "green";
@@ -1822,14 +1956,24 @@ function onPauseClick() {
   try {
     setSourceControlsEnabled(false);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
 /**
  * Stop recording, set stopped UI, and publish state.
+ * When streaming, waits for all chunk finalizes then closes modal on success.
  */
 function onStopClick() {
+  logRecordAction("RECORD_STOP", "stop recording", "SUCCESS");
+  var hadStreaming = streamUploadActiveTypes.length > 0;
+  var finalizePromise = null;
+  if (hadStreaming) {
+    finalizePromise = new Promise(function (resolve, reject) {
+      streamUploadAllFinalizedSettle = { resolve: resolve, reject: reject };
+    });
+  }
+
   if (recorderScreen) {
     recorderScreen.pause();
     recorderScreen.stop();
@@ -1842,7 +1986,7 @@ function onStopClick() {
     try {
       recorderAudio.stop();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
 
@@ -1859,26 +2003,36 @@ function onStopClick() {
       timerInterval = null;
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
   // Update UI with current data state
   setStoppedUI();
-  // Show save after stop if there is data
   updateSaveButtonVisibility();
   postState();
-  // Allow changing source only after full cleanup happens elsewhere
+
+  if (hadStreaming && finalizePromise) {
+    showSavingOverlay();
+    finalizePromise.then(function () {
+      hideSavingOverlay();
+      try {
+        loadHandler({ target: { status: 200 } });
+      } catch (err) {
+        window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
+      }
+    }).catch(function (err) {
+      hideSavingOverlay();
+      try {
+        window.showAlertModal("Ошибка сохранения: " + (err && err.message ? err.message : err), "Ошибка");
+      } catch (_) {}
+    });
+  }
 }
 
 /**
  * Save recording. If still recording, ensures recorder is stopped first.
  */
 function onSaveClick() {
-  // Show notification about saving start
-  if (window.showToast) {
-    window.showToast('Сохранение начато, дождитесь автоматического закрытия окна', 'info');
-  }
-  
   // If recording, stop first to flush data
   const isRecording =
     (recorderScreen && recorderScreen.state === "recording") ||
@@ -1896,11 +2050,15 @@ function onSaveClick() {
   if (buttonSave) {
     buttonSave.disabled = true;
   }
-  
+  logRecordAction("RECORD_SAVE_CLICK", "save recording", "SUCCESS");
+  showSavingOverlay();
+
   saveFile()
-    .then((response) => {})
-    .catch((e) => {
-      // Unblock save button on error
+    .then(function () {
+      hideSavingOverlay();
+    })
+    .catch(function (e) {
+      hideSavingOverlay();
       if (buttonSave) {
         buttonSave.disabled = false;
       }
@@ -2002,7 +2160,7 @@ async function saveFile() {
           URL.revokeObjectURL(screenDownloadLink.href);
         }
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       screenDownloadLink.href = URL.createObjectURL(screenBlob);
       screenDownloadLink.download = screenFileName;
@@ -2018,14 +2176,14 @@ async function saveFile() {
                 if (href && href.indexOf("blob:") === 0)
                   URL.revokeObjectURL(href);
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
             }, 3000);
           },
           { once: true }
         );
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
       // Upload screen recording
@@ -2069,7 +2227,7 @@ async function saveFile() {
           URL.revokeObjectURL(audioDownloadLink.href);
         }
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       audioDownloadLink.href = URL.createObjectURL(audioBlob);
       audioDownloadLink.download = audioFileName;
@@ -2085,14 +2243,14 @@ async function saveFile() {
                 if (href && href.indexOf("blob:") === 0)
                   URL.revokeObjectURL(href);
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
             }, 3000);
           },
           { once: true }
         );
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       // Upload audio
       const audioData = new FormData();
@@ -2122,7 +2280,7 @@ async function saveFile() {
           URL.revokeObjectURL(cameraDownloadLink.href);
         }
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       cameraDownloadLink.href = URL.createObjectURL(cameraBlob);
       cameraDownloadLink.download = cameraFileName;
@@ -2138,14 +2296,14 @@ async function saveFile() {
                 if (href && href.indexOf("blob:") === 0)
                   URL.revokeObjectURL(href);
               } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
             }, 3000);
           },
           { once: true }
         );
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
       // Upload camera recording
@@ -2248,6 +2406,98 @@ async function saveFile() {
 }
 
 /**
+ * Upload one chunk or finalize for streaming record. Retries on failure.
+ * @param {string} streamType - 'screen' | 'camera' | 'audio'
+ * @param {Blob|null} blob - chunk data, or null for finalize-only
+ * @param {boolean} isFinal
+ * @returns {Promise<void>}
+ */
+function streamUploadChunk(streamType, blob, isFinal) {
+  const state = streamUploadState[streamType];
+  if (!state || (!state.uploadId && !isFinal)) return Promise.resolve();
+
+  const uploadId = state.uploadId;
+  const chunkIndex = state.chunkIndex;
+  const baseUrl = window.location.origin;
+  const params = new URLSearchParams(window.location.search || "");
+  const catId = params.get("cat_id") || "";
+  const subId = params.get("sub_id") || "";
+  const recName = (fileName && fileName.value ? fileName.value : name()) + (streamType === "screen" ? "_screen" : streamType === "camera" ? "_cam" : "_audio");
+  const desc = (fileText && fileText.value ? fileText.value : "");
+
+  function doSend() {
+    const form = new FormData();
+    form.append("upload_id", uploadId);
+    form.append("chunk_index", String(chunkIndex));
+    form.append("is_final", isFinal ? "1" : "0");
+    form.append("name", recName);
+    form.append("desc", desc);
+    form.append("cat_id", catId);
+    form.append("sub_id", subId);
+    if (state.tempName) form.append("temp_name", state.tempName);
+    if (blob && blob.size > 0) form.append("file", blob, "chunk.webm");
+
+    var headers = { "X-Requested-With": "XMLHttpRequest" };
+    try {
+      var cid = (window.parent && window.parent.__filesClientId) || window.__filesClientId || "";
+      if (cid) headers["X-Client-Id"] = cid;
+    } catch (_) {}
+    return fetch(baseUrl + "/files/rec/chunk", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+      headers: headers,
+    }).then(function (r) {
+      if (r.ok) return r.json();
+      var err = new Error("HTTP " + r.status);
+      err.status = r.status;
+      throw err;
+    });
+  }
+
+  function attempt(attemptIndex) {
+    return doSend().catch(function (err) {
+      if (err && err.status === 400) return Promise.reject(err);
+      if (attemptIndex >= RECORD_STREAM_MAX_RETRIES) throw err;
+      var delay = RECORD_STREAM_RETRY_BASE_MS * Math.pow(2, attemptIndex);
+      return new Promise(function (res) {
+        setTimeout(res, delay);
+      }).then(function () {
+        return attempt(attemptIndex + 1);
+      });
+    });
+  }
+
+  return attempt(0).then(function (data) {
+    if (data && data.temp_name) state.tempName = data.temp_name;
+    if (!isFinal) {
+      state.chunkIndex = chunkIndex + 1;
+    } else {
+      state.finalized = true;
+      var allDone = streamUploadActiveTypes.every(function (t) {
+        return streamUploadState[t] && streamUploadState[t].finalized;
+      });
+      if (allDone && streamUploadAllFinalizedSettle) {
+        if (streamUploadAllFinalizedSettle.resolve) streamUploadAllFinalizedSettle.resolve();
+        streamUploadAllFinalizedSettle = null;
+      }
+    }
+  }).catch(function (err) {
+    if (isFinal) {
+      state.finalized = true;
+      var allDone = streamUploadActiveTypes.every(function (t) {
+        return streamUploadState[t] && streamUploadState[t].finalized;
+      });
+      if (allDone && streamUploadAllFinalizedSettle) {
+        if (streamUploadAllFinalizedSettle.reject) streamUploadAllFinalizedSettle.reject(err);
+        streamUploadAllFinalizedSettle = null;
+      }
+    }
+    throw err;
+  });
+}
+
+/**
  * Upload a single file to the backend.
  * @param {FormData} formData
  * @param {string} url
@@ -2281,17 +2531,17 @@ function uploadFile(formData, url) {
     try {
       xhr.withCredentials = true;
     } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       xhr.setRequestHeader("Accept", "application/json");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
     try {
       var cid =
@@ -2300,7 +2550,7 @@ function uploadFile(formData, url) {
         "";
       if (cid) xhr.setRequestHeader("X-Client-Id", cid);
     } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
     // Ensure server finds the file even if it expects generic 'file'
     try {
@@ -2308,14 +2558,14 @@ function uploadFile(formData, url) {
       try {
         firstKey = formData.keys().next().value;
       } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
       if (firstKey && firstKey !== "file") {
         var blob = formData.get(firstKey);
         if (blob) formData.append("file", blob);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "uploadFile");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "uploadFile");
     }
     xhr.send(formData);
   });
@@ -2344,7 +2594,7 @@ function generateUrlString(fileName, fileText, did, sdid) {
       )}&sub_id=${encodeURIComponent(subId)}`;
     }
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   // Fallback also uses simplified route; if iframe lacks cat_id/sub_id, server will map via legacy folders
   return `${base}/files/rec/save/${name}/q${desc}`;
@@ -2394,7 +2644,7 @@ function loadHandler(event) {
         parentPopup.style.pointerEvents = "auto";
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
     // Reset UI after successful upload
@@ -2403,7 +2653,7 @@ function loadHandler(event) {
       window.parent.softRefreshFilesTable &&
         window.parent.softRefreshFilesTable();
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
     // Close modal directly like in scripts.js and restore page scroll
@@ -2425,13 +2675,13 @@ function loadHandler(event) {
         // noop
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
     try {
       window.parent.postMessage({ type: "rec:saved" }, "*");
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     try {
       if (
@@ -2448,7 +2698,7 @@ function loadHandler(event) {
         window.parent.window.showAlertModal("Видео успешно сохранено", "Успех");
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 
     // Simple restoration like other modals
@@ -2504,7 +2754,7 @@ window.addEventListener("message", function (ev) {
         window.parent.__recIsRecording = !!(recState && recState.recording);
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   } else if (msg.type === "rec:save") {
     // Ensure recorder fully stops so dataavailable fires before saving
@@ -2512,12 +2762,30 @@ window.addEventListener("message", function (ev) {
       try {
         onSaveClick();
       } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
     });
   } else if (msg.type === "rec:discard") {
     try {
-      // stop tracks
+      var baseUrl = window.location.origin;
+      var discardPromises = [];
+      ["screen", "camera", "audio"].forEach(function (streamType) {
+        var state = streamUploadState[streamType];
+        if (state && state.tempName) {
+          var form = new FormData();
+          form.append("temp_name", state.tempName);
+          discardPromises.push(
+            fetch(baseUrl + "/files/rec/discard", {
+              method: "POST",
+              credentials: "include",
+              body: form,
+              headers: { "X-Requested-With": "XMLHttpRequest" },
+            })
+          );
+        }
+      });
+      Promise.all(discardPromises).catch(function () {});
+
       stopCameraStream();
       recordedScreen = [];
       recordedCamera = [];
@@ -2535,16 +2803,18 @@ window.addEventListener("message", function (ev) {
       }
       resetTimer(true);
       recState = { recording: false, paused: false, hasData: false };
+      streamUploadActiveTypes = [];
+      streamUploadState.screen.tempName = null;
+      streamUploadState.camera.tempName = null;
+      streamUploadState.audio.tempName = null;
 
-      // Update video visibility after discard
       updateVideoVisibility();
-
       postState();
       if (window.parent) {
         window.parent.postMessage({ type: "rec:discarded" }, "*");
       }
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   } else if (msg.type === "rec:close") {
     try {
@@ -2553,12 +2823,12 @@ window.addEventListener("message", function (ev) {
         try {
           stopCameraStream();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           resetAfterSave();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recState = {
@@ -2571,11 +2841,11 @@ window.addEventListener("message", function (ev) {
           };
           postState();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       });
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   } else if (msg.type === "rec:reset") {
     try {
@@ -2584,18 +2854,18 @@ window.addEventListener("message", function (ev) {
         try {
           stopCameraStream();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           resetAfterSave();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           recState = { recording: false, paused: false, hasData: false };
           postState();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
         try {
           // Reset UI to initial state
@@ -2614,11 +2884,11 @@ window.addEventListener("message", function (ev) {
           resetTimer(true);
           updateVideoVisibility();
         } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
       });
     } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   }
 });
@@ -2631,7 +2901,7 @@ function resetTimer(resetDisplayOnly) {
   try {
     clearInterval(timerInterval);
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
   timerInterval = null;
   h = 0;
@@ -2640,7 +2910,7 @@ function resetTimer(resetDisplayOnly) {
   try {
     document.getElementById("time").innerHTML = "00:00:00";
   } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
 }
 
@@ -2671,7 +2941,7 @@ function stopRecorder() {
           try {
             setStoppedUI();
           } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           setTimeout(resolve, 0);
         }
@@ -2684,7 +2954,7 @@ function stopRecorder() {
             try {
               recorder.pause();
             } catch (err) {
-      window.ErrorHandler.handleError(err, "unknown");
+      window.ErrorHandler && window.ErrorHandler.handleError(err, "unknown");
     }
           recorder.stop();
         } catch (e) {
