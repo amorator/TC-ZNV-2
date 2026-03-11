@@ -142,9 +142,9 @@ except Exception:
 def clear_all_uploads_on_startup():
     """Clear all upload jobs from Redis on server startup."""
     try:
-		redis_client = _create_redis_from_config()
-		if not redis_client:
-			return
+        redis_client = _create_redis_from_config()
+        if not redis_client:
+            return
 
         # Clear all upload jobs and active uploads set
         keys = redis_client.keys('upload_job:*')
