@@ -231,15 +231,168 @@ def register(app, socketio=None):
     # expose for reuse/tests
     globals()['compute_effective_permissions'] = compute_effective_permissions
 
+    def _orders_category_id():
+        try:
+            return app._sql.category_id_by_folder('orders')
+        except Exception:
+            return None
+
+    def _is_orders_category(category_id: int) -> bool:
+        try:
+            ocid = _orders_category_id()
+            return ocid is not None and int(category_id) == int(ocid)
+        except Exception:
+            return False
+
+    def _orders_service_subcategory_id(group_id: int) -> int:
+        # Synthetic subcategory ids for "orders by service" permission rows.
+        return -abs(int(group_id))
+
+    def _is_orders_service_subcategory(subcategory_id: int) -> bool:
+        try:
+            return int(subcategory_id) < 0
+        except Exception:
+            return False
+
+    def _orders_service_gid_from_subcategory_id(subcategory_id: int):
+        try:
+            sid = int(subcategory_id)
+            if sid >= 0:
+                return None
+            return abs(sid)
+        except Exception:
+            return None
+
+    def _user_orders_action_level(login: str, permission: str, action: str) -> str:
+        """Resolve action level from user settings for orders page: none|all.
+
+        action in {'view','edit','delete'}.
+        """
+        try:
+            if str(login or '').strip().lower() == 'admin':
+                return 'all'
+            perm_str = str(permission or '').strip().lower()
+            if not perm_str:
+                return 'none'
+            # Full-access/admin legacy markers.
+            if ('z' in perm_str) or ('полный доступ' in perm_str) or ('full access' in perm_str):
+                return 'all'
+            parts = str(permission or '').split(',')
+            if len(parts) < 2:
+                return 'none'
+            orders_letters = str(parts[1] or '')
+            # Orders page letters: f=view_all, c=edit_any, d=delete_any
+            if action == 'view' and ('f' in orders_letters):
+                return 'all'
+            if action == 'edit' and ('c' in orders_letters):
+                return 'all'
+            if action == 'delete' and ('d' in orders_letters):
+                return 'all'
+        except Exception:
+            return 'none'
+        return 'none'
+
+    def _apply_orders_service_view_locks(service_gid: int, perms: dict) -> dict:
+        """Enforce non-editable view rules for service-based orders permissions."""
+        if not isinstance(perms, dict):
+            perms = {}
+        if not isinstance(perms.get('user_by_id'), dict):
+            perms['user_by_id'] = {}
+        if not isinstance(perms.get('group_by_id'), dict):
+            perms['group_by_id'] = {}
+
+        try:
+            target_gid = int(service_gid)
+        except Exception:
+            return perms
+
+        # Matching service group must always have full view in its own service bucket.
+        gk = str(target_gid)
+        gbase = perms['group_by_id'].get(gk, {}) if isinstance(perms['group_by_id'].get(gk), dict) else {}
+        gbase['view_own'] = 0
+        gbase['view_group'] = 0
+        gbase['view_all'] = 1
+        perms['group_by_id'][gk] = gbase
+
+        # Users with explicit global rights in user settings are locked to all.
+        try:
+            prefix = app._sql.config['db']['prefix']
+            users = app._sql.execute_query(
+                f"SELECT id, login, permission, gid FROM {prefix}_user"
+            ) or []
+        except Exception:
+            users = []
+
+        for uid, login, permission, gid in users:
+            try:
+                uid_s = str(int(uid))
+            except Exception:
+                continue
+            ub = perms['user_by_id'].get(uid_s, {}) if isinstance(perms['user_by_id'].get(uid_s), dict) else {}
+            action_levels = {
+                'view': _user_orders_action_level(str(login or ''), str(permission or ''), 'view'),
+                'edit': _user_orders_action_level(str(login or ''), str(permission or ''), 'edit'),
+                'delete': _user_orders_action_level(str(login or ''), str(permission or ''), 'delete'),
+            }
+            changed = False
+            for action in ('view', 'edit', 'delete'):
+                lvl = action_levels.get(action, 'none')
+                if lvl == 'all':
+                    ub[f'{action}_inherit'] = 0
+                    ub[f'{action}_own'] = 0
+                    ub[f'{action}_group'] = 0
+                    ub[f'{action}_all'] = 1
+                    changed = True
+            if not changed:
+                continue
+            perms['user_by_id'][uid_s] = ub
+
+        return perms
+
+    def _orders_service_view_only(perms: dict) -> dict:
+        """Keep only view-related permissions for orders service mode."""
+        if not isinstance(perms, dict):
+            perms = {}
+        out = {
+            'user': perms.get('user') if isinstance(perms.get('user'), dict) else {},
+            'group': perms.get('group') if isinstance(perms.get('group'), dict) else {},
+            'user_by_id': {},
+            'group_by_id': {},
+        }
+        src_u = perms.get('user_by_id') if isinstance(perms.get('user_by_id'), dict) else {}
+        src_g = perms.get('group_by_id') if isinstance(perms.get('group_by_id'), dict) else {}
+
+        for uid, urow in src_u.items():
+            if not isinstance(urow, dict):
+                continue
+            kept = {
+                'view_inherit': 1 if int(urow.get('view_inherit', 0) or 0) == 1 else 0,
+                'view_own': 1 if int(urow.get('view_own', 0) or 0) == 1 else 0,
+                'view_group': 1 if int(urow.get('view_group', 0) or 0) == 1 else 0,
+                'view_all': 1 if int(urow.get('view_all', 0) or 0) == 1 else 0,
+            }
+            out['user_by_id'][str(uid)] = kept
+
+        for gid, grow in src_g.items():
+            if not isinstance(grow, dict):
+                continue
+            kept = {
+                'view_own': 1 if int(grow.get('view_own', 0) or 0) == 1 else 0,
+                'view_group': 1 if int(grow.get('view_group', 0) or 0) == 1 else 0,
+                'view_all': 1 if int(grow.get('view_all', 0) or 0) == 1 else 0,
+            }
+            out['group_by_id'][str(gid)] = kept
+        return out
+
     @app.route('/categories')
     @login_required
     @require_permissions(CATEGORIES_VIEW)
     def categories_admin():
         """Admin panel for managing categories and subcategories."""
-        # Exclude system categories from admin list
+        # Exclude only registrators system category from admin list
         categories = [
             c for c in app._sql.category_all()
-            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators', 'orders')
+            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators',)
         ]
         subcategories = app._sql.subcategory_all()
 
@@ -927,10 +1080,10 @@ def register(app, socketio=None):
     @require_permissions(CATEGORIES_VIEW)
     def api_categories():
         """API: список категорий (JSON)."""
-        # Hide system categories from admin UI consumers
+        # Hide only registrators system category from admin UI consumers
         categories = [
             c for c in app._sql.category_all()
-            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators', 'orders')
+            if (getattr(c, 'folder_name', '') or '').lower() not in ('registrators',)
         ]
         return jsonify([{
             'id': cat.id,
@@ -946,6 +1099,12 @@ def register(app, socketio=None):
     def api_category_stats(category_id):
         """API: статистика по категории (кол-во подкатегорий)."""
         try:
+            if _is_orders_category(int(category_id)):
+                rows = app._sql.execute_query(
+                    f"SELECT COUNT(*) FROM {app._sql.config['db']['prefix']}_group;"
+                ) or []
+                cnt = int(rows[0][0]) if rows and rows[0] else 0
+                return jsonify({'subcategory_count': cnt})
             sub_cnt = app._sql.subcategory_count_by_category([category_id])
             return jsonify({'subcategory_count': int(sub_cnt)})
         except Exception as e:
@@ -957,6 +1116,38 @@ def register(app, socketio=None):
     @require_permissions(SUBCATEGORIES_VIEW)
     def api_subcategories(category_id):
         """API: список подкатегорий категории (JSON)."""
+        if _is_orders_category(int(category_id)):
+            # Special UI mode for orders: expose services (groups), not order-* folders.
+            rows = app._sql.execute_query(
+                f"SELECT id, name FROM {app._sql.config['db']['prefix']}_group ORDER BY name;"
+            ) or []
+            items = []
+            for gid, gname in rows:
+                try:
+                    sid = _orders_service_subcategory_id(int(gid))
+                    key = f"orders_service_permissions:{int(gid)}"
+                    raw = app._sql.setting_get(key)
+                    stored = loads(raw) if raw else {}
+                    perms = {
+                        'user': stored.get('user') if isinstance(stored, dict) and isinstance(stored.get('user'), dict) else {},
+                        'group': stored.get('group') if isinstance(stored, dict) and isinstance(stored.get('group'), dict) else {},
+                        'user_by_id': stored.get('user_by_id') if isinstance(stored, dict) and isinstance(stored.get('user_by_id'), dict) else {},
+                        'group_by_id': stored.get('group_by_id') if isinstance(stored, dict) and isinstance(stored.get('group_by_id'), dict) else {},
+                    }
+                    perms = enforce_admin_access_permissions(perms)
+                    items.append({
+                        'id': sid,
+                        'category_id': int(category_id),
+                        'display_name': str(gname or ''),
+                        'folder_name': f"service-{int(gid)}",
+                        'display_order': int(gid),
+                        'enabled': 1,
+                        'permissions': perms
+                    })
+                except Exception:
+                    continue
+            return jsonify(items)
+
         subcategories = app._sql.subcategory_by_category([category_id])
         items = []
         for subcat in subcategories:
@@ -1081,11 +1272,40 @@ def register(app, socketio=None):
             total_pages
         })
 
-    @app.route('/api/subcategory/<int:subcategory_id>/permissions')
+    @app.route('/api/subcategory/<subcategory_id>/permissions')
     @login_required
     @require_permissions(SUBCATEGORIES_VIEW)
     def api_subcategory_permissions(subcategory_id):
         """API: получить права подкатегории (JSON)."""
+        try:
+            subcategory_id = int(subcategory_id)
+        except Exception:
+            return jsonify({'error': 'Subcategory not found'}), 404
+        if _is_orders_service_subcategory(subcategory_id):
+            gid = _orders_service_gid_from_subcategory_id(subcategory_id)
+            if not gid:
+                return jsonify({'error': 'Subcategory not found'}), 404
+            key = f"orders_service_permissions:{int(gid)}"
+            val = app._sql.setting_get(key)
+            try:
+                stored = loads(val) if val else {}
+            except Exception:
+                stored = {}
+            perms = {
+                'user': stored.get('user') if isinstance(stored, dict) and isinstance(stored.get('user'), dict) else {},
+                'group': stored.get('group') if isinstance(stored, dict) and isinstance(stored.get('group'), dict) else {},
+                'user_by_id': stored.get('user_by_id') if isinstance(stored, dict) and isinstance(stored.get('user_by_id'), dict) else {},
+                'group_by_id': stored.get('group_by_id') if isinstance(stored, dict) and isinstance(stored.get('group_by_id'), dict) else {},
+            }
+            perms = _orders_service_view_only(perms)
+            perms = _apply_orders_service_view_locks(int(gid), perms)
+            gname_row = app._sql.execute_query(
+                f"SELECT name FROM {app._sql.config['db']['prefix']}_group WHERE id=%s LIMIT 1;",
+                [int(gid)]
+            ) or []
+            gname = str(gname_row[0][0] or '') if gname_row and gname_row[0] else f'group-{gid}'
+            return jsonify({'id': int(subcategory_id), 'display_name': gname, 'permissions': perms})
+
         try:
             subcategory = app._sql.subcategory_by_id([subcategory_id])
         except Exception:
@@ -1108,33 +1328,62 @@ def register(app, socketio=None):
         perms = enforce_admin_access_permissions(perms)
         return jsonify({'id': subcategory.id, 'display_name': subcategory.display_name, 'permissions': perms})
 
-    @app.route('/api/subcategory/<int:subcategory_id>/stats')
+    @app.route('/api/subcategory/<subcategory_id>/stats')
     @login_required
     @require_permissions(SUBCATEGORIES_VIEW)
     def api_subcategory_stats(subcategory_id):
         """API: статистика по подкатегории (кол-во файлов по префиксу пути)."""
         try:
+            subcategory_id = int(subcategory_id)
+        except Exception:
+            return jsonify({'files_count': 0}), 200
+        try:
+            if _is_orders_service_subcategory(subcategory_id):
+                gid = _orders_service_gid_from_subcategory_id(subcategory_id)
+                if not gid:
+                    return jsonify({'files_count': 0}), 200
+                gname_row = app._sql.execute_query(
+                    f"SELECT name FROM {app._sql.config['db']['prefix']}_group WHERE id=%s LIMIT 1;",
+                    [int(gid)]
+                ) or []
+                gname = str(gname_row[0][0] or '') if gname_row and gname_row[0] else ''
+                if not gname:
+                    return jsonify({'files_count': 0}), 200
+                rows = app._sql.execute_query(
+                    f"SELECT COUNT(*) FROM {app._sql.config['db']['prefix']}_order WHERE LOWER(service)=LOWER(%s);",
+                    [gname]
+                ) or []
+                return jsonify({'files_count': int(rows[0][0]) if rows and rows[0] else 0})
             files_cnt = app._sql.files_count_in_subcategory([subcategory_id])
             return jsonify({'files_count': int(files_cnt)})
         except Exception as e:
             _log.error(f"subcategory stats failed: {e}")
             return jsonify({'files_count': 0}), 200
 
-    @app.route('/api/subcategory/<int:subcategory_id>/permissions',
+    @app.route('/api/subcategory/<subcategory_id>/permissions',
                methods=['POST'])
     @login_required
     @require_permissions(SUBCATEGORIES_MANAGE)
     def api_update_subcategory_permissions(subcategory_id):
         """API: обновить права подкатегории (JSON)."""
         try:
+            subcategory_id = int(subcategory_id)
+        except Exception:
+            return jsonify({'error': 'Subcategory not found'}), 404
+        try:
             data = request.get_json(silent=True) or {}
             incoming = data.get('permissions') or {}
             # Ensure subcategory exists
-            sub = app._sql.subcategory_by_id([subcategory_id])
-            if not sub:
-                return jsonify({'error': 'Subcategory not found'}), 404
-
-            key = f"subcategory_permissions:{subcategory_id}"
+            if _is_orders_service_subcategory(subcategory_id):
+                gid = _orders_service_gid_from_subcategory_id(subcategory_id)
+                if not gid:
+                    return jsonify({'error': 'Subcategory not found'}), 404
+                key = f"orders_service_permissions:{int(gid)}"
+            else:
+                sub = app._sql.subcategory_by_id([subcategory_id])
+                if not sub:
+                    return jsonify({'error': 'Subcategory not found'}), 404
+                key = f"subcategory_permissions:{subcategory_id}"
             existing_raw = app._sql.setting_get(key)
             try:
                 existing = loads(existing_raw) if existing_raw else {}
@@ -1184,7 +1433,13 @@ def register(app, socketio=None):
                 'user_by_id': final_user_by_id or {},
                 'group_by_id': final_group_by_id or {},
             }
-            perms = enforce_admin_access_permissions(perms)
+            if _is_orders_service_subcategory(subcategory_id):
+                gid = _orders_service_gid_from_subcategory_id(subcategory_id)
+                if gid:
+                    perms = _orders_service_view_only(perms)
+                    perms = _apply_orders_service_view_locks(int(gid), perms)
+            else:
+                perms = enforce_admin_access_permissions(perms)
             app._sql.setting_set(key, dumps(perms, ensure_ascii=False))
 
             log_action('SUBCATEGORY_PERMISSIONS_UPDATE', current_user.name,

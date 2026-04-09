@@ -11,6 +11,80 @@ let isDirtyUsers = false;
 let categoriesCache = [];
 let subcategoriesCache = [];
 
+function isOrdersServiceMode() {
+  try {
+    return Number(currentSubcategoryId || 0) < 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function currentOrdersServiceGid() {
+  try {
+    const sid = Number(currentSubcategoryId || 0);
+    if (sid < 0) return Math.abs(sid);
+  } catch (_) {}
+  return null;
+}
+
+function updateOrdersModePermissionsLayout() {
+  const ordersMode = isOrdersServiceMode();
+  const targets = [
+    {
+      table: document.querySelector("#groups-permissions")?.closest("table"),
+      searchId: "groups-search",
+    },
+    {
+      table: document.querySelector("#users-permissions")?.closest("table"),
+      searchId: "users-search",
+    },
+  ];
+  targets.forEach(({ table, searchId }) => {
+    if (!table) return;
+    const rows = table.querySelectorAll("tr");
+    rows.forEach((tr) => {
+      const cells = tr.children || [];
+      if (cells.length >= 4) {
+        if (cells[2]) cells[2].style.display = ordersMode ? "none" : "";
+        if (cells[3]) cells[3].style.display = ordersMode ? "none" : "";
+      }
+      const searchInput = document.getElementById(searchId);
+      if (searchInput) {
+        const host = searchInput.closest("th,td");
+        if (host && host.hasAttribute("colspan")) {
+          host.setAttribute("colspan", ordersMode ? "2" : "4");
+        }
+      }
+    });
+  });
+}
+
+function userOrdersActionLevelFromSettings(user, action) {
+  try {
+    const login = String((user && user.login) || "").toLowerCase();
+    if (login === "admin") return "all";
+    const permStrRaw = String((user && user.permission) || "");
+    const permStr = permStrRaw.toLowerCase();
+    if (!permStr) return "none";
+    if (
+      permStr.includes("полный доступ") ||
+      permStr.includes("full access") ||
+      permStr.indexOf("z") !== -1
+    ) {
+      return "all";
+    }
+    const parts = permStrRaw.split(",");
+    if (parts.length < 2) return "none";
+    const ordersLetters = String(parts[1] || "");
+    if (action === "view" && ordersLetters.indexOf("f") !== -1) return "all";
+    if (action === "edit" && ordersLetters.indexOf("c") !== -1) return "all";
+    if (action === "delete" && ordersLetters.indexOf("d") !== -1) return "all";
+    return "none";
+  } catch (_) {
+    return "none";
+  }
+}
+
 // Initialize page
 function initCategoriesPage() {
   try {
@@ -535,6 +609,7 @@ function loadPermissions(subcategoryId) {
       // Ensure header buttons state reflects dirty flags
       updateSaveButtonsState();
       updateDeleteButtonsState();
+      updateOrdersModePermissionsLayout();
     })
     .catch((error) => {
       window.ErrorHandler && window.ErrorHandler.handleError(error, "Error loading permissions");
@@ -552,6 +627,7 @@ function loadPermissions(subcategoryId) {
 
       if (permissionsContent) permissionsContent.style.display = "block";
       if (emptySubcategories) emptySubcategories.style.display = "none";
+      updateOrdersModePermissionsLayout();
     });
 }
 
@@ -590,6 +666,15 @@ function loadGroupsPermissionsTable(groups, permissions) {
     if (isAdminGroup) {
       viewValue = 'all'; editValue = 'all'; deleteValue = 'all';
     }
+    const ordersMode = isOrdersServiceMode();
+    const svcGid = currentOrdersServiceGid();
+    const isServiceGroupLocked =
+      ordersMode && svcGid !== null && Number(group.id) === Number(svcGid);
+    if (isServiceGroupLocked) {
+      viewValue = 'all';
+    }
+    const actionLocked = (action) =>
+      isAdminGroup || (isServiceGroupLocked && action && ["view", "edit", "delete"].includes(action));
 
     // Update global group levels for visual inheritance (use strongest across groups)
     try {
@@ -610,7 +695,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_view_none_${group.id}" value="none" ${
       viewValue === "none" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+    } ${actionLocked('view') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
                         <label class="form-check-label" for="cat-g_view_none_${
                           group.id
                         }">Нет</label>
@@ -620,7 +705,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_view_own_${group.id}" value="own" ${
       viewValue === "own" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+    } ${actionLocked('view') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
                         <label class="form-check-label" for="cat-g_view_own_${
                           group.id
                         }">Свои</label>
@@ -630,7 +715,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_view_group_${group.id}" value="group" ${
       viewValue === "group" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+    } ${actionLocked('view') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
                         <label class="form-check-label" for="cat-g_view_group_${
                           group.id
                         }">Группы</label>
@@ -640,7 +725,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_view_all_${group.id}" value="all" ${
       viewValue === "all" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
+    } ${actionLocked('view') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'view', this.value)">
                         <label class="form-check-label" for="cat-g_view_all_${
                           group.id
                         }">Все</label>
@@ -654,7 +739,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_edit_none_${group.id}" value="none" ${
       editValue === "none" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+    } ${actionLocked('edit') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
                         <label class="form-check-label" for="cat-g_edit_none_${
                           group.id
                         }">Нет</label>
@@ -664,7 +749,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_edit_own_${group.id}" value="own" ${
       editValue === "own" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+    } ${actionLocked('edit') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
                         <label class="form-check-label" for="cat-g_edit_own_${
                           group.id
                         }">Свои</label>
@@ -674,7 +759,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_edit_group_${group.id}" value="group" ${
       editValue === "group" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+    } ${actionLocked('edit') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
                         <label class="form-check-label" for="cat-g_edit_group_${
                           group.id
                         }">Группы</label>
@@ -684,7 +769,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_edit_all_${group.id}" value="all" ${
       editValue === "all" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
+    } ${actionLocked('edit') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'edit', this.value)">
                         <label class="form-check-label" for="cat-g_edit_all_${
                           group.id
                         }">Все</label>
@@ -698,7 +783,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_delete_none_${group.id}" value="none" ${
       deleteValue === "none" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+    } ${actionLocked('delete') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
                         <label class="form-check-label" for="cat-g_delete_none_${
                           group.id
                         }">Нет</label>
@@ -708,7 +793,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_delete_own_${group.id}" value="own" ${
       deleteValue === "own" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+    } ${actionLocked('delete') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
                         <label class="form-check-label" for="cat-g_delete_own_${
                           group.id
                         }">Свои</label>
@@ -718,7 +803,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_delete_group_${group.id}" value="group" ${
       deleteValue === "group" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+    } ${actionLocked('delete') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
                         <label class="form-check-label" for="cat-g_delete_group_${
                           group.id
                         }">Группы</label>
@@ -728,7 +813,7 @@ function loadGroupsPermissionsTable(groups, permissions) {
                           group.id
                         }" id="cat-g_delete_all_${group.id}" value="all" ${
       deleteValue === "all" ? "checked" : ""
-    } ${isAdminGroup ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
+    } ${actionLocked('delete') ? 'disabled' : ''} onchange="updateGroupPermissionLevel(${group.id}, 'delete', this.value)">
                         <label class="form-check-label" for="cat-g_delete_all_${
                           group.id
                         }">Все</label>
@@ -816,6 +901,26 @@ function loadUsersPermissionsTable(users, permissions) {
         );
       }
     } catch(_) {}
+    const ordersMode = isOrdersServiceMode();
+    const svcGid = currentOrdersServiceGid();
+    const settingsViewAll = ordersMode && (userOrdersActionLevelFromSettings(user, "view") === "all");
+    const settingsEditAll = ordersMode && (userOrdersActionLevelFromSettings(user, "edit") === "all");
+    const settingsDeleteAll = ordersMode && (userOrdersActionLevelFromSettings(user, "delete") === "all");
+    const viewLocked = (forceUser || isAdminGroupUser || settingsViewAll);
+    const editLocked = (forceUser || isAdminGroupUser || settingsEditAll);
+    const deleteLocked = (forceUser || isAdminGroupUser || settingsDeleteAll);
+    const effectiveViewForRender = settingsViewAll
+      ? "all"
+      : effView;
+    const effectiveEditForRender = settingsEditAll
+      ? "all"
+      : effEdit;
+    const effectiveDeleteForRender = settingsDeleteAll
+      ? "all"
+      : effDelete;
+    const renderInheritView = settingsViewAll ? 0 : inheritView;
+    const renderInheritEdit = settingsEditAll ? 0 : inheritEdit;
+    const renderInheritDelete = settingsDeleteAll ? 0 : inheritDelete;
     // Disable only for admin/forced, admin group members
     const inherited = { view: false, edit: false, delete: false };
 
@@ -839,15 +944,15 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="cat-u_view_${user.id}" id="cat-u_view_inherit_${user.id}" value="inherit" ${inheritView===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+                        <input class="form-check-input" type="radio" name="cat-u_view_${user.id}" id="cat-u_view_inherit_${user.id}" value="inherit" ${renderInheritView===1?'checked':''} ${ viewLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
                         <label class="form-check-label" for="cat-u_view_inherit_${user.id}">Наследовать</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
                         }" id="cat-u_view_none_${user.id}" value="none" ${
-      inheritView===1 ? '' : (effView === 'none' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+      renderInheritView===1 ? '' : (effectiveViewForRender === 'none' ? 'checked' : '')
+    } ${ viewLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
                         <label class="form-check-label" for="cat-u_view_none_${
                           user.id
                         }">Нет</label>
@@ -856,8 +961,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
                         }" id="cat-u_view_own_${user.id}" value="own" ${
-      inheritView===1 ? '' : (effView === 'own' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+      renderInheritView===1 ? '' : (effectiveViewForRender === 'own' ? 'checked' : '')
+    } ${ viewLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
                         <label class="form-check-label" for="cat-u_view_own_${
                           user.id
                         }">Свои</label>
@@ -866,8 +971,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
                         }" id="cat-u_view_group_${user.id}" value="group" ${
-      inheritView===1 ? '' : (effView === 'group' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+      renderInheritView===1 ? '' : (effectiveViewForRender === 'group' ? 'checked' : '')
+    } ${ viewLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
                         <label class="form-check-label" for="cat-u_view_group_${
                           user.id
                         }">Группы</label>
@@ -876,8 +981,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_view_${
                           user.id
                         }" id="cat-u_view_all_${user.id}" value="all" ${
-      inheritView===1 ? '' : (effView === 'all' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
+      renderInheritView===1 ? '' : (effectiveViewForRender === 'all' ? 'checked' : '')
+    } ${ viewLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'view', this.value, true)">
                         <label class="form-check-label" for="cat-u_view_all_${
                           user.id
                         }">Все</label>
@@ -887,15 +992,15 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="cat-u_edit_${user.id}" id="cat-u_edit_inherit_${user.id}" value="inherit" ${inheritEdit===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+                        <input class="form-check-input" type="radio" name="cat-u_edit_${user.id}" id="cat-u_edit_inherit_${user.id}" value="inherit" ${renderInheritEdit===1?'checked':''} ${ editLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
                         <label class="form-check-label" for="cat-u_edit_inherit_${user.id}">Наследовать</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
                         }" id="cat-u_edit_none_${user.id}" value="none" ${
-      inheritEdit===1 ? '' : (effEdit === 'none' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+      renderInheritEdit===1 ? '' : (effectiveEditForRender === 'none' ? 'checked' : '')
+    } ${ editLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
                         <label class="form-check-label" for="cat-u_edit_none_${
                           user.id
                         }">Нет</label>
@@ -904,8 +1009,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
                         }" id="cat-u_edit_own_${user.id}" value="own" ${
-      inheritEdit===1 ? '' : (effEdit === 'own' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+      renderInheritEdit===1 ? '' : (effectiveEditForRender === 'own' ? 'checked' : '')
+    } ${ editLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
                         <label class="form-check-label" for="cat-u_edit_own_${
                           user.id
                         }">Свои</label>
@@ -914,8 +1019,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
                         }" id="cat-u_edit_group_${user.id}" value="group" ${
-      inheritEdit===1 ? '' : (effEdit === 'group' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+      renderInheritEdit===1 ? '' : (effectiveEditForRender === 'group' ? 'checked' : '')
+    } ${ editLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
                         <label class="form-check-label" for="cat-u_edit_group_${
                           user.id
                         }">Группы</label>
@@ -924,8 +1029,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_edit_${
                           user.id
                         }" id="cat-u_edit_all_${user.id}" value="all" ${
-      inheritEdit===1 ? '' : (effEdit === 'all' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
+      renderInheritEdit===1 ? '' : (effectiveEditForRender === 'all' ? 'checked' : '')
+    } ${ editLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'edit', this.value, true)">
                         <label class="form-check-label" for="cat-u_edit_all_${
                           user.id
                         }">Все</label>
@@ -935,15 +1040,15 @@ function loadUsersPermissionsTable(users, permissions) {
             <td>
                 <div class="perm-stack">
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="cat-u_delete_${user.id}" id="cat-u_delete_inherit_${user.id}" value="inherit" ${inheritDelete===1?'checked':''} ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+                        <input class="form-check-input" type="radio" name="cat-u_delete_${user.id}" id="cat-u_delete_inherit_${user.id}" value="inherit" ${renderInheritDelete===1?'checked':''} ${ deleteLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
                         <label class="form-check-label" for="cat-u_delete_inherit_${user.id}">Наследовать</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
                         }" id="cat-u_delete_none_${user.id}" value="none" ${
-      inheritDelete===1 ? '' : (effDelete === 'none' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+      renderInheritDelete===1 ? '' : (effectiveDeleteForRender === 'none' ? 'checked' : '')
+    } ${ deleteLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
                         <label class="form-check-label" for="cat-u_delete_none_${
                           user.id
                         }">Нет</label>
@@ -952,8 +1057,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
                         }" id="cat-u_delete_own_${user.id}" value="own" ${
-      inheritDelete===1 ? '' : (effDelete === 'own' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+      renderInheritDelete===1 ? '' : (effectiveDeleteForRender === 'own' ? 'checked' : '')
+    } ${ deleteLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
                         <label class="form-check-label" for="cat-u_delete_own_${
                           user.id
                         }">Свои</label>
@@ -962,8 +1067,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
                         }" id="cat-u_delete_group_${user.id}" value="group" ${
-      inheritDelete===1 ? '' : (effDelete === 'group' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+      renderInheritDelete===1 ? '' : (effectiveDeleteForRender === 'group' ? 'checked' : '')
+    } ${ deleteLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
                         <label class="form-check-label" for="cat-u_delete_group_${
                           user.id
                         }">Группы</label>
@@ -972,8 +1077,8 @@ function loadUsersPermissionsTable(users, permissions) {
                         <input class="form-check-input" type="radio" name="cat-u_delete_${
                           user.id
                         }" id="cat-u_delete_all_${user.id}" value="all" ${
-      inheritDelete===1 ? '' : (effDelete === 'all' ? 'checked' : '')
-    } ${ (forceUser || isAdminGroupUser) ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
+      renderInheritDelete===1 ? '' : (effectiveDeleteForRender === 'all' ? 'checked' : '')
+    } ${ deleteLocked ? 'disabled' : '' } onchange="updateUserPermissionLevel(${user.id}, 'delete', this.value, true)">
                         <label class="form-check-label" for="cat-u_delete_all_${
                           user.id
                         }">Все</label>
@@ -988,6 +1093,15 @@ function loadUsersPermissionsTable(users, permissions) {
 // Update group permission by level (radio)
 function updateGroupPermissionLevel(groupId, action, level) {
   if (!currentSubcategoryId) return;
+  if (isOrdersServiceMode() && action !== "view") return;
+  if (
+    (action === "view" || action === "edit" || action === "delete") &&
+    isOrdersServiceMode() &&
+    currentOrdersServiceGid() !== null &&
+    Number(groupId) === Number(currentOrdersServiceGid())
+  ) {
+    return;
+  }
   const base = `${action}_`;
   const updated = {
     [`${base}own`]: level === "own",
@@ -1066,6 +1180,17 @@ window.updateUserInherit = function(userId, checked) {
 // Update user permission by level (radio)
 function updateUserPermissionLevel(userId, action, level, perUserOnly) {
   if (!currentSubcategoryId) return;
+  if (isOrdersServiceMode() && action !== "view") return;
+  if ((action === "view" || action === "edit" || action === "delete") && isOrdersServiceMode()) {
+    try {
+      const users = window.categoriesUsersData || [];
+      const u = users.find((x) => String(x && x.id) === String(userId));
+      const byUserSettings = userOrdersActionLevelFromSettings(u, action) === "all";
+      if (byUserSettings) {
+        return;
+      }
+    } catch (_) {}
+  }
   if (!currentPermissionsDraft.user_by_id) currentPermissionsDraft.user_by_id = {};
   const uid = String(userId);
   const existing = currentPermissionsDraft.user_by_id[uid] || {};
@@ -1413,6 +1538,7 @@ function loadPage(which, page, q) {
       renderPagination(which, resp);
       wireSearchbar("groups");
       wireSearchbar("users");
+      updateOrdersModePermissionsLayout();
     })
     .catch((err) => window.ErrorHandler && window.ErrorHandler.handleError("Error loading page", which, err, "app"));
 }

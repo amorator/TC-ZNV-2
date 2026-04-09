@@ -27,11 +27,17 @@
         <input type="date" class="form-control" id="flt-to">
       </div>
       <div class="col-auto">
-        <select class="form-select form-select-sm" id="flt-service" {% if not has_view_all %}disabled{% endif %}>
+        <select class="form-select form-select-sm" id="flt-service">
           <option value="">— Все службы —</option>
+          {% if has_view_all %}
           {% for g in (groups or []) %}
-            <option value="{{ g.name }}" {% if not has_view_all and user_service_name and g.name == user_service_name %}selected{% endif %}>{{ g.name }}</option>
+            <option value="{{ g.name }}">{{ g.name }}</option>
           {% endfor %}
+          {% else %}
+          {% for s in (accessible_services or []) %}
+            <option value="{{ s }}">{{ s }}</option>
+          {% endfor %}
+          {% endif %}
         </select>
       </div>
       <div class="col-auto ms-auto">

@@ -56,15 +56,15 @@ umask = 0o007  # Права доступа для создаваемых фай�
 
 # Переменные окружения (Python 3.13 в виртуальном окружении)
 raw_env = [
-    'PYTHONPATH=/usr/share/znf-beta',
-    'PWD=/usr/share/znf-beta',
+    'PYTHONPATH=/usr/share/znf',
+    'PWD=/usr/share/znf',
 ]
 
 # Обработка сигналов
 worker_tmp_dir = "/dev/shm"  # Использование RAM для временных файлов
 
 # PID файл
-pidfile = "/run/znf-beta/znf-beta.pid"
+pidfile = "/run/znf/znf.pid"
 
 # Hook to ensure logging is properly configured after worker initialization
 # Note: init_logging() is already called in server.py, so these hooks are not needed

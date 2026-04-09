@@ -22,6 +22,254 @@ _log = logging.getLogger(__name__)
 
 
 def register(app, socketio=None):
+	def _norm_service_name(value: str) -> str:
+		"""Normalize service/group name for robust comparisons."""
+		try:
+			return ' '.join(str(value or '').strip().lower().split())
+		except Exception:
+			return ''
+
+	def _load_orders_access_ctx():
+		"""Build shared access context for current user in orders scope."""
+		ctx = {
+			'has_view_all': False,
+			'user_gid': 0,
+			'user_id': 0,
+			'user_service': '',
+			'service_to_gid': {},
+			'order_to_sub_id': {},
+			'perm_cache': {},
+		}
+		try:
+			prefix = app._sql.config['db']['prefix']
+			# Admin-group override parity with existing orders logic.
+			def _is_admin_group_member() -> bool:
+				try:
+					cfg = getattr(app._sql, 'config', {})
+					from configparser import ConfigParser
+					aname = 'Программисты'
+					if isinstance(cfg, ConfigParser):
+						aname = cfg.get('admin', 'group', fallback=aname) or aname
+					else:
+						if isinstance(cfg, dict):
+							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
+							if isinstance(admin, dict) and 'group' in admin:
+								aname = admin.get('group') or aname
+							elif 'group' in cfg:
+								aname = cfg.get('group') or aname
+					name_norm = (aname or '').strip().lower()
+					rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
+					admin_gid = None
+					for gid, gname in rows:
+						try:
+							ctx['service_to_gid'][_norm_service_name(str(gname or ''))] = int(gid)
+						except Exception:
+							continue
+						if str(gname).strip().lower() == name_norm:
+							admin_gid = int(gid)
+					if admin_gid is not None:
+						return int(getattr(current_user, 'gid', 0) or 0) == int(admin_gid)
+				except Exception:
+					return False
+				return False
+
+			ctx['user_gid'] = int(getattr(current_user, 'gid', 0) or 0)
+			ctx['user_id'] = int(getattr(current_user, 'id', 0) or 0)
+			ctx['has_view_all'] = bool(
+				current_user.has('orders.view_all') or
+				current_user.has('admin.any') or
+				_is_admin_group_member()
+			)
+
+			if not ctx['has_view_all']:
+				try:
+					row = app._sql.execute_query(
+						f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;",
+						[int(ctx['user_gid'])]
+					) or []
+					if row and row[0]:
+						ctx['user_service'] = _norm_service_name(str(row[0][0] or ''))
+				except Exception:
+					pass
+
+				try:
+					orders_cat_id = app._sql.category_id_by_folder('orders')
+				except Exception:
+					orders_cat_id = None
+				if orders_cat_id:
+					try:
+						subs = app._sql.subcategory_by_category([int(orders_cat_id)]) or []
+						for sub in subs:
+							try:
+								if int(getattr(sub, 'enabled', 1) or 1) != 1:
+									continue
+								folder = str(getattr(sub, 'folder_name', '') or '')
+								if not folder.startswith('order-'):
+									continue
+								order_id = int(folder[len('order-'):])
+								ctx['order_to_sub_id'][order_id] = int(getattr(sub, 'id'))
+							except Exception:
+								continue
+					except Exception:
+						pass
+		except Exception:
+			pass
+		return ctx
+
+	def _has_subcategory_view_access(subcategory_id: int, access_ctx: dict) -> bool:
+		"""Check matrix/legacy view permission for current user on a subcategory."""
+		try:
+			sub_id = int(subcategory_id)
+		except Exception:
+			return False
+		cache = access_ctx.get('perm_cache') if isinstance(access_ctx, dict) else None
+		if isinstance(cache, dict) and sub_id in cache:
+			return bool(cache.get(sub_id))
+		allowed = False
+		try:
+			raw = app._sql.setting_get(f"subcategory_permissions:{sub_id}")
+			if raw:
+				import json
+				perms = json.loads(raw)
+				gid = int(access_ctx.get('user_gid', 0) or 0)
+				uid = int(access_ctx.get('user_id', 0) or 0)
+				gmx = perms.get('group_by_id', {}).get(str(gid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+				umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+				if any(int(gmx.get(k, 0)) == 1 for k in ('view_all', 'view_group', 'view_own')):
+					allowed = True
+				if (not allowed) and any(int(umx.get(k, 0)) == 1 for k in ('view_all', 'view_group', 'view_own')):
+					allowed = True
+				if (not allowed) and int(perms.get('group', {}).get(str(gid), 0) or 0) == 1:
+					allowed = True
+				if not allowed:
+					login = (getattr(current_user, 'login', '') or '').strip()
+					if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+						allowed = True
+		except Exception:
+			allowed = False
+		if isinstance(cache, dict):
+			cache[sub_id] = bool(allowed)
+		return bool(allowed)
+
+	def _has_orders_service_view_access(service_gid: int, access_ctx: dict) -> bool:
+		"""Check matrix/legacy view permission for orders service bucket."""
+		try:
+			gid = int(service_gid)
+		except Exception:
+			return False
+		cache = access_ctx.get('perm_cache') if isinstance(access_ctx, dict) else None
+		cache_key = f"svc:{gid}"
+		if isinstance(cache, dict) and cache_key in cache:
+			return bool(cache.get(cache_key))
+		allowed = False
+		try:
+			raw = app._sql.setting_get(f"orders_service_permissions:{gid}")
+			if raw:
+				import json
+				perms = json.loads(raw)
+				ugid = int(access_ctx.get('user_gid', 0) or 0)
+				uid = int(access_ctx.get('user_id', 0) or 0)
+				gmx = perms.get('group_by_id', {}).get(str(ugid), {}) if isinstance(perms.get('group_by_id'), dict) else {}
+				umx = perms.get('user_by_id', {}).get(str(uid), {}) if isinstance(perms.get('user_by_id'), dict) else {}
+				if any(int(gmx.get(k, 0)) == 1 for k in ('view_all', 'view_group', 'view_own')):
+					allowed = True
+				if (not allowed) and any(int(umx.get(k, 0)) == 1 for k in ('view_all', 'view_group', 'view_own')):
+					allowed = True
+				if (not allowed) and int(perms.get('group', {}).get(str(ugid), 0) or 0) == 1:
+					allowed = True
+				if not allowed:
+					login = (getattr(current_user, 'login', '') or '').strip()
+					if login and int(perms.get('user', {}).get(login, 0) or 0) == 1:
+						allowed = True
+		except Exception:
+			allowed = False
+		if isinstance(cache, dict):
+			cache[cache_key] = bool(allowed)
+		return bool(allowed)
+
+	def _can_view_order_row(order_obj, access_ctx: dict) -> bool:
+		"""Visibility for list/search rows: own service OR explicit subcategory permission OR view_all."""
+		try:
+			if bool(access_ctx.get('has_view_all')):
+				return True
+			user_service = _norm_service_name(str(access_ctx.get('user_service') or ''))
+			order_service = _norm_service_name(str(getattr(order_obj, 'service', '') or ''))
+			if user_service and order_service and order_service == user_service:
+				return True
+			service_gid = access_ctx.get('service_to_gid', {}).get(order_service)
+			if service_gid and _has_orders_service_view_access(int(service_gid), access_ctx):
+				return True
+			order_id = int(getattr(order_obj, 'id', 0) or 0)
+			sub_id = access_ctx.get('order_to_sub_id', {}).get(order_id)
+			if sub_id:
+				return _has_subcategory_view_access(int(sub_id), access_ctx)
+		except Exception:
+			return False
+		return False
+
+	def _can_view_order_dict(order_dict: dict, access_ctx: dict) -> bool:
+		"""Visibility for single order payload."""
+		try:
+			if bool(access_ctx.get('has_view_all')):
+				return True
+			order_service = _norm_service_name(str(order_dict.get('service', '') or ''))
+			user_service = _norm_service_name(str(access_ctx.get('user_service', '') or ''))
+			if user_service and order_service and order_service == user_service:
+				return True
+			service_gid = access_ctx.get('service_to_gid', {}).get(order_service)
+			if service_gid and _has_orders_service_view_access(int(service_gid), access_ctx):
+				return True
+			creator_gid = order_dict.get('creator_gid')
+			if creator_gid is not None:
+				try:
+					if int(creator_gid) == int(access_ctx.get('user_gid', 0) or 0):
+						return True
+				except Exception:
+					pass
+			order_id = int(order_dict.get('id', 0) or 0)
+			sub_id = access_ctx.get('order_to_sub_id', {}).get(order_id)
+			if sub_id:
+				return _has_subcategory_view_access(int(sub_id), access_ctx)
+		except Exception:
+			return False
+		return False
+
+	def _get_accessible_service_names(access_ctx: dict) -> list[str]:
+		"""List of service names visible to current user in orders."""
+		try:
+			prefix = app._sql.config['db']['prefix']
+			rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
+		except Exception:
+			rows = []
+		names = []
+		for r in rows:
+			try:
+				gid = int(r[0])
+				gname = str(r[1] or '').strip()
+				if not gname:
+					continue
+				if bool(access_ctx.get('has_view_all')):
+					names.append(gname)
+					continue
+				user_service = str(access_ctx.get('user_service') or '').strip().lower()
+				if user_service and user_service == _norm_service_name(gname):
+					names.append(gname)
+					continue
+				if _has_orders_service_view_access(gid, access_ctx):
+					names.append(gname)
+			except Exception:
+				continue
+		# stable unique preserving order
+		seen = set()
+		out = []
+		for n in names:
+			key = n.lower()
+			if key in seen:
+				continue
+			seen.add(key)
+			out.append(n)
+		return out
+
 	# Socket.IO: support SyncManager.joinRoom('orders')
 	try:
 		_sock = socketio if socketio else getattr(app, 'socketio', None)
@@ -90,23 +338,16 @@ def register(app, socketio=None):
 				pass
 			return False
 		
-		# Get user's service name if user doesn't have view_all permission
-		user_service_name = None
-		has_view_all = current_user.has('orders.view_all') or current_user.has('admin.any') or is_admin_group_member()
-		if not has_view_all:
-			try:
-				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
-				if row and row[0]:
-					user_service_name = str(row[0][0] or '').strip()
-			except Exception:
-				pass
+		access_ctx = _load_orders_access_ctx()
+		has_view_all = bool(access_ctx.get('has_view_all'))
+		accessible_services = _get_accessible_service_names(access_ctx)
 		
 		return render_template('orders.j2.html',
 							   title='Наряды — Заявки-Наряды-Файлы',
 							   id=2,
 				   groups=groups,
+				   accessible_services=accessible_services,
 				   admin_group_id=admin_group_id,
-				   user_service_name=user_service_name,
 				   has_view_all=has_view_all)
 
 	@app.route('/api/orders', methods=['GET'])
@@ -122,55 +363,23 @@ def register(app, socketio=None):
 		page = int((request.args.get('page') or '1').strip() or '1')
 		page_size = int((request.args.get('page_size') or '10').strip() or '10')
 		try:
-			# Check if user is admin group member
-			def is_admin_group_member() -> bool:
-				try:
-					cfg = getattr(app._sql, 'config', {})
-					from configparser import ConfigParser
-					aname = 'Программисты'
-					if isinstance(cfg, ConfigParser):
-						aname = cfg.get('admin', 'group', fallback=aname) or aname
-					else:
-						if isinstance(cfg, dict):
-							admin = cfg.get('admin') if hasattr(cfg, 'get') else None
-							if isinstance(admin, dict) and 'group' in admin:
-								aname = admin.get('group') or aname
-							elif 'group' in cfg:
-								aname = cfg.get('group') or aname
-					name_norm = (aname or '').strip().lower()
-					prefix = app._sql.config['db']['prefix']
-					rows = app._sql.execute_query(f"SELECT id,name FROM {prefix}_group") or []
-					for gid, gname in rows:
-						if str(gname).strip().lower() == name_norm:
-							return int(current_user.gid) == int(gid)
-				except Exception:
-					return False
-				return False
-			
-			# Check if user has view_all permission (including admin.any and admin group membership)
-			has_view_all = current_user.has('orders.view_all') or current_user.has('admin.any') or is_admin_group_member()
-			
-			# If user doesn't have view_all, enforce service filter to user's group
-			user_service = None
-			if not has_view_all:
-				try:
-					prefix = app._sql.config['db']['prefix']
-					row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
-					if row and row[0]:
-						user_service = (row[0][0] or '').strip().lower()
-				except Exception:
-					pass
+			access_ctx = _load_orders_access_ctx()
+			has_view_all = bool(access_ctx.get('has_view_all'))
+			user_service = _norm_service_name(str(access_ctx.get('user_service') or ''))
 			
 			# Filters: status_in (csv of in_progress,stopped,done), date_from, date_to (YYYY-MM-DD)
 			status_in = set([s.strip().lower() for s in (request.args.get('status_in') or 'in_progress,stopped,done').split(',') if s.strip()])
 			date_from = (request.args.get('date_from') or '').strip()
 			date_to = (request.args.get('date_to') or '').strip()
 			q = (request.args.get('q') or '').strip().lower()
-			# If user doesn't have view_all, ignore service parameter and use user's service
-			if has_view_all:
-				service = (request.args.get('service') or '').strip().lower()
-			else:
-				service = user_service if user_service else ''
+			# Service filter:
+			# - view_all: any requested service (or all when empty)
+			# - restricted: only among accessible services; empty means "all accessible"
+			service = _norm_service_name(str(request.args.get('service') or ''))
+			if not has_view_all:
+				allowed_services = set([_norm_service_name(s) for s in _get_accessible_service_names(access_ctx)])
+				if service and service not in allowed_services:
+					service = ''
 			def parse_date(d):
 				try:
 					return dt.strptime(d, '%Y-%m-%d')
@@ -205,9 +414,11 @@ def register(app, socketio=None):
 				if stn not in status_in:
 					continue
 				if service:
-					srv_field = (getattr(o, 'service', '') or '').strip().lower()
+					srv_field = _norm_service_name(str(getattr(o, 'service', '') or ''))
 					if srv_field != service:
 						continue
+				if not _can_view_order_row(o, access_ctx):
+					continue
 				# date filter by overlap within [df, dt_to]
 				def to_dt(x):
 					try:
@@ -502,6 +713,9 @@ def register(app, socketio=None):
 				'extended': bool(row[12]) if len(row) > 12 else False,
 			}
 			if request.method == 'GET':
+				access_ctx = _load_orders_access_ctx()
+				if not _can_view_order_dict(order, access_ctx):
+					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'view_permission_required' }), 403
 				return jsonify({ 'ok': True, 'order': order })
 			# POST update
 			# Permission: admin or orders.edit_any; group-based allowed, BUT forbidden when approved == True
@@ -1116,7 +1330,13 @@ def register(app, socketio=None):
 			status_in = set([s.strip().lower() for s in (request.args.get('status_in') or 'in_progress,stopped,done').split(',') if s.strip()])
 			date_from = (request.args.get('date_from') or '').strip()
 			date_to = (request.args.get('date_to') or '').strip()
-			service = (request.args.get('service') or '').strip().lower()
+			access_ctx = _load_orders_access_ctx()
+			has_view_all = bool(access_ctx.get('has_view_all'))
+			service = _norm_service_name(str(request.args.get('service') or ''))
+			if not has_view_all:
+				allowed_services = set([_norm_service_name(s) for s in _get_accessible_service_names(access_ctx)])
+				if service and service not in allowed_services:
+					service = ''
 			def parse_date(d):
 				try:
 					return dt.strptime(d, '%Y-%m-%d')
@@ -1149,9 +1369,11 @@ def register(app, socketio=None):
 				if stn not in status_in:
 					continue
 				if service:
-					srv_field = (getattr(o, 'service', '') or '').strip().lower()
+					srv_field = _norm_service_name(str(getattr(o, 'service', '') or ''))
 					if srv_field != service:
 						continue
+				if not _can_view_order_row(o, access_ctx):
+					continue
 				# Даты -- issued/start/end/created пересечение с df...dt_to
 				def to_dt(x):
 					try:
