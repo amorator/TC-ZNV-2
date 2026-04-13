@@ -185,7 +185,20 @@
               <input type="text" class="form-control" id="oc-responsible" name="responsible" placeholder="ФИО">
             </div>
           </div>
-          <!-- Служба не выбирается: используется служба текущего пользователя -->
+          {% if (accessible_services or [])|length > 1 %}
+          <div class="row g-3 mb-3">
+            <div class="col-12 col-md-6">
+              <label for="oc-service" class="form-label">Служба</label>
+              <select class="form-select" id="oc-service" name="service">
+                {% for s in (accessible_services or []) %}
+                <option value="{{ s }}" {% if user_service_name and s == user_service_name %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          {% else %}
+          <input type="hidden" id="oc-service" name="service" value="{{ (user_service_name or (accessible_services[0] if (accessible_services or []) else '')) }}">
+          {% endif %}
           <div class="row g-3 mb-3">
             <div class="col-12">
               <label for="oc-work" class="form-label">Наименование работ</label>
@@ -414,7 +427,7 @@
     admin: {{ current_user.has('admin.any')|tojson }}
   };
   // current user gid for group matching (service -> group)
-  window.CurrentUser = { gid: {{ current_user.gid|int }} };
+  window.CurrentUser = { id: {{ current_user.id|int }}, gid: {{ current_user.gid|int }} };
   // admin group id for override rights
   window.AdminGroupId = {{ (admin_group_id if admin_group_id is not none else 'null') }};
   // map of service name -> group id

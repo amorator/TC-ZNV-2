@@ -236,6 +236,7 @@
     tb.innerHTML = searchHTML + rows.map((r) => `
       <tr class="table__body_row" id="order-${r.id}"
           data-service="${(r.service||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"
+          data-created-by="${parseInt(r.created_by || 0, 10) || 0}"
           data-note="${ (r.note || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;') }"
           data-status="${(r.status||'').replace(/"/g,'&quot;')}"
           data-issued="${(r.issued||'').replace(/"/g,'&quot;')}"
@@ -661,6 +662,7 @@
         number: fields.number.trim(),
         responsible: fields.responsible.trim(),
         work_name: fields.work_name.trim(),
+        service: document.getElementById('oc-service')?.value || '',
         status: 'stopped',
         issued: document.getElementById('oc-issued')?.value || '',
         start: document.getElementById('oc-start')?.value || '',
@@ -718,6 +720,7 @@
               number: fields.number.trim(),
               responsible: fields.responsible.trim(),
               work_name: fields.work_name.trim(),
+              service: document.getElementById('oc-service')?.value || '',
               status: 'stopped',
               issued: document.getElementById('oc-issued')?.value || '',
               start: document.getElementById('oc-start')?.value || '',
@@ -822,9 +825,11 @@
             var svc = this.getAttribute('data-service') || '';
             var btn = this.querySelector('button[data-action="toggle-approved"]');
             var approvedVal = btn ? parseInt(btn.getAttribute('data-approved') || '0') : 0;
-            var canEdit = canEditOrderFor(svc, approvedVal);
+            var createdBy = parseInt(this.getAttribute('data-created-by') || '0', 10) || 0;
+            var rowStatus = String(this.getAttribute('data-status') || '').trim();
+            var canEdit = canEditOrderFor(svc, approvedVal, createdBy, rowStatus);
             var canTimeline = canEditStatusFor(svc);
-            var canDelete = canDeleteOrderFor(svc);
+            var canDelete = canDeleteOrderFor(svc, approvedVal, createdBy, rowStatus);
             var canApproveUI = !!(window.OrdersPerms && window.OrdersPerms.approve);
             var canCreateUI = !!(window.OrdersPerms && window.OrdersPerms.create);
             var canFilesUI = !!(window.OrdersPerms && window.OrdersPerms.files_view);
@@ -1451,8 +1456,14 @@
     return false;
   }
 
-  function canEditOrderFor(serviceName, approvedVal){
+  function canEditOrderFor(serviceName, approvedVal, createdBy, status){
     var perms = window.OrdersPerms || {};
+    var currentUserId = (window.CurrentUser && window.CurrentUser.id) || null;
+    var st = String(status || '').trim().toLowerCase();
+    // Creator can edit own pending/rejected non-done order
+    if (currentUserId && createdBy && Number(currentUserId) === Number(createdBy)) {
+      if (approvedVal !== 1 && st !== 'done') return true;
+    }
     // If user has edit_approved permission, can edit all orders regardless of approved status
     if (perms.admin || perms.edit_approved) {
       return true;
@@ -1465,21 +1476,19 @@
     if (perms.edit_any || perms.view_all) {
       return true;
     }
-    var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-    var map = window.OrdersGroups || {};
-    var srv = String(serviceName || '').trim();
-    var gid = map[srv] || map[srv.toLowerCase()] || map[srv.toUpperCase()];
-    return !!(gid && userGid && gid === userGid);
+    return false;
   }
 
-  function canDeleteOrderFor(serviceName){
+  function canDeleteOrderFor(serviceName, approvedVal, createdBy, status){
     var perms = window.OrdersPerms || {};
+    var currentUserId = (window.CurrentUser && window.CurrentUser.id) || null;
+    var st = String(status || '').trim().toLowerCase();
+    // Creator can delete own pending/rejected non-done order
+    if (currentUserId && createdBy && Number(currentUserId) === Number(createdBy)) {
+      if (approvedVal !== 1 && st !== 'done') return true;
+    }
     if (perms.admin || perms.delete_any) return true;
-    var userGid = (window.CurrentUser && window.CurrentUser.gid) || null;
-    var map = window.OrdersGroups || {};
-    var srv = String(serviceName || '').trim();
-    var gid = map[srv] || map[srv.toLowerCase()] || map[srv.toUpperCase()];
-    return !!(gid && userGid && gid === userGid);
+    return false;
   }
 
   function bindEditButtons(){

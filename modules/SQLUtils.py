@@ -675,13 +675,15 @@ class SQLUtils(SQL):
 	def order_all(self):
 		# Include extended flag but keep Order ctor arity intact; set attribute afterwards
 		rows = self.execute_query(
-			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized FROM {self.config['db']['prefix']}_order ORDER BY id DESC;"
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized, created_by, creator_gid FROM {self.config['db']['prefix']}_order ORDER BY id DESC;"
 		)
 		result = []
 		for r in (rows or []):
 			base = r[:13]
 			ext = r[13] if len(r) > 13 else 0
 			fin = r[14] if len(r) > 14 else 0
+			created_by = r[15] if len(r) > 15 else None
+			creator_gid = r[16] if len(r) > 16 else None
 			obj = Order(*base)
 			try:
 				setattr(obj, 'extended', int(ext) if ext is not None else 0)
@@ -691,12 +693,20 @@ class SQLUtils(SQL):
 				setattr(obj, 'finalized', int(fin) if fin is not None else 0)
 			except Exception:
 				pass
+			try:
+				setattr(obj, 'created_by', int(created_by) if created_by is not None else None)
+			except Exception:
+				setattr(obj, 'created_by', None)
+			try:
+				setattr(obj, 'creator_gid', int(creator_gid) if creator_gid is not None else None)
+			except Exception:
+				setattr(obj, 'creator_gid', None)
 			result.append(obj)
 		return result
 
 	def order_by_id(self, args):
 		row = self.execute_scalar(
-			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized FROM {self.config['db']['prefix']}_order WHERE id = %s;",
+			f"SELECT id, service, status, number, issued, start, end, responsible, work_name, note, approved, created_at, updated_at, extended, finalized, created_by, creator_gid FROM {self.config['db']['prefix']}_order WHERE id = %s;",
 			args
 		)
 		if not row:
@@ -704,6 +714,8 @@ class SQLUtils(SQL):
 		base = row[:13]
 		ext = row[13] if len(row) > 13 else 0
 		fin = row[14] if len(row) > 14 else 0
+		created_by = row[15] if len(row) > 15 else None
+		creator_gid = row[16] if len(row) > 16 else None
 		obj = Order(*base)
 		try:
 			setattr(obj, 'extended', int(ext) if ext is not None else 0)
@@ -713,6 +725,14 @@ class SQLUtils(SQL):
 			setattr(obj, 'finalized', int(fin) if fin is not None else 0)
 		except Exception:
 			pass
+		try:
+			setattr(obj, 'created_by', int(created_by) if created_by is not None else None)
+		except Exception:
+			setattr(obj, 'created_by', None)
+		try:
+			setattr(obj, 'creator_gid', int(creator_gid) if creator_gid is not None else None)
+		except Exception:
+			setattr(obj, 'creator_gid', None)
 		return obj
 
 	def _ensure_orders_category(self):

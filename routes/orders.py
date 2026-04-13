@@ -270,6 +270,40 @@ def register(app, socketio=None):
 			out.append(n)
 		return out
 
+	def _resolve_create_service(access_ctx: dict, requested_service: str) -> str:
+		"""Resolve service for create: requested if accessible, otherwise own service."""
+		try:
+			# Build canonical map from DB groups (not from cached accessible list)
+			prefix = app._sql.config['db']['prefix']
+			rows = app._sql.execute_query(f"SELECT id, name FROM {prefix}_group ORDER BY name;") or []
+			by_norm = {}
+			for gid, gname in rows:
+				norm = _norm_service_name(str(gname or ''))
+				if norm:
+					by_norm[norm] = (int(gid), str(gname or ''))
+
+			req_norm = _norm_service_name(str(requested_service or ''))
+			if req_norm and req_norm in by_norm:
+				req_gid, req_name = by_norm[req_norm]
+				if bool(access_ctx.get('has_view_all')) or _has_orders_service_view_access(int(req_gid), access_ctx):
+					return req_name
+				own_norm_chk = _norm_service_name(str(access_ctx.get('user_service') or ''))
+				if own_norm_chk and own_norm_chk == req_norm:
+					return req_name
+
+			# fallback: own service
+			own_norm = _norm_service_name(str(access_ctx.get('user_service') or ''))
+			if own_norm and own_norm in by_norm:
+				return by_norm[own_norm][1]
+
+			# fallback: first accessible
+			accessible = _get_accessible_service_names(access_ctx)
+			if accessible:
+				return accessible[0]
+		except Exception:
+			pass
+		return ''
+
 	# Socket.IO: support SyncManager.joinRoom('orders')
 	try:
 		_sock = socketio if socketio else getattr(app, 'socketio', None)
@@ -341,12 +375,21 @@ def register(app, socketio=None):
 		access_ctx = _load_orders_access_ctx()
 		has_view_all = bool(access_ctx.get('has_view_all'))
 		accessible_services = _get_accessible_service_names(access_ctx)
+		user_service_name = ''
+		try:
+			for r in rows:
+				if int(r[0]) == int(getattr(current_user, 'gid', 0) or 0):
+					user_service_name = str(r[1] or '')
+					break
+		except Exception:
+			user_service_name = ''
 		
 		return render_template('orders.j2.html',
 							   title='Наряды — Заявки-Наряды-Файлы',
 							   id=2,
 				   groups=groups,
 				   accessible_services=accessible_services,
+				   user_service_name=user_service_name,
 				   admin_group_id=admin_group_id,
 				   has_view_all=has_view_all)
 
@@ -481,6 +524,7 @@ def register(app, socketio=None):
 					'responsible': getattr(o, 'responsible', ''),
 					'work_name': getattr(o, 'work_name', ''),
 					'approved': int(getattr(o, 'approved', 0) or 0),
+					'created_by': int(getattr(o, 'created_by', 0) or 0),
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
@@ -513,7 +557,7 @@ def register(app, socketio=None):
 		try:
 			# Accept JSON body
 			data = request.get_json(silent=True) or {}
-			# Always enforce creator's service (current user's group name), ignore client input
+			# Service: selectable among accessible services, default to own service.
 			service = ''
 			number = (data.get('number') or '').strip()
 			responsible = (data.get('responsible') or '').strip()
@@ -544,15 +588,8 @@ def register(app, socketio=None):
 			if not (issued_dt < start_dt < end_dt):
 				return jsonify({ 'ok': False, 'error': 'dates_order' }), 400
 			# Temporarily disabled: allow 'issued' date earlier than today
-			# Enforce service to creator's group (for all users)
-			try:
-				prefix = app._sql.config['db']['prefix']
-				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
-				creator_group_name = (row[0][0] or '') if row and row[0] else ''
-				if creator_group_name:
-					service = str(creator_group_name)
-			except Exception:
-				pass
+			access_ctx = _load_orders_access_ctx()
+			service = _resolve_create_service(access_ctx, data.get('service'))
 			# Insert
 			new_id = app._sql.order_add([
 				service,
@@ -600,7 +637,7 @@ def register(app, socketio=None):
 	def orders_create():
 		"""Create order via form-data (for validateForm flow)."""
 		try:
-			# Ignore client input; will set to current user's group below
+			# Service is selectable among accessible services.
 			service = ''
 			number = (request.form.get('number') or '').strip()
 			responsible = (request.form.get('responsible') or '').strip()
@@ -633,15 +670,8 @@ def register(app, socketio=None):
 					return jsonify({ 'ok': False, 'error': 'issued_too_early' }), 400
 			except Exception:
 				pass
-			# Enforce service to creator's group (for all users)
-			try:
-				prefix = app._sql.config['db']['prefix']
-				row = app._sql.execute_query(f"SELECT name FROM {prefix}_group WHERE id=%s LIMIT 1;", [int(current_user.gid)]) or []
-				creator_group_name = (row[0][0] or '') if row and row[0] else ''
-				if creator_group_name:
-					service = str(creator_group_name)
-			except Exception:
-				pass
+			access_ctx = _load_orders_access_ctx()
+			service = _resolve_create_service(access_ctx, request.form.get('service'))
 			new_id = app._sql.order_add([
 				service,
 				status,
@@ -744,13 +774,18 @@ def register(app, socketio=None):
 				# Without edit_approved, can only edit when approved != 1 (i.e., pending (0) or rejected (-1))
 				if approved_val == 1:
 					return jsonify({ 'ok': False, 'error': 'forbidden', 'reason': 'approved_locked' }), 403
-				# Standard edit permission logic for pending/rejected orders
+				# Standard edit permission logic: explicit user rights on visible orders.
+				access_ctx = _load_orders_access_ctx()
+				is_creator = False
+				try:
+					is_creator = int(order.get('created_by') or 0) == int(getattr(current_user, 'id', 0) or 0)
+				except Exception:
+					is_creator = False
 				can_edit = (
 					current_user.has('admin.any') or
 					current_user.has('orders.edit_any') or
-					current_user.has('orders.view_all') or
-					(service_gid and current_user.gid == service_gid) or
-					(creator_gid and current_user.gid == creator_gid)
+					(current_user.has('orders.view_all') and _can_view_order_dict(order, access_ctx)) or
+					(is_creator and approved_val != 1 and str(order.get('status', '')).strip().lower() != 'done')
 				)
 			
 			if str(order.get('status', '')).strip().lower() == 'done':
@@ -1434,6 +1469,7 @@ def register(app, socketio=None):
 					'responsible': getattr(o, 'responsible', ''),
 					'work_name': getattr(o, 'work_name', ''),
 					'approved': int(getattr(o, 'approved', 0) or 0),
+					'created_by': int(getattr(o, 'created_by', 0) or 0),
 					'files': 0,
 					'note': getattr(o, 'note', '') or '',
 					'extended': bool(getattr(o, 'extended', False)),
@@ -1680,7 +1716,7 @@ def register(app, socketio=None):
 		try:
 			prefix = app._sql.config['db']['prefix']
 			# Resolve service, approval and status to check permissions and locks
-			row = app._sql.execute_query(f'SELECT service, approved, status, creator_gid FROM {prefix}_order WHERE id=%s', [order_id])
+			row = app._sql.execute_query(f'SELECT service, approved, status, creator_gid, created_by FROM {prefix}_order WHERE id=%s', [order_id])
 			if not row:
 				return jsonify({'ok': False, 'error': 'not found'}), 404
 			service = row[0][0]
@@ -1693,11 +1729,22 @@ def register(app, socketio=None):
 					service_gid = int(gid)
 					break
 			creator_gid = int(row[0][3]) if (row and len(row[0]) > 3 and row[0][3] is not None) else None
+			created_by = int(row[0][4]) if (row and len(row[0]) > 4 and row[0][4] is not None) else None
+			access_ctx = _load_orders_access_ctx()
+			_order = {
+				'id': int(order_id),
+				'service': str(service or ''),
+				'creator_gid': creator_gid,
+			}
+			is_creator = False
+			try:
+				is_creator = int(created_by or 0) == int(getattr(current_user, 'id', 0) or 0)
+			except Exception:
+				is_creator = False
 			can_delete = (
 				current_user.has('admin.any') or
-				current_user.has(ORDERS_DELETE_ANY) or
-				(service_gid and current_user.gid == service_gid) or
-				(creator_gid and current_user.gid == creator_gid)
+				(current_user.has(ORDERS_DELETE_ANY) and _can_view_order_dict(_order, access_ctx)) or
+				(is_creator and int(approved_val or 0) != 1 and str(cur_status or '').strip().lower() != 'done')
 			)
 			if not can_delete:
 				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'delete_permission_required'}), 403
@@ -1729,10 +1776,8 @@ def register(app, socketio=None):
 			
 			is_admin = current_user.has('admin.any') or _is_admin_group_member()
 			
-			# Disallow delete if approved (1) or rejected (-1) or completed
-			# Only pending (0) allows deletion, except for admins
-			if not is_admin and (approved_val != 0 or cur_status == 'done'):
-				return jsonify({'ok': False, 'error': 'forbidden', 'reason': 'approved_locked'}), 403
+			# Deletion is governed by explicit user permission checks above
+			# (orders.delete_any/admin + visibility constraints).
 			# Delete order
 			app._sql.execute_non_query(f'DELETE FROM {prefix}_order WHERE id=%s', [order_id])
 			# Cleanup files subcategory and files for this order
