@@ -103,6 +103,17 @@ def _create_redis_from_config():
     except Exception:
         return None
 
+
+def _loads_redis_json(raw):
+    """Parse JSON from Redis GET; works with str or bytes (decode_responses on/off)."""
+    import json
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8')
+    return json.loads(raw)
+
+
 def get_file_location_info(file, app):
     """Get category and subcategory names for file logging."""
     try:
@@ -3877,9 +3888,7 @@ def register(app, media_service, socketio=None) -> None:
                     'error': 'Upload job not found'
                 }), 404
 
-            job_info = json.loads(
-                job_data.decode('utf-8') if isinstance(job_data, bytes
-                                                       ) else str(job_data))
+            job_info = _loads_redis_json(job_data)
 
             # Mark job as cancelled and remove from active set immediately
             job_info['status'] = 'cancelled'
@@ -3981,10 +3990,8 @@ def register(app, media_service, socketio=None) -> None:
             if keys and isinstance(keys, list):
                 for key in keys:
                     job_data = redis_client.get(key)
-                    if job_data and isinstance(job_data, bytes):
-                        import json
-                        job = json.loads(
-                            job_data.decode('utf-8'))  # type: ignore
+                    if job_data:
+                        job = _loads_redis_json(job_data)
                         job_status = job.get('status', 'unknown')
                         job_created = job.get('created_at', 0)
 
@@ -4033,10 +4040,8 @@ def register(app, media_service, socketio=None) -> None:
             if keys and isinstance(keys, list):
                 for key in keys:
                     job_data = redis_client.get(key)
-                    if job_data and isinstance(job_data, bytes):
-                        import json
-                        job = json.loads(
-                            job_data.decode('utf-8'))  # type: ignore
+                    if job_data:
+                        job = _loads_redis_json(job_data)
                         job_status = job.get('status', 'unknown')
                         job_created = job.get('created_at', 0)
 
@@ -4157,8 +4162,7 @@ def get_active_upload_count(user_id=None):
                 continue
 
             try:
-                import json
-                job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                job = _loads_redis_json(job_data)
                 job_status = job.get('status', 'unknown')
                 job_created = job.get('created_at') or job.get('start_time') or 0
                 job_user_id = job.get('user_id')
@@ -4218,9 +4222,7 @@ def get_upload_job(upload_id):
         job_data = redis_client.get(f"upload_job:{upload_id}")
         if job_data:
             try:
-                payload = job_data.decode('utf-8') if isinstance(
-                    job_data, bytes) else str(job_data)
-                job = json.loads(payload)
+                job = _loads_redis_json(job_data)
                 # Defensive: inject created_at if missing (older jobs)
                 if 'created_at' not in job:
                     job['created_at'] = job.get('start_time', time.time())
@@ -4244,9 +4246,7 @@ def update_upload_job(upload_id, updates):
         job_data = redis_client.get(f"upload_job:{upload_id}")
         if not job_data:
             return
-        payload = job_data.decode('utf-8') if isinstance(
-            job_data, bytes) else str(job_data)
-        job = json.loads(payload)
+        job = _loads_redis_json(job_data)
 
         old_status = job.get('status')
         job.update(updates)
@@ -4313,8 +4313,7 @@ def can_start_new_upload(user_id=None):
                     continue
 
                 try:
-                    import json
-                    job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                    job = _loads_redis_json(job_data)
                     job_status = job.get('status', 'unknown')
                     job_created = job.get('created_at', 0)
                     job_user_id = job.get('user_id')
@@ -4342,8 +4341,7 @@ def can_start_new_upload(user_id=None):
                 job_data = redis_client.get(f"upload_job:{upload_id}")
                 if job_data:
                     try:
-                        import json
-                        job = json.loads(job_data.decode('utf-8'))  # type: ignore
+                        job = _loads_redis_json(job_data)
                         if job.get('user_id') == user_id and job.get('status') == 'running':
                             user_active_count += 1
                     except Exception:
@@ -4376,9 +4374,7 @@ def get_active_upload_list():
 
                 if job_data:
                     try:
-                        import json
-                        job = json.loads(
-                            job_data.decode('utf-8'))  # type: ignore
+                        job = _loads_redis_json(job_data)
                         job_status = job.get('status', 'unknown')
                         job_created = job.get('created_at', 0)
                         current_time = time.time()
@@ -4433,8 +4429,8 @@ def increment_upload_error(upload_id):
             return
         job_key = f"upload_job:{upload_id}"
         job_data = redis_client.get(job_key)
-        if job_data and isinstance(job_data, bytes):
-            job = json.loads(job_data.decode('utf-8'))
+        if job_data:
+            job = _loads_redis_json(job_data)
             current_errors = int(job.get('error_count') or 0)
             job['error_count'] = current_errors + 1  # type: ignore
             redis_client.setex(job_key, 3600, json.dumps(job))
